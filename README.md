@@ -1,0 +1,3 @@
+# stock_datasource
+
+基于tushare+clickhouse构建的本地财经数据源工具
