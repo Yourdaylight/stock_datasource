@@ -301,6 +301,196 @@ uv run python -m stock_datasource.cli_plugins test --plugin my_plugin
 - **股票数量**：~5,400 只 A 股
 - **数据表**：7 个 ODS 表 + 2 个 Fact 表 + 1 个 Dim 表
 - **总记录数**：~1.2 亿条（每日 ~600 万条）
+## http server与 mcp server接口自动生成
+## 架构说明
+
+### Service 层架构
+
+项目采用**统一的 Service 层设计**，通过 `TuShareDailyService` 类统一管理所有数据查询逻辑：
+
+```
+TuShareDailyService (service.py)
+    ├── 继承 BaseService
+    ├── 定义查询方法（使用 @query_method 装饰器）
+    └── 方法元数据（参数、描述等）
+         │
+         ├─→ ServiceGenerator (自动生成)
+         │    ├── 生成 HTTP 路由 (FastAPI)
+         │    └── 生成 MCP 工具定义
+         │
+         ├─→ HTTP Server (http_server.py)
+         │    └── 暴露 REST API 端点
+         │
+         └─→ MCP Server (mcp_server.py)
+              └── 暴露 MCP 工具接口
+```
+
+**关键特性**：
+- **单一数据源**：所有查询逻辑在 `service.py` 中定义一次
+- **自动生成**：HTTP 路由和 MCP 工具自动从 Service 方法生成
+- **元数据驱动**：通过 `@query_method` 装饰器定义参数和描述
+- **代码复用**：HTTP 和 MCP 共享相同的业务逻辑
+
+### 数据流向
+
+```
+客户端请求
+    │
+    ├─→ HTTP 请求 → HTTP Server → ServiceGenerator → TuShareDailyService → ClickHouse
+    │
+    └─→ MCP 请求 → MCP Server → ServiceGenerator → TuShareDailyService → ClickHouse
+```
+
+---
+
+## MCP 接口使用
+
+本项目提供了 MCP (Model Context Protocol) 接口来获取日线行情数据，支持以下三个工具：
+
+### 1. 获取最新日线数据
+
+**工具名称**：`tushare_daily_get_latest_daily`
+
+**功能**：查询多个股票的最新日线数据
+
+**参数**：
+- `codes` (str, 必选)：股票代码，支持多个代码逗号分隔，如 `000001.SZ,600000.SH`
+- `limit` (int, 必选)：返回记录数，如 `10`
+
+**示例**：
+```python
+# 获取平安银行最近10条日线数据
+codes = "000001.SZ"
+limit = 10
+```
+
+**返回数据**：
+```json
+[
+  {
+    "ts_code": "000001.SZ",
+    "trade_date": "20251024",
+    "open": 11.6,
+    "high": 11.68,
+    "low": 11.55,
+    "close": 11.56,
+    "vol": 980475.3,
+    "amount": 1138026.681
+  }
+]
+```
+
+### 2. 按日期范围查询日线数据
+
+**工具名称**：`tushare_daily_get_daily_data`
+
+**功能**：按日期范围查询单个股票的日线数据
+
+**参数**：
+- `code` (str, 必选)：股票代码，如 `000001.SZ`
+- `start_date` (str, 必选)：开始日期 (YYYYMMDD)，如 `20251001`
+- `end_date` (str, 必选)：结束日期 (YYYYMMDD)，如 `20251024`
+
+### 3. 获取日线数据统计
+
+**工具名称**：`tushare_daily_get_daily_stats`
+
+**功能**：获取日期范围内的日线数据统计信息
+
+**参数**：
+- `code` (str, 必选)：股票代码
+- `start_date` (str, 必选)：开始日期 (YYYYMMDD)
+- `end_date` (str, 必选)：结束日期 (YYYYMMDD)
+
+---
+
+## HTTP vs MCP 对比
+
+| 特性 | HTTP Server | MCP Server |
+|------|------------|-----------|
+| **协议** | REST API (HTTP/HTTPS) | Model Context Protocol (Streamable HTTP) |
+| **调用方式** | POST 请求 | MCP 工具调用 |
+| **使用场景** | Web 应用、第三方集成 | AI 模型、LLM 集成 |
+| **响应格式** | JSON | JSON (流式或非流式) |
+| **认证** | CORS、API Key | MCP 配置 |
+| **端点示例** | `POST /get_latest_daily` | `tushare_daily_get_latest_daily` |
+
+### HTTP 服务器使用
+
+启动 HTTP 服务器：
+```bash
+uvicorn stock_datasource.services.http_server:app --host 0.0.0.0 --port 8000
+```
+
+HTTP 请求示例：
+```bash
+curl -X POST http://localhost:8000/get_latest_daily \
+  -H "Content-Type: application/json" \
+  -d '{"codes": "000001.SZ", "limit": 10}'
+```
+
+### MCP 服务器使用
+
+启动 MCP 服务器：
+```bash
+python -m stock_datasource.services.mcp_server
+```
+
+MCP 工具调用示例（通过 IDE 或 AI 工具）：
+```python
+# 工具名称：tushare_daily_get_latest_daily
+# 参数：
+{
+  "codes": "000001.SZ",
+  "limit": 10
+}
+```
+
+---
+
+## Service 实现细节
+
+### TuShareDailyService 类结构
+
+```python
+class TuShareDailyService(BaseService):
+    def __init__(self):
+        super().__init__("tushare_daily")
+    
+    @query_method(description="...", params=[...])
+    def get_daily_data(self, code: str, start_date: str, end_date: str):
+        # 查询逻辑
+        pass
+    
+    @query_method(description="...", params=[...])
+    def get_latest_daily(self, codes: List[str], limit: int = 1):
+        # 查询逻辑
+        pass
+    
+    @query_method(description="...", params=[...])
+    def get_daily_stats(self, code: str, start_date: str, end_date: str):
+        # 查询逻辑
+        pass
+```
+
+### 关键组件
+
+1. **BaseService**：提供基础功能
+   - 数据库连接管理
+   - 方法元数据提取
+   - 类型转换
+
+2. **@query_method 装饰器**：标记查询方法
+   - 附加描述信息
+   - 定义参数元数据
+   - 支持自动生成文档
+
+3. **ServiceGenerator**：自动生成接口
+   - 从 Service 方法生成 HTTP 路由
+   - 从 Service 方法生成 MCP 工具
+   - 动态创建请求/响应模型
+
+
 
 ## 🧪 测试
 
