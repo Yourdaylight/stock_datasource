@@ -1,0 +1,22 @@
+{
+  "table_name": "ods_stock_basic",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "symbol", "data_type": "String", "nullable": false, "comment": "股票代码"},
+    {"name": "name", "data_type": "String", "nullable": false, "comment": "股票名称"},
+    {"name": "area", "data_type": "String", "nullable": true, "comment": "所在地域"},
+    {"name": "industry", "data_type": "String", "nullable": true, "comment": "所属行业"},
+    {"name": "market", "data_type": "String", "nullable": true, "comment": "市场类型"},
+    {"name": "list_date", "data_type": "Date", "nullable": true, "comment": "上市日期"},
+    {"name": "delist_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "退市日期"},
+    {"name": "list_status", "data_type": "LowCardinality(String)", "nullable": false, "comment": "上市状态 L上市 D退市 P暂停上市"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(now())",
+  "order_by": ["ts_code", "list_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "股票基础信息 from TuShare stock_basic API"
+}

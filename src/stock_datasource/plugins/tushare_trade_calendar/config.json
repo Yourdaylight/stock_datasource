@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare trade calendar data plugin",
+  "schedule": {
+    "frequency": "weekly",
+    "day_of_week": "monday",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "exchange": {
+      "type": "string",
+      "enum": ["SSE", "SZSE"],
+      "default": "SSE",
+      "description": "Exchange code"
+    }
+  }
+}

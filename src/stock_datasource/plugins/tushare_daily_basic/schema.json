@@ -1,0 +1,31 @@
+{
+  "table_name": "ods_daily_basic",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "当日收盘价"},
+    {"name": "turnover_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "换手率（%）"},
+    {"name": "turnover_rate_f", "data_type": "Nullable(Float64)", "nullable": true, "comment": "换手率（自由流通股）"},
+    {"name": "volume_ratio", "data_type": "Nullable(Float64)", "nullable": true, "comment": "量比"},
+    {"name": "pe", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市盈率（总市值/净利润，亏损的PE为空）"},
+    {"name": "pe_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市盈率（TTM，亏损的PE为空）"},
+    {"name": "pb", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市净率（总市值/净资产）"},
+    {"name": "ps", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市销率"},
+    {"name": "ps_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市销率（TTM）"},
+    {"name": "dv_ratio", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股息率（%）"},
+    {"name": "dv_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股息率（TTM）（%）"},
+    {"name": "total_share", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总股本（万股）"},
+    {"name": "float_share", "data_type": "Nullable(Float64)", "nullable": true, "comment": "流通股本（万股）"},
+    {"name": "free_share", "data_type": "Nullable(Float64)", "nullable": true, "comment": "自由流通股本（万股）"},
+    {"name": "total_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总市值（万元）"},
+    {"name": "circ_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "流通市值（万元）"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "每日指标 from TuShare daily_basic API"
+}

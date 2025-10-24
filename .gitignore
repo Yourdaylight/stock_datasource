@@ -1,0 +1,8 @@
+__pycache__/
+.env
+.venv/
+data/exports/
+logs/
+*.log
+.python-version
+.DS_Store

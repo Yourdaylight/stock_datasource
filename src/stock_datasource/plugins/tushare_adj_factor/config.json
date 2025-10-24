@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare adjustment factor data plugin",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": true,
+      "description": "Trade date in YYYYMMDD format"
+    }
+  }
+}

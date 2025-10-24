@@ -1,0 +1,33 @@
+{
+  "name": "daily_ingestion",
+  "description": "Daily stock data ingestion task chain",
+  "type": "task_chain",
+  "enabled": true,
+  "schedule": "0 18 * * *",
+  "tasks": [
+    {
+      "name": "tushare_daily",
+      "type": "plugin",
+      "plugin_name": "tushare_daily",
+      "description": "Daily stock price data",
+      "enabled": true,
+      "dependencies": []
+    },
+    {
+      "name": "tushare_adj_factor", 
+      "type": "plugin",
+      "plugin_name": "tushare_adj_factor",
+      "description": "Adjustment factors",
+      "enabled": true,
+      "dependencies": ["tushare_daily"]
+    },
+    {
+      "name": "tushare_daily_basic",
+      "type": "plugin", 
+      "plugin_name": "tushare_daily_basic",
+      "description": "Daily basic indicators",
+      "enabled": true,
+      "dependencies": ["tushare_daily"]
+    }
+  ]
+}
