@@ -2,37 +2,44 @@
 
 import os
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 from typing import Optional
+
 
 class Settings(BaseSettings):
     """Application settings."""
     
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
     # Project settings
     PROJECT_NAME: str = "stock-datasource"
     VERSION: str = "0.1.0"
-    DEBUG: bool = Field(default=False, env="DEBUG")
+    DEBUG: bool = Field(default=False)
     
     # ClickHouse settings
-    CLICKHOUSE_HOST: str = Field(default="localhost", env="CLICKHOUSE_HOST")
-    CLICKHOUSE_PORT: int = Field(default=9000, env="CLICKHOUSE_PORT")
-    CLICKHOUSE_USER: str = Field(default="default", env="CLICKHOUSE_USER")
-    CLICKHOUSE_PASSWORD: str = Field(default="", env="CLICKHOUSE_PASSWORD")
-    CLICKHOUSE_DATABASE: str = Field(default="stock_data", env="CLICKHOUSE_DATABASE")
+    CLICKHOUSE_HOST: str = Field(default="localhost")
+    CLICKHOUSE_PORT: int = Field(default=9000)
+    CLICKHOUSE_USER: str = Field(default="default")
+    CLICKHOUSE_PASSWORD: str = Field(default="")
+    CLICKHOUSE_DATABASE: str = Field(default="stock_data")
     
     # TuShare settings
-    TUSHARE_TOKEN: str = Field(env="TUSHARE_TOKEN")
-    TUSHARE_RATE_LIMIT: int = Field(default=120, env="TUSHARE_RATE_LIMIT")  # calls per minute
-    TUSHARE_MAX_RETRIES: int = Field(default=3, env="TUSHARE_MAX_RETRIES")
+    TUSHARE_TOKEN: str = Field(default="")
+    TUSHARE_RATE_LIMIT: int = Field(default=120)  # calls per minute
+    TUSHARE_MAX_RETRIES: int = Field(default=3)
     
     # Airflow settings
-    AIRFLOW_HOME: str = Field(default="/opt/airflow", env="AIRFLOW_HOME")
+    AIRFLOW_HOME: str = Field(default="/opt/airflow")
     
     # Data settings
-    DATA_START_DATE: str = Field(default="2020-01-01", env="DATA_START_DATE")
-    DAILY_UPDATE_TIME: str = Field(default="18:00", env="DAILY_UPDATE_TIME")
-    TIMEZONE: str = Field(default="Asia/Shanghai", env="TIMEZONE")
+    DATA_START_DATE: str = Field(default="2020-01-01")
+    DAILY_UPDATE_TIME: str = Field(default="18:00")
+    TIMEZONE: str = Field(default="Asia/Shanghai")
     
     # File paths
     BASE_DIR: Path = Path(__file__).parent.parent
@@ -41,14 +48,11 @@ class Settings(BaseSettings):
     SQL_DIR: Path = BASE_DIR / "src" / "stock_datasource" / "sql"
     
     # Logging
-    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
+    LOG_LEVEL: str = Field(default="INFO")
     
     # Database settings
-    DATABASE_URL: Optional[str] = Field(default=None, env="DATABASE_URL")
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    DATABASE_URL: Optional[str] = Field(default=None)
+
 
 # Create settings instance
 settings = Settings()

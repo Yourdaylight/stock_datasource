@@ -335,7 +335,18 @@ def create_app():
     app.state.mcp_server = mcp_server
     app.state.service_generators = service_generators
     
-    # MCP HTTP Streamable protocol endpoint
+    # MCP HTTP Streamable protocol endpoint - GET for probing
+    @app.get("/messages")
+    async def messages_get():
+        """Handle GET requests to /messages endpoint (for client probing)."""
+        return {
+            "status": "ok",
+            "message": "MCP server is running. Use POST /messages for MCP protocol communication.",
+            "protocol": "streamable-http",
+            "version": "2024-11-05"
+        }
+    
+    # MCP HTTP Streamable protocol endpoint - POST for messages
     @app.post("/messages")
     async def messages_endpoint(request: Request):
         """Handle MCP messages via HTTP POST (streamable-http protocol)."""

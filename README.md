@@ -345,75 +345,27 @@ TuShareDailyService (service.py)
 
 ## MCP 接口使用
 
-本项目提供了 MCP (Model Context Protocol) 接口来获取日线行情数据，支持以下三个工具：
+本项目提供了 MCP (Model Context Protocol) 接口来获取日线行情数据，mcp工具基于每个plugins/下面的service.py自动生成
 
-### 1. 获取最新日线数据
-
-**工具名称**：`tushare_daily_get_latest_daily`
-
-**功能**：查询多个股票的最新日线数据
-
-**参数**：
-- `codes` (str, 必选)：股票代码，支持多个代码逗号分隔，如 `000001.SZ,600000.SH`
-- `limit` (int, 必选)：返回记录数，如 `10`
-
-**示例**：
-```python
-# 获取平安银行最近10条日线数据
-codes = "000001.SZ"
-limit = 10
+- 启动mcp server
+```bash
+uv run src/stock_datasource/services/mcp_server.py
 ```
 
-**返回数据**：
+- mcp客户端（claude code, cursor， cline配置）
 ```json
-[
-  {
-    "ts_code": "000001.SZ",
-    "trade_date": "20251024",
-    "open": 11.6,
-    "high": 11.68,
-    "low": 11.55,
-    "close": 11.56,
-    "vol": 980475.3,
-    "amount": 1138026.681
+{
+  "mcpServers": {
+    "stock_datasource": {
+      "url": "http://192.168.1.100:8001/messages",
+      "transport": "streamable-http",
+      "disabled": false
+    }
   }
-]
+}
+
 ```
 
-### 2. 按日期范围查询日线数据
-
-**工具名称**：`tushare_daily_get_daily_data`
-
-**功能**：按日期范围查询单个股票的日线数据
-
-**参数**：
-- `code` (str, 必选)：股票代码，如 `000001.SZ`
-- `start_date` (str, 必选)：开始日期 (YYYYMMDD)，如 `20251001`
-- `end_date` (str, 必选)：结束日期 (YYYYMMDD)，如 `20251024`
-
-### 3. 获取日线数据统计
-
-**工具名称**：`tushare_daily_get_daily_stats`
-
-**功能**：获取日期范围内的日线数据统计信息
-
-**参数**：
-- `code` (str, 必选)：股票代码
-- `start_date` (str, 必选)：开始日期 (YYYYMMDD)
-- `end_date` (str, 必选)：结束日期 (YYYYMMDD)
-
----
-
-## HTTP vs MCP 对比
-
-| 特性 | HTTP Server | MCP Server |
-|------|------------|-----------|
-| **协议** | REST API (HTTP/HTTPS) | Model Context Protocol (Streamable HTTP) |
-| **调用方式** | POST 请求 | MCP 工具调用 |
-| **使用场景** | Web 应用、第三方集成 | AI 模型、LLM 集成 |
-| **响应格式** | JSON | JSON (流式或非流式) |
-| **认证** | CORS、API Key | MCP 配置 |
-| **端点示例** | `POST /get_latest_daily` | `tushare_daily_get_latest_daily` |
 
 ### HTTP 服务器使用
 
