@@ -161,17 +161,20 @@ Metadata Layer (审计日志)
 | `tushare_suspend_d` | `ods_suspend_d` | 停复牌数据 | `trade_date` |
 | `tushare_trade_calendar` | `ods_trade_calendar` | 交易日历 | `start_date`, `end_date` |
 
-## 🔧 新建插件的 7 个步骤
+## 🔧 新建插件的完整步骤
 
-### 1. 创建插件目录
+### 1. 创建插件目录结构
 ```bash
 mkdir -p src/stock_datasource/plugins/my_plugin
+cd src/stock_datasource/plugins/my_plugin
+touch __init__.py plugin.py extractor.py service.py config.json schema.json
 ```
 
-### 2. 实现 plugin.py
+### 2. 实现 plugin.py（数据采集）
 ```python
 from stock_datasource.core.base_plugin import BasePlugin
 import pandas as pd
+from .extractor import extractor
 
 class MyPlugin(BasePlugin):
     @property
@@ -184,26 +187,76 @@ class MyPlugin(BasePlugin):
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
         """从数据源获取原始数据"""
-        # 实现数据提取逻辑
-        return pd.DataFrame()
+        trade_date = kwargs.get('trade_date')
+        data = extractor.extract(trade_date)
+        return data
     
     def validate_data(self, data: pd.DataFrame) -> bool:
         """验证数据的完整性和正确性"""
-        # 实现数据验证逻辑
+        if data.empty:
+            return False
         return True
     
     def load_data(self, data: pd.DataFrame) -> dict:
         """将清洗后的数据加载到数据库"""
-        # 实现数据加载逻辑
-        return {"status": "success"}
+        if not self.db:
+            return {"status": "failed", "error": "Database not initialized"}
+        
+        self.db.insert_dataframe('ods_my_table', data)
+        return {"status": "success", "records": len(data)}
 ```
 
-### 3. 实现 extractor.py
+### 3. 实现 extractor.py（API 调用）
 ```python
-# API 调用逻辑
+import pandas as pd
+from stock_datasource.config.settings import settings
+import tushare as ts
+
+class Extractor:
+    def __init__(self):
+        self.pro = ts.pro_api(settings.TUSHARE_TOKEN)
+    
+    def extract(self, trade_date: str) -> pd.DataFrame:
+        """从 TuShare API 获取数据"""
+        data = self.pro.daily(trade_date=trade_date)
+        return data
+
+extractor = Extractor()
 ```
 
-### 4. 编写 config.json
+### 4. 实现 service.py（查询接口）
+```python
+from typing import List, Dict, Any
+from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+class MyPluginService(BaseService):
+    """Query service for my plugin data."""
+    
+    def __init__(self):
+        super().__init__("my_plugin")
+    
+    @query_method(
+        description="Query data by code and date range",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code", required=True),
+            QueryParam(name="start_date", type="str", description="Start date YYYYMMDD", required=True),
+            QueryParam(name="end_date", type="str", description="End date YYYYMMDD", required=True),
+        ]
+    )
+    def get_data(self, code: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Query data from database."""
+        query = f"""
+        SELECT * FROM ods_my_table
+        WHERE ts_code = '{code}'
+        AND trade_date >= '{start_date}'
+        AND trade_date <= '{end_date}'
+        ORDER BY trade_date ASC
+        """
+        df = self.db.execute_query(query)
+        return df.to_dict('records')
+```
+
+### 5. 编写 config.json（配置）
 ```json
 {
   "enabled": true,
@@ -222,14 +275,16 @@ class MyPlugin(BasePlugin):
 }
 ```
 
-### 5. 编写 schema.json
+### 6. 编写 schema.json（表结构）
 ```json
 {
   "table_name": "ods_my_table",
   "table_type": "ods",
   "columns": [
     {"name": "ts_code", "data_type": "String", "nullable": false},
-    {"name": "trade_date", "data_type": "Date", "nullable": false}
+    {"name": "trade_date", "data_type": "Date", "nullable": false},
+    {"name": "version", "data_type": "UInt64", "nullable": false},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false}
   ],
   "partition_by": "toYYYYMM(trade_date)",
   "order_by": ["ts_code", "trade_date"],
@@ -237,13 +292,15 @@ class MyPlugin(BasePlugin):
 }
 ```
 
-### 6. 注册插件 (__init__.py)
+### 7. 注册插件 (__init__.py)
 ```python
 from .plugin import MyPlugin
-__all__ = ["MyPlugin"]
+from .service import MyPluginService
+
+__all__ = ["MyPlugin", "MyPluginService"]
 ```
 
-### 7. 测试验证
+### 8. 测试验证
 ```bash
 # 发现插件
 uv run python -m stock_datasource.cli_plugins discover
@@ -252,7 +309,7 @@ uv run python -m stock_datasource.cli_plugins discover
 uv run python -m stock_datasource.cli_plugins info my_plugin
 
 # 测试数据提取
-uv run python -m stock_datasource.cli_plugins test --plugin my_plugin
+uv run python -m stock_datasource.cli_plugins test --plugin my_plugin --date 20251024
 ```
 
 ## ⚠️ 新建插件的注意事项
@@ -301,28 +358,30 @@ uv run python -m stock_datasource.cli_plugins test --plugin my_plugin
 - **股票数量**：~5,400 只 A 股
 - **数据表**：7 个 ODS 表 + 2 个 Fact 表 + 1 个 Dim 表
 - **总记录数**：~1.2 亿条（每日 ~600 万条）
-## http server与 mcp server接口自动生成
-## 架构说明
 
-### Service 层架构
+## 🌐 HTTP Server 与 MCP Server 接口自动生成
 
-项目采用**统一的 Service 层设计**，通过 `TuShareDailyService` 类统一管理所有数据查询逻辑：
+### 架构说明
+
+项目采用**统一的 Service 层设计**，通过每个插件的 `service.py` 统一管理所有数据查询逻辑：
 
 ```
-TuShareDailyService (service.py)
-    ├── 继承 BaseService
-    ├── 定义查询方法（使用 @query_method 装饰器）
-    └── 方法元数据（参数、描述等）
-         │
-         ├─→ ServiceGenerator (自动生成)
-         │    ├── 生成 HTTP 路由 (FastAPI)
-         │    └── 生成 MCP 工具定义
-         │
-         ├─→ HTTP Server (http_server.py)
-         │    └── 暴露 REST API 端点
-         │
-         └─→ MCP Server (mcp_server.py)
-              └── 暴露 MCP 工具接口
+plugins/tushare_daily/
+├── plugin.py              (数据采集：Extract → Validate → Load)
+├── extractor.py           (API 调用逻辑)
+├── service.py             (查询接口：定义 @query_method)
+├── config.json            (插件配置)
+└── schema.json            (表结构定义)
+     │
+     └─→ ServiceGenerator (自动生成)
+          ├── 生成 HTTP 路由 (FastAPI)
+          └── 生成 MCP 工具定义
+               │
+               ├─→ HTTP Server (http_server.py)
+               │    └── 暴露 REST API 端点
+               │
+               └─→ MCP Server (mcp_server.py)
+                    └── 暴露 MCP 工具接口
 ```
 
 **关键特性**：
@@ -330,29 +389,80 @@ TuShareDailyService (service.py)
 - **自动生成**：HTTP 路由和 MCP 工具自动从 Service 方法生成
 - **元数据驱动**：通过 `@query_method` 装饰器定义参数和描述
 - **代码复用**：HTTP 和 MCP 共享相同的业务逻辑
+- **动态发现**：自动发现所有插件的 Service 类
 
 ### 数据流向
 
 ```
 客户端请求
     │
-    ├─→ HTTP 请求 → HTTP Server → ServiceGenerator → TuShareDailyService → ClickHouse
+    ├─→ HTTP 请求 → HTTP Server → ServiceGenerator → TuShareDailyService.get_daily_data() → ClickHouse
     │
-    └─→ MCP 请求 → MCP Server → ServiceGenerator → TuShareDailyService → ClickHouse
+    └─→ MCP 请求 → MCP Server → ServiceGenerator → TuShareDailyService.get_daily_data() → ClickHouse
 ```
 
 ---
 
-## MCP 接口使用
+## 🚀 HTTP 服务器使用
 
-本项目提供了 MCP (Model Context Protocol) 接口来获取日线行情数据，mcp工具基于每个plugins/下面的service.py自动生成
+### 启动 HTTP 服务器
 
-- 启动mcp server
 ```bash
-uv run src/stock_datasource/services/mcp_server.py
+# 方式 1：使用 uv
+uv run python -m stock_datasource.services.http_server
+
+# 方式 2：使用 uvicorn
+uvicorn stock_datasource.services.http_server:app --host 0.0.0.0 --port 8000
 ```
 
-- mcp客户端（claude code, cursor， cline配置）
+### HTTP 请求示例
+
+```bash
+# 查询特定股票的日线数据
+curl -X POST http://localhost:8000/api/tushare_daily/get_daily_data \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "000001.SZ",
+    "start_date": "20250101",
+    "end_date": "20251024"
+  }'
+
+# 查询最新日线数据
+curl -X POST http://localhost:8000/api/tushare_daily/get_latest_daily \
+  -H "Content-Type: application/json" \
+  -d '{
+    "codes": ["000001.SZ", "000002.SZ"],
+    "limit": 10
+  }'
+```
+
+### HTTP 路由自动生成
+
+HTTP Server 会自动为每个插件的 Service 类生成路由：
+- 路由前缀：`/api/{plugin_name}`
+- 方法路由：`/api/{plugin_name}/{method_name}`
+- 请求方式：POST
+- 请求体：JSON 格式的参数
+
+---
+
+## 🔌 MCP 服务器使用
+
+MCP Server 会自动为每个插件的 Service 方法生成工具
+
+### 启动 MCP 服务器
+
+```bash
+# 方式 1：使用 uv
+uv run python -m stock_datasource.services.mcp_server
+
+# 方式 2：直接运行
+python src/stock_datasource/services/mcp_server.py
+```
+
+### MCP 客户端配置
+
+在 Claude Code、Cursor、Cline 等 IDE 中配置 MCP 服务器：
 ```json
 {
   "mcpServers": {
@@ -388,56 +498,88 @@ curl -X POST http://localhost:8000/get_latest_daily \
 python -m stock_datasource.services.mcp_server
 ```
 
-MCP 工具调用示例（通过 IDE 或 AI 工具）：
+### MCP 工具调用示例
+
 ```python
-# 工具名称：tushare_daily_get_latest_daily
-# 参数：
+# 工具名称格式：{plugin_name}_{method_name}
+# 例如：tushare_daily_get_daily_data
+
+# 工具参数（JSON 格式）：
 {
-  "codes": "000001.SZ",
-  "limit": 10
+  "code": "000001.SZ",
+  "start_date": "20250101",
+  "end_date": "20251024"
 }
 ```
 
 ---
 
-## Service 实现细节
+## 📋 Service 实现细节
 
-### TuShareDailyService 类结构
+### Service 类结构
+
+每个插件的 `service.py` 都遵循以下结构：
 
 ```python
+from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+from typing import List, Dict, Any
+
 class TuShareDailyService(BaseService):
+    """Query service for TuShare daily stock data."""
+    
     def __init__(self):
         super().__init__("tushare_daily")
     
-    @query_method(description="...", params=[...])
-    def get_daily_data(self, code: str, start_date: str, end_date: str):
-        # 查询逻辑
-        pass
+    @query_method(
+        description="Query daily stock data by code and date range",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code", required=True),
+            QueryParam(name="start_date", type="str", description="Start date YYYYMMDD", required=True),
+            QueryParam(name="end_date", type="str", description="End date YYYYMMDD", required=True),
+        ]
+    )
+    def get_daily_data(self, code: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Query daily data from database."""
+        query = f"""
+        SELECT * FROM ods_daily
+        WHERE ts_code = '{code}'
+        AND trade_date >= '{start_date}'
+        AND trade_date <= '{end_date}'
+        ORDER BY trade_date ASC
+        """
+        df = self.db.execute_query(query)
+        return df.to_dict('records')
     
-    @query_method(description="...", params=[...])
-    def get_latest_daily(self, codes: List[str], limit: int = 1):
-        # 查询逻辑
-        pass
-    
-    @query_method(description="...", params=[...])
-    def get_daily_stats(self, code: str, start_date: str, end_date: str):
-        # 查询逻辑
+    @query_method(
+        description="Query latest daily data for multiple stocks",
+        params=[
+            QueryParam(name="codes", type="list", description="List of stock codes", required=True),
+            QueryParam(name="limit", type="int", description="Number of latest records", required=False, default=1),
+        ]
+    )
+    def get_latest_daily(self, codes: List[str], limit: int = 1) -> List[Dict[str, Any]]:
+        """Query latest daily data."""
+        # 实现查询逻辑
         pass
 ```
 
 ### 关键组件
 
 1. **BaseService**：提供基础功能
-   - 数据库连接管理
-   - 方法元数据提取
-   - 类型转换
+   - 数据库连接管理（`self.db`）
+   - 方法元数据提取（`get_query_methods()`）
+   - 类型转换（`python_type_to_json_schema()`）
 
 2. **@query_method 装饰器**：标记查询方法
-   - 附加描述信息
-   - 定义参数元数据
-   - 支持自动生成文档
+   - 附加描述信息（`description`）
+   - 定义参数元数据（`params`）
+   - 支持自动生成文档和接口
 
-3. **ServiceGenerator**：自动生成接口
+3. **QueryParam 数据类**：定义参数元数据
+   - 参数名称、类型、描述
+   - 是否必需、默认值
+
+4. **ServiceGenerator**：自动生成接口
    - 从 Service 方法生成 HTTP 路由
    - 从 Service 方法生成 MCP 工具
    - 动态创建请求/响应模型

@@ -368,5 +368,83 @@ def _dict_to_schema(schema_dict: dict) -> Any:
     return schema
 
 
+@cli.command()
+@click.option('--list-status', default='L', help='List status: L(listed), D(delisted), P(paused) (default: L)')
+def load_stock_basic(list_status):
+    """Load stock basic information table (ods_stock_basic)."""
+    click.echo(f"Loading ods_stock_basic with list_status={list_status}...")
+    
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Get and execute plugin
+        plugin = plugin_manager.get_plugin('tushare_stock_basic')
+        if not plugin:
+            click.echo("✗ Plugin tushare_stock_basic not found", err=True)
+            sys.exit(1)
+        
+        result = plugin.run(list_status=list_status)
+        
+        click.echo(f"Status: {result['status']}")
+        for step, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step:15} : {status:10} ({records} records)")
+        
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        click.echo("✓ ods_stock_basic loaded successfully")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to load ods_stock_basic: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--start-date', required=True, help='Start date in YYYYMMDD format')
+@click.option('--end-date', required=True, help='End date in YYYYMMDD format')
+@click.option('--exchange', default='SSE', help='Exchange: SSE or SZSE (default: SSE)')
+def load_trade_calendar(start_date, end_date, exchange):
+    """Load trade calendar table (ods_trade_calendar)."""
+    click.echo(f"Loading ods_trade_calendar from {start_date} to {end_date} ({exchange})...")
+    
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Get and execute plugin
+        plugin = plugin_manager.get_plugin('tushare_trade_calendar')
+        if not plugin:
+            click.echo("✗ Plugin tushare_trade_calendar not found", err=True)
+            sys.exit(1)
+        
+        result = plugin.run(start_date=start_date, end_date=end_date, exchange=exchange)
+        
+        click.echo(f"Status: {result['status']}")
+        for step, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step:15} : {status:10} ({records} records)")
+        
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        click.echo("✓ ods_trade_calendar loaded successfully")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to load ods_trade_calendar: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     cli()

@@ -5,10 +5,11 @@
 ```
 plugins/my_plugin/
 ├── __init__.py              # from .plugin import MyPlugin
-├── plugin.py                # 插件主类
-├── extractor.py             # 数据提取逻辑
-├── config.json              # 插件配置
-├── schema.json              # 表结构定义
+├── plugin.py                # 插件主类，定义数据爬取的格式转换，入库前的校验和存储逻辑
+├── extractor.py             # 数据爬取逻辑
+├── config.json              # 插件配置，包括调用的接口名称，调度频率等
+├── schema.json              # clickhouse表结构定义
+├── service.py               # 数据查询的sdk， services/目录下的http_server与mcp_server会基于此文件生成对应的查询接口
 └── README.md                # 插件文档
 ```
 
