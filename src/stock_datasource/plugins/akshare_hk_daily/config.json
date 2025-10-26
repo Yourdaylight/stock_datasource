@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "rate_limit": 60,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "AKShare Hong Kong daily data from hk_daily API",
+  "schedule": {
+    "frequency": "daily",
+    "time": "16:00"
+  },
+  "parameters_schema": {
+    "symbol": {
+      "type": "string",
+      "description": "Hong Kong stock symbol, e.g., 00700",
+      "required": true
+    },
+    "start_date": {
+      "type": "string",
+      "description": "Start date in YYYYMMDD format",
+      "required": false
+    },
+    "end_date": {
+      "type": "string",
+      "description": "End date in YYYYMMDD format",
+      "required": false
+    }
+  }
+}

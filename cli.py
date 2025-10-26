@@ -446,5 +446,88 @@ def load_trade_calendar(start_date, end_date, exchange):
         sys.exit(1)
 
 
+@cli.command()
+def load_hk_stock_list():
+    """Load Hong Kong stock list table (ods_hk_stock_list)."""
+    click.echo("Loading ods_hk_stock_list...")
+    
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Get and execute plugin
+        plugin = plugin_manager.get_plugin('akshare_hk_stock_list')
+        if not plugin:
+            click.echo("✗ Plugin akshare_hk_stock_list not found", err=True)
+            sys.exit(1)
+        
+        result = plugin.run()
+        
+        click.echo(f"Status: {result['status']}")
+        for step, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step:15} : {status:10} ({records} records)")
+        
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        click.echo("✓ ods_hk_stock_list loaded successfully")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to load ods_hk_stock_list: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--symbol', required=True, help='Hong Kong stock symbol, e.g., 00700')
+@click.option('--start-date', help='Start date in YYYYMMDD format (optional)')
+@click.option('--end-date', help='End date in YYYYMMDD format (optional)')
+def load_hk_daily(symbol, start_date, end_date):
+    """Load Hong Kong daily data table (ods_hk_daily)."""
+    click.echo(f"Loading ods_hk_daily for {symbol}...")
+    
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Get and execute plugin
+        plugin = plugin_manager.get_plugin('akshare_hk_daily')
+        if not plugin:
+            click.echo("✗ Plugin akshare_hk_daily not found", err=True)
+            sys.exit(1)
+        
+        kwargs = {'symbol': symbol}
+        if start_date:
+            kwargs['start_date'] = start_date
+        if end_date:
+            kwargs['end_date'] = end_date
+        
+        result = plugin.run(**kwargs)
+        
+        click.echo(f"Status: {result['status']}")
+        for step, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step:15} : {status:10} ({records} records)")
+        
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        click.echo("✓ ods_hk_daily loaded successfully")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to load ods_hk_daily: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     cli()

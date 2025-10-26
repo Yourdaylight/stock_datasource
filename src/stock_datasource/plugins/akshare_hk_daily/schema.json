@@ -1,0 +1,21 @@
+{
+  "table_name": "ods_hk_daily",
+  "table_type": "ods",
+  "columns": [
+    {"name": "symbol", "data_type": "LowCardinality(String)", "nullable": false, "comment": "港股代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "open", "data_type": "Float64", "nullable": true, "comment": "开盘价"},
+    {"name": "high", "data_type": "Float64", "nullable": true, "comment": "最高价"},
+    {"name": "low", "data_type": "Float64", "nullable": true, "comment": "最低价"},
+    {"name": "close", "data_type": "Float64", "nullable": true, "comment": "收盘价"},
+    {"name": "volume", "data_type": "Int64", "nullable": true, "comment": "成交量"},
+    {"name": "amount", "data_type": "Float64", "nullable": true, "comment": "成交额"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["symbol", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "港股日行情数据 from AKShare hk_daily API"
+}

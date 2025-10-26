@@ -1,0 +1,18 @@
+{
+  "table_name": "ods_hk_stock_list",
+  "table_type": "ods",
+  "columns": [
+    {"name": "symbol", "data_type": "LowCardinality(String)", "nullable": false, "comment": "港股代码"},
+    {"name": "name", "data_type": "String", "nullable": false, "comment": "港股名称"},
+    {"name": "code", "data_type": "String", "nullable": true, "comment": "股票代码"},
+    {"name": "list_date", "data_type": "Date", "nullable": true, "comment": "上市日期"},
+    {"name": "market", "data_type": "LowCardinality(String)", "nullable": true, "comment": "市场类型 HK"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(now())",
+  "order_by": ["symbol"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "港股列表 from AKShare hk_stock_list API"
+}
