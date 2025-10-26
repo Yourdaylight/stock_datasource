@@ -23,8 +23,27 @@ class QualityChecker:
         """Check if data row count matches trading calendar."""
         logger.info(f"Checking trade date alignment for {trade_date}")
         
+        # Convert trade_date format from YYYYMMDD to YYYY-MM-DD for trade calendar API
+        from datetime import datetime
+        try:
+            if len(trade_date) == 8 and trade_date.isdigit():
+                # Convert from YYYYMMDD to YYYY-MM-DD
+                formatted_date = datetime.strptime(trade_date, '%Y%m%d').strftime('%Y-%m-%d')
+                logger.warning(f"Date format auto-converted: {trade_date} → {formatted_date} (system auto-fixed)")
+            else:
+                # Assume it's already in YYYY-MM-DD format
+                formatted_date = trade_date
+        except ValueError as e:
+            logger.error(f"Invalid trade_date format: {trade_date}, error: {e}")
+            return {
+                "check_name": "trade_date_alignment",
+                "trade_date": trade_date,
+                "status": "failed",
+                "reason": f"Invalid date format: {trade_date}"
+            }
+        
         # Get expected trading days
-        trade_cal = self.extractor.get_trade_calendar(trade_date, trade_date)
+        trade_cal = self.extractor.get_trade_calendar(formatted_date, formatted_date)
         if trade_cal.empty or trade_cal.iloc[0]['is_open'] == 0:
             return {
                 "check_name": "trade_date_alignment",
@@ -60,7 +79,11 @@ class QualityChecker:
                 if actual_count == 0:
                     status = "failed"
                     issue = "No records found"
-                elif expected_count > 0 and abs(actual_count - expected_count) / expected_count > 0.1:
+                elif expected_count == 0:
+                    # No historical data to compare against, consider it passed
+                    status = "passed"
+                    issue = "No historical data for comparison, assuming valid"
+                elif abs(actual_count - expected_count) / expected_count > 0.1:
                     status = "warning"
                     issue = f"Record count deviation > 10%: expected ~{expected_count}, got {actual_count}"
                 else:
@@ -118,9 +141,14 @@ class QualityChecker:
             
             result = self.db.execute_query(query)
             if not result.empty and result.iloc[0]['avg_count'] is not None:
-                return int(result.iloc[0]['avg_count'])
+                avg_count = result.iloc[0]['avg_count']
+                # Handle NaN values
+                if pd.isna(avg_count):
+                    logger.info(f"No historical data found for {table_name}, using 0 as expected count")
+                    return 0
+                return int(avg_count)
         except Exception as e:
-            logger.error(f"Failed to get expected count for {table_name}: {e}")
+            logger.warning(f"Failed to get expected count for {table_name}: {e}, using 0 as fallback")
         
         return 0
     

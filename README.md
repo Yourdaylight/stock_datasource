@@ -9,6 +9,7 @@
 - **高性能存储**：ClickHouse 列式数据库，支持 PB 级数据
 - **自动化编排**：Airflow DAG 支持定时任务
 - **多层数据质量**：ODS → DM/Fact → Metadata 三层架构
+- **幂等性保证**：ReplacingMergeTree 引擎确保数据一致性
 - **可扩展架构**：易于添加新的数据源和插件
 
 ## 🚀 快速开始
@@ -73,6 +74,17 @@ uv run cli.py quality-check --date 20251024
 
 # 生成日报告
 uv run cli.py report --date 20251024
+
+# 优化表去除重复数据
+uv run python -c "from src.stock_datasource.models.database import db_client; db_client.execute('OPTIMIZE TABLE ods_daily FINAL')"
+
+# 检查重复数据情况
+uv run python -c "
+from src.stock_datasource.models.database import db_client
+total = db_client.execute('SELECT COUNT(*) FROM ods_daily')[0][0]
+unique = db_client.execute('SELECT COUNT(DISTINCT (ts_code, trade_date)) FROM ods_daily')[0][0]
+print(f'总记录: {total:,}, 唯一: {unique:,}, 重复: {total-unique:,}')
+"
 ```
 
 ## 📁 项目结构
@@ -113,6 +125,10 @@ stock_datasource/
 ├── 🧪 测试目录
 │   └── tests/                         # 单元测试
 │
+├── 🛠️ 脚本工具
+│   └── scripts/
+│       └── optimize_tables.py         # 表优化脚本（去重复数据）
+│
 ├── 📚 配置文件
 │   ├── .env.example                   # 环境变量示例
 │   ├── .gitignore                     # Git 忽略规则
@@ -130,10 +146,10 @@ TuShare API
     ↓
 Plugin (Extract → Validate → Transform → Load)
     ↓
-ODS Layer (原始数据，自动建表)
-    ├─ ods_daily              (日线数据)
-    ├─ ods_adj_factor         (复权因子)
-    ├─ ods_daily_basic        (日线基础指标)
+ODS Layer (原始数据，ReplacingMergeTree 幂等存储)
+    ├─ ods_daily              (日线数据，按月分区)
+    ├─ ods_adj_factor         (复权因子，version 去重)
+    ├─ ods_daily_basic        (日线基础指标，自动合并)
     ├─ ods_stock_basic        (股票基础信息)
     ├─ ods_stk_limit          (涨跌停数据)
     ├─ ods_suspend_d          (停复牌数据)
@@ -148,6 +164,14 @@ Metadata Layer (审计日志)
     ├─ quality_checks         (质量检查)
     └─ schema_evolution       (Schema 演变)
 ```
+
+### 🔄 幂等性设计
+
+**ReplacingMergeTree 引擎特性**：
+- **延迟去重**：插入时允许重复，后台合并时自动去重
+- **版本控制**：每条记录包含 `version` 字段（时间戳）
+- **自动保留最新**：合并时保留 version 值最大的记录
+- **分区优化**：按月分区 `toYYYYMM(trade_date)` 提升性能
 
 ## 📋 7 个现成插件
 
@@ -612,6 +636,150 @@ uv run pytest --cov=src tests/
 
 ### Q: 导入错误
 **A**: 确保使用 `uv run` 而不是直接 `python`
+
+### Q: 数据库中存在重复数据
+**A**: 这是 ReplacingMergeTree 引擎的正常行为，参见下方"重复数据处理"章节
+
+---
+
+## 🔄 重复数据处理
+
+### 问题说明
+
+由于使用 ClickHouse 的 `ReplacingMergeTree` 引擎，系统采用**延迟去重**机制：
+- ✅ **幂等性保证**：相同数据多次插入不会影响最终结果
+- ⚠️ **延迟去重**：重复数据在后台合并前会暂时存在
+- 🔧 **version 字段**：通过时间戳版本号确保保留最新数据
+
+### 立即解决重复数据
+
+#### 1. 手动优化单个表
+```bash
+# 优化 ods_daily 表
+uv run python -c "
+from src.stock_datasource.models.database import db_client
+db_client.execute('OPTIMIZE TABLE ods_daily FINAL')
+print('✅ ods_daily 表优化完成')
+"
+```
+
+#### 2. 使用专用优化脚本（推荐）
+```bash
+# 检查所有表的重复数据状态
+uv run python scripts/optimize_tables.py --check
+
+# 优化所有 ODS 表
+uv run python scripts/optimize_tables.py --all
+
+# 优化指定表
+uv run python scripts/optimize_tables.py --table ods_daily
+
+# 详细输出模式
+uv run python scripts/optimize_tables.py --all --verbose
+```
+
+#### 3. 批量优化所有 ODS 表（手动）
+```bash
+# 优化所有表
+uv run python -c "
+from src.stock_datasource.models.database import db_client
+
+tables = ['ods_daily', 'ods_adj_factor', 'ods_daily_basic', 
+          'ods_stk_limit', 'ods_suspend_d', 'ods_trade_calendar']
+
+for table in tables:
+    try:
+        print(f'优化 {table}...')
+        db_client.execute(f'OPTIMIZE TABLE {table} FINAL')
+        print(f'✅ {table} 优化完成')
+    except Exception as e:
+        print(f'❌ {table} 优化失败: {e}')
+"
+```
+
+#### 3. 检查重复数据情况
+```bash
+# 检查重复数据统计
+uv run python -c "
+from src.stock_datasource.models.database import db_client
+
+table = 'ods_daily'  # 可替换为其他表名
+total = db_client.execute(f'SELECT COUNT(*) FROM {table}')[0][0]
+unique = db_client.execute(f'SELECT COUNT(DISTINCT (ts_code, trade_date)) FROM {table}')[0][0]
+
+print(f'表: {table}')
+print(f'总记录数: {total:,}')
+print(f'唯一记录数: {unique:,}')
+print(f'重复记录数: {total - unique:,}')
+print(f'重复率: {((total - unique) / total * 100):.2f}%' if total > 0 else '0%')
+"
+```
+
+### 查询时确保无重复
+
+对于需要确保无重复数据的查询，使用 `FINAL` 关键字：
+
+```sql
+-- 查询时自动去重
+SELECT * FROM ods_daily FINAL 
+WHERE trade_date = '20251025'
+AND ts_code = '000001.SZ'
+
+-- 聚合查询（推荐，性能更好）
+SELECT ts_code, trade_date, 
+       argMax(close, version) as close,
+       argMax(vol, version) as vol
+FROM ods_daily 
+WHERE trade_date = '20251025'
+GROUP BY ts_code, trade_date
+```
+
+### 预防重复数据的最佳实践
+
+#### 1. 定期自动优化
+在 Airflow DAG 中添加优化任务：
+```python
+# 每日数据摄入完成后执行
+optimize_task = BashOperator(
+    task_id='optimize_tables',
+    bash_command='''
+    uv run python -c "
+    from src.stock_datasource.models.database import db_client
+    db_client.execute('OPTIMIZE TABLE ods_daily FINAL')
+    "
+    ''',
+    dag=dag
+)
+```
+
+#### 2. 监控重复率
+```bash
+# 添加到日常监控脚本
+uv run cli.py report --date 20251025 --check-duplicates
+```
+
+#### 3. 调整 ClickHouse 配置
+在 `config.xml` 中优化合并策略：
+```xml
+<merge_tree>
+    <parts_to_delay_insert>150</parts_to_delay_insert>
+    <parts_to_throw_insert>300</parts_to_throw_insert>
+    <max_delay_to_insert>1</max_delay_to_insert>
+</merge_tree>
+```
+
+### 技术原理
+
+**ReplacingMergeTree 工作机制**：
+1. **插入阶段**：数据直接插入，允许重复
+2. **合并阶段**：后台自动合并分片时，根据 `ORDER BY` 键去重
+3. **版本选择**：保留 `version` 字段值最大的记录
+4. **查询优化**：使用 `FINAL` 或 `argMax` 函数确保结果唯一
+
+**幂等性保证**：
+- 相同的 `(ts_code, trade_date)` 组合被视为同一条记录
+- 每次插入都会生成新的 `version`（时间戳）
+- 系统自动保留最新版本的数据
 
 ## 📞 获取帮助
 

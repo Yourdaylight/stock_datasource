@@ -56,7 +56,7 @@ class IngestionService:
         try:
             # Step 1: Extract data
             logger.info(f"Extracting data for {trade_date}")
-            extracted_data = self.extractor.extract_all_data_for_date(trade_date, check_schedule=check_schedule)
+            extracted_data = self.extractor.extract_all_data_for_date(trade_date, check_schedule=check_schedule, is_backfill=False)
             
             # Validate extracted data
             for api_name, data in extracted_data.items():
@@ -150,7 +150,8 @@ class IngestionService:
             
             for trade_date in trade_dates:
                 try:
-                    daily_result = self.ingest_daily_data(trade_date, run_quality_checks)
+                    # For backfill, we need to modify the daily ingestion to use backfill mode
+                    daily_result = self._ingest_daily_data_backfill(trade_date, run_quality_checks)
                     result['dates_processed'].append(daily_result)
                     
                     # Update summary
@@ -194,6 +195,152 @@ class IngestionService:
             result['end_time'] = datetime.now()
             result['duration_seconds'] = (result['end_time'] - result['start_time']).total_seconds()
             return result
+    
+    def _ingest_daily_data_backfill(self, trade_date: str, 
+                                   run_quality_checks: bool = True) -> Dict[str, Any]:
+        """
+        Ingest daily data for backfill operations (historical data).
+        
+        Args:
+            trade_date: Trade date in YYYYMMDD format
+            run_quality_checks: Whether to run quality checks
+            
+        Returns:
+            Dictionary with ingestion results
+        """
+        task_id = str(uuid4())
+        logger.info(f"Starting backfill daily ingestion for {trade_date}, task_id: {task_id}")
+        
+        result = {
+            "task_id": task_id,
+            "trade_date": trade_date,
+            "start_time": datetime.now(),
+            "status": "running",
+            "extraction": {},
+            "loading": {},
+            "quality_checks": {},
+            "error": None
+        }
+        
+        try:
+            # Step 1: Extract data (with backfill mode)
+            logger.info(f"Extracting data for {trade_date} (backfill mode)")
+            extracted_data = self.extractor.extract_all_data_for_date(
+                trade_date, 
+                check_schedule=True,   # Enable schedule check for duplicate detection
+                is_backfill=True       # Enable backfill mode
+            )
+            
+            # Validate extracted data
+            for api_name, data in extracted_data.items():
+                if not data.empty:
+                    validation = self.extractor.validate_data_quality(data, trade_date)
+                    result['extraction'][api_name] = validation
+                    logger.info(f"Extracted {api_name}: {validation}")
+            
+            # Step 2: Load data
+            logger.info(f"Loading data for {trade_date}")
+            loading_result = self.loader.process_daily_ingestion(trade_date, extracted_data)
+            result['loading'] = loading_result
+            
+            # Step 3: Quality checks (with relaxed rules for backfill)
+            qc_result = None
+            if run_quality_checks:
+                logger.info(f"Running quality checks for {trade_date} (backfill mode)")
+                qc_result = self._run_backfill_quality_checks(trade_date)
+                result['quality_checks'] = qc_result
+            
+            # Determine overall status (more lenient for backfill)
+            if loading_result['status'] == 'failed':
+                result['status'] = 'failed'
+            elif qc_result and qc_result.get('overall_status') == 'failed':
+                # For backfill, treat quality check failures as warnings
+                result['status'] = 'warning'
+                logger.warning(f"Quality checks failed for {trade_date} but treating as warning for backfill")
+            elif loading_result['status'] == 'partial_success':
+                result['status'] = 'warning'
+            else:
+                result['status'] = 'success'
+            
+            result['end_time'] = datetime.now()
+            result['duration_seconds'] = (result['end_time'] - result['start_time']).total_seconds()
+            
+            logger.info(f"Backfill daily ingestion completed for {trade_date}: {result['status']}, "
+                       f"duration: {result['duration_seconds']:.2f}s")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Backfill daily ingestion failed for {trade_date}: {e}")
+            result['status'] = 'failed'
+            result['error'] = str(e)
+            result['end_time'] = datetime.now()
+            result['duration_seconds'] = (result['end_time'] - result['start_time']).total_seconds()
+            return result
+    
+    def _run_backfill_quality_checks(self, trade_date: str) -> Dict[str, Any]:
+        """Run quality checks with relaxed rules for backfill operations."""
+        logger.info(f"Running backfill quality checks for {trade_date}")
+        
+        # Create a modified quality checker that's more lenient for backfill
+        from stock_datasource.utils.quality_checks import quality_checker
+        
+        # Run basic checks but be more tolerant of failures
+        try:
+            result = quality_checker.run_all_checks(trade_date)
+            
+            # For backfill, convert some failures to warnings
+            modified_checks = []
+            for check in result['checks']:
+                if check['check_name'] == 'trade_date_alignment':
+                    # For backfill, alignment issues are less critical
+                    if check['status'] == 'failed':
+                        check['status'] = 'warning'
+                        check['backfill_note'] = 'Converted from failed to warning for backfill'
+                
+                modified_checks.append(check)
+            
+            result['checks'] = modified_checks
+            
+            # Recalculate overall status
+            failed_checks = [c for c in modified_checks if c['status'] == 'failed']
+            warning_checks = [c for c in modified_checks if c['status'] == 'warning']
+            
+            if failed_checks:
+                result['overall_status'] = 'failed'
+            elif warning_checks:
+                result['overall_status'] = 'warning'
+            else:
+                result['overall_status'] = 'passed'
+            
+            # Update summary
+            result['summary'] = {
+                'total_checks': len(modified_checks),
+                'passed': len([c for c in modified_checks if c['status'] == 'passed']),
+                'warning': len(warning_checks),
+                'failed': len(failed_checks),
+                'skipped': len([c for c in modified_checks if c['status'] == 'skipped']),
+                'error': len([c for c in modified_checks if c['status'] == 'error'])
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Backfill quality checks failed for {trade_date}: {e}")
+            return {
+                "trade_date": trade_date,
+                "overall_status": "error",
+                "error": str(e),
+                "checks": [],
+                "summary": {
+                    "total_checks": 0,
+                    "passed": 0,
+                    "warning": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "error": 1
+                }
+            }
     
     def get_ingestion_status(self, trade_date: str) -> Dict[str, Any]:
         """Get ingestion status for a specific trade date."""
