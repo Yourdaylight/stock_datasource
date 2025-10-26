@@ -244,7 +244,16 @@ class BasePlugin(ABC):
                 "records": len(data) if hasattr(data, '__len__') else 0
             }
             
-            if not data or (hasattr(data, '__len__') and len(data) == 0):
+            # Check if data is empty (handle DataFrame and other types)
+            is_empty = False
+            if hasattr(data, 'empty'):  # DataFrame
+                is_empty = data.empty
+            elif hasattr(data, '__len__'):
+                is_empty = len(data) == 0
+            else:
+                is_empty = not data
+            
+            if is_empty:
                 self.logger.warning(f"[{self.name}] No data extracted")
                 result['steps']['extract']['status'] = 'no_data'
                 return result

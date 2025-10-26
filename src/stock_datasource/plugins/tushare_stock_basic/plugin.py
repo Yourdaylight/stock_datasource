@@ -51,6 +51,12 @@ class TuShareStockBasicPlugin(BasePlugin):
             self.logger.warning(f"No stock basic data found for list_status={list_status}")
             return pd.DataFrame()
         
+        # Add market column based on ts_code suffix (.SZ or .SH)
+        if 'ts_code' in data.columns:
+            data['market'] = data['ts_code'].apply(
+                lambda x: 'SZSE' if x.endswith('.SZ') else ('SSE' if x.endswith('.SH') else 'OTHER')
+            )
+        
         # Ensure proper data types and add system columns
         data['version'] = int(datetime.now().timestamp())
         data['_ingested_at'] = datetime.now()
@@ -139,7 +145,12 @@ class TuShareStockBasicPlugin(BasePlugin):
             ods_data['_ingested_at'] = datetime.now()
             
             ods_data = self._prepare_data_for_insert('ods_stock_basic', ods_data)
-            self.db.insert_dataframe('ods_stock_basic', ods_data)
+            
+            # Add ClickHouse settings for large inserts
+            settings = {
+                'max_partitions_per_insert_block': 1000
+            }
+            self.db.insert_dataframe('ods_stock_basic', ods_data, settings=settings)
             
             results['tables_loaded'].append({
                 'table': 'ods_stock_basic',

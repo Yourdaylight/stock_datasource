@@ -137,7 +137,13 @@ class TuShareTradeCalendarPlugin(BasePlugin):
             
             # Prepare data types
             ods_data = self._prepare_data_for_insert('ods_trade_calendar', ods_data)
-            self.db.insert_dataframe('ods_trade_calendar', ods_data)
+            
+            # For large date ranges, we need to increase max_partitions_per_insert_block
+            # since trade_calendar is partitioned by month (toYYYYMM)
+            settings = {
+                'max_partitions_per_insert_block': 1000
+            }
+            self.db.insert_dataframe('ods_trade_calendar', ods_data, settings=settings)
             
             self.logger.info(f"Loaded {len(ods_data)} records into ods_trade_calendar")
             return {
