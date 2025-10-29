@@ -106,44 +106,35 @@ class DataLoader:
         # Transform data for dim_security
         dim_data = stock_basic_data.copy()
         
-        # Map columns
-        column_mapping = {
-            'ts_code': 'ts_code',
-            'symbol': 'ticker',
-            'name': 'name',
-            'list_date': 'list_date',
-            'delist_date': 'delist_date',
-            'list_status': 'status'
-        }
+        # Ensure all required columns exist
+        required_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'market', 
+                           'list_date', 'delist_date', 'list_status']
         
-        # Select and rename columns
-        available_cols = [col for col in column_mapping.keys() if col in dim_data.columns]
-        dim_data = dim_data[available_cols].rename(columns=column_mapping)
-        
-        # Add market column
-        dim_data['market'] = 'CN'
-        
-        # Ensure required columns exist
-        required_cols = ['ts_code', 'ticker', 'name', 'list_date', 'status']
-        for col in required_cols:
+        for col in required_columns:
             if col not in dim_data.columns:
-                if col == 'status':
+                if col == 'area':
+                    dim_data[col] = None
+                elif col == 'industry':
+                    dim_data[col] = None
+                elif col == 'market':
+                    # Infer market from ts_code
+                    dim_data[col] = dim_data['ts_code'].apply(
+                        lambda x: 'SZSE' if x.endswith('.SZ') else ('SSE' if x.endswith('.SH') else 'OTHER')
+                    )
+                elif col == 'list_status':
                     dim_data[col] = 'L'  # Default to Listed
                 else:
                     logger.warning(f"Missing required column {col} in stock basic data")
         
+        # Select only required columns
+        dim_data = dim_data[required_columns + ['version', '_ingested_at']]
+        
         # Convert date formats
         if 'list_date' in dim_data.columns:
-            dim_data['list_date'] = pd.to_datetime(dim_data['list_date']).dt.date
+            dim_data['list_date'] = pd.to_datetime(dim_data['list_date'], format='%Y%m%d', errors='coerce').dt.date
         
         if 'delist_date' in dim_data.columns:
-            dim_data['delist_date'] = pd.to_datetime(dim_data['delist_date'], errors='coerce').dt.date
-        
-        # Add timestamps and version
-        now = datetime.now()
-        dim_data['created_at'] = now
-        dim_data['updated_at'] = now
-        dim_data['version'] = int(now.timestamp())
+            dim_data['delist_date'] = pd.to_datetime(dim_data['delist_date'], format='%Y%m%d', errors='coerce').dt.date
         
         try:
             # Insert into dim_security
@@ -296,7 +287,7 @@ class DataLoader:
             if not result.empty:
                 return {
                     "exists": True,
-                    "total_records": int(result.iloc[0]['total_records']),
+                    "total_records": result.iloc[0]['total_records'],
                     "last_load": result.iloc[0]['last_load'],
                     "table_name": table_name
                 }

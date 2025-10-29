@@ -98,15 +98,19 @@ class TuShareDailyPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
-        # Ensure proper data types
+        # Convert numeric columns to proper types
         numeric_columns = ['open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount']
         for col in numeric_columns:
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors='coerce')
         
-        # Convert date format
+        # Convert trade_date from YYYYMMDD string to date object
         if 'trade_date' in data.columns:
             data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d').dt.date
+        
+        # Add system columns
+        data['version'] = int(datetime.now().timestamp())
+        data['_ingested_at'] = datetime.now()
         
         self.logger.info(f"Transformed {len(data)} daily records")
         return data
@@ -116,10 +120,10 @@ class TuShareDailyPlugin(BasePlugin):
         return []  # No dependencies for basic daily data
     
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
-        """Load daily data into ODS and Fact tables.
+        """Load daily data into ODS table.
         
         Args:
-            data: Daily data to load
+            data: Daily data to load (already transformed with proper types)
         
         Returns:
             Loading statistics
@@ -132,53 +136,22 @@ class TuShareDailyPlugin(BasePlugin):
             self.logger.warning("No data to load")
             return {"status": "no_data", "loaded_records": 0}
         
-        results = {
-            "status": "success",
-            "tables_loaded": [],
-            "total_records": 0
-        }
-        
         try:
-            # Load into ODS table
+            # Load into ODS table (data is already transformed with proper types)
             self.logger.info(f"Loading {len(data)} records into ods_daily")
-            ods_data = data.copy()
-            ods_data['version'] = int(datetime.now().timestamp())
-            ods_data['_ingested_at'] = datetime.now()
-            
-            # Prepare data types
-            ods_data = self._prepare_data_for_insert('ods_daily', ods_data)
+            ods_data = self._prepare_data_for_insert('ods_daily', data.copy())
             self.db.insert_dataframe('ods_daily', ods_data)
             
-            results['tables_loaded'].append({
-                'table': 'ods_daily',
-                'records': len(ods_data)
-            })
-            results['total_records'] += len(ods_data)
-            self.logger.info(f"Loaded {len(ods_data)} records into ods_daily")
-            
-            # Load into Fact table
-            self.logger.info(f"Loading {len(data)} records into fact_daily_bar")
-            fact_data = data.copy()
-            fact_data['created_at'] = datetime.now()
-            fact_data['updated_at'] = datetime.now()
-            
-            fact_data = self._prepare_data_for_insert('fact_daily_bar', fact_data)
-            self.db.insert_dataframe('fact_daily_bar', fact_data)
-            
-            results['tables_loaded'].append({
-                'table': 'fact_daily_bar',
-                'records': len(fact_data),
-                'has_adj_factors': adj_factor_data is not None and not adj_factor_data.empty
-            })
-            results['total_records'] += len(fact_data)
-            self.logger.info(f"Loaded {len(fact_data)} records into fact_daily_bar")
+            self.logger.info(f"Successfully loaded {len(ods_data)} records into ods_daily")
+            return {
+                "status": "success",
+                "table": "ods_daily",
+                "loaded_records": len(ods_data)
+            }
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")
-            results['status'] = 'failed'
-            results['error'] = str(e)
-        
-        return results
+            return {"status": "failed", "error": str(e)}
     
 
 

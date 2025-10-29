@@ -58,10 +58,10 @@ class DataPipeline:
         
         self.logger.info(f"Extracting daily data for {trade_date}")
         
-        # Get enabled plugins
-        enabled_plugins = self.plugin_manager.get_enabled_plugins()
+        # Get active plugins (enabled and not ignored)
+        active_plugins = self.plugin_manager.get_active_plugins()
         
-        for plugin in enabled_plugins:
+        for plugin in active_plugins:
             try:
                 self.logger.info(f"Extracting data from {plugin.name}")
                 

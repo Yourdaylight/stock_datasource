@@ -51,23 +51,6 @@ class TuShareStockBasicPlugin(BasePlugin):
             self.logger.warning(f"No stock basic data found for list_status={list_status}")
             return pd.DataFrame()
         
-        # Add market column based on ts_code suffix (.SZ or .SH)
-        if 'ts_code' in data.columns:
-            data['market'] = data['ts_code'].apply(
-                lambda x: 'SZSE' if x.endswith('.SZ') else ('SSE' if x.endswith('.SH') else 'OTHER')
-            )
-        
-        # Ensure proper data types and add system columns
-        data['version'] = int(datetime.now().timestamp())
-        data['_ingested_at'] = datetime.now()
-        
-        # Convert date columns
-        if 'list_date' in data.columns:
-            data['list_date'] = pd.to_datetime(data['list_date'], format='%Y%m%d', errors='coerce').dt.date
-        
-        if 'delist_date' in data.columns:
-            data['delist_date'] = pd.to_datetime(data['delist_date'], format='%Y%m%d', errors='coerce').dt.date
-        
         self.logger.info(f"Extracted {len(data)} stock basic records for list_status={list_status}")
         return data
     
@@ -106,7 +89,23 @@ class TuShareStockBasicPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
-        # Data is already properly formatted in extract_data
+        # Add market column based on ts_code suffix (.SZ or .SH)
+        if 'ts_code' in data.columns:
+            data['market'] = data['ts_code'].apply(
+                lambda x: 'SZSE' if x.endswith('.SZ') else ('SSE' if x.endswith('.SH') else 'OTHER')
+            )
+        
+        # Convert date columns from YYYYMMDD string to date object
+        if 'list_date' in data.columns:
+            data['list_date'] = pd.to_datetime(data['list_date'], format='%Y%m%d', errors='coerce').dt.date
+        
+        if 'delist_date' in data.columns:
+            data['delist_date'] = pd.to_datetime(data['delist_date'], format='%Y%m%d', errors='coerce').dt.date
+        
+        # Add system columns
+        data['version'] = int(datetime.now().timestamp())
+        data['_ingested_at'] = datetime.now()
+        
         self.logger.info(f"Transformed {len(data)} stock basic records")
         return data
     
@@ -138,13 +137,9 @@ class TuShareStockBasicPlugin(BasePlugin):
         }
         
         try:
-            # Load into ODS table
+            # Load into ODS table (data is already transformed with proper types)
             self.logger.info(f"Loading {len(data)} records into ods_stock_basic")
-            ods_data = data.copy()
-            ods_data['version'] = int(datetime.now().timestamp())
-            ods_data['_ingested_at'] = datetime.now()
-            
-            ods_data = self._prepare_data_for_insert('ods_stock_basic', ods_data)
+            ods_data = self._prepare_data_for_insert('ods_stock_basic', data.copy())
             
             # Add ClickHouse settings for large inserts
             settings = {
@@ -159,58 +154,9 @@ class TuShareStockBasicPlugin(BasePlugin):
             results['total_records'] += len(ods_data)
             self.logger.info(f"Loaded {len(ods_data)} records into ods_stock_basic")
             
-            # Load into DIM table
-            self.logger.info(f"Loading {len(data)} records into dim_security")
-            dim_data = data.copy()
-            
-            # Map columns
-            column_mapping = {
-                'ts_code': 'ts_code',
-                'symbol': 'ticker',
-                'name': 'name',
-                'list_date': 'list_date',
-                'delist_date': 'delist_date',
-                'list_status': 'status'
-            }
-            
-            # Select and rename columns
-            available_cols = [col for col in column_mapping.keys() if col in dim_data.columns]
-            dim_data = dim_data[available_cols].rename(columns=column_mapping)
-            
-            # Add market column
-            dim_data['market'] = 'CN'
-            
-            # Ensure required columns exist
-            required_cols = ['ts_code', 'ticker', 'name', 'list_date', 'status']
-            for col in required_cols:
-                if col not in dim_data.columns:
-                    if col == 'status':
-                        dim_data[col] = 'L'  # Default to Listed
-                    else:
-                        self.logger.warning(f"Missing required column {col} in stock basic data")
-            
-            # Convert date formats
-            if 'list_date' in dim_data.columns:
-                dim_data['list_date'] = pd.to_datetime(dim_data['list_date']).dt.date
-            
-            if 'delist_date' in dim_data.columns:
-                dim_data['delist_date'] = pd.to_datetime(dim_data['delist_date'], errors='coerce').dt.date
-            
-            # Add timestamps and version
-            now = datetime.now()
-            dim_data['created_at'] = now
-            dim_data['updated_at'] = now
-            dim_data['version'] = int(now.timestamp())
-            
-            dim_data = self._prepare_data_for_insert('dim_security', dim_data)
-            self.db.insert_dataframe('dim_security', dim_data)
-            
-            results['tables_loaded'].append({
-                'table': 'dim_security',
-                'records': len(dim_data)
-            })
-            results['total_records'] += len(dim_data)
-            self.logger.info(f"Loaded {len(dim_data)} records into dim_security")
+            # TODO: Load into DIM table (dim_security table needs to be created first)
+            # Skipping dim_security insertion for now as the table doesn't exist or has incorrect schema
+            self.logger.warning("Skipping dim_security insertion - table needs to be created with correct schema")
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")

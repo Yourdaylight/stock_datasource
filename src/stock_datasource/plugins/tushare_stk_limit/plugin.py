@@ -104,12 +104,20 @@ class TuShareStkLimitPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
-        # Ensure limit prices are numeric
+        # Convert numeric columns to proper types
         if 'up_limit' in data.columns:
             data['up_limit'] = pd.to_numeric(data['up_limit'], errors='coerce')
         
         if 'down_limit' in data.columns:
             data['down_limit'] = pd.to_numeric(data['down_limit'], errors='coerce')
+        
+        # Convert trade_date from YYYYMMDD string to date object
+        if 'trade_date' in data.columns:
+            data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d').dt.date
+        
+        # Add system columns
+        data['version'] = int(datetime.now().timestamp())
+        data['_ingested_at'] = datetime.now()
         
         self.logger.info(f"Transformed {len(data)} stock limit records")
         return data

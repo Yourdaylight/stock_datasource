@@ -342,7 +342,7 @@ class TuShareExtractor(BaseTuShareExtractor):
     
     def extract_all_data_for_date(self, trade_date: str, check_schedule: bool = True, 
                                  is_backfill: bool = False) -> Dict[str, pd.DataFrame]:
-        """Extract all available data for a specific date.
+        """Extract all available data for a specific date using concurrent execution.
         
         Args:
             trade_date: Trade date in YYYYMMDD format
@@ -357,6 +357,171 @@ class TuShareExtractor(BaseTuShareExtractor):
         from stock_datasource.core.plugin_manager import plugin_manager
         from stock_datasource.models.database import db_client
         from datetime import datetime
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+        
+        # Discover plugins if not already done
+        if not plugin_manager.plugins:
+            plugin_manager.discover_plugins()
+        
+        # Parse trade_date to datetime.date for schedule checking
+        trade_date_obj = datetime.strptime(trade_date, '%Y%m%d').date()
+        
+        data = {}
+        data_lock = threading.Lock()  # Thread-safe dictionary access
+        
+        def _extract_plugin_data(plugin_name: str) -> tuple:
+            """Extract data from a single plugin (for concurrent execution)."""
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                
+                if not plugin.is_enabled():
+                    logger.info(f"Plugin {plugin_name} is disabled, skipping")
+                    return (plugin_name, None, "disabled")
+                
+                if plugin.is_ignored():
+                    logger.info(f"Plugin {plugin_name} is ignored, skipping")
+                    return (plugin_name, None, "ignored")
+                
+                # Use plugin name as key (API name) for compatibility with loader
+                api_name = plugin_name.replace('tushare_', '')
+                
+                # Check schedule and data existence
+                should_skip_by_schedule = False
+                
+                # For backfill operations, always check if data exists regardless of schedule
+                if is_backfill:
+                    schema = plugin.get_schema()
+                    table_name = schema.get('table_name')
+                    
+                    if table_name and db_client.table_exists(table_name):
+                        try:
+                            # Check if data exists for this specific date
+                            if plugin_name in ['tushare_stock_basic']:
+                                # Stock basic doesn't have trade_date, check by record existence
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                            elif plugin_name == 'tushare_trade_calendar':
+                                # Trade calendar uses cal_date (YYYYMMDD format)
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                            else:
+                                # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
+                            
+                            result = db_client.execute_query(query)
+                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                            
+                            if record_count > 0:
+                                # Data exists for this date, skip extraction
+                                logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                return (plugin_name, None, "already_exists")
+                            else:
+                                # No data for this date, extract regardless of schedule
+                                logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                        except Exception as e:
+                            logger.warning(f"Failed to check table {table_name} for date {trade_date}: {e}, will extract")
+                    else:
+                        # Table doesn't exist, extract
+                        logger.info(f"Plugin {plugin_name} table doesn't exist, extracting for backfill")
+                elif check_schedule and not plugin.should_run_today(trade_date_obj):
+                    # For daily operations, use original logic
+                    schema = plugin.get_schema()
+                    table_name = schema.get('table_name')
+                    
+                    if table_name and db_client.table_exists(table_name):
+                        try:
+                            # Check if table has any data
+                            query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                            result = db_client.execute_query(query)
+                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                            
+                            if record_count > 0:
+                                # Table has data, skip based on schedule
+                                logger.info(f"Plugin {plugin_name} not scheduled for {trade_date} and table has data, skipping")
+                                return (plugin_name, None, "not_scheduled")
+                            else:
+                                # Table is empty, must extract
+                                logger.info(f"Plugin {plugin_name} not scheduled for {trade_date} but table is empty, extracting anyway")
+                        except Exception as e:
+                            logger.warning(f"Failed to check table {table_name} data count: {e}, will extract")
+                    else:
+                        # Table doesn't exist, skip
+                        logger.info(f"Plugin {plugin_name} not scheduled for {trade_date}, skipping")
+                        return (plugin_name, None, "not_scheduled")
+                
+                # Extract data using plugin
+                # Handle special cases for plugins that need different parameters
+                if plugin_name == 'tushare_trade_calendar':
+                    # Trade calendar needs date range
+                    extracted = plugin.extract_data(start_date=trade_date, end_date=trade_date)
+                elif plugin_name == 'tushare_stock_basic':
+                    # Stock basic doesn't need date
+                    extracted = plugin.extract_data()
+                else:
+                    # Other plugins use trade_date
+                    extracted = plugin.extract_data(trade_date=trade_date)
+                
+                logger.info(f"Extracted {api_name}: {len(extracted)} records")
+                return (plugin_name, extracted, "success")
+                
+            except Exception as e:
+                import traceback
+                logger.error(f"Failed to extract data from {plugin_name}: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return (plugin_name, pd.DataFrame(), "error")
+        
+        # Use ThreadPoolExecutor for concurrent plugin extraction
+        # Limit to 3 workers to avoid overwhelming the database connection
+        max_workers = min(3, len(plugin_manager.list_plugins()))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_extract_plugin_data, plugin_name): plugin_name 
+                for plugin_name in plugin_manager.list_plugins()
+            }
+            
+            for future in as_completed(futures):
+                try:
+                    plugin_name, extracted_data, status = future.result()
+                    api_name = plugin_name.replace('tushare_', '')
+                    
+                    if status == "success" and extracted_data is not None:
+                        with data_lock:
+                            data[api_name] = extracted_data
+                            logger.info(f"Plugin {plugin_name} ({api_name}): {len(extracted_data)} records, status={status}")
+                    elif status not in ["disabled", "ignored", "not_scheduled", "already_exists"]:
+                        with data_lock:
+                            data[api_name] = pd.DataFrame()
+                            logger.info(f"Plugin {plugin_name} ({api_name}): empty data, status={status}")
+                    else:
+                        logger.info(f"Plugin {plugin_name} ({api_name}): skipped, status={status}")
+                            
+                except Exception as e:
+                    logger.error(f"Error processing plugin result: {e}")
+        
+        logger.info(f"Concurrent extraction completed for {trade_date}, extracted {len(data)} data sources")
+        for api_name, df in data.items():
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                logger.info(f"  - {api_name}: {len(df)} records")
+        return data
+    
+    def _extract_plugin_data_sequential(self, trade_date: str, check_schedule: bool = True, 
+                                       is_backfill: bool = False) -> Dict[str, pd.DataFrame]:
+        """Legacy sequential extraction method (kept for backward compatibility).
+        
+        Args:
+            trade_date: Trade date in YYYYMMDD format
+            check_schedule: Whether to check plugin schedule before extraction
+            is_backfill: Whether this is a historical backfill operation
+        
+        Returns:
+            Dictionary with extracted data for each plugin
+        """
+        logger.info(f"Extracting all data for {trade_date} (sequential mode)")
+        
+        from stock_datasource.core.plugin_manager import plugin_manager
+        from stock_datasource.models.database import db_client
+        from datetime import datetime
         
         # Discover plugins if not already done
         if not plugin_manager.plugins:
@@ -367,12 +532,16 @@ class TuShareExtractor(BaseTuShareExtractor):
         
         data = {}
         
-        # Extract data from each enabled plugin
+        # Extract data from each enabled plugin (sequentially)
         for plugin_name in plugin_manager.list_plugins():
             plugin = plugin_manager.get_plugin(plugin_name)
             
             if not plugin.is_enabled():
                 logger.info(f"Plugin {plugin_name} is disabled, skipping")
+                continue
+            
+            if plugin.is_ignored():
+                logger.info(f"Plugin {plugin_name} is ignored, skipping")
                 continue
             
             # Use plugin name as key (API name) for compatibility with loader
@@ -393,11 +562,12 @@ class TuShareExtractor(BaseTuShareExtractor):
                                 # Stock basic doesn't have trade_date, check by record existence
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
                             elif plugin_name == 'tushare_trade_calendar':
-                                # Trade calendar uses cal_date
+                                # Trade calendar uses cal_date (YYYYMMDD format)
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
                             else:
-                                # Other tables use trade_date
-                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{trade_date}'"
+                                # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
                             
                             result = db_client.execute_query(query)
                             record_count = result['cnt'].values[0] if len(result) > 0 else 0

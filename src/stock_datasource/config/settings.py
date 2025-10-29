@@ -5,6 +5,10 @@ from pathlib import Path
 from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 from typing import Optional
+from dotenv import load_dotenv
+
+# Force load .env file, overriding system environment variables
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):
@@ -13,7 +17,9 @@ class Settings(BaseSettings):
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        case_sensitive=False,
+        env_prefix=""
     )
     
     # Project settings
@@ -60,3 +66,19 @@ settings = Settings()
 # Ensure directories exist
 settings.DATA_DIR.mkdir(exist_ok=True)
 settings.LOGS_DIR.mkdir(exist_ok=True)
+
+
+def reload_settings() -> Settings:
+    """Reload settings from .env file and environment variables.
+    
+    This function should be called when .env file is modified to ensure
+    the latest configuration is loaded.
+    
+    Returns:
+        Updated Settings instance
+    """
+    global settings
+    settings = Settings()
+    settings.DATA_DIR.mkdir(exist_ok=True)
+    settings.LOGS_DIR.mkdir(exist_ok=True)
+    return settings
