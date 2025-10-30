@@ -61,7 +61,16 @@ class IngestionService:
             # Validate extracted data
             for api_name, data in extracted_data.items():
                 if not data.empty:
-                    validation = self.extractor.validate_data_quality(data, trade_date)
+                    # Determine data type based on api_name
+                    data_type = None
+                    if api_name in ['stock_basic']:
+                        data_type = 'dimension'
+                    elif api_name in ['trade_calendar']:
+                        data_type = 'calendar'
+                    else:
+                        data_type = 'fact'
+                    
+                    validation = self.extractor.validate_data_quality(data, trade_date, data_type=data_type)
                     result['extraction'][api_name] = validation
                     logger.info(f"Extracted {api_name}: {validation}")
             
@@ -251,7 +260,16 @@ class IngestionService:
             # Validate extracted data
             for api_name, data in extracted_data.items():
                 if not data.empty:
-                    validation = self.extractor.validate_data_quality(data, trade_date)
+                    # Determine data type based on api_name
+                    data_type = None
+                    if api_name in ['stock_basic']:
+                        data_type = 'dimension'
+                    elif api_name in ['trade_calendar']:
+                        data_type = 'calendar'
+                    else:
+                        data_type = 'fact'
+                    
+                    validation = self.extractor.validate_data_quality(data, trade_date, data_type=data_type)
                     result['extraction'][api_name] = validation
                     logger.info(f"Extracted {api_name}: {validation}")
             

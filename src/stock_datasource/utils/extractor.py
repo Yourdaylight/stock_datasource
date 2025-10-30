@@ -386,6 +386,21 @@ class TuShareExtractor(BaseTuShareExtractor):
                 # Use plugin name as key (API name) for compatibility with loader
                 api_name = plugin_name.replace('tushare_', '')
                 
+                # Helper function to save CSV snapshot
+                def _save_csv_snapshot(data: pd.DataFrame, plugin_obj) -> None:
+                    """Save CSV snapshot for the plugin."""
+                    if data is None or data.empty:
+                        return
+                    try:
+                        from pathlib import Path
+                        plugin_dir = plugin_obj._get_plugin_dir()
+                        csv_file = plugin_dir / "latest_data.csv"
+                        data.to_csv(csv_file, index=False, encoding='utf-8')
+                        file_size = csv_file.stat().st_size
+                        logger.info(f"Saved CSV snapshot for {plugin_name}: {csv_file} ({file_size:,} bytes, {len(data)} rows)")
+                    except Exception as e:
+                        logger.warning(f"Failed to save CSV snapshot for {plugin_name}: {e}")
+                
                 # Check schedule and data existence
                 should_skip_by_schedule = False
                 
@@ -398,26 +413,45 @@ class TuShareExtractor(BaseTuShareExtractor):
                         try:
                             # Check if data exists for this specific date
                             if plugin_name in ['tushare_stock_basic']:
-                                # Stock basic doesn't have trade_date, check by record existence
+                                # Stock basic is dimension data - if table has any data, skip for all backfill dates
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Dimension data already exists, skip for backfill
+                                    logger.info(f"Plugin {plugin_name} is dimension data and already has {record_count} records, skipping for backfill")
+                                    return (plugin_name, None, "dimension_exists")
+                                else:
+                                    # No dimension data, extract once
+                                    logger.info(f"Plugin {plugin_name} is dimension data with no records, extracting for backfill")
                             elif plugin_name == 'tushare_trade_calendar':
                                 # Trade calendar uses cal_date (YYYYMMDD format)
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    return (plugin_name, None, "already_exists")
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                             else:
                                 # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
                                 formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
-                            
-                            result = db_client.execute_query(query)
-                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
-                            
-                            if record_count > 0:
-                                # Data exists for this date, skip extraction
-                                logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
-                                return (plugin_name, None, "already_exists")
-                            else:
-                                # No data for this date, extract regardless of schedule
-                                logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    return (plugin_name, None, "already_exists")
+                                else:
+                                    # No data for this date, extract regardless of schedule
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                         except Exception as e:
                             logger.warning(f"Failed to check table {table_name} for date {trade_date}: {e}, will extract")
                     else:
@@ -460,6 +494,9 @@ class TuShareExtractor(BaseTuShareExtractor):
                 else:
                     # Other plugins use trade_date
                     extracted = plugin.extract_data(trade_date=trade_date)
+                
+                # Save CSV snapshot immediately after extraction
+                _save_csv_snapshot(extracted, plugin)
                 
                 logger.info(f"Extracted {api_name}: {len(extracted)} records")
                 return (plugin_name, extracted, "success")
@@ -559,26 +596,45 @@ class TuShareExtractor(BaseTuShareExtractor):
                         try:
                             # Check if data exists for this specific date
                             if plugin_name in ['tushare_stock_basic']:
-                                # Stock basic doesn't have trade_date, check by record existence
+                                # Stock basic is dimension data - if table has any data, skip for all backfill dates
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Dimension data already exists, skip for backfill
+                                    logger.info(f"Plugin {plugin_name} is dimension data and already has {record_count} records, skipping for backfill")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No dimension data, extract once
+                                    logger.info(f"Plugin {plugin_name} is dimension data with no records, extracting for backfill")
                             elif plugin_name == 'tushare_trade_calendar':
                                 # Trade calendar uses cal_date (YYYYMMDD format)
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                             else:
                                 # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
                                 formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
-                            
-                            result = db_client.execute_query(query)
-                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
-                            
-                            if record_count > 0:
-                                # Data exists for this date, skip extraction
-                                logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
-                                should_skip_by_schedule = True
-                            else:
-                                # No data for this date, extract regardless of schedule
-                                logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract regardless of schedule
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                         except Exception as e:
                             logger.warning(f"Failed to check table {table_name} for date {trade_date}: {e}, will extract")
                     else:
@@ -626,6 +682,18 @@ class TuShareExtractor(BaseTuShareExtractor):
                     # Other plugins use trade_date
                     extracted = plugin.extract_data(trade_date=trade_date)
                 
+                # Save CSV snapshot immediately after extraction
+                if extracted is not None and not extracted.empty:
+                    try:
+                        from pathlib import Path
+                        plugin_dir = plugin._get_plugin_dir()
+                        csv_file = plugin_dir / "latest_data.csv"
+                        extracted.to_csv(csv_file, index=False, encoding='utf-8')
+                        file_size = csv_file.stat().st_size
+                        logger.info(f"Saved CSV snapshot for {plugin_name}: {csv_file} ({file_size:,} bytes, {len(extracted)} rows)")
+                    except Exception as e:
+                        logger.warning(f"Failed to save CSV snapshot for {plugin_name}: {e}")
+                
                 data[api_name] = extracted
                 logger.info(f"Extracted {api_name}: {len(extracted)} records")
                 
@@ -636,39 +704,74 @@ class TuShareExtractor(BaseTuShareExtractor):
         return data
     
     def validate_data_quality(self, data: pd.DataFrame, 
-                            expected_date: str) -> Dict[str, Any]:
-        """Basic data quality validation."""
+                            expected_date: str,
+                            data_type: str = None) -> Dict[str, Any]:
+        """Basic data quality validation with data-type-specific rules.
+        
+        Args:
+            data: DataFrame to validate
+            expected_date: Expected trade date in YYYYMMDD format
+            data_type: Type of data - 'dimension', 'calendar', or 'fact' (default)
+        
+        Returns:
+            Dictionary with validation results
+        """
         issues = []
         
         if data.empty:
             issues.append("DataFrame is empty")
             return {"valid": False, "issues": issues}
         
-        # Check for required columns
-        required_cols = ['ts_code', 'trade_date']
+        # Determine data type from columns if not specified
+        if data_type is None:
+            if 'cal_date' in data.columns and 'is_open' in data.columns:
+                data_type = 'calendar'
+            elif 'trade_date' not in data.columns and 'ts_code' in data.columns:
+                data_type = 'dimension'
+            else:
+                data_type = 'fact'
+        
+        # Check for required columns based on data type
+        if data_type == 'dimension':
+            # Dimension data (e.g., stock_basic): requires ts_code but not trade_date
+            required_cols = ['ts_code']
+        elif data_type == 'calendar':
+            # Calendar data (e.g., trade_calendar): requires cal_date and is_open
+            required_cols = ['cal_date', 'is_open']
+        else:
+            # Fact data (e.g., daily, daily_basic): requires ts_code and trade_date
+            required_cols = ['ts_code', 'trade_date']
+        
         missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             issues.append(f"Missing required columns: {missing_cols}")
         
-        # Check date consistency
-        if 'trade_date' in data.columns:
+        # Check date consistency for fact data
+        if data_type == 'fact' and 'trade_date' in data.columns:
             unique_dates = data['trade_date'].unique()
             if len(unique_dates) > 1:
                 issues.append(f"Multiple trade dates found: {unique_dates}")
             elif len(unique_dates) == 1 and unique_dates[0] != expected_date:
                 issues.append(f"Trade date mismatch: expected {expected_date}, got {unique_dates[0]}")
         
+        # Check date consistency for calendar data
+        if data_type == 'calendar' and 'cal_date' in data.columns:
+            unique_dates = data['cal_date'].unique()
+            if len(unique_dates) > 1:
+                issues.append(f"Multiple calendar dates found: {unique_dates}")
+        
         # Check for null values in key fields
         if 'ts_code' in data.columns:
             null_codes = data['ts_code'].isnull().sum()
-            if null_codes > 0:
+            if null_codes != 0:
                 issues.append(f"Found {null_codes} null ts_code values")
         
         return {
             "valid": len(issues) == 0,
             "issues": issues,
             "record_count": len(data),
-            "column_count": len(data.columns)
+            "column_count": len(data.columns),
+            "data_type": data_type
         }
 
 

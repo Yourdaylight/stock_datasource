@@ -4,7 +4,7 @@
   "columns": [
     {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
     {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
-    {"name": "suspend_time", "data_type": "Nullable(String)", "nullable": true, "comment": "停牌时间"},
+    {"name": "suspend_timing", "data_type": "Nullable(String)", "nullable": true, "comment": "停牌时间"},
     {"name": "suspend_type", "data_type": "Nullable(String)", "nullable": true, "comment": "停牌类型"},
     {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
     {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}

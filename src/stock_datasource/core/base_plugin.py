@@ -100,6 +100,44 @@ class BasePlugin(ABC):
                 self._schema = self._get_default_schema()
         return self._schema
     
+    def get_schemas(self) -> List[Dict[str, Any]]:
+        """Get all table schemas from plugin directory.
+        
+        Supports multiple schema files:
+        - schema.json (primary ODS table)
+        - *_schema.json (additional tables like FACT/DIM)
+        
+        Returns:
+            List of schema dictionaries
+        """
+        schemas = []
+        plugin_dir = self._get_plugin_dir()
+        
+        # Load primary schema.json
+        schema_file = plugin_dir / "schema.json"
+        if schema_file.exists():
+            try:
+                with open(schema_file, 'r', encoding='utf-8') as f:
+                    schemas.append(json.load(f))
+            except Exception as e:
+                self.logger.warning(f"Failed to load schema.json: {e}")
+        
+        # Load additional *_schema.json files
+        for schema_file in plugin_dir.glob("*_schema.json"):
+            try:
+                with open(schema_file, 'r', encoding='utf-8') as f:
+                    schema_dict = json.load(f)
+                    schemas.append(schema_dict)
+                    self.logger.info(f"Loaded additional schema: {schema_file.name}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load {schema_file.name}: {e}")
+        
+        if not schemas:
+            # Fall back to default schema
+            schemas.append(self._get_default_schema())
+        
+        return schemas
+    
     def _get_default_schema(self) -> Dict[str, Any]:
         """Get default schema if schema.json doesn't exist."""
         raise NotImplementedError(f"Plugin {self.name} must implement get_schema() or provide schema.json")
@@ -288,8 +326,13 @@ class BasePlugin(ABC):
                 "records": len(data) if hasattr(data, '__len__') else 0
             }
             
-            # Step 4: Load
-            self.logger.info(f"[{self.name}] Step 4: Loading data")
+            # Step 4: Save CSV snapshot before loading
+            self.logger.info(f"[{self.name}] Step 4a: Saving CSV snapshot")
+            csv_result = self._save_csv_snapshot(data)
+            result['steps']['save_csv'] = csv_result
+            
+            # Step 5: Load
+            self.logger.info(f"[{self.name}] Step 5: Loading data")
             load_result = self.load_data(data)
             result['steps']['load'] = load_result
             
@@ -364,6 +407,43 @@ class BasePlugin(ABC):
                     self.logger.error(f"Found {null_count} null values in {col}")
                     return False
         return True
+    
+    def _save_csv_snapshot(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Save a CSV snapshot of the data before loading into database.
+        
+        The CSV file is saved in the plugin directory and overwritten each time.
+        This allows for data inspection before database insertion.
+        
+        Args:
+            data: DataFrame to save as CSV
+        
+        Returns:
+            Dict with save status and file path
+        """
+        try:
+            # Get plugin directory
+            plugin_dir = self._get_plugin_dir()
+            csv_file = plugin_dir / "latest_data.csv"
+            
+            # Save CSV (overwrite existing)
+            data.to_csv(csv_file, index=False, encoding='utf-8')
+            
+            file_size = csv_file.stat().st_size
+            self.logger.info(f"Saved CSV snapshot: {csv_file} ({file_size:,} bytes, {len(data)} rows)")
+            
+            return {
+                "status": "success",
+                "file_path": str(csv_file),
+                "file_size": file_size,
+                "rows": len(data),
+                "columns": len(data.columns)
+            }
+        except Exception as e:
+            self.logger.warning(f"Failed to save CSV snapshot: {e}")
+            return {
+                "status": "failed",
+                "error": str(e)
+            }
     
     def _prepare_data_for_insert(self, table_name: str, data: pd.DataFrame) -> pd.DataFrame:
         """Prepare data for insertion by ensuring column order matches table schema.

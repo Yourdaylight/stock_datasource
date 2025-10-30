@@ -149,7 +149,7 @@ class ClickHouseClient:
         """
         df = self.execute_query(query)
         # clickhouse-connect returns DataFrame with native types
-        return df.iloc[0][0] > 0
+        return df.iloc[0, 0] > 0
     
     def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
         """Get table schema information."""

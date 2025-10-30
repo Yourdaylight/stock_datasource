@@ -106,6 +106,11 @@ class DataLoader:
         # Transform data for dim_security
         dim_data = stock_basic_data.copy()
         
+        # Add system columns first (before selecting columns)
+        now = datetime.now()
+        dim_data['version'] = int(now.timestamp())
+        dim_data['_ingested_at'] = now
+        
         # Ensure all required columns exist
         required_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'market', 
                            'list_date', 'delist_date', 'list_status']
@@ -126,7 +131,7 @@ class DataLoader:
                 else:
                     logger.warning(f"Missing required column {col} in stock basic data")
         
-        # Select only required columns
+        # Select only required columns (including system columns)
         dim_data = dim_data[required_columns + ['version', '_ingested_at']]
         
         # Convert date formats
