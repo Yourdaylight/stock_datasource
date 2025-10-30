@@ -1,0 +1,17 @@
+{
+    "sqltools.connections": [
+        {
+            "server": "http://129.28.41.236",
+            "port": 8123,
+            "database": "default",
+            "useJWT": false,
+            "requestTimeout": 30000,
+            "enableTls": false,
+            "previewLimit": 50,
+            "password": "2baeda979f264882a77293a2695cf7d3bd731fe2",
+            "username": "default",
+            "driver": "ClickHouse",
+            "name": "129.28.41.236"
+        }
+    ]
+}

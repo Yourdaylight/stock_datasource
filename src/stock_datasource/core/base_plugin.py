@@ -100,6 +100,44 @@ class BasePlugin(ABC):
                 self._schema = self._get_default_schema()
         return self._schema
     
+    def get_schemas(self) -> List[Dict[str, Any]]:
+        """Get all table schemas from plugin directory.
+        
+        Supports multiple schema files:
+        - schema.json (primary ODS table)
+        - *_schema.json (additional tables like FACT/DIM)
+        
+        Returns:
+            List of schema dictionaries
+        """
+        schemas = []
+        plugin_dir = self._get_plugin_dir()
+        
+        # Load primary schema.json
+        schema_file = plugin_dir / "schema.json"
+        if schema_file.exists():
+            try:
+                with open(schema_file, 'r', encoding='utf-8') as f:
+                    schemas.append(json.load(f))
+            except Exception as e:
+                self.logger.warning(f"Failed to load schema.json: {e}")
+        
+        # Load additional *_schema.json files
+        for schema_file in plugin_dir.glob("*_schema.json"):
+            try:
+                with open(schema_file, 'r', encoding='utf-8') as f:
+                    schema_dict = json.load(f)
+                    schemas.append(schema_dict)
+                    self.logger.info(f"Loaded additional schema: {schema_file.name}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load {schema_file.name}: {e}")
+        
+        if not schemas:
+            # Fall back to default schema
+            schemas.append(self._get_default_schema())
+        
+        return schemas
+    
     def _get_default_schema(self) -> Dict[str, Any]:
         """Get default schema if schema.json doesn't exist."""
         raise NotImplementedError(f"Plugin {self.name} must implement get_schema() or provide schema.json")
@@ -139,6 +177,18 @@ class BasePlugin(ABC):
         """Check if plugin is enabled."""
         config = self.get_config()
         return config.get("enabled", True)
+    
+    def is_ignored(self) -> bool:
+        """Check if plugin should be ignored in CLI execution.
+        
+        When a plugin is ignored, it won't be triggered by default CLI commands
+        like ingest-daily or backfill, but can still be executed manually.
+        
+        Returns:
+            True if plugin should be ignored, False otherwise (default)
+        """
+        config = self.get_config()
+        return config.get("ignore", False)
     
     def get_rate_limit(self) -> int:
         """Get plugin-specific rate limit."""
@@ -276,8 +326,13 @@ class BasePlugin(ABC):
                 "records": len(data) if hasattr(data, '__len__') else 0
             }
             
-            # Step 4: Load
-            self.logger.info(f"[{self.name}] Step 4: Loading data")
+            # Step 4: Save CSV snapshot before loading
+            self.logger.info(f"[{self.name}] Step 4a: Saving CSV snapshot")
+            csv_result = self._save_csv_snapshot(data)
+            result['steps']['save_csv'] = csv_result
+            
+            # Step 5: Load
+            self.logger.info(f"[{self.name}] Step 5: Loading data")
             load_result = self.load_data(data)
             result['steps']['load'] = load_result
             
@@ -353,44 +408,86 @@ class BasePlugin(ABC):
                     return False
         return True
     
+    def _save_csv_snapshot(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Save a CSV snapshot of the data before loading into database.
+        
+        The CSV file is saved in the plugin directory and overwritten each time.
+        This allows for data inspection before database insertion.
+        
+        Args:
+            data: DataFrame to save as CSV
+        
+        Returns:
+            Dict with save status and file path
+        """
+        try:
+            # Get plugin directory
+            plugin_dir = self._get_plugin_dir()
+            csv_file = plugin_dir / "latest_data.csv"
+            
+            # Save CSV (overwrite existing)
+            data.to_csv(csv_file, index=False, encoding='utf-8')
+            
+            file_size = csv_file.stat().st_size
+            self.logger.info(f"Saved CSV snapshot: {csv_file} ({file_size:,} bytes, {len(data)} rows)")
+            
+            return {
+                "status": "success",
+                "file_path": str(csv_file),
+                "file_size": file_size,
+                "rows": len(data),
+                "columns": len(data.columns)
+            }
+        except Exception as e:
+            self.logger.warning(f"Failed to save CSV snapshot: {e}")
+            return {
+                "status": "failed",
+                "error": str(e)
+            }
+    
     def _prepare_data_for_insert(self, table_name: str, data: pd.DataFrame) -> pd.DataFrame:
-        """Prepare data for insertion by ensuring type compatibility.
+        """Prepare data for insertion by ensuring column order matches table schema.
+        
+        NOTE: Type conversion should be done in transform_data(), not here.
+        This method only ensures column order matches the table schema.
         
         Args:
             table_name: Name of the target table
-            data: DataFrame to prepare
+            data: DataFrame to prepare (already type-converted in transform_data)
         
         Returns:
-            DataFrame with types converted according to table schema
+            DataFrame with columns reordered to match table schema
         """
         if not self.db:
-            self.logger.warning(f"Database not initialized, skipping type conversion for {table_name}")
+            self.logger.warning(f"Database not initialized, skipping schema check for {table_name}")
             return data
         
         try:
             schema = self.db.get_table_schema(table_name)
-            schema_dict = {col['column_name']: col['data_type'] for col in schema}
-            
-            for col_name in data.columns:
-                if col_name not in schema_dict:
-                    continue
+            # Handle both dict formats (column_name or name)
+            if schema and len(schema) > 0:
+                first_col = schema[0]
+                # Try different possible key names
+                if 'column_name' in first_col:
+                    col_key = 'column_name'
+                elif 'name' in first_col:
+                    col_key = 'name'
+                else:
+                    # If neither key exists, log available keys and skip reordering
+                    self.logger.warning(f"Unknown schema format for {table_name}, available keys: {list(first_col.keys())}")
+                    return data
                 
-                target_type = schema_dict[col_name]
+                schema_columns = [col[col_key] for col in schema]
                 
-                # Handle date conversions
-                if 'Date' in target_type and col_name in data.columns:
-                    try:
-                        data[col_name] = pd.to_datetime(data[col_name], format='%Y%m%d').dt.date
-                    except Exception as e:
-                        self.logger.warning(f"Failed to convert {col_name} to date: {e}")
-                        data[col_name] = pd.to_datetime(data[col_name]).dt.date
+                # Reorder columns to match schema (only include columns that exist in both)
+                available_columns = [col for col in schema_columns if col in data.columns]
+                data = data[available_columns]
                 
-                # Handle numeric conversions
-                elif 'Float64' in target_type or 'Int64' in target_type:
-                    if col_name in data.columns:
-                        data[col_name] = pd.to_numeric(data[col_name], errors='coerce')
+                self.logger.debug(f"Prepared {len(data)} rows with {len(available_columns)} columns for {table_name}")
         
         except Exception as e:
-            self.logger.warning(f"Failed to prepare data for {table_name}: {e}")
+            import traceback
+            self.logger.warning(f"Failed to prepare data for {table_name}: {e}, using original column order")
+            self.logger.debug(f"Traceback: {traceback.format_exc()}")
         
         return data

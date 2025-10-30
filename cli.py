@@ -3,23 +3,38 @@
 import click
 from datetime import datetime, timedelta
 import sys
+import os
 from pathlib import Path
 from typing import Dict, Any
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
+# Clear cached ClickHouse environment variables to ensure .env file is loaded fresh
+# This is critical because pydantic-settings prioritizes environment variables over .env
+# Only clear ClickHouse-related variables, keep others like TUSHARE_TOKEN
+env_vars_to_clear = [
+    'CLICKHOUSE_HOST', 'CLICKHOUSE_PORT', 'CLICKHOUSE_USER', 
+    'CLICKHOUSE_PASSWORD', 'CLICKHOUSE_DATABASE'
+]
+for var in env_vars_to_clear:
+    os.environ.pop(var, None)
+
 from stock_datasource.services.ingestion import ingestion_service
 from stock_datasource.services.metadata import metadata_service
 from stock_datasource.utils.schema_manager import schema_manager
 from stock_datasource.utils.logger import logger
-from stock_datasource.config.settings import settings
+from stock_datasource.config.settings import settings, reload_settings
 
 
 @click.group()
 def cli():
     """Stock Data Source CLI - Local financial database for A-share/HK stocks."""
-    pass
+    # Reload settings to ensure latest .env configuration is loaded
+    reload_settings()
+    # Reconnect database with new settings
+    from stock_datasource.models.database import db_client
+    db_client.reconnect()
 
 
 @cli.command()
@@ -32,6 +47,12 @@ def init_db(table, timeout):
     
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Database initialization timed out after {timeout} seconds")
+    
+    # Reload settings and reconnect to database
+    from stock_datasource.models.database import db_client
+    from stock_datasource.config.settings import reload_settings
+    reload_settings()
+    db_client.reconnect()
     
     # Set timeout
     signal.signal(signal.SIGALRM, timeout_handler)
@@ -53,23 +74,33 @@ def init_db(table, timeout):
             
             # Try to load from plugins first
             plugin_manager.discover_plugins()
-            plugin = plugin_manager.get_plugin(table)
-            if plugin:
-                click.echo(f"Creating table: {table} (from plugin)")
-                schema_dict = plugin.get_schema()
-                # Convert dict to TableSchema object
-                schema = _dict_to_schema(schema_dict)
-                schema_manager.create_table_from_schema(schema)
-                click.echo(f"✓ Table {table} created successfully")
-            elif table in PREDEFINED_SCHEMAS:
+            
+            # Search in all plugins for the table
+            table_found = False
+            for plugin_name in plugin_manager.list_plugins():
+                plugin = plugin_manager.get_plugin(plugin_name)
+                schema_dicts = plugin.get_schemas()
+                for schema_dict in schema_dicts:
+                    if schema_dict['table_name'] == table:
+                        click.echo(f"Creating table: {table} (from plugin {plugin_name})")
+                        schema = _dict_to_schema(schema_dict)
+                        schema_manager.create_table_from_schema(schema)
+                        click.echo(f"✓ Table {table} created successfully")
+                        table_found = True
+                        break
+                if table_found:
+                    break
+            
+            if not table_found:
                 # Fall back to metadata schemas
-                schema = PREDEFINED_SCHEMAS[table]
-                click.echo(f"Creating table: {table} (metadata)")
-                schema_manager.create_table_from_schema(schema)
-                click.echo(f"✓ Table {table} created successfully")
-            else:
-                click.echo(f"✗ Table {table} not found in plugins or predefined schemas", err=True)
-                return
+                if table in PREDEFINED_SCHEMAS:
+                    schema = PREDEFINED_SCHEMAS[table]
+                    click.echo(f"Creating table: {table} (metadata)")
+                    schema_manager.create_table_from_schema(schema)
+                    click.echo(f"✓ Table {table} created successfully")
+                else:
+                    click.echo(f"✗ Table {table} not found in plugins or predefined schemas", err=True)
+                    return
         else:
             # Create all plugin tables + metadata tables
             from stock_datasource.core.plugin_manager import plugin_manager
@@ -82,12 +113,14 @@ def init_db(table, timeout):
             for plugin_name in plugin_manager.list_plugins():
                 try:
                     plugin = plugin_manager.get_plugin(plugin_name)
-                    schema_dict = plugin.get_schema()
-                    # Convert dict to TableSchema object
-                    schema = _dict_to_schema(schema_dict)
-                    click.echo(f"Creating table: {schema.table_name}")
-                    schema_manager.create_table_from_schema(schema)
-                    click.echo(f"✓ Table {schema.table_name} created successfully")
+                    # Get all schemas from plugin (supports multiple schema files)
+                    schema_dicts = plugin.get_schemas()
+                    for schema_dict in schema_dicts:
+                        # Convert dict to TableSchema object
+                        schema = _dict_to_schema(schema_dict)
+                        click.echo(f"Creating table: {schema.table_name} (from {plugin_name})")
+                        schema_manager.create_table_from_schema(schema)
+                        click.echo(f"✓ Table {schema.table_name} created successfully")
                 except Exception as e:
                     click.echo(f"✗ Failed to create table for {plugin_name}: {e}", err=True)
             
@@ -125,6 +158,10 @@ def ingest_daily(date, no_quality_checks, ignore_schedule):
     click.echo(f"Ingesting daily data for {date}...")
     
     try:
+        # Ensure all tables exist before ingesting
+        click.echo("Checking database tables...")
+        _ensure_tables_exist(silent=True)
+        
         result = ingestion_service.ingest_daily_data(
             trade_date=date,
             run_quality_checks=not no_quality_checks,
@@ -156,6 +193,17 @@ def backfill(start_date, end_date, no_quality_checks):
     click.echo(f"Backfilling data from {start_date} to {end_date}...")
     
     try:
+        # Reload settings and reconnect to database
+        from stock_datasource.models.database import db_client
+        from stock_datasource.config.settings import reload_settings
+        reload_settings()
+        db_client.reconnect()
+        
+        # Ensure all tables exist before backfilling
+        click.echo("Checking database tables...")
+        _ensure_tables_exist(silent=False)
+        click.echo("")
+        
         result = ingestion_service.backfill_data(
             start_date=start_date,
             end_date=end_date,
@@ -368,6 +416,85 @@ def _dict_to_schema(schema_dict: dict) -> Any:
     return schema
 
 
+def _ensure_tables_exist(silent: bool = False) -> None:
+    """
+    Ensure all required tables exist, create them if not.
+    
+    Args:
+        silent: If True, suppress output messages
+    """
+    from stock_datasource.models.database import db_client
+    from stock_datasource.core.plugin_manager import plugin_manager
+    from stock_datasource.models.schemas import PREDEFINED_SCHEMAS
+    
+    try:
+        # Create database if not exists
+        db_client.create_database(settings.CLICKHOUSE_DATABASE)
+        if not silent:
+            click.echo("✓ Database ready")
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Create all plugin tables
+        tables_created = 0
+        tables_existed = 0
+        
+        for plugin_name in plugin_manager.list_plugins():
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                schema_dicts = plugin.get_schemas()
+                
+                for schema_dict in schema_dicts:
+                    table_name = schema_dict['table_name']
+                    
+                    # Check if table exists
+                    if db_client.table_exists(table_name):
+                        tables_existed += 1
+                        continue
+                    
+                    # Create table
+                    schema = _dict_to_schema(schema_dict)
+                    schema_manager.create_table_from_schema(schema)
+                    tables_created += 1
+                    if not silent:
+                        click.echo(f"✓ Created table: {table_name}")
+                        
+            except Exception as e:
+                if not silent:
+                    click.echo(f"✗ Failed to process plugin {plugin_name}: {e}", err=True)
+                logger.error(f"Failed to process plugin {plugin_name}: {e}")
+        
+        # Create metadata tables
+        for table_name, schema in PREDEFINED_SCHEMAS.items():
+            try:
+                if db_client.table_exists(table_name):
+                    tables_existed += 1
+                    continue
+                
+                schema_manager.create_table_from_schema(schema)
+                tables_created += 1
+                if not silent:
+                    click.echo(f"✓ Created metadata table: {table_name}")
+                    
+            except Exception as e:
+                if not silent:
+                    click.echo(f"✗ Failed to create metadata table {table_name}: {e}", err=True)
+                logger.error(f"Failed to create metadata table {table_name}: {e}")
+        
+        if not silent:
+            if tables_created > 0:
+                click.echo(f"✓ Created {tables_created} new table(s), {tables_existed} already existed")
+            else:
+                click.echo(f"✓ All tables ready ({tables_existed} tables)")
+                
+    except Exception as e:
+        if not silent:
+            click.echo(f"✗ Failed to ensure tables exist: {e}", err=True)
+        logger.error(f"Failed to ensure tables exist: {e}")
+        raise
+
+
 @cli.command()
 @click.option('--list-status', default='L', help='List status: L(listed), D(delisted), P(paused) (default: L)')
 def load_stock_basic(list_status):
@@ -529,5 +656,93 @@ def load_hk_daily(symbol, start_date, end_date):
         sys.exit(1)
 
 
+@cli.command()
+@click.option('--plugin', help='Plugin name to test')
+@click.option('--date', default='20251015', help='Trade date in YYYYMMDD format (default: 20251015)')
+def test_plugin(plugin, date):
+    """Test a specific plugin's complete data flow (extract -> load -> verify)."""
+    from stock_datasource.core.plugin_manager import plugin_manager
+    from stock_datasource.models.database import db_client
+    import pandas as pd
+    
+    # Discover plugins
+    plugin_manager.discover_plugins()
+    available_plugins = plugin_manager.list_plugins()
+    
+    if not available_plugins:
+        click.echo("✗ No plugins found", err=True)
+        sys.exit(1)
+    
+    if not plugin:
+        click.echo("Available plugins:")
+        for p in sorted(available_plugins):
+            click.echo(f"  - {p}")
+        click.echo("\nUsage: cli.py test-plugin --plugin <plugin_name> --date <YYYYMMDD>")
+        return
+    
+    if plugin not in available_plugins:
+        click.echo(f"✗ Plugin '{plugin}' not found. Available: {', '.join(sorted(available_plugins))}", err=True)
+        sys.exit(1)
+    
+    click.echo(f"Testing plugin: {plugin}")
+    click.echo(f"Trade date: {date}")
+    click.echo("=" * 60)
+    
+    try:
+        # Run complete plugin pipeline (extract -> validate -> transform -> load)
+        click.echo("\nRunning plugin pipeline (extract -> validate -> transform -> load)...")
+        plugin_obj = plugin_manager.get_plugin(plugin)
+        
+        # Determine parameters based on plugin type
+        if plugin == 'tushare_trade_calendar':
+            params = {'start_date': date, 'end_date': date}
+        elif plugin == 'tushare_stock_basic':
+            params = {}
+        else:
+            params = {'trade_date': date}
+        
+        # Run the plugin
+        result = plugin_obj.run(**params)
+        
+        # Display results
+        click.echo(f"\nPlugin: {result['plugin']}")
+        click.echo(f"Status: {result['status']}")
+        click.echo(f"Parameters: {result.get('parameters', {})}")
+        
+        # Show step details
+        for step_name, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step_name:15} : {status:10} ({records} records)")
+        
+        # Check for errors
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"\n✗ Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        # Verify data in database
+        click.echo("\nVerifying data in database...")
+        schema = plugin_obj.get_schema()
+        table_name = schema.get('table_name') or schema.get('name')
+        
+        from stock_datasource.config.settings import settings
+        verify_query = f"SELECT COUNT(*) as count FROM {settings.CLICKHOUSE_DATABASE}.{table_name}"
+        verify_result = db_client.execute_query(verify_query)
+        if not verify_result.empty:
+            db_count = verify_result.iloc[0]['count']
+            click.echo(f"✓ Database contains {db_count} total records in '{table_name}'")
+        
+        click.echo("\n" + "=" * 60)
+        click.echo("✓ Plugin test completed successfully")
+        
+    except Exception as e:
+        click.echo(f"\n✗ Plugin test failed: {e}", err=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     cli()
+

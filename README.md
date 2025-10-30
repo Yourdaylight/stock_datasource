@@ -10,6 +10,8 @@
 - **自动化编排**：Airflow DAG 支持定时任务
 - **多层数据质量**：ODS → DM/Fact → Metadata 三层架构
 - **幂等性保证**：ReplacingMergeTree 引擎确保数据一致性
+- **CSV快照功能**：每次数据提取自动保存CSV文件，便于Schema定义和数据检查
+- **多Schema支持**：一个插件可定义多个表（ODS + FACT/DIM）
 - **可扩展架构**：易于添加新的数据源和插件
 
 ## 🚀 快速开始

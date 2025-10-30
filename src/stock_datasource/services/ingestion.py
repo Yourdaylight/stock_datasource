@@ -61,7 +61,16 @@ class IngestionService:
             # Validate extracted data
             for api_name, data in extracted_data.items():
                 if not data.empty:
-                    validation = self.extractor.validate_data_quality(data, trade_date)
+                    # Determine data type based on api_name
+                    data_type = None
+                    if api_name in ['stock_basic']:
+                        data_type = 'dimension'
+                    elif api_name in ['trade_calendar']:
+                        data_type = 'calendar'
+                    else:
+                        data_type = 'fact'
+                    
+                    validation = self.extractor.validate_data_quality(data, trade_date, data_type=data_type)
                     result['extraction'][api_name] = validation
                     logger.info(f"Extracted {api_name}: {validation}")
             
@@ -141,8 +150,10 @@ class IngestionService:
         }
         
         try:
-            # Get trading calendar
-            trade_cal = self.extractor.get_trade_calendar(start_date, end_date)
+            # Get trading calendar (normalize dates for API expectations)
+            calendar_start = self._normalize_dash_date(start_date)
+            calendar_end = self._normalize_dash_date(end_date)
+            trade_cal = self.extractor.get_trade_calendar(calendar_start, calendar_end)
             trade_dates = trade_cal[trade_cal['is_open'] == 1]['cal_date'].tolist()
             
             result['summary']['total_dates'] = len(trade_dates)
@@ -196,6 +207,21 @@ class IngestionService:
             result['duration_seconds'] = (result['end_time'] - result['start_time']).total_seconds()
             return result
     
+    @staticmethod
+    def _normalize_dash_date(date_str: str) -> str:
+        """Convert YYYYMMDD to YYYY-MM-DD while accepting already dashed strings."""
+        if not date_str:
+            return date_str
+        if '-' in date_str:
+            return date_str
+        cleaned = date_str.strip()
+        if len(cleaned) == 8 and cleaned.isdigit():
+            try:
+                return datetime.strptime(cleaned, "%Y%m%d").strftime("%Y-%m-%d")
+            except ValueError:
+                logger.warning(f"Unable to normalize date string: {date_str}")
+        return date_str
+
     def _ingest_daily_data_backfill(self, trade_date: str, 
                                    run_quality_checks: bool = True) -> Dict[str, Any]:
         """
@@ -234,7 +260,16 @@ class IngestionService:
             # Validate extracted data
             for api_name, data in extracted_data.items():
                 if not data.empty:
-                    validation = self.extractor.validate_data_quality(data, trade_date)
+                    # Determine data type based on api_name
+                    data_type = None
+                    if api_name in ['stock_basic']:
+                        data_type = 'dimension'
+                    elif api_name in ['trade_calendar']:
+                        data_type = 'calendar'
+                    else:
+                        data_type = 'fact'
+                    
+                    validation = self.extractor.validate_data_quality(data, trade_date, data_type=data_type)
                     result['extraction'][api_name] = validation
                     logger.info(f"Extracted {api_name}: {validation}")
             
