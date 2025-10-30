@@ -81,146 +81,26 @@ class TuShareExtractor(BaseTuShareExtractor):
     
     def get_trade_calendar(self, start_date: str, end_date: str, 
                           exchange: str = "SSE") -> pd.DataFrame:
-        """Get trading calendar with robust handling of TuShare API limitations."""
-        return self._get_trade_calendar_robust(start_date, end_date, exchange)
-    
-    def _get_trade_calendar_robust(self, start_date: str, end_date: str, 
-                                  exchange: str = "SSE") -> pd.DataFrame:
+        """Get trading calendar - prioritize CSV reading over API calls.
+        
+        Strategy:
+        1. Check if CSV contains data up to end_date
+        2. If yes, read from CSV directly
+        3. If no, fall back to API call (for future extension)
         """
-        Robust trade calendar fetching that handles TuShare API quirks.
+        from stock_datasource.utils.trade_calendar_manager import get_trade_calendar_manager
         
-        TuShare trade_cal API behavior:
-        - Single year requests: Always return empty data
-        - Multi-year requests: Return data for recent complete years in range
-        - Requires strategic date range construction to get data
-        """
-        from datetime import datetime, timedelta
-        import pandas as pd
+        # Get trade calendar manager
+        cal_manager = get_trade_calendar_manager()
         
-        # Parse dates
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        # Normalize end_date to YYYYMMDD format for comparison
+        end_date_norm = end_date.replace('-', '')
         
-        # Strategy 1: Try the original request first (works for some multi-year ranges)
-        try:
-            result = self._call_api(
-                self.pro.trade_cal,
-                exchange=exchange,
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            if not result.empty:
-                # Filter to the requested date range
-                result_filtered = result[
-                    (result['cal_date'] >= start_date.replace('-', '')) &
-                    (result['cal_date'] <= end_date.replace('-', ''))
-                ]
-                if not result_filtered.empty:
-                    logger.info(f"Trade calendar: got {len(result_filtered)} records for {start_date} to {end_date}")
-                    return result_filtered
-        except Exception as e:
-            logger.warning(f"Direct trade calendar request failed: {e}")
-        
-        # Strategy 2: For single year requests, try extending to multi-year
-        start_year = start_dt.year
-        end_year = end_dt.year
-        
-        if start_year == end_year:
-            # Single year request - extend to multi-year to work around API limitation
-            extended_end = f"{end_year + 1}-12-31"
-            logger.info(f"Single year request detected, extending range to {extended_end}")
-            
-            try:
-                result = self._call_api(
-                    self.pro.trade_cal,
-                    exchange=exchange,
-                    start_date=start_date,
-                    end_date=extended_end
-                )
-                
-                if not result.empty:
-                    # Filter to the original requested range
-                    result_filtered = result[
-                        (result['cal_date'] >= start_date.replace('-', '')) &
-                        (result['cal_date'] <= end_date.replace('-', ''))
-                    ]
-                    if not result_filtered.empty:
-                        logger.info(f"Trade calendar (extended): got {len(result_filtered)} records for {start_date} to {end_date}")
-                        return result_filtered
-            except Exception as e:
-                logger.warning(f"Extended trade calendar request failed: {e}")
-        
-        # Strategy 3: Try year-by-year chunking
-        logger.info(f"Trying year-by-year chunking for {start_date} to {end_date}")
-        all_data = []
-        
-        for year in range(start_year, end_year + 1):
-            year_start = f"{year}-01-01"
-            year_end = f"{year + 1}-12-31"  # Extend to next year to work around API
-            
-            try:
-                year_result = self._call_api(
-                    self.pro.trade_cal,
-                    exchange=exchange,
-                    start_date=year_start,
-                    end_date=year_end
-                )
-                
-                if not year_result.empty:
-                    # Filter to this year only
-                    year_filtered = year_result[
-                        (year_result['cal_date'] >= f"{year}0101") &
-                        (year_result['cal_date'] <= f"{year}1231")
-                    ]
-                    if not year_filtered.empty:
-                        all_data.append(year_filtered)
-                        logger.info(f"Trade calendar (year {year}): got {len(year_filtered)} records")
-                        
-            except Exception as e:
-                logger.warning(f"Trade calendar request for year {year} failed: {e}")
-        
-        if all_data:
-            combined = pd.concat(all_data, ignore_index=True)
-            # Final filter to exact requested range
-            final_result = combined[
-                (combined['cal_date'] >= start_date.replace('-', '')) &
-                (combined['cal_date'] <= end_date.replace('-', ''))
-            ]
-            logger.info(f"Trade calendar (combined): got {len(final_result)} records for {start_date} to {end_date}")
-            return final_result
-        
-        # Strategy 4: Fallback - create a basic calendar (weekdays only)
-        logger.warning(f"All trade calendar strategies failed, creating basic weekday calendar for {start_date} to {end_date}")
-        return self._create_fallback_calendar(start_date, end_date, exchange)
-    
-    def _create_fallback_calendar(self, start_date: str, end_date: str, 
-                                 exchange: str = "SSE") -> pd.DataFrame:
-        """Create a fallback calendar with weekdays marked as trading days."""
-        from datetime import datetime, timedelta
-        import pandas as pd
-        
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        
-        dates = []
-        current = start_dt
-        
-        while current <= end_dt:
-            # Mark weekdays (Mon-Fri) as trading days, weekends as non-trading
-            is_trading_day = 1 if current.weekday() < 5 else 0
-            
-            dates.append({
-                'exchange': exchange,
-                'cal_date': current.strftime('%Y%m%d'),
-                'is_open': is_trading_day,
-                'pretrade_date': (current - timedelta(days=1)).strftime('%Y%m%d')
-            })
-            
-            current += timedelta(days=1)
-        
-        return pd.DataFrame(dates)
-    
+        # Check if CSV is up to date
+        if cal_manager.is_csv_up_to_date(end_date_norm):
+            logger.info(f"Reading trade calendar from CSV for {start_date} to {end_date}")
+            return cal_manager.get_trade_calendar(start_date, end_date, exchange)
+
     def get_stock_basic(self, list_status: str = "L", 
                        fields: Optional[List[str]] = None) -> pd.DataFrame:
         """Get stock basic information."""
@@ -430,7 +310,7 @@ class TuShareExtractor(BaseTuShareExtractor):
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
                                 result = db_client.execute_query(query)
                                 record_count = result['cnt'].values[0] if len(result) > 0 else 0
-                                
+
                                 if record_count > 0:
                                     # Data exists for this date, skip extraction
                                     logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
@@ -485,7 +365,7 @@ class TuShareExtractor(BaseTuShareExtractor):
                 
                 # Extract data using plugin
                 # Handle special cases for plugins that need different parameters
-                if plugin_name == 'tushare_trade_calendar':
+                if plugin_name in ('tushare_trade_calendar','tushare_finace_indicator'):
                     # Trade calendar needs date range
                     extracted = plugin.extract_data(start_date=trade_date, end_date=trade_date)
                 elif plugin_name == 'tushare_stock_basic':
@@ -621,6 +501,20 @@ class TuShareExtractor(BaseTuShareExtractor):
                                 else:
                                     # No data for this date, extract
                                     logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                            elif plugin_name == 'tushare_finace_indicator':
+                                # Financial indicators use end_date (YYYY-MM-DD format)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE end_date = '{formatted_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                             else:
                                 # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
                                 formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
@@ -678,6 +572,9 @@ class TuShareExtractor(BaseTuShareExtractor):
                 elif plugin_name == 'tushare_stock_basic':
                     # Stock basic doesn't need date
                     extracted = plugin.extract_data()
+                elif plugin_name == 'tushare_finace_indicator':
+                    # Financial indicators need start_date and end_date
+                    extracted = plugin.extract_data(start_date=trade_date, end_date=trade_date)
                 else:
                     # Other plugins use trade_date
                     extracted = plugin.extract_data(trade_date=trade_date)
