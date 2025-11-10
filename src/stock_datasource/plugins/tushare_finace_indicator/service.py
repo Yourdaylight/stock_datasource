@@ -42,6 +42,12 @@ class TuShareFinaceIndicatorService(BaseService):
             query += f" LIMIT {limit}"
         
         df = self.db.execute_query(query)
+        
+        # Convert datetime columns to string for JSON serialization
+        for col in df.columns:
+            if df[col].dtype == 'datetime64[ns]':
+                df[col] = df[col].astype(str)
+        
         return df.to_dict('records')
     
     @query_method(
@@ -61,6 +67,12 @@ class TuShareFinaceIndicatorService(BaseService):
         """
         
         df = self.db.execute_query(query)
+        
+        # Convert datetime columns to string for JSON serialization
+        for col in df.columns:
+            if df[col].dtype == 'datetime64[ns]':
+                df[col] = df[col].astype(str)
+        
         return df.to_dict('records')
     
     @query_method(
@@ -92,6 +104,12 @@ class TuShareFinaceIndicatorService(BaseService):
             query += f" LIMIT {limit}"
         
         df = self.db.execute_query(query)
+        
+        # Convert datetime columns to string for JSON serialization
+        for col in df.columns:
+            if df[col].dtype == 'datetime64[ns]':
+                df[col] = df[col].astype(str)
+        
         return df.to_dict('records')
     
     @query_method(
@@ -116,4 +134,10 @@ class TuShareFinaceIndicatorService(BaseService):
         """
         
         df = self.db.execute_query(query)
+        
+        # Convert datetime columns to string for JSON serialization
+        for col in df.columns:
+            if df[col].dtype == 'datetime64[ns]':
+                df[col] = df[col].astype(str)
+        
         return df.to_dict('records')

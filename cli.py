@@ -657,6 +657,53 @@ def load_hk_daily(symbol, start_date, end_date):
 
 
 @cli.command()
+@click.option('--ts-code', help='Stock code (e.g., 002579.SZ)')
+@click.option('--start-date', required=True, help='Start date in YYYYMMDD format')
+@click.option('--end-date', required=True, help='End date in YYYYMMDD format')
+def load_financial_indicators(ts_code, start_date, end_date):
+    """Load financial indicators data (ods_fina_indicator)."""
+    click.echo(f"Loading ods_fina_indicator...")
+    if ts_code:
+        click.echo(f"Stock code: {ts_code}")
+    click.echo(f"Date range: {start_date} to {end_date}")
+    
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        
+        # Discover plugins
+        plugin_manager.discover_plugins()
+        
+        # Get and execute plugin
+        plugin = plugin_manager.get_plugin('tushare_finace_indicator')
+        if not plugin:
+            click.echo("✗ Plugin tushare_finace_indicator not found", err=True)
+            sys.exit(1)
+        
+        kwargs = {'start_date': start_date, 'end_date': end_date}
+        if ts_code:
+            kwargs['ts_code'] = ts_code
+        
+        result = plugin.run(**kwargs)
+        
+        click.echo(f"Status: {result['status']}")
+        for step, step_result in result.get('steps', {}).items():
+            status = step_result.get('status', 'unknown')
+            records = step_result.get('records', 0)
+            click.echo(f"  {step:15} : {status:10} ({records} records)")
+        
+        if result['status'] != 'success':
+            if 'error' in result:
+                click.echo(f"Error: {result['error']}", err=True)
+            sys.exit(1)
+        
+        click.echo("✓ ods_fina_indicator loaded successfully")
+        
+    except Exception as e:
+        click.echo(f"✗ Failed to load ods_fina_indicator: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
 @click.option('--plugin', help='Plugin name to test')
 @click.option('--date', default='20251015', help='Trade date in YYYYMMDD format (default: 20251015)')
 def test_plugin(plugin, date):
@@ -697,6 +744,11 @@ def test_plugin(plugin, date):
         if plugin == 'tushare_trade_calendar':
             params = {'start_date': date, 'end_date': date}
         elif plugin == 'tushare_stock_basic':
+            params = {}
+        elif plugin == 'tushare_finace_indicator':
+            # Financial indicator plugin needs start_date and end_date
+            params = {'start_date': date, 'end_date': date}
+        elif plugin == 'akshare_hk_stock_list':
             params = {}
         else:
             params = {'trade_date': date}
