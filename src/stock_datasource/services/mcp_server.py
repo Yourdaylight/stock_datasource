@@ -4,9 +4,8 @@ import logging
 import importlib
 import inspect
 from pathlib import Path
-from typing import Any
 import json
-import asyncio
+from datetime import datetime
 
 from fastmcp import FastMCP
 
@@ -14,6 +13,10 @@ from stock_datasource.core.service_generator import ServiceGenerator
 from stock_datasource.core.base_service import BaseService
 
 logger = logging.getLogger(__name__)
+
+# Connection tracking
+_connection_count = 0
+_connection_history = []
 
 # Global cache for services
 _services_cache = {}
@@ -200,6 +203,62 @@ def _convert_tool_arguments(tool_name: str, arguments: dict, mcp_server: FastMCP
         return arguments
 
 
+def _print_startup_banner(service_count: int, tool_count: int, port: int = 8001):
+    """Print beautiful startup banner with configuration."""
+    banner = f"""
+{'=' * 80}
+🚀 Stock Data MCP Server - Starting Up
+{'=' * 80}
+📊 Configuration:
+   • Protocol: MCP (Model Context Protocol)
+   • Transport: HTTP Streamable
+   • Version: 2024-11-05
+   • Server Name: stock-data-service
+   • Port: {port}
+   
+📦 Loaded Resources:
+   • Services Discovered: {service_count}
+   • Tools Registered: {tool_count}
+   
+🔌 Endpoints:
+   • MCP Messages: http://0.0.0.0:{port}/mcp
+   • Health Check: http://0.0.0.0:{port}/health
+   • Server Info: http://0.0.0.0:{port}/info
+   
+📝 Log Level: INFO
+🕐 Started At: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{'=' * 80}
+✅ MCP Server is ready to accept connections!
+{'=' * 80}
+"""
+    print(banner)
+
+
+def _log_connection(client_info: str, method: str):
+    """Log incoming connection with timestamp.
+    
+    Note: Currently not actively used due to streamable-http compatibility.
+    Can be enabled for non-streaming endpoints if needed.
+    """
+    global _connection_count, _connection_history
+    _connection_count += 1
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    connection_info = {
+        'count': _connection_count,
+        'timestamp': timestamp,
+        'client': client_info,
+        'method': method
+    }
+    _connection_history.append(connection_info)
+    
+    # Keep only last 100 connections
+    if len(_connection_history) > 100:
+        _connection_history.pop(0)
+    
+    logger.info(f"📨 Connection #{_connection_count} | {timestamp} | Method: {method} | Client: {client_info}")
+
+
 def create_mcp_server() -> tuple[FastMCP, dict]:
     """Create and configure MCP server with all discovered services.
     
@@ -234,252 +293,151 @@ def create_mcp_server() -> tuple[FastMCP, dict]:
                 tool_name = tool_def["name"]
                 full_tool_name = f"{service_prefix}_{tool_name}"
                 
-                # Get the method signature to create proper handler
+                logger.info(f"Processing tool: {full_tool_name}")
+                logger.debug(f"Tool definition: {json.dumps(tool_def, ensure_ascii=False, indent=2)}")
+                
+                # Get the method to validate it exists
                 method = generator.get_tool_handler(tool_name)
                 if method is None:
                     logger.warning(f"Tool handler not found: {tool_name}")
                     continue
                 
-                # Get parameter names from the method signature
-                sig = inspect.signature(method)
-                param_names = [p for p in sig.parameters.keys() if p != 'self']
-                
-                # Create tool handler with closure
-                def make_tool_handler(
-                    service_prefix_inner: str,
-                    tool_name_inner: str,
-                    generator_inner: ServiceGenerator,
-                    param_names_inner: list
-                ):
-                    # Create handler with explicit parameters
-                    def handler_factory():
-                        # Build handler with explicit parameters
-                        if not param_names_inner:
-                            def handler() -> str:
-                                try:
-                                    method = generator_inner.get_tool_handler(tool_name_inner)
-                                    result = method()
-                                    if isinstance(result, (dict, list)):
-                                        return json.dumps(result, ensure_ascii=False, indent=2)
-                                    return str(result)
-                                except Exception as e:
-                                    return f"Error calling {tool_name_inner}: {str(e)}"
-                            return handler
-                        else:
-                            # Create handler with parameters
-                            exec_globals = {
-                                'generator_inner': generator_inner,
-                                'tool_name_inner': tool_name_inner,
-                                'json': json,
-                            }
+                # Create tool handler using closure with explicit parameters
+                def make_tool_handler(generator_ref: ServiceGenerator, tool_name_ref: str, tool_schema: dict):
+                    """Create handler with explicit parameters from schema."""
+                    try:
+                        # Extract parameter names from schema
+                        input_schema = tool_schema.get("inputSchema", {})
+                        properties = input_schema.get("properties", {})
+                        required_params = input_schema.get("required", [])
+                        
+                        # Build parameter annotations
+                        from typing import Optional
+                        import inspect
+                        
+                        # Create parameter list
+                        params = []
+                        for param_name, param_schema in properties.items():
+                            param_type = param_schema.get("type", "string")
+                            is_required = param_name in required_params
                             
-                            # Build function signature dynamically
-                            params_str = ', '.join(param_names_inner)
-                            handler_code = f"""def handler({params_str}) -> str:
-    try:
-        method = generator_inner.get_tool_handler(tool_name_inner)
-        result = method({params_str})
-        if isinstance(result, (dict, list)):
-            return json.dumps(result, ensure_ascii=False, indent=2)
-        return str(result)
-    except Exception as e:
-        return f"Error calling {{tool_name_inner}}: {{str(e)}}"
-"""
-                            exec(handler_code, exec_globals)
-                            return exec_globals['handler']
+                            # Map JSON schema types to Python types
+                            if param_type == "string":
+                                py_type = str
+                            elif param_type == "integer":
+                                py_type = int
+                            elif param_type == "number":
+                                py_type = float
+                            elif param_type == "boolean":
+                                py_type = bool
+                            elif param_type == "array":
+                                py_type = list
+                            else:
+                                py_type = str
+                            
+                            # Add Optional for non-required params
+                            if not is_required:
+                                py_type = Optional[py_type]
+                            
+                            params.append(inspect.Parameter(
+                                param_name,
+                                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                default=None if not is_required else inspect.Parameter.empty,
+                                annotation=py_type
+                            ))
+                        
+                        # Create function with dynamic parameters
+                        def handler(*args, **kwargs) -> str:
+                            try:
+                                # Convert args/kwargs to dict
+                                call_kwargs = {}
+                                for i, param in enumerate(params):
+                                    if i < len(args):
+                                        call_kwargs[param.name] = args[i]
+                                    elif param.name in kwargs:
+                                        call_kwargs[param.name] = kwargs[param.name]
+                                
+                                method = generator_ref.get_tool_handler(tool_name_ref)
+                                # Call method with unpacked kwargs
+                                result = method(**call_kwargs)
+                                
+                                # Format result as JSON string for dict/list, otherwise as string
+                                if isinstance(result, (dict, list)):
+                                    return json.dumps(result, ensure_ascii=False, indent=2)
+                                return str(result)
+                            except Exception as e:
+                                error_msg = f"Error calling {tool_name_ref}: {str(e)}"
+                                logger.error(error_msg)
+                                return error_msg
+                        
+                        # Set function signature AND annotations for FastMCP
+                        handler.__signature__ = inspect.Signature(params, return_annotation=str)
+                        handler.__annotations__ = {param.name: param.annotation for param in params}
+                        handler.__annotations__['return'] = str
+                        
+                        return handler
                     
-                    return handler_factory()
+                    except Exception as e:
+                        logger.error(f"Failed to create handler for {tool_name_ref}: {e}")
+                        raise
                 
-                # Create handler
-                handler = make_tool_handler(service_prefix, tool_name, generator, param_names)
+                # Create handler with explicit parameters
+                try:
+                    handler = make_tool_handler(generator, tool_name, tool_def)
+                except Exception as e:
+                    import traceback
+                    logger.error(f"Failed to create handler for {full_tool_name}: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    continue
                 
                 # Register tool with MCP server using decorator
-                server.tool(
-                    name=full_tool_name,
-                    description=tool_def["description"],
-                )(handler)
-                
-                logger.info(f"Registered MCP tool: {full_tool_name}")
+                try:
+                    server.tool(
+                        name=full_tool_name,
+                        description=tool_def["description"],
+                    )(handler)
+                    logger.info(f"Registered MCP tool: {full_tool_name}")
+                except Exception as e:
+                    import traceback
+                    logger.error(f"Failed to register tool {full_tool_name} with FastMCP: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    continue
         
         except Exception as e:
+            import traceback
             logger.error(f"Failed to register service {service_prefix}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     return server, service_generators
 
 
 def create_app():
     """Create FastAPI app with MCP server integrated."""
-    from fastapi import FastAPI, Request
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
-    
-    app = FastAPI(
-        title="Stock Data Service - MCP",
-        description="MCP server for querying stock data via HTTP",
-        version="1.0.0",
-    )
-    
-    # Add CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    
-    # Create MCP server
+    # Create MCP server first
     mcp_server, service_generators = create_mcp_server()
     
-    # Store MCP server and generators in app state for access in endpoints
-    app.state.mcp_server = mcp_server
-    app.state.service_generators = service_generators
+    # Calculate tool count for banner
+    tool_count = 0
+    try:
+        for generator in service_generators.values():
+            tool_count += len(generator.methods)
+    except:
+        pass
     
-    # MCP HTTP Streamable protocol endpoint - GET for probing
-    @app.get("/messages")
-    async def messages_get():
-        """Handle GET requests to /messages endpoint (for client probing)."""
-        return {
-            "status": "ok",
-            "message": "MCP server is running. Use POST /messages for MCP protocol communication.",
-            "protocol": "streamable-http",
-            "version": "2024-11-05"
-        }
+    # Get FastMCP's HTTP app (provides native streamable-http transport)
+    # This app already has its own lifespan configured
+    mcp_http_app = mcp_server.http_app()
     
-    # MCP HTTP Streamable protocol endpoint - POST for messages
-    @app.post("/messages")
-    async def messages_endpoint(request: Request):
-        """Handle MCP messages via HTTP POST (streamable-http protocol)."""
-        try:
-            body = await request.json()
-            method = body.get("method", "")
-            params = body.get("params", {})
-            msg_id = body.get("id")
-            
-            # Handle initialize method
-            if method == "initialize":
-                response_data = {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {
-                            "tools": {}
-                        },
-                        "serverInfo": {
-                            "name": "stock-data-service",
-                            "version": "1.0.0"
-                        }
-                    }
-                }
-                return JSONResponse(content=response_data)
-            
-            # Handle tools/list method
-            elif method == "tools/list":
-                tools = []
-                # Get tools from MCP server's tool manager
-                try:
-                    tool_list = await mcp_server._tool_manager.list_tools()
-                    for tool in tool_list:
-                        tools.append({
-                            "name": tool.name,
-                            "description": tool.description or "",
-                            "inputSchema": tool.parameters or {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        })
-                except Exception as e:
-                    logger.warning(f"Error listing tools: {e}")
-                
-                response_data = {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {"tools": tools}
-                }
-                return JSONResponse(content=response_data)
-            
-            # Handle tools/call method
-            elif method == "tools/call":
-                tool_name = params.get("name")
-                tool_args = params.get("arguments", {})
-                
-                try:
-                    # Convert tool arguments based on expected types
-                    service_generators = getattr(request.app.state, 'service_generators', {})
-                    converted_args = _convert_tool_arguments(tool_name, tool_args, mcp_server, service_generators)
-                    logger.info(f"Tool: {tool_name}, Original args: {tool_args}, Converted args: {converted_args}")
-                    
-                    # Call the tool through MCP server's tool manager
-                    result = await mcp_server._tool_manager.call_tool(tool_name, converted_args)
-                    
-                    # Handle ToolResult object
-                    result_text = result
-                    if hasattr(result, 'text'):
-                        result_text = result.text
-                    elif hasattr(result, 'content'):
-                        result_text = result.content
-                    
-                    response_data = {
-                        "jsonrpc": "2.0",
-                        "id": msg_id,
-                        "result": {"content": [{"type": "text", "text": str(result_text)}]}
-                    }
-                    return JSONResponse(content=response_data)
-                except Exception as e:
-                    logger.error(f"Error calling tool {tool_name}: {e}")
-                    response_data = {
-                        "jsonrpc": "2.0",
-                        "id": msg_id,
-                        "error": {"code": -32603, "message": str(e)}
-                    }
-                    return JSONResponse(content=response_data)
-            
-            # Unknown method
-            response_data = {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "error": {"code": -32601, "message": f"Unknown method: {method}"}
-            }
-            return JSONResponse(content=response_data)
-        
-        except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            response_data = {
-                "jsonrpc": "2.0",
-                "error": {
-                    "code": -32603,
-                    "message": f"Internal error: {str(e)}"
-                }
-            }
-            return JSONResponse(content=response_data)
+    # Print startup banner when app starts
+    _print_startup_banner(len(service_generators), tool_count)
     
-    # Health check endpoint
-    @app.get("/health")
-    async def health_check():
-        return {"status": "ok", "service": "mcp"}
-    
-    # Info endpoint
-    @app.get("/info")
-    async def info():
-        return {
-            "name": "Stock Data Service - MCP",
-            "version": "1.0.0",
-            "messages_endpoint": "/messages",
-            "transport": "streamable-http",
-            "description": "MCP server accessible via HTTP streamable protocol"
-        }
-    
-    return app
+    # Simply return the MCP app directly - it's already a complete FastAPI app
+    # with proper lifespan management and /mcp endpoint configured
+    return mcp_http_app
 
 
 if __name__ == "__main__":
     import uvicorn
     
     app = create_app()
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8001,
-        log_level="info",
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8001)
