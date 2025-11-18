@@ -39,7 +39,17 @@ class TuShareFinaceIndicatorService(BaseService):
         query += f" ORDER BY ts_code, end_date DESC"
         
         if limit:
-            query += f" LIMIT {limit}"
+            try:
+                limit_value = int(limit)
+            except (TypeError, ValueError):
+                limit_value = 1000
+        else:
+            limit_value = 1000
+        
+        if limit_value <= 0:
+            limit_value = 1000
+        
+        query += f" LIMIT {limit_value}"
         
         df = self.db.execute_query(query)
         
@@ -59,11 +69,20 @@ class TuShareFinaceIndicatorService(BaseService):
     )
     def get_latest_indicators(self, code: str, periods: int = 4) -> List[Dict[str, Any]]:
         """Get latest financial indicators for a specific stock."""
+        # Ensure periods has a sensible default if omitted or invalid
+        try:
+            periods_value = int(periods) if periods is not None else 4
+        except (TypeError, ValueError):
+            periods_value = 4
+        
+        if periods_value <= 0:
+            periods_value = 4
+        
         query = f"""
         SELECT * FROM ods_fina_indicator
         WHERE ts_code = '{code}'
         ORDER BY end_date DESC
-        LIMIT {periods}
+        LIMIT {periods_value}
         """
         
         df = self.db.execute_query(query)
@@ -101,7 +120,17 @@ class TuShareFinaceIndicatorService(BaseService):
         query += f" ORDER BY roe DESC NULLS LAST"
         
         if limit:
-            query += f" LIMIT {limit}"
+            try:
+                limit_value = int(limit)
+            except (TypeError, ValueError):
+                limit_value = 1000
+        else:
+            limit_value = 1000
+        
+        if limit_value <= 0:
+            limit_value = 1000
+        
+        query += f" LIMIT {limit_value}"
         
         df = self.db.execute_query(query)
         
@@ -121,6 +150,14 @@ class TuShareFinaceIndicatorService(BaseService):
     )
     def get_roe_trend(self, code: str, periods: int = 8) -> List[Dict[str, Any]]:
         """Get ROE trend for a specific stock."""
+        try:
+            periods_value = int(periods) if periods is not None else 8
+        except (TypeError, ValueError):
+            periods_value = 8
+        
+        if periods_value <= 0:
+            periods_value = 8
+        
         query = f"""
         SELECT 
             end_date,
@@ -130,7 +167,7 @@ class TuShareFinaceIndicatorService(BaseService):
         FROM ods_fina_indicator
         WHERE ts_code = '{code}'
         ORDER BY end_date DESC
-        LIMIT {periods}
+        LIMIT {periods_value}
         """
         
         df = self.db.execute_query(query)
