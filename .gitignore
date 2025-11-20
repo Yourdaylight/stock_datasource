@@ -4,5 +4,11 @@ __pycache__/
 data/exports/
 logs/
 *.log
-.python-version
+
 .DS_Store
+
+
+# Plugin CSV snapshots (temporary data files)
+**/plugins/**/latest_data.csv
+.codebuddy
+uv.lock
