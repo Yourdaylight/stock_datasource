@@ -1,0 +1,35 @@
+{
+  "enabled": true,
+  "ignore":true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare financial indicators data plugin",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "18:00"
+  },
+  "parameters": {
+    "validate_financials": true,
+    "require_balance_sheet": false
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "Stock code (e.g., 002579.SZ). If not provided, gets all stocks"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": true,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": true,
+      "description": "End date in YYYYMMDD format"
+    }
+  }
+}

@@ -81,146 +81,26 @@ class TuShareExtractor(BaseTuShareExtractor):
     
     def get_trade_calendar(self, start_date: str, end_date: str, 
                           exchange: str = "SSE") -> pd.DataFrame:
-        """Get trading calendar with robust handling of TuShare API limitations."""
-        return self._get_trade_calendar_robust(start_date, end_date, exchange)
-    
-    def _get_trade_calendar_robust(self, start_date: str, end_date: str, 
-                                  exchange: str = "SSE") -> pd.DataFrame:
+        """Get trading calendar - prioritize CSV reading over API calls.
+        
+        Strategy:
+        1. Check if CSV contains data up to end_date
+        2. If yes, read from CSV directly
+        3. If no, fall back to API call (for future extension)
         """
-        Robust trade calendar fetching that handles TuShare API quirks.
+        from stock_datasource.utils.trade_calendar_manager import get_trade_calendar_manager
         
-        TuShare trade_cal API behavior:
-        - Single year requests: Always return empty data
-        - Multi-year requests: Return data for recent complete years in range
-        - Requires strategic date range construction to get data
-        """
-        from datetime import datetime, timedelta
-        import pandas as pd
+        # Get trade calendar manager
+        cal_manager = get_trade_calendar_manager()
         
-        # Parse dates
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        # Normalize end_date to YYYYMMDD format for comparison
+        end_date_norm = end_date.replace('-', '')
         
-        # Strategy 1: Try the original request first (works for some multi-year ranges)
-        try:
-            result = self._call_api(
-                self.pro.trade_cal,
-                exchange=exchange,
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            if not result.empty:
-                # Filter to the requested date range
-                result_filtered = result[
-                    (result['cal_date'] >= start_date.replace('-', '')) &
-                    (result['cal_date'] <= end_date.replace('-', ''))
-                ]
-                if not result_filtered.empty:
-                    logger.info(f"Trade calendar: got {len(result_filtered)} records for {start_date} to {end_date}")
-                    return result_filtered
-        except Exception as e:
-            logger.warning(f"Direct trade calendar request failed: {e}")
-        
-        # Strategy 2: For single year requests, try extending to multi-year
-        start_year = start_dt.year
-        end_year = end_dt.year
-        
-        if start_year == end_year:
-            # Single year request - extend to multi-year to work around API limitation
-            extended_end = f"{end_year + 1}-12-31"
-            logger.info(f"Single year request detected, extending range to {extended_end}")
-            
-            try:
-                result = self._call_api(
-                    self.pro.trade_cal,
-                    exchange=exchange,
-                    start_date=start_date,
-                    end_date=extended_end
-                )
-                
-                if not result.empty:
-                    # Filter to the original requested range
-                    result_filtered = result[
-                        (result['cal_date'] >= start_date.replace('-', '')) &
-                        (result['cal_date'] <= end_date.replace('-', ''))
-                    ]
-                    if not result_filtered.empty:
-                        logger.info(f"Trade calendar (extended): got {len(result_filtered)} records for {start_date} to {end_date}")
-                        return result_filtered
-            except Exception as e:
-                logger.warning(f"Extended trade calendar request failed: {e}")
-        
-        # Strategy 3: Try year-by-year chunking
-        logger.info(f"Trying year-by-year chunking for {start_date} to {end_date}")
-        all_data = []
-        
-        for year in range(start_year, end_year + 1):
-            year_start = f"{year}-01-01"
-            year_end = f"{year + 1}-12-31"  # Extend to next year to work around API
-            
-            try:
-                year_result = self._call_api(
-                    self.pro.trade_cal,
-                    exchange=exchange,
-                    start_date=year_start,
-                    end_date=year_end
-                )
-                
-                if not year_result.empty:
-                    # Filter to this year only
-                    year_filtered = year_result[
-                        (year_result['cal_date'] >= f"{year}0101") &
-                        (year_result['cal_date'] <= f"{year}1231")
-                    ]
-                    if not year_filtered.empty:
-                        all_data.append(year_filtered)
-                        logger.info(f"Trade calendar (year {year}): got {len(year_filtered)} records")
-                        
-            except Exception as e:
-                logger.warning(f"Trade calendar request for year {year} failed: {e}")
-        
-        if all_data:
-            combined = pd.concat(all_data, ignore_index=True)
-            # Final filter to exact requested range
-            final_result = combined[
-                (combined['cal_date'] >= start_date.replace('-', '')) &
-                (combined['cal_date'] <= end_date.replace('-', ''))
-            ]
-            logger.info(f"Trade calendar (combined): got {len(final_result)} records for {start_date} to {end_date}")
-            return final_result
-        
-        # Strategy 4: Fallback - create a basic calendar (weekdays only)
-        logger.warning(f"All trade calendar strategies failed, creating basic weekday calendar for {start_date} to {end_date}")
-        return self._create_fallback_calendar(start_date, end_date, exchange)
-    
-    def _create_fallback_calendar(self, start_date: str, end_date: str, 
-                                 exchange: str = "SSE") -> pd.DataFrame:
-        """Create a fallback calendar with weekdays marked as trading days."""
-        from datetime import datetime, timedelta
-        import pandas as pd
-        
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        
-        dates = []
-        current = start_dt
-        
-        while current <= end_dt:
-            # Mark weekdays (Mon-Fri) as trading days, weekends as non-trading
-            is_trading_day = 1 if current.weekday() < 5 else 0
-            
-            dates.append({
-                'exchange': exchange,
-                'cal_date': current.strftime('%Y%m%d'),
-                'is_open': is_trading_day,
-                'pretrade_date': (current - timedelta(days=1)).strftime('%Y%m%d')
-            })
-            
-            current += timedelta(days=1)
-        
-        return pd.DataFrame(dates)
-    
+        # Check if CSV is up to date
+        if cal_manager.is_csv_up_to_date(end_date_norm):
+            logger.info(f"Reading trade calendar from CSV for {start_date} to {end_date}")
+            return cal_manager.get_trade_calendar(start_date, end_date, exchange)
+
     def get_stock_basic(self, list_status: str = "L", 
                        fields: Optional[List[str]] = None) -> pd.DataFrame:
         """Get stock basic information."""
@@ -342,7 +222,7 @@ class TuShareExtractor(BaseTuShareExtractor):
     
     def extract_all_data_for_date(self, trade_date: str, check_schedule: bool = True, 
                                  is_backfill: bool = False) -> Dict[str, pd.DataFrame]:
-        """Extract all available data for a specific date.
+        """Extract all available data for a specific date using concurrent execution.
         
         Args:
             trade_date: Trade date in YYYYMMDD format
@@ -357,6 +237,222 @@ class TuShareExtractor(BaseTuShareExtractor):
         from stock_datasource.core.plugin_manager import plugin_manager
         from stock_datasource.models.database import db_client
         from datetime import datetime
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+        
+        # Discover plugins if not already done
+        if not plugin_manager.plugins:
+            plugin_manager.discover_plugins()
+        
+        # Parse trade_date to datetime.date for schedule checking
+        trade_date_obj = datetime.strptime(trade_date, '%Y%m%d').date()
+        
+        data = {}
+        data_lock = threading.Lock()  # Thread-safe dictionary access
+        
+        def _extract_plugin_data(plugin_name: str) -> tuple:
+            """Extract data from a single plugin (for concurrent execution)."""
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                
+                if not plugin.is_enabled():
+                    logger.info(f"Plugin {plugin_name} is disabled, skipping")
+                    return (plugin_name, None, "disabled")
+                
+                if plugin.is_ignored():
+                    logger.info(f"Plugin {plugin_name} is ignored, skipping")
+                    return (plugin_name, None, "ignored")
+                
+                # Use plugin name as key (API name) for compatibility with loader
+                api_name = plugin_name.replace('tushare_', '')
+                
+                # Helper function to save CSV snapshot
+                def _save_csv_snapshot(data: pd.DataFrame, plugin_obj) -> None:
+                    """Save CSV snapshot for the plugin."""
+                    if data is None or data.empty:
+                        return
+                    try:
+                        from pathlib import Path
+                        plugin_dir = plugin_obj._get_plugin_dir()
+                        csv_file = plugin_dir / "latest_data.csv"
+                        data.to_csv(csv_file, index=False, encoding='utf-8')
+                        file_size = csv_file.stat().st_size
+                        logger.info(f"Saved CSV snapshot for {plugin_name}: {csv_file} ({file_size:,} bytes, {len(data)} rows)")
+                    except Exception as e:
+                        logger.warning(f"Failed to save CSV snapshot for {plugin_name}: {e}")
+                
+                # Check schedule and data existence
+                should_skip_by_schedule = False
+                
+                # For backfill operations, always check if data exists regardless of schedule
+                if is_backfill:
+                    schema = plugin.get_schema()
+                    table_name = schema.get('table_name')
+                    
+                    if table_name and db_client.table_exists(table_name):
+                        try:
+                            # Check if data exists for this specific date
+                            if plugin_name in ['tushare_stock_basic']:
+                                # Stock basic is dimension data - if table has any data, skip for all backfill dates
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Dimension data already exists, skip for backfill
+                                    logger.info(f"Plugin {plugin_name} is dimension data and already has {record_count} records, skipping for backfill")
+                                    return (plugin_name, None, "dimension_exists")
+                                else:
+                                    # No dimension data, extract once
+                                    logger.info(f"Plugin {plugin_name} is dimension data with no records, extracting for backfill")
+                            elif plugin_name == 'tushare_trade_calendar':
+                                # Trade calendar uses cal_date (YYYYMMDD format)
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    return (plugin_name, None, "already_exists")
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                            elif plugin_name == 'tushare_finace_indicator':
+                                # Financial indicator uses end_date (convert YYYYMMDD to YYYY-MM-DD)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE end_date = '{formatted_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    return (plugin_name, None, "already_exists")
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                            else:
+                                # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    return (plugin_name, None, "already_exists")
+                                else:
+                                    # No data for this date, extract regardless of schedule
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                        except Exception as e:
+                            logger.warning(f"Failed to check table {table_name} for date {trade_date}: {e}, will extract")
+                    else:
+                        # Table doesn't exist, extract
+                        logger.info(f"Plugin {plugin_name} table doesn't exist, extracting for backfill")
+                elif check_schedule and not plugin.should_run_today(trade_date_obj):
+                    # For daily operations, use original logic
+                    schema = plugin.get_schema()
+                    table_name = schema.get('table_name')
+                    
+                    if table_name and db_client.table_exists(table_name):
+                        try:
+                            # Check if table has any data
+                            query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                            result = db_client.execute_query(query)
+                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                            
+                            if record_count > 0:
+                                # Table has data, skip based on schedule
+                                logger.info(f"Plugin {plugin_name} not scheduled for {trade_date} and table has data, skipping")
+                                return (plugin_name, None, "not_scheduled")
+                            else:
+                                # Table is empty, must extract
+                                logger.info(f"Plugin {plugin_name} not scheduled for {trade_date} but table is empty, extracting anyway")
+                        except Exception as e:
+                            logger.warning(f"Failed to check table {table_name} data count: {e}, will extract")
+                    else:
+                        # Table doesn't exist, skip
+                        logger.info(f"Plugin {plugin_name} not scheduled for {trade_date}, skipping")
+                        return (plugin_name, None, "not_scheduled")
+                
+                # Extract data using plugin
+                # Handle special cases for plugins that need different parameters
+                if plugin_name in ('tushare_trade_calendar','tushare_finace_indicator'):
+                    # Trade calendar needs date range
+                    extracted = plugin.extract_data(start_date=trade_date, end_date=trade_date)
+                elif plugin_name == 'tushare_stock_basic':
+                    # Stock basic doesn't need date
+                    extracted = plugin.extract_data()
+                else:
+                    # Other plugins use trade_date
+                    extracted = plugin.extract_data(trade_date=trade_date)
+                
+                # Save CSV snapshot immediately after extraction
+                _save_csv_snapshot(extracted, plugin)
+                
+                logger.info(f"Extracted {api_name}: {len(extracted)} records")
+                return (plugin_name, extracted, "success")
+                
+            except Exception as e:
+                import traceback
+                logger.error(f"Failed to extract data from {plugin_name}: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return (plugin_name, pd.DataFrame(), "error")
+        
+        # Use ThreadPoolExecutor for concurrent plugin extraction
+        # Limit to 3 workers to avoid overwhelming the database connection
+        max_workers = min(3, len(plugin_manager.list_plugins()))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_extract_plugin_data, plugin_name): plugin_name 
+                for plugin_name in plugin_manager.list_plugins()
+            }
+            
+            for future in as_completed(futures):
+                try:
+                    plugin_name, extracted_data, status = future.result()
+                    api_name = plugin_name.replace('tushare_', '')
+                    
+                    if status == "success" and extracted_data is not None:
+                        with data_lock:
+                            data[api_name] = extracted_data
+                            logger.info(f"Plugin {plugin_name} ({api_name}): {len(extracted_data)} records, status={status}")
+                    elif status not in ["disabled", "ignored", "not_scheduled", "already_exists"]:
+                        with data_lock:
+                            data[api_name] = pd.DataFrame()
+                            logger.info(f"Plugin {plugin_name} ({api_name}): empty data, status={status}")
+                    else:
+                        logger.info(f"Plugin {plugin_name} ({api_name}): skipped, status={status}")
+                            
+                except Exception as e:
+                    logger.error(f"Error processing plugin result: {e}")
+        
+        logger.info(f"Concurrent extraction completed for {trade_date}, extracted {len(data)} data sources")
+        for api_name, df in data.items():
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                logger.info(f"  - {api_name}: {len(df)} records")
+        return data
+    
+    def _extract_plugin_data_sequential(self, trade_date: str, check_schedule: bool = True, 
+                                       is_backfill: bool = False) -> Dict[str, pd.DataFrame]:
+        """Legacy sequential extraction method (kept for backward compatibility).
+        
+        Args:
+            trade_date: Trade date in YYYYMMDD format
+            check_schedule: Whether to check plugin schedule before extraction
+            is_backfill: Whether this is a historical backfill operation
+        
+        Returns:
+            Dictionary with extracted data for each plugin
+        """
+        logger.info(f"Extracting all data for {trade_date} (sequential mode)")
+        
+        from stock_datasource.core.plugin_manager import plugin_manager
+        from stock_datasource.models.database import db_client
+        from datetime import datetime
         
         # Discover plugins if not already done
         if not plugin_manager.plugins:
@@ -367,12 +463,16 @@ class TuShareExtractor(BaseTuShareExtractor):
         
         data = {}
         
-        # Extract data from each enabled plugin
+        # Extract data from each enabled plugin (sequentially)
         for plugin_name in plugin_manager.list_plugins():
             plugin = plugin_manager.get_plugin(plugin_name)
             
             if not plugin.is_enabled():
                 logger.info(f"Plugin {plugin_name} is disabled, skipping")
+                continue
+            
+            if plugin.is_ignored():
+                logger.info(f"Plugin {plugin_name} is ignored, skipping")
                 continue
             
             # Use plugin name as key (API name) for compatibility with loader
@@ -390,25 +490,59 @@ class TuShareExtractor(BaseTuShareExtractor):
                         try:
                             # Check if data exists for this specific date
                             if plugin_name in ['tushare_stock_basic']:
-                                # Stock basic doesn't have trade_date, check by record existence
+                                # Stock basic is dimension data - if table has any data, skip for all backfill dates
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Dimension data already exists, skip for backfill
+                                    logger.info(f"Plugin {plugin_name} is dimension data and already has {record_count} records, skipping for backfill")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No dimension data, extract once
+                                    logger.info(f"Plugin {plugin_name} is dimension data with no records, extracting for backfill")
                             elif plugin_name == 'tushare_trade_calendar':
-                                # Trade calendar uses cal_date
+                                # Trade calendar uses cal_date (YYYYMMDD format)
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                            elif plugin_name == 'tushare_finace_indicator':
+                                # Financial indicators use end_date (YYYY-MM-DD format)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE end_date = '{formatted_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                             else:
-                                # Other tables use trade_date
-                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{trade_date}'"
-                            
-                            result = db_client.execute_query(query)
-                            record_count = result['cnt'].values[0] if len(result) > 0 else 0
-                            
-                            if record_count > 0:
-                                # Data exists for this date, skip extraction
-                                logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
-                                should_skip_by_schedule = True
-                            else:
-                                # No data for this date, extract regardless of schedule
-                                logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
+                                # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
+                                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{formatted_date}'"
+                                result = db_client.execute_query(query)
+                                record_count = result['cnt'].values[0] if len(result) > 0 else 0
+                                
+                                if record_count > 0:
+                                    # Data exists for this date, skip extraction
+                                    logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
+                                    should_skip_by_schedule = True
+                                else:
+                                    # No data for this date, extract regardless of schedule
+                                    logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
                         except Exception as e:
                             logger.warning(f"Failed to check table {table_name} for date {trade_date}: {e}, will extract")
                     else:
@@ -452,9 +586,24 @@ class TuShareExtractor(BaseTuShareExtractor):
                 elif plugin_name == 'tushare_stock_basic':
                     # Stock basic doesn't need date
                     extracted = plugin.extract_data()
+                elif plugin_name == 'tushare_finace_indicator':
+                    # Financial indicators need start_date and end_date
+                    extracted = plugin.extract_data(start_date=trade_date, end_date=trade_date)
                 else:
                     # Other plugins use trade_date
                     extracted = plugin.extract_data(trade_date=trade_date)
+                
+                # Save CSV snapshot immediately after extraction
+                if extracted is not None and not extracted.empty:
+                    try:
+                        from pathlib import Path
+                        plugin_dir = plugin._get_plugin_dir()
+                        csv_file = plugin_dir / "latest_data.csv"
+                        extracted.to_csv(csv_file, index=False, encoding='utf-8')
+                        file_size = csv_file.stat().st_size
+                        logger.info(f"Saved CSV snapshot for {plugin_name}: {csv_file} ({file_size:,} bytes, {len(extracted)} rows)")
+                    except Exception as e:
+                        logger.warning(f"Failed to save CSV snapshot for {plugin_name}: {e}")
                 
                 data[api_name] = extracted
                 logger.info(f"Extracted {api_name}: {len(extracted)} records")
@@ -466,39 +615,74 @@ class TuShareExtractor(BaseTuShareExtractor):
         return data
     
     def validate_data_quality(self, data: pd.DataFrame, 
-                            expected_date: str) -> Dict[str, Any]:
-        """Basic data quality validation."""
+                            expected_date: str,
+                            data_type: str = None) -> Dict[str, Any]:
+        """Basic data quality validation with data-type-specific rules.
+        
+        Args:
+            data: DataFrame to validate
+            expected_date: Expected trade date in YYYYMMDD format
+            data_type: Type of data - 'dimension', 'calendar', or 'fact' (default)
+        
+        Returns:
+            Dictionary with validation results
+        """
         issues = []
         
         if data.empty:
             issues.append("DataFrame is empty")
             return {"valid": False, "issues": issues}
         
-        # Check for required columns
-        required_cols = ['ts_code', 'trade_date']
+        # Determine data type from columns if not specified
+        if data_type is None:
+            if 'cal_date' in data.columns and 'is_open' in data.columns:
+                data_type = 'calendar'
+            elif 'trade_date' not in data.columns and 'ts_code' in data.columns:
+                data_type = 'dimension'
+            else:
+                data_type = 'fact'
+        
+        # Check for required columns based on data type
+        if data_type == 'dimension':
+            # Dimension data (e.g., stock_basic): requires ts_code but not trade_date
+            required_cols = ['ts_code']
+        elif data_type == 'calendar':
+            # Calendar data (e.g., trade_calendar): requires cal_date and is_open
+            required_cols = ['cal_date', 'is_open']
+        else:
+            # Fact data (e.g., daily, daily_basic): requires ts_code and trade_date
+            required_cols = ['ts_code', 'trade_date']
+        
         missing_cols = [col for col in required_cols if col not in data.columns]
         if missing_cols:
             issues.append(f"Missing required columns: {missing_cols}")
         
-        # Check date consistency
-        if 'trade_date' in data.columns:
+        # Check date consistency for fact data
+        if data_type == 'fact' and 'trade_date' in data.columns:
             unique_dates = data['trade_date'].unique()
             if len(unique_dates) > 1:
                 issues.append(f"Multiple trade dates found: {unique_dates}")
             elif len(unique_dates) == 1 and unique_dates[0] != expected_date:
                 issues.append(f"Trade date mismatch: expected {expected_date}, got {unique_dates[0]}")
         
+        # Check date consistency for calendar data
+        if data_type == 'calendar' and 'cal_date' in data.columns:
+            unique_dates = data['cal_date'].unique()
+            if len(unique_dates) > 1:
+                issues.append(f"Multiple calendar dates found: {unique_dates}")
+        
         # Check for null values in key fields
         if 'ts_code' in data.columns:
             null_codes = data['ts_code'].isnull().sum()
-            if null_codes > 0:
+            if null_codes != 0:
                 issues.append(f"Found {null_codes} null ts_code values")
         
         return {
             "valid": len(issues) == 0,
             "issues": issues,
             "record_count": len(data),
-            "column_count": len(data.columns)
+            "column_count": len(data.columns),
+            "data_type": data_type
         }
 
 

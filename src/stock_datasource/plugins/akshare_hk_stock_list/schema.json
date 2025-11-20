@@ -10,7 +10,7 @@
     {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
     {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
   ],
-  "partition_by": "toYYYYMM(now())",
+  "partition_by": "toYYYYMM(_ingested_at)",
   "order_by": ["symbol"],
   "engine": "ReplacingMergeTree",
   "engine_params": ["version"],
