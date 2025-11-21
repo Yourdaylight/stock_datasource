@@ -8,7 +8,7 @@
             "requestTimeout": 30000,
             "enableTls": false,
             "previewLimit": 50,
-            "password": "BB7rfRUdCPWLzkoy55hhKg3o",
+            "password": "2baeda979f264882a77293a2695cf7d3bd731fe2",
             "username": "default",
             "driver": "ClickHouse",
             "name": "129.28.41.236"

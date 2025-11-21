@@ -68,7 +68,7 @@ class TuShareSuspendDService(BaseService):
         SELECT 
             ts_code,
             trade_date,
-            suspend_timing,
+            suspend_time,
             suspend_type
         FROM ods_suspend_d
         WHERE ts_code = '{code}'
@@ -110,7 +110,7 @@ class TuShareSuspendDService(BaseService):
         SELECT 
             ts_code,
             trade_date,
-            suspend_timing,
+            suspend_time,
             suspend_type
         FROM (
             SELECT 

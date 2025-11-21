@@ -72,7 +72,7 @@ def setup_logging():
     # Set levels for specific loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("clickhouse_driver").setLevel(logging.WARNING)
+    logging.getLogger("clickhouse_connect").setLevel(logging.WARNING)
     
     return loguru_logger
 

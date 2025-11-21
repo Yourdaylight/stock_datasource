@@ -100,7 +100,7 @@ class TuShareDailyBasicPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
-        # Ensure numeric columns are properly typed
+        # Convert numeric columns to proper types
         numeric_columns = [
             'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio',
             'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm',
@@ -110,6 +110,14 @@ class TuShareDailyBasicPlugin(BasePlugin):
         for col in numeric_columns:
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors='coerce')
+        
+        # Convert trade_date from YYYYMMDD string to date object
+        if 'trade_date' in data.columns:
+            data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d').dt.date
+        
+        # Add system columns
+        data['version'] = int(datetime.now().timestamp())
+        data['_ingested_at'] = datetime.now()
         
         self.logger.info(f"Transformed {len(data)} daily basic records")
         return data
@@ -122,7 +130,7 @@ class TuShareDailyBasicPlugin(BasePlugin):
         """Load daily basic data into ODS table.
         
         Args:
-            data: Daily basic data to load
+            data: Daily basic data to load (already transformed with proper types)
         
         Returns:
             Loading statistics
@@ -136,16 +144,12 @@ class TuShareDailyBasicPlugin(BasePlugin):
             return {"status": "no_data", "loaded_records": 0}
         
         try:
+            # Load into ODS table (data is already transformed with proper types)
             self.logger.info(f"Loading {len(data)} records into ods_daily_basic")
-            ods_data = data.copy()
-            ods_data['version'] = int(datetime.now().timestamp())
-            ods_data['_ingested_at'] = datetime.now()
-            
-            # Prepare data types
-            ods_data = self._prepare_data_for_insert('ods_daily_basic', ods_data)
+            ods_data = self._prepare_data_for_insert('ods_daily_basic', data.copy())
             self.db.insert_dataframe('ods_daily_basic', ods_data)
             
-            self.logger.info(f"Loaded {len(ods_data)} records into ods_daily_basic")
+            self.logger.info(f"Successfully loaded {len(ods_data)} records into ods_daily_basic")
             return {
                 "status": "success",
                 "table": "ods_daily_basic",

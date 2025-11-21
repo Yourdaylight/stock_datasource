@@ -1,10 +1,11 @@
-"""TuShare trade calendar extractor - independent implementation."""
+"""TuShare financial indicators data extractor."""
 
 import logging
 import os
 import json
 import time
 import pandas as pd
+from typing import Optional
 from pathlib import Path
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -12,8 +13,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 logger = logging.getLogger(__name__)
 
 
-class TradeCalendarExtractor:
-    """Independent extractor for TuShare trade calendar data."""
+class FinaIndicatorExtractor:
+    """Extractor for TuShare financial indicators data."""
     
     def __init__(self):
         self.token = os.getenv("TUSHARE_TOKEN")
@@ -22,7 +23,7 @@ class TradeCalendarExtractor:
         config_file = Path(__file__).parent / "config.json"
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        self.rate_limit = config.get("rate_limit", 500)  # Default to 500 if not specified
+        self.rate_limit = config.get("rate_limit", 120)
         
         if not self.token:
             raise ValueError("TUSHARE_TOKEN environment variable not set")
@@ -63,25 +64,27 @@ class TradeCalendarExtractor:
             logger.error(f"API call failed: {e}")
             raise
     
-    def extract(self, start_date: str, end_date: str, 
-                exchange: str = "SSE") -> pd.DataFrame:
-        """Extract trade calendar data for a date range.
+    def extract(self, ts_code: Optional[str] = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """Extract financial indicators data.
         
         Args:
+            ts_code: Stock code (e.g., 002579.SZ). If not provided, gets all stocks
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-            exchange: Exchange code ('SSE' for Shanghai, 'SZSE' for Shenzhen)
         
         Returns:
-            DataFrame with trade calendar data
+            DataFrame with financial indicators data
         """
-        return self._call_api(
-            self.pro.trade_cal,
-            exchange=exchange,
-            start_date=start_date,
-            end_date=end_date
-        )
+        kwargs = {}
+        if ts_code:
+            kwargs['ts_code'] = ts_code
+        if start_date:
+            kwargs['start_date'] = start_date
+        if end_date:
+            kwargs['end_date'] = end_date
+        
+        return self._call_api(self.pro.fina_indicator, **kwargs)
 
 
 # Global extractor instance
-extractor = TradeCalendarExtractor()
+extractor = FinaIndicatorExtractor()

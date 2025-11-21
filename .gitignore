@@ -1,14 +1,26 @@
-__pycache__/
-.env
-.venv/
+.python-version
+.DS_Store
+
+# Plugin CSV snapshots (temporary data files)
+**/plugins/**/latest_data.csv
+>>>>>>> feature/alan
+=======
+__pycache__
 data/exports/
 logs/
 *.log
 
 .DS_Store
-
+.python-version
+.codebuddy
+uv.lock
 
 # Plugin CSV snapshots (temporary data files)
 **/plugins/**/latest_data.csv
-.codebuddy
-uv.lock
+=======
+.python-version
+.DS_Store
+
+# Plugin CSV snapshots (temporary data files)
+**/plugins/**/latest_data.csv
+>>>>>>> feature/alan

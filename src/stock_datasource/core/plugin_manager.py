@@ -83,6 +83,18 @@ class PluginManager:
         """Get only enabled plugins."""
         return [plugin for plugin in self.plugins.values() if plugin.is_enabled()]
     
+    def get_active_plugins(self) -> List[BasePlugin]:
+        """Get enabled plugins that are not ignored.
+        
+        This is used for CLI commands like ingest-daily and backfill.
+        Ignored plugins can still be executed manually via CLI.
+        
+        Returns:
+            List of enabled and non-ignored plugins
+        """
+        return [plugin for plugin in self.plugins.values() 
+                if plugin.is_enabled() and not plugin.is_ignored()]
+    
     def execute_plugin(self, plugin_name: str, **kwargs) -> Any:
         """Execute a plugin with given parameters."""
         plugin = self.get_plugin(plugin_name)

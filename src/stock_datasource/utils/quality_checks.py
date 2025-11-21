@@ -62,11 +62,12 @@ class QualityChecker:
                 continue
             
             try:
-                # Count records for the trade date
+                # Count records for the trade date (convert YYYYMMDD to YYYY-MM-DD)
+                formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
                 query = f"""
                 SELECT COUNT(*) as record_count
                 FROM {table}
-                WHERE trade_date = '{trade_date}'
+                WHERE trade_date = '{formatted_date}'
                 """
                 
                 result = self.db.execute_query(query)
@@ -126,13 +127,15 @@ class QualityChecker:
     def _get_expected_record_count(self, table_name: str, trade_date: str) -> int:
         """Get expected record count based on historical data."""
         try:
+            # Convert YYYYMMDD to YYYY-MM-DD
+            formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             # Get average count from previous 10 trading days
             query = f"""
             SELECT AVG(record_count) as avg_count
             FROM (
                 SELECT COUNT(*) as record_count
                 FROM {table_name}
-                WHERE trade_date < '{trade_date}'
+                WHERE trade_date < '{formatted_date}'
                 GROUP BY trade_date
                 ORDER BY trade_date DESC
                 LIMIT 10
@@ -165,12 +168,14 @@ class QualityChecker:
             }
         
         try:
+            # Convert YYYYMMDD to YYYY-MM-DD
+            formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             query = f"""
             SELECT 
                 ts_code,
                 open, high, low, close, pre_close
             FROM ods_daily
-            WHERE trade_date = '{trade_date}'
+            WHERE trade_date = '{formatted_date}'
             AND open IS NOT NULL 
             AND high IS NOT NULL 
             AND low IS NOT NULL 
@@ -246,6 +251,8 @@ class QualityChecker:
             }
         
         try:
+            # Convert YYYYMMDD to YYYY-MM-DD
+            formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             query = f"""
             SELECT 
                 d.ts_code,
@@ -257,7 +264,7 @@ class QualityChecker:
             LEFT JOIN ods_stk_limit l 
                 ON d.ts_code = l.ts_code 
                 AND d.trade_date = l.trade_date
-            WHERE d.trade_date = '{trade_date}'
+            WHERE d.trade_date = '{formatted_date}'
             AND d.close IS NOT NULL 
             AND d.pre_close IS NOT NULL
             """
@@ -327,6 +334,8 @@ class QualityChecker:
             }
         
         try:
+            # Convert YYYYMMDD to YYYY-MM-DD
+            formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             query = f"""
             SELECT 
                 d.ts_code,
@@ -336,7 +345,7 @@ class QualityChecker:
             LEFT JOIN ods_suspend_d s 
                 ON d.ts_code = s.ts_code 
                 AND d.trade_date = s.trade_date
-            WHERE d.trade_date = '{trade_date}'
+            WHERE d.trade_date = '{formatted_date}'
             """
             
             df = self.db.execute_query(query)
