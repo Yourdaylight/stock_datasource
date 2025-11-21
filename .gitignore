@@ -1,11 +1,6 @@
-.python-version
-.DS_Store
-
-# Plugin CSV snapshots (temporary data files)
-**/plugins/**/latest_data.csv
->>>>>>> feature/alan
-=======
-__pycache__
+__pycache__/
+.env
+.venv/
 data/exports/
 logs/
 *.log
@@ -21,6 +16,3 @@ uv.lock
 .python-version
 .DS_Store
 
-# Plugin CSV snapshots (temporary data files)
-**/plugins/**/latest_data.csv
->>>>>>> feature/alan

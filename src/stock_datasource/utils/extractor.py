@@ -315,9 +315,7 @@ class TuShareExtractor(BaseTuShareExtractor):
                                     # Data exists for this date, skip extraction
                                     logger.info(f"Plugin {plugin_name} data already exists for {trade_date}, skipping")
                                     return (plugin_name, None, "already_exists")
->>>>>>> feature/alan
-                            else:
-=======
+
                                 else:
                                     # No data for this date, extract
                                     logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
@@ -335,9 +333,7 @@ class TuShareExtractor(BaseTuShareExtractor):
                                 else:
                                     # No data for this date, extract
                                     logger.info(f"Plugin {plugin_name} no data for {trade_date}, extracting for backfill")
-                            else:
-=======
->>>>>>> feature/alan
+
                             else:
                                 # Other tables use trade_date (convert YYYYMMDD to YYYY-MM-DD)
                                 formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
