@@ -1,197 +1,190 @@
-# ClickHouse Query Plugin 使用指南
+# ClickHouse Query MCP Plugin
 
-这是一个通用的ClickHouse查询MCP插件，支持灵活的条件查询。
+增强版ClickHouse查询MCP插件，提供表结构查看和股票数据条件过滤功能。
 
 ## 功能特性
 
-1. **条件查询** - 支持多种查询条件格式
-2. **原生SQL查询** - 支持执行原始SQL语句
-3. **表结构查询** - 获取表结构和统计信息
-4. **表列表** - 列出数据库中的所有表
+### 1. 表结构查看工具
+- `get_table_schema` - 查看表结构和字段信息
+- `list_tables` - 列出所有可用表
 
-## 使用方法
+### 2. 股票数据过滤工具
+- `filter_daily_data` - 过滤ods_daily表（股票价格数据）
+- `filter_daily_basic` - 过滤ods_daily_basic表（股票基本面数据）
 
-### 1. 条件查询
+### 3. 原始SQL查询
+- `execute_raw_query` - 执行原始SQL查询
 
-```python
-# 基本查询
-result = service.query_with_conditions(
-    table="ods_daily_basic",
-    conditions={"trade_date": "20241201"}
-)
+## 使用示例
 
-# 多条件查询
-result = service.query_with_conditions(
-    table="ods_daily_basic",
-    conditions={
-        "trade_date": "20241201",
-        "total_mv": {"min": 100000, "max": 1000000}
-    }
-)
-
-# IN查询
-result = service.query_with_conditions(
-    table="ods_daily_basic",
-    conditions={
-        "ts_code": ["000001.SZ", "000002.SZ", "600000.SH"]
-    }
-)
-
-# 模糊查询
-result = service.query_with_conditions(
-    table="ods_daily_basic",
-    conditions={
-        "ts_code": {"like": "000%"},
-        "total_mv": {"min": 500000}
-    }
-)
-
-# 指定列和排序
-result = service.query_with_conditions(
-    table="ods_daily_basic",
-    columns=["ts_code", "trade_date", "close", "total_mv"],
-    conditions={"trade_date": "20241201"},
-    order_by="total_mv DESC",
-    limit=100
-)
-```
-
-### 2. 原生SQL查询
-
-```python
-# 简单查询
-result = service.execute_raw_query(
-    "SELECT * FROM ods_daily_basic WHERE trade_date = %s LIMIT 10",
-    ["20241201"]
-)
-
-# 复杂查询
-result = service.execute_raw_query("""
-    SELECT 
-        ts_code,
-        AVG(close) as avg_close,
-        MAX(close) as max_close,
-        MIN(close) as min_close
-    FROM ods_daily_basic 
-    WHERE trade_date >= %s AND trade_date <= %s
-    GROUP BY ts_code
-    ORDER BY avg_close DESC
-    LIMIT 20
-""", ["20241201", "20241231"])
-```
-
-### 3. 获取表结构
-
-```python
-# 获取表结构
-schema = service.get_table_schema("ods_daily_basic")
-
-# 列出所有表
-tables = service.list_tables()
-
-# 列出指定数据库的表
-tables = service.list_tables("stock_db")
-
-# 获取表统计信息
-stats = service.get_table_stats("ods_daily_basic")
-```
-
-## 条件查询格式说明
-
-### 基本条件
-```python
-{"column": "value"}  # 等于: column = 'value'
-```
-
-### 范围条件
-```python
-{"column": {"min": 100, "max": 1000}}  # column >= 100 AND column <= 1000
-{"column": {"min": 100}}               # column >= 100
-{"column": {"max": 1000}}              # column <= 1000
-```
-
-### 列表条件
-```python
-{"column": ["value1", "value2", "value3"]}  # column IN ('value1', 'value2', 'value3')
-```
-
-### 模糊条件
-```python
-{"column": {"like": "pattern%"}}   # column LIKE 'pattern%'
-{"column": {"like": "%pattern"}}   # column LIKE '%pattern'
-{"column": {"like": "%pattern%"}}  # column LIKE '%pattern%'
-```
-
-### 不等于条件
-```python
-{"column": {"ne": "value"}}  # column != 'value'
-```
-
-### 等于条件（显式）
-```python
-{"column": {"eq": "value"}}  # column = 'value'
-```
-
-## MCP工具调用示例
-
-### query_with_conditions
+### 查看表结构
 ```json
 {
-  "table": "ods_daily_basic",
-  "conditions": {
-    "trade_date": "20241201",
-    "total_mv": {"min": 500000, "max": 2000000},
-    "turnover_rate": {"min": 5, "max": 10}
-  },
-  "columns": ["ts_code", "close", "total_mv", "turnover_rate"],
-  "order_by": "total_mv DESC",
-  "limit": 50
+  "tool": "clickhouse_query_get_table_schema",
+  "arguments": {
+    "table": "ods_daily"
+  }
 }
 ```
 
-### execute_raw_query
+### 列出所有表
 ```json
 {
-  "sql": "SELECT ts_code, AVG(close) as avg_close FROM ods_daily_basic WHERE trade_date >= %s GROUP BY ts_code ORDER BY avg_close DESC LIMIT 10",
-  "params": ["20241201"]
+  "tool": "clickhouse_query_list_tables",
+  "arguments": {}
 }
 ```
 
-### get_table_schema
+### 过滤股票价格数据 (ods_daily)
 ```json
 {
-  "table": "ods_daily_basic"
+  "tool": "clickhouse_query_filter_daily_data",
+  "arguments": {
+    "trade_date": "20251118",
+    "pct_chg_min": 5,
+    "pct_chg_max": 10,
+    "vol_min": 100000,
+    "limit": 20,
+    "order_by": "pct_chg DESC"
+  }
 }
 ```
 
-### list_tables
+### 过滤基本面数据 (ods_daily_basic)
 ```json
 {
-  "database": "stock_db"
+  "tool": "clickhouse_query_filter_daily_basic",
+  "arguments": {
+    "trade_date": "20251118",
+    "pe_min": 0,
+    "pe_max": 30,
+    "pb_min": 0,
+    "pb_max": 3,
+    "dv_ratio_min": 3,
+    "total_mv_min": 100000,
+    "limit": 50,
+    "order_by": "dv_ratio DESC"
+  }
 }
 ```
 
-### get_table_stats
+### 查询高股息率股票
 ```json
 {
-  "table": "ods_daily_basic"
+  "tool": "clickhouse_query_filter_daily_basic",
+  "arguments": {
+    "trade_date": "20251118",
+    "dv_ratio_min": 5,
+    "pe_min": 0,
+    "pe_max": 50,
+    "limit": 20,
+    "order_by": "dv_ratio DESC"
+  }
+}
+```
+
+### 查询涨幅大于8%的股票
+```json
+{
+  "tool": "clickhouse_query_filter_daily_data",
+  "arguments": {
+    "trade_date": "20251117",
+    "pct_chg_min": 8,
+    "limit": 50,
+    "order_by": "pct_chg DESC"
+  }
+}
+```
+
+### 查询特定股票
+```json
+{
+  "tool": "clickhouse_query_filter_daily_data",
+  "arguments": {
+    "ts_codes": ["000001.SZ", "000002.SZ", "600000.SH"],
+    "trade_date": "20251118",
+    "limit": 10
+  }
+}
+```
+
+## 参数说明
+
+### filter_daily_data 参数
+- `trade_date`: 交易日期 (YYYYMMDD格式)
+- `ts_codes`: 股票代码列表
+- `pct_chg_min/max`: 涨跌幅范围
+- `close_min/max`: 收盘价范围
+- `vol_min`: 最小成交量
+- `amount_min`: 最小成交额
+- `limit`: 返回行数限制
+- `order_by`: 排序字段
+
+### filter_daily_basic 参数
+- `trade_date`: 交易日期 (YYYYMMDD格式)
+- `ts_codes`: 股票代码列表
+- `pe_min/max`: 市盈率范围
+- `pb_min/max`: 市净率范围
+- `dv_ratio_min/max`: 股息率范围
+- `total_mv_min/max`: 总市值范围（单位：万元）
+- `circ_mv_min/max`: 流通市值范围（单位：万元）
+- `limit`: 返回行数限制
+- `order_by`: 排序字段
+
+## 常用查询场景
+
+### 1. 寻找优质股票
+```json
+{
+  "tool": "clickhouse_query_filter_daily_basic",
+  "arguments": {
+    "pe_min": 5,
+    "pe_max": 20,
+    "pb_min": 0.5,
+    "pb_max": 2,
+    "dv_ratio_min": 2,
+    "total_mv_min": 500000,
+    "limit": 20,
+    "order_by": "dv_ratio DESC"
+  }
+}
+```
+
+### 2. 寻找活跃股票
+```json
+{
+  "tool": "clickhouse_query_filter_daily_data",
+  "arguments": {
+    "trade_date": "20251118",
+    "vol_min": 500000,
+    "amount_min": 100000000,
+    "pct_chg_min": 2,
+    "limit": 20,
+    "order_by": "amount DESC"
+  }
+}
+```
+
+### 3. 寻找价值低估股票
+```json
+{
+  "tool": "clickhouse_query_filter_daily_basic",
+  "arguments": {
+    "pe_min": 0,
+    "pe_max": 15,
+    "pb_min": 0,
+    "pb_max": 1,
+    "total_mv_min": 1000000,
+    "limit": 20,
+    "order_by": "pb ASC"
+  }
 }
 ```
 
 ## 注意事项
 
-1. **SQL注入防护** - 所有条件查询都使用参数化查询，防止SQL注入
-2. **性能考虑** - 大表查询建议添加适当的LIMIT条件
-3. **数据类型** - 日期时间字段会自动转换为ISO格式字符串
-4. **NULL值处理** - 数据库NULL值会转换为Python的None
-
-## 错误处理
-
-插件会自动处理以下错误情况：
-- 表不存在
-- 列名错误
-- SQL语法错误
-- 参数类型错误
-- 数据库连接错误
-
-错误信息会包含在返回结果中，便于调试。
+1. 日期格式必须为YYYYMMDD（如：20251118）
+2. 市值单位为万元
+3. 百分比数值使用实际数值（如：5表示5%）
+4. 使用适当的limit限制返回结果数量
+5. 可以组合多个条件进行精确筛选

@@ -1,43 +1,175 @@
 {
   "name": "clickhouse_query",
-  "description": "Generic ClickHouse query service with flexible conditions",
-  "version": "1.0.0",
+  "description": "Enhanced ClickHouse query service with table structure and stock filtering tools",
+  "version": "1.1.0",
   "type": "query",
   "methods": [
     {
-      "name": "query_with_conditions",
-      "description": "Execute custom query with conditions",
+      "name": "get_table_schema",
+      "description": "Get table structure and field information",
       "parameters": {
         "table": {
           "type": "string",
           "required": true,
-          "description": "Table name to query"
-        },
-        "conditions": {
-          "type": "object",
+          "description": "Table name to inspect"
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Table schema with field names, types, and descriptions"
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List all available tables in the database",
+      "parameters": {},
+      "returns": {
+        "type": "array",
+        "description": "List of table names"
+      }
+    },
+    {
+      "name": "filter_daily_data",
+      "description": "Filter ods_daily table with flexible conditions for stock price data",
+      "parameters": {
+        "trade_date": {
+          "type": "string",
           "required": false,
-          "description": "Query conditions as key-value pairs. Examples: {'trade_date': '20241201'}, {'ts_code': ['000001.SZ', '000002.SZ']}, {'total_mv': {'min': 100000, 'max': 1000000}}"
+          "description": "Trade date in YYYYMMDD format (e.g., '20241201')"
         },
-        "columns": {
+        "ts_codes": {
           "type": "array",
           "required": false,
-          "description": "Columns to select, default is all"
+          "description": "List of stock codes (e.g., ['000001.SZ', '000002.SZ'])"
+        },
+        "pct_chg_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum percentage change"
+        },
+        "pct_chg_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum percentage change"
+        },
+        "close_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum closing price"
+        },
+        "close_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum closing price"
+        },
+        "vol_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum volume"
+        },
+        "amount_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum amount"
         },
         "limit": {
           "type": "integer",
           "required": false,
-          "default": 1000,
+          "default": 100,
           "description": "Maximum number of rows to return"
         },
         "order_by": {
           "type": "string",
           "required": false,
-          "description": "Order by clause"
+          "default": "pct_chg DESC",
+          "description": "Order by clause (e.g., 'pct_chg DESC', 'close ASC')"
         }
       },
       "returns": {
         "type": "array",
-        "description": "List of query results"
+        "description": "Filtered daily stock data"
+      }
+    },
+    {
+      "name": "filter_daily_basic",
+      "description": "Filter ods_daily_basic table with flexible conditions for stock fundamental data",
+      "parameters": {
+        "trade_date": {
+          "type": "string",
+          "required": false,
+          "description": "Trade date in YYYYMMDD format (e.g., '20241201')"
+        },
+        "ts_codes": {
+          "type": "array",
+          "required": false,
+          "description": "List of stock codes (e.g., ['000001.SZ', '000002.SZ'])"
+        },
+        "pe_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum P/E ratio"
+        },
+        "pe_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum P/E ratio"
+        },
+        "pb_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum P/B ratio"
+        },
+        "pb_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum P/B ratio"
+        },
+        "dv_ratio_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum dividend ratio (%)"
+        },
+        "dv_ratio_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum dividend ratio (%)"
+        },
+        "total_mv_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum total market value (in ten thousand)"
+        },
+        "total_mv_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum total market value (in ten thousand)"
+        },
+        "circ_mv_min": {
+          "type": "number",
+          "required": false,
+          "description": "Minimum circulating market value (in ten thousand)"
+        },
+        "circ_mv_max": {
+          "type": "number",
+          "required": false,
+          "description": "Maximum circulating market value (in ten thousand)"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of rows to return"
+        },
+        "order_by": {
+          "type": "string",
+          "required": false,
+          "default": "dv_ratio DESC",
+          "description": "Order by clause (e.g., 'pe ASC', 'total_mv DESC')"
+        }
+      },
+      "returns": {
+        "type": "array",
+        "description": "Filtered daily basic stock data"
       }
     },
     {
@@ -48,61 +180,11 @@
           "type": "string",
           "required": true,
           "description": "Raw SQL query to execute"
-        },
-        "params": {
-          "type": "array",
-          "required": false,
-          "description": "Query parameters for prepared statement"
         }
       },
       "returns": {
         "type": "array",
-        "description": "List of query results"
-      }
-    },
-    {
-      "name": "get_table_schema",
-      "description": "Get table schema information",
-      "parameters": {
-        "table": {
-          "type": "string",
-          "required": true,
-          "description": "Table name to get schema for"
-        }
-      },
-      "returns": {
-        "type": "array",
-        "description": "List of column information"
-      }
-    },
-    {
-      "name": "list_tables",
-      "description": "List all tables in the database",
-      "parameters": {
-        "database": {
-          "type": "string",
-          "required": false,
-          "description": "Database name, default is current database"
-        }
-      },
-      "returns": {
-        "type": "array",
-        "description": "List of table information"
-      }
-    },
-    {
-      "name": "get_table_stats",
-      "description": "Get table statistics",
-      "parameters": {
-        "table": {
-          "type": "string",
-          "required": true,
-          "description": "Table name to get statistics for"
-        }
-      },
-      "returns": {
-        "type": "object",
-        "description": "Table statistics"
+        "description": "Query results"
       }
     }
   ]
