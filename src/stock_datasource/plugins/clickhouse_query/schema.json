@@ -1,0 +1,109 @@
+{
+  "name": "clickhouse_query",
+  "description": "Generic ClickHouse query service with flexible conditions",
+  "version": "1.0.0",
+  "type": "query",
+  "methods": [
+    {
+      "name": "query_with_conditions",
+      "description": "Execute custom query with conditions",
+      "parameters": {
+        "table": {
+          "type": "string",
+          "required": true,
+          "description": "Table name to query"
+        },
+        "conditions": {
+          "type": "object",
+          "required": false,
+          "description": "Query conditions as key-value pairs. Examples: {'trade_date': '20241201'}, {'ts_code': ['000001.SZ', '000002.SZ']}, {'total_mv': {'min': 100000, 'max': 1000000}}"
+        },
+        "columns": {
+          "type": "array",
+          "required": false,
+          "description": "Columns to select, default is all"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 1000,
+          "description": "Maximum number of rows to return"
+        },
+        "order_by": {
+          "type": "string",
+          "required": false,
+          "description": "Order by clause"
+        }
+      },
+      "returns": {
+        "type": "array",
+        "description": "List of query results"
+      }
+    },
+    {
+      "name": "execute_raw_query",
+      "description": "Execute raw SQL query",
+      "parameters": {
+        "sql": {
+          "type": "string",
+          "required": true,
+          "description": "Raw SQL query to execute"
+        },
+        "params": {
+          "type": "array",
+          "required": false,
+          "description": "Query parameters for prepared statement"
+        }
+      },
+      "returns": {
+        "type": "array",
+        "description": "List of query results"
+      }
+    },
+    {
+      "name": "get_table_schema",
+      "description": "Get table schema information",
+      "parameters": {
+        "table": {
+          "type": "string",
+          "required": true,
+          "description": "Table name to get schema for"
+        }
+      },
+      "returns": {
+        "type": "array",
+        "description": "List of column information"
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List all tables in the database",
+      "parameters": {
+        "database": {
+          "type": "string",
+          "required": false,
+          "description": "Database name, default is current database"
+        }
+      },
+      "returns": {
+        "type": "array",
+        "description": "List of table information"
+      }
+    },
+    {
+      "name": "get_table_stats",
+      "description": "Get table statistics",
+      "parameters": {
+        "table": {
+          "type": "string",
+          "required": true,
+          "description": "Table name to get statistics for"
+        }
+      },
+      "returns": {
+        "type": "object",
+        "description": "Table statistics"
+      }
+    }
+  ]
+}

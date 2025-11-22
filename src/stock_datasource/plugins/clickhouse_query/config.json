@@ -1,0 +1,38 @@
+{
+  "enabled": true,
+  "rate_limit": 100,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "Generic ClickHouse query service with flexible conditions",
+  "schedule": {
+    "frequency": "on_demand"
+  },
+  "parameters_schema": {
+    "table": {
+      "type": "string",
+      "required": true,
+      "description": "Table name to query"
+    },
+    "conditions": {
+      "type": "object",
+      "required": false,
+      "description": "Query conditions as key-value pairs"
+    },
+    "columns": {
+      "type": "array",
+      "required": false,
+      "description": "Columns to select, default is all"
+    },
+    "limit": {
+      "type": "integer",
+      "required": false,
+      "default": 1000,
+      "description": "Maximum number of rows to return"
+    },
+    "order_by": {
+      "type": "string",
+      "required": false,
+      "description": "Order by clause"
+    }
+  }
+}
