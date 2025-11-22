@@ -1,6 +1,7 @@
 """TuShare daily basic indicators query service."""
 
 from typing import Any, Dict, List, Optional
+import datetime
 import pandas as pd
 from stock_datasource.core.base_service import BaseService, query_method, QueryParam
 
@@ -154,3 +155,55 @@ class TuShareDailyBasicService(BaseService):
         df = self.db.execute_query(query)
         records = df.to_dict('records')
         return [_convert_to_json_serializable(record) for record in records]
+
+    @query_method(
+        description="Query quality stocks",
+        params=[
+        ]
+    )
+    def get_quality_stocks(
+            self,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query latest daily basic indicators for multiple stocks.
+
+        Args:
+            codes: List of stock codes
+
+        Returns:
+            List of latest daily basic indicator records
+        """
+        query = f"""
+           SELECT max(trade_date) AS trade_date FROM ods_daily_basic"""
+
+        df = self.db.execute_query(query)
+        records = df.to_dict('records')
+        
+        # Extract trade_date and format it properly
+        trade_date = records[0]['trade_date']
+
+        # trade_date = trade_date.strftime("%Y-%m-%d")
+        trade_date = trade_date.strftime('%Y%m%d')
+
+        query_daily_basic = f"""SELECT * FROM ods_daily_basic where trade_date = '{trade_date}'"""
+        df_daily_basic = self.db.execute_query(query_daily_basic)
+        df_daily_basic_records = df_daily_basic.to_dict('records')
+
+        quality_daily_basic_stocks = set()
+        for record in df_daily_basic_records:
+            if 5 < record['turnover_rate'] < 10 and 500000 < record['total_mv'] < 2000000 and record['volume_ratio'] > 1:
+                quality_daily_basic_stocks.add(record['ts_code'])
+
+        quality_daily_stocks = set()
+        query_daily = f"""SELECT * FROM ods_daily where trade_date = '{trade_date}'"""
+        df_daily = self.db.execute_query(query_daily)
+        df_daily_records = df_daily.to_dict('records')
+
+        for record in df_daily_records:
+            if 3< record['pct_chg'] < 5 and 6 < record['close'] < 99:
+                quality_daily_stocks.add(record['ts_code'])
+
+        final_code = {"ts_code":list(quality_daily_basic_stocks & quality_daily_stocks)}
+        print(final_code)
+
+        return [_convert_to_json_serializable(record) for record in final_code]
