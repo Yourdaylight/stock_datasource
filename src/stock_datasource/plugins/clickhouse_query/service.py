@@ -5,6 +5,13 @@ import json
 from stock_datasource.core.base_service import BaseService, query_method, QueryParam
 
 
+def _dataframe_to_dict_list(df) -> List[Dict[str, Any]]:
+    """Convert DataFrame to list of dictionaries."""
+    if df is None or df.empty:
+        return []
+    return df.to_dict('records')
+
+
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if hasattr(obj, 'strftime'):
@@ -80,7 +87,7 @@ class ClickHouseQueryService(BaseService):
         try:
             # Get table schema using DESCRIBE or similar
             schema_query = f"DESCRIBE TABLE {table}"
-            schema_result = self.execute_query(schema_query)
+            schema_result = self.db.execute_query(schema_query)
             
             # Get table statistics
             stats_query = f"""
@@ -90,7 +97,7 @@ class ClickHouseQueryService(BaseService):
             FROM {table}
             LIMIT 1
             """
-            stats_result = self.execute_query(stats_query)
+            stats_result = self.db.execute_query(stats_query)
             
             # Format the schema information
             schema_info = {
@@ -99,7 +106,7 @@ class ClickHouseQueryService(BaseService):
                 "columns": []
             }
             
-            for row in schema_result:
+            for index, row in schema_result.iterrows():
                 column_info = {
                     "name": row.get("name", ""),
                     "type": row.get("type", ""),
@@ -128,8 +135,8 @@ class ClickHouseQueryService(BaseService):
         """List all available tables in the database."""
         try:
             query = "SHOW TABLES"
-            result = self.execute_query(query)
-            table_names = [row.get("name", "") for row in result]
+            result = self.db.execute_query(query)
+            table_names = [row.get("name", "") for index, row in result.iterrows()]
             return _convert_to_json_serializable(table_names)
         except Exception as e:
             return [f"Error: {str(e)}"]
@@ -262,8 +269,8 @@ class ClickHouseQueryService(BaseService):
             limit = kwargs.get("limit", 100)
             base_query += f" LIMIT {limit}"
             
-            result = self.execute_query(base_query, params)
-            return _convert_to_json_serializable(result)
+            result = self.db.execute_query(base_query, params)
+            return _convert_to_json_serializable(_dataframe_to_dict_list(result))
             
         except Exception as e:
             return [{"error": str(e)}]
@@ -446,8 +453,8 @@ class ClickHouseQueryService(BaseService):
             limit = kwargs.get("limit", 100)
             base_query += f" LIMIT {limit}"
             
-            result = self.execute_query(base_query, params)
-            return _convert_to_json_serializable(result)
+            result = self.db.execute_query(base_query, params)
+            return _convert_to_json_serializable(_dataframe_to_dict_list(result))
             
         except Exception as e:
             return [{"error": str(e)}]
@@ -466,7 +473,7 @@ class ClickHouseQueryService(BaseService):
     def execute_raw_query(self, sql: str) -> List[Dict[str, Any]]:
         """Execute raw SQL query."""
         try:
-            result = self.execute_query(sql)
-            return _convert_to_json_serializable(result)
+            result = self.db.execute_query(sql)
+            return _convert_to_json_serializable(_dataframe_to_dict_list(result))
         except Exception as e:
             return [{"error": str(e), "sql": sql}]
