@@ -6,3 +6,5 @@ logs/
 *.log
 .python-version
 .DS_Store
+.codebuddy
+.vscode

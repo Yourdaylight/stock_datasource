@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "stock-datasource"
     VERSION: str = "0.1.0"
     DEBUG: bool = Field(default=False)
+    
+    @field_validator('DEBUG', mode='before')
+    @classmethod
+    def parse_debug(cls, v):
+        """Parse DEBUG value, handle non-boolean values gracefully."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ('true', '1', 'yes', 'on')
+        return False
     
     # ClickHouse settings
     CLICKHOUSE_HOST: str = Field(default="localhost")
@@ -52,6 +62,17 @@ class Settings(BaseSettings):
     
     # Database settings
     DATABASE_URL: Optional[str] = Field(default=None)
+    
+    # LLM / AI settings
+    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    OPENAI_BASE_URL: str = Field(default="https://api.openai.com/v1")
+    OPENAI_MODEL: str = Field(default="gpt-4")
+    
+    # Langfuse settings (AI Observability)
+    LANGFUSE_PUBLIC_KEY: Optional[str] = Field(default=None)
+    LANGFUSE_SECRET_KEY: Optional[str] = Field(default=None)
+    LANGFUSE_HOST: str = Field(default="https://cloud.langfuse.com")
+    LANGFUSE_ENABLED: bool = Field(default=True)
 
 
 # Create settings instance

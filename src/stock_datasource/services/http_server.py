@@ -8,6 +8,10 @@ import importlib
 import inspect
 from pathlib import Path
 
+# Load environment variables at module import
+from dotenv import load_dotenv
+load_dotenv()
+
 from stock_datasource.core.service_generator import ServiceGenerator
 from stock_datasource.core.base_service import BaseService
 
@@ -20,9 +24,9 @@ _services_cache = {}
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
     app = FastAPI(
-        title="Stock Data Service",
-        description="HTTP API for querying stock data",
-        version="1.0.0",
+        title="AI Stock Platform",
+        description="AI智能股票分析平台 - HTTP API",
+        version="2.0.0",
     )
     
     # Add CORS middleware
@@ -34,15 +38,43 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Register service routes
+    # Register plugin service routes
     _register_services(app)
+    
+    # Register module routes (8 business modules)
+    _register_module_routes(app)
     
     # Health check endpoint
     @app.get("/health")
     async def health_check():
         return {"status": "ok"}
     
+    # Root endpoint
+    @app.get("/")
+    async def root():
+        return {
+            "name": "AI Stock Platform",
+            "version": "2.0.0",
+            "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest"]
+        }
+    
     return app
+
+
+def _register_module_routes(app: FastAPI) -> None:
+    """Register all business module routes."""
+    try:
+        from stock_datasource.modules import get_all_routers
+        
+        for prefix, router, tags in get_all_routers():
+            app.include_router(
+                router,
+                prefix=f"/api{prefix}",
+                tags=tags,
+            )
+            logger.info(f"Registered module: {prefix}")
+    except Exception as e:
+        logger.warning(f"Failed to register module routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):
