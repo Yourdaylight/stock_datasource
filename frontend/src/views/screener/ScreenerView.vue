@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useScreenerStore } from '@/stores/screener'
+import { usePortfolioStore } from '@/stores/portfolio'
+import StockDetailDialog from '@/components/StockDetailDialog.vue'
 import type { ScreenerCondition } from '@/api/screener'
 
 const screenerStore = useScreenerStore()
+const portfolioStore = usePortfolioStore()
 const nlQuery = ref('')
 const activeTab = ref('condition')
 const searchInput = ref('')
+
+// Stock detail dialog
+const showDetailDialog = ref(false)
+const selectedStockCode = ref('')
 
 const presetStrategies = [
   { id: 'low_pe', name: '低估值策略', description: 'PE < 15, PB < 2' },
@@ -80,6 +88,36 @@ const handlePageSizeChange = (size: number) => {
 
 const handleSortChange = (sortInfo: { sortBy: string; descending: boolean }) => {
   screenerStore.changeSort(sortInfo.sortBy, sortInfo.descending ? 'desc' : 'asc')
+}
+
+const handleViewDetail = (stockCode: string) => {
+  selectedStockCode.value = stockCode
+  showDetailDialog.value = true
+}
+
+const handleAddToWatchlist = async (row: any) => {
+  try {
+    // Use close price, or fallback to a reasonable default
+    const costPrice = row.close || row.current_price || 10.0
+    
+    await portfolioStore.addPosition({
+      ts_code: row.ts_code,
+      quantity: 100, // Default quantity
+      cost_price: costPrice,
+      buy_date: new Date().toISOString().split('T')[0],
+      notes: `从智能选股添加 - ${row.ts_code}`
+    })
+    
+    MessagePlugin.success(`已将 ${row.ts_code} 添加到自选股`)
+  } catch (error) {
+    console.error('Failed to add to watchlist:', error)
+    MessagePlugin.error(`添加自选股失败: ${error.message || error}`)
+  }
+}
+
+const handleDetailDialogClose = () => {
+  showDetailDialog.value = false
+  selectedStockCode.value = ''
 }
 
 // Format market value to billions
@@ -290,8 +328,14 @@ onMounted(() => {
             </template>
             <template #operation="{ row }">
               <t-space>
-                <t-link theme="primary">详情</t-link>
-                <t-link theme="primary">加自选</t-link>
+                <t-link theme="primary" @click="handleViewDetail(row.ts_code)">详情</t-link>
+                <t-link 
+                  theme="primary" 
+                  :loading="portfolioStore.loading"
+                  @click="handleAddToWatchlist(row)"
+                >
+                  加自选
+                </t-link>
               </t-space>
             </template>
           </t-table>
@@ -311,6 +355,13 @@ onMounted(() => {
         </t-card>
       </t-col>
     </t-row>
+    
+    <!-- Stock Detail Dialog -->
+    <StockDetailDialog
+      v-model:visible="showDetailDialog"
+      :stock-code="selectedStockCode"
+      @close="handleDetailDialogClose"
+    />
   </div>
 </template>
 

@@ -67,6 +67,13 @@ def init_db(table, timeout):
                 click.echo(f"Creating table: {table} (metadata)")
                 schema_manager.create_table_from_schema(schema)
                 click.echo(f"✓ Table {table} created successfully")
+            elif table in ['user_positions', 'portfolio_analysis']:
+                # Portfolio module tables
+                from stock_datasource.modules.portfolio.schemas import PORTFOLIO_SCHEMAS
+                schema = PORTFOLIO_SCHEMAS[table]
+                click.echo(f"Creating table: {table} (portfolio)")
+                schema_manager.create_table_from_schema(schema)
+                click.echo(f"✓ Table {table} created successfully")
             else:
                 click.echo(f"✗ Table {table} not found in plugins or predefined schemas", err=True)
                 return
@@ -99,6 +106,17 @@ def init_db(table, timeout):
                     click.echo(f"✓ Table {table_name} created successfully")
                 except Exception as e:
                     click.echo(f"✗ Failed to create table {table_name}: {e}", err=True)
+            
+            # Create portfolio module tables
+            click.echo("Creating portfolio module tables...")
+            try:
+                from stock_datasource.modules.portfolio.init import init_portfolio_tables
+                if init_portfolio_tables():
+                    click.echo("✓ Portfolio tables created successfully")
+                else:
+                    click.echo("✗ Failed to create portfolio tables", err=True)
+            except Exception as e:
+                click.echo(f"✗ Failed to create portfolio tables: {e}", err=True)
             
             click.echo("✓ All tables created successfully")
         

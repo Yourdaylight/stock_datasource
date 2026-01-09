@@ -18,8 +18,8 @@ class MarketService:
         """Lazy load database client."""
         if self._db is None:
             try:
-                from stock_datasource.models.database import get_db_client
-                self._db = get_db_client()
+                from stock_datasource.models.database import db_client
+                self._db = db_client
             except Exception as e:
                 logger.warning(f"Failed to get DB client: {e}")
         return self._db
@@ -102,12 +102,47 @@ class MarketService:
         Returns:
             Indicator data
         """
-        # For now, return mock data
-        # In production, calculate from actual price data
-        return {
-            "code": code,
-            "indicators": []
-        }
+        if self.db is None:
+            # Return mock KDJ data
+            return self._get_mock_kdj(code, period)
+        
+        try:
+            # Get price data for calculation
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=period + 30)).strftime("%Y%m%d")
+            
+            query = """
+                SELECT 
+                    trade_date,
+                    high, low, close
+                FROM ods_daily
+                WHERE ts_code = %(code)s
+                  AND trade_date BETWEEN %(start)s AND %(end)s
+                ORDER BY trade_date
+            """
+            df = self.db.execute_query(query, {
+                "code": code,
+                "start": start_date,
+                "end": end_date
+            })
+            
+            if df.empty:
+                return self._get_mock_kdj(code, period)
+            
+            indicator_data = []
+            
+            if "KDJ" in indicators:
+                kdj_data = self._calculate_kdj(df)
+                indicator_data.extend(kdj_data)
+            
+            return {
+                "code": code,
+                "indicators": indicator_data
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate indicators: {e}")
+            return self._get_mock_kdj(code, period)
     
     async def search_stock(self, keyword: str) -> List[Dict[str, str]]:
         """Search stocks by keyword.
@@ -183,6 +218,82 @@ class MarketService:
             "code": code,
             "name": self._get_stock_name(code),
             "data": data
+        }
+    
+    def _calculate_kdj(self, df) -> List[Dict[str, Any]]:
+        """Calculate KDJ indicator from price data."""
+        import pandas as pd
+        
+        # Calculate RSV (Raw Stochastic Value)
+        df = df.copy()
+        df['lowest_low'] = df['low'].rolling(window=9).min()
+        df['highest_high'] = df['high'].rolling(window=9).max()
+        df['rsv'] = ((df['close'] - df['lowest_low']) / (df['highest_high'] - df['lowest_low']) * 100).fillna(50)
+        
+        # Calculate K, D, J
+        k_values = []
+        d_values = []
+        j_values = []
+        
+        k = 50.0  # Initial K value
+        d = 50.0  # Initial D value
+        
+        for rsv in df['rsv']:
+            k = (2/3) * k + (1/3) * rsv
+            d = (2/3) * d + (1/3) * k
+            j = 3 * k - 2 * d
+            
+            k_values.append(k)
+            d_values.append(d)
+            j_values.append(j)
+        
+        # Prepare result
+        result = []
+        for i, (_, row) in enumerate(df.iterrows()):
+            if i >= 8:  # Skip first 8 days (need 9 days for calculation)
+                result.append({
+                    "date": str(row['trade_date']),
+                    "values": {
+                        "K": round(k_values[i], 2),
+                        "D": round(d_values[i], 2),
+                        "J": round(j_values[i], 2)
+                    }
+                })
+        
+        return result
+    
+    def _get_mock_kdj(self, code: str, period: int) -> Dict[str, Any]:
+        """Generate mock KDJ data."""
+        import random
+        
+        data = []
+        current_date = datetime.now() - timedelta(days=period)
+        k = 50.0
+        d = 50.0
+        
+        for i in range(period):
+            # Simulate KDJ oscillation
+            k += random.uniform(-5, 5)
+            k = max(0, min(100, k))
+            
+            d = 0.67 * d + 0.33 * k
+            j = 3 * k - 2 * d
+            
+            if current_date.weekday() < 5:  # Skip weekends
+                data.append({
+                    "date": current_date.strftime("%Y-%m-%d"),
+                    "values": {
+                        "K": round(k, 2),
+                        "D": round(d, 2),
+                        "J": round(j, 2)
+                    }
+                })
+            
+            current_date += timedelta(days=1)
+        
+        return {
+            "code": code,
+            "indicators": data
         }
 
 

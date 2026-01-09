@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onActivated } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolio'
 import { MessagePlugin } from 'tdesign-vue-next'
 
@@ -49,10 +49,19 @@ const handleTriggerAnalysis = () => {
   portfolioStore.triggerDailyAnalysis()
 }
 
-onMounted(() => {
+const refreshData = () => {
   portfolioStore.fetchPositions()
   portfolioStore.fetchSummary()
   portfolioStore.fetchAnalysis()
+}
+
+onMounted(() => {
+  refreshData()
+})
+
+// Refresh data when component is activated (useful with keep-alive)
+onActivated(() => {
+  refreshData()
 })
 </script>
 

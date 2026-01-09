@@ -38,6 +38,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
+    # Initialize database tables on startup
+    @app.on_event("startup")
+    async def startup_event():
+        """Initialize database tables and other startup tasks."""
+        logger.info("Starting application initialization...")
+        
+        # Initialize portfolio tables
+        try:
+            from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
+            ensure_portfolio_tables()
+        except Exception as e:
+            logger.warning(f"Portfolio table initialization failed: {e}")
+        
+        logger.info("Application initialization completed")
+    
     # Register plugin service routes
     _register_services(app)
     
