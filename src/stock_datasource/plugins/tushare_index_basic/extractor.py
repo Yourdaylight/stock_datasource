@@ -1,4 +1,4 @@
-"""TuShare adjustment factor extractor - independent implementation."""
+"""TuShare index basic info extractor - independent implementation."""
 
 import logging
 import json
@@ -13,8 +13,8 @@ from stock_datasource.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
-class AdjFactorExtractor:
-    """Independent extractor for TuShare adjustment factor data."""
+class IndexBasicExtractor:
+    """Independent extractor for TuShare index basic info data."""
     
     def __init__(self):
         self.token = settings.TUSHARE_TOKEN
@@ -23,7 +23,7 @@ class AdjFactorExtractor:
         config_file = Path(__file__).parent / "config.json"
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        self.rate_limit = config.get("rate_limit", 500)  # Default to 500 if not specified
+        self.rate_limit = config.get("rate_limit", 500)
         
         if not self.token:
             raise ValueError("TUSHARE_TOKEN not configured in settings")
@@ -64,22 +64,36 @@ class AdjFactorExtractor:
             logger.error(f"API call failed: {e}")
             raise
     
-    def extract(self, trade_date: str, ts_code: Optional[str] = None) -> pd.DataFrame:
-        """Extract adjustment factor data for a specific trade date.
+    def extract(self, market: Optional[str] = None, ts_code: Optional[str] = None,
+               name: Optional[str] = None, publisher: Optional[str] = None,
+               category: Optional[str] = None) -> pd.DataFrame:
+        """Extract index basic information.
         
         Args:
-            trade_date: Trade date in YYYYMMDD format
-            ts_code: Optional stock code (if not provided, gets all stocks)
+            market: Market code (SSE/SZSE/CSI/CICC/SW)
+            ts_code: Index code
+            name: Index name
+            publisher: Publisher name
+            category: Index category
         
         Returns:
-            DataFrame with adjustment factor data
+            DataFrame with index basic information
         """
-        kwargs = {'trade_date': trade_date}
+        kwargs = {}
+        
+        if market:
+            kwargs['market'] = market
         if ts_code:
             kwargs['ts_code'] = ts_code
+        if name:
+            kwargs['name'] = name
+        if publisher:
+            kwargs['publisher'] = publisher
+        if category:
+            kwargs['category'] = category
         
-        return self._call_api(self.pro.adj_factor, **kwargs)
+        return self._call_api(self.pro.index_basic, **kwargs)
 
 
 # Global extractor instance
-extractor = AdjFactorExtractor()
+extractor = IndexBasicExtractor()

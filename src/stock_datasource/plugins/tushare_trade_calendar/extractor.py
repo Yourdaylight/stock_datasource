@@ -1,13 +1,13 @@
 """TuShare trade calendar extractor - independent implementation."""
 
 import logging
-import os
 import json
 import time
 import pandas as pd
 from pathlib import Path
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
+from stock_datasource.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class TradeCalendarExtractor:
     """Independent extractor for TuShare trade calendar data."""
     
     def __init__(self):
-        self.token = os.getenv("TUSHARE_TOKEN")
+        self.token = settings.TUSHARE_TOKEN
         
         # Load rate_limit from config.json
         config_file = Path(__file__).parent / "config.json"
@@ -25,7 +25,7 @@ class TradeCalendarExtractor:
         self.rate_limit = config.get("rate_limit", 500)  # Default to 500 if not specified
         
         if not self.token:
-            raise ValueError("TUSHARE_TOKEN environment variable not set")
+            raise ValueError("TUSHARE_TOKEN not configured in settings")
         
         ts.set_token(self.token)
         self.pro = ts.pro_api()

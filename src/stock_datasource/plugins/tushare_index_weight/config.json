@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "rate_limit": 30,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare index weight plugin (constituent stocks and weights)",
+  "schedule": {
+    "frequency": "monthly",
+    "day_of_month": 1,
+    "time": "18:00"
+  },
+  "parameters": {
+    "validate_weights": true
+  },
+  "parameters_schema": {
+    "index_code": {
+      "type": "string",
+      "required": true,
+      "description": "Index code (e.g., 399300.SZ)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format"
+    },
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Trade date in YYYYMMDD format"
+    }
+  }
+}

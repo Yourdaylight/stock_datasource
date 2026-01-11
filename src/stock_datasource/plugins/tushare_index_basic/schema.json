@@ -1,0 +1,25 @@
+{
+  "table_name": "dim_index_basic",
+  "table_type": "dim",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS代码"},
+    {"name": "name", "data_type": "String", "nullable": true, "comment": "简称"},
+    {"name": "fullname", "data_type": "String", "nullable": true, "comment": "指数全称"},
+    {"name": "market", "data_type": "LowCardinality(String)", "nullable": true, "comment": "市场（SSE/SZSE/CSI/CICC/SW/OTH）"},
+    {"name": "publisher", "data_type": "String", "nullable": true, "comment": "发布方"},
+    {"name": "index_type", "data_type": "String", "nullable": true, "comment": "指数风格"},
+    {"name": "category", "data_type": "String", "nullable": true, "comment": "指数类别"},
+    {"name": "base_date", "data_type": "Date", "nullable": true, "comment": "基期"},
+    {"name": "base_point", "data_type": "Nullable(Float64)", "nullable": true, "comment": "基点"},
+    {"name": "list_date", "data_type": "Date", "nullable": true, "comment": "发布日期"},
+    {"name": "weight_rule", "data_type": "String", "nullable": true, "comment": "加权方式"},
+    {"name": "desc", "data_type": "String", "nullable": true, "comment": "描述"},
+    {"name": "exp_date", "data_type": "Date", "nullable": true, "comment": "终止日期"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "order_by": ["ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Index basic information dimension table from TuShare API"
+}

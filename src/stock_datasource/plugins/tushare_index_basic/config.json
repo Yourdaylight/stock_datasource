@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "rate_limit": 500,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare index basic information plugin",
+  "schedule": {
+    "frequency": "weekly",
+    "day_of_week": "monday",
+    "time": "18:00"
+  },
+  "parameters": {
+    "validate_codes": true
+  },
+  "parameters_schema": {
+    "market": {
+      "type": "string",
+      "required": false,
+      "description": "Market code (SSE/SZSE/CSI/CICC/SW)"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "Index code"
+    },
+    "name": {
+      "type": "string",
+      "required": false,
+      "description": "Index name"
+    }
+  }
+}

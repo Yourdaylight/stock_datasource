@@ -51,7 +51,36 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"Portfolio table initialization failed: {e}")
         
+        # Initialize plugin manager
+        try:
+            from stock_datasource.core.plugin_manager import plugin_manager
+            plugin_manager.discover_plugins()
+            logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
+        except Exception as e:
+            logger.warning(f"Plugin discovery failed: {e}")
+        
+        # Start sync task manager
+        try:
+            from stock_datasource.modules.datamanage.service import sync_task_manager
+            sync_task_manager.start()
+            logger.info("SyncTaskManager started")
+        except Exception as e:
+            logger.warning(f"SyncTaskManager start failed: {e}")
+        
         logger.info("Application initialization completed")
+    
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        """Cleanup on shutdown."""
+        logger.info("Shutting down application...")
+        
+        # Stop sync task manager
+        try:
+            from stock_datasource.modules.datamanage.service import sync_task_manager
+            sync_task_manager.stop()
+            logger.info("SyncTaskManager stopped")
+        except Exception as e:
+            logger.warning(f"SyncTaskManager stop failed: {e}")
     
     # Register plugin service routes
     _register_services(app)
@@ -190,10 +219,13 @@ def _register_services(app: FastAPI) -> None:
             logger.error(f"Failed to register service {prefix}: {e}")
 
 
+# Create app instance for uvicorn
+app = create_app()
+
+
 if __name__ == "__main__":
     import uvicorn
     
-    app = create_app()
     uvicorn.run(
         app,
         host="0.0.0.0",

@@ -8,3 +8,5 @@ logs/
 .DS_Store
 .codebuddy
 .vscode
+uv.lock
+node_modules
