@@ -29,11 +29,13 @@ instance.interceptors.request.use(
 instance.interceptors.response.use(
   (response: AxiosResponse) => {
     const { data } = response
-    if (data.code !== undefined && data.code !== 0) {
+    // Check for error response format (status code, not stock code)
+    if (data.status !== undefined && data.status === 'error') {
       MessagePlugin.error(data.message || '请求失败')
       return Promise.reject(new Error(data.message))
     }
-    return data.data !== undefined ? data.data : data
+    // For successful responses, return the data directly
+    return data
   },
   (error) => {
     const message = error.response?.data?.message || error.message || '网络错误'

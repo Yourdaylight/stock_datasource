@@ -13,6 +13,8 @@ const loading = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const handleSearch = async (keyword: string) => {
+  console.log('搜索关键词:', keyword) // 调试日志
+  
   if (!keyword) {
     options.value = []
     return
@@ -25,12 +27,17 @@ const handleSearch = async (keyword: string) => {
   searchTimer = setTimeout(async () => {
     loading.value = true
     try {
+      console.log('发起搜索请求...') // 调试日志
       const results = await marketApi.searchStock(keyword)
+      console.log('搜索结果:', results) // 调试日志
+      
       options.value = results.map(item => ({
         value: item.code,
         label: `${item.code} - ${item.name}`
       }))
+      console.log('处理后的选项:', options.value) // 调试日志
     } catch (e) {
+      console.error('搜索失败:', e) // 调试日志
       options.value = []
     } finally {
       loading.value = false

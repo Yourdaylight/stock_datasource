@@ -1,58 +1,267 @@
-"""Report module router."""
+"""Report module router with enhanced financial analysis endpoints."""
 
-from fastapi import APIRouter
-from typing import List, Optional
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
 import logging
+
+from stock_datasource.services.financial_report_service import FinancialReportService
+from stock_datasource.agents.report_agent import ReportAgent
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Initialize services
+financial_service = FinancialReportService()
+report_agent = ReportAgent()
+
 
 class FinancialData(BaseModel):
+    """Financial data model for API responses."""
     period: str
-    revenue: float = None
-    net_profit: float = None
-    total_assets: float = None
-    total_liab: float = None
-    roe: float = None
-    gross_margin: float = None
+    revenue: Optional[float] = None
+    net_profit: Optional[float] = None
+    total_assets: Optional[float] = None
+    total_liab: Optional[float] = None
+    roe: Optional[float] = None
+    roa: Optional[float] = None
+    gross_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+    debt_ratio: Optional[float] = None
+    current_ratio: Optional[float] = None
 
 
 class FinancialRequest(BaseModel):
-    code: str
-    report_type: str = "income"
-    periods: int = 8
+    """Request model for financial data."""
+    code: str = Field(..., description="Stock code (e.g., 600519.SH or 600519)")
+    periods: int = Field(default=4, ge=1, le=20, description="Number of periods to analyze")
 
 
 class FinancialResponse(BaseModel):
+    """Response model for financial data."""
     code: str
-    name: str
+    name: Optional[str] = None
+    periods: int
+    latest_period: Optional[str] = None
     data: List[FinancialData]
+    summary: Optional[Dict[str, Any]] = None
+    status: str
 
 
 class CompareRequest(BaseModel):
-    codes: List[str]
-    metrics: List[str]
+    """Request model for peer comparison."""
+    code: str = Field(..., description="Stock code")
+    end_date: Optional[str] = Field(None, description="Report date in YYYYMMDD format")
+    industry_limit: int = Field(default=20, ge=5, le=100, description="Number of peer companies")
+
+
+class CompareResponse(BaseModel):
+    """Response model for peer comparison."""
+    code: str
+    end_date: str
+    peer_count: int
+    comparison: Dict[str, Any]
+    interpretation: Dict[str, Any]
+    status: str
+
+
+class AnalysisRequest(BaseModel):
+    """Request model for AI analysis."""
+    code: str = Field(..., description="Stock code")
+    analysis_type: str = Field(default="comprehensive", description="Type of analysis")
+    periods: int = Field(default=4, ge=1, le=20, description="Number of periods")
+
+
+class AnalysisResponse(BaseModel):
+    """Response model for AI analysis."""
+    code: str
+    analysis_type: str
+    content: str
+    insights: Optional[Dict[str, Any]] = None
+    status: str
+
+
+def _normalize_stock_code(code: str) -> str:
+    """Normalize stock code format."""
+    if len(code) == 6 and code.isdigit():
+        if code.startswith('6'):
+            return f"{code}.SH"
+        elif code.startswith(('0', '3')):
+            return f"{code}.SZ"
+    return code
 
 
 @router.post("/financial", response_model=FinancialResponse)
 async def get_financial(request: FinancialRequest):
-    """Get financial statement data."""
-    # Mock implementation
-    return FinancialResponse(
-        code=request.code,
-        name="示例公司",
-        data=[
-            FinancialData(period="2024Q3", revenue=100000000000, net_profit=50000000000, roe=0.25, gross_margin=0.9),
-            FinancialData(period="2024Q2", revenue=95000000000, net_profit=48000000000, roe=0.24, gross_margin=0.89),
-            FinancialData(period="2024Q1", revenue=90000000000, net_profit=45000000000, roe=0.23, gross_margin=0.88),
-        ]
-    )
+    """Get comprehensive financial data and analysis."""
+    try:
+        # Normalize stock code
+        normalized_code = _normalize_stock_code(request.code)
+        
+        # Get comprehensive analysis
+        analysis = financial_service.get_comprehensive_analysis(normalized_code, request.periods)
+        
+        if analysis.get("status") == "error":
+            raise HTTPException(status_code=400, detail=analysis.get("error", "Analysis failed"))
+        
+        summary_data = analysis.get("summary", {})
+        raw_data = summary_data.get("raw_data", [])
+        
+        # Convert raw data to FinancialData format
+        financial_data = []
+        for item in raw_data:
+            # Convert end_date to string if it's a pandas Timestamp
+            end_date = item.get("end_date", "")
+            if hasattr(end_date, 'strftime'):
+                end_date = end_date.strftime('%Y-%m-%d')
+            elif end_date and not isinstance(end_date, str):
+                end_date = str(end_date)
+            
+            financial_data.append(FinancialData(
+                period=end_date,
+                revenue=item.get("total_revenue"),
+                net_profit=item.get("net_profit"),
+                total_assets=item.get("total_assets"),
+                total_liab=item.get("total_liab"),
+                roe=item.get("roe"),
+                roa=item.get("roa"),
+                gross_margin=item.get("gross_profit_margin"),
+                net_margin=item.get("net_profit_margin"),
+                debt_ratio=item.get("debt_to_assets"),
+                current_ratio=item.get("current_ratio")
+            ))
+        
+        # Convert latest_period to string if needed
+        latest_period = summary_data.get("latest_period")
+        if hasattr(latest_period, 'strftime'):
+            latest_period = latest_period.strftime('%Y-%m-%d')
+        elif latest_period and not isinstance(latest_period, str):
+            latest_period = str(latest_period)
+        
+        return FinancialResponse(
+            code=normalized_code,
+            name=f"股票 {normalized_code}",  # In production, get from stock basic info
+            periods=summary_data.get("periods", 0),
+            latest_period=latest_period,
+            data=financial_data,
+            summary={
+                "profitability": summary_data.get("profitability", {}),
+                "solvency": summary_data.get("solvency", {}),
+                "efficiency": summary_data.get("efficiency", {}),
+                "growth": summary_data.get("growth", {}),
+                "health_score": analysis.get("health_analysis", {}).get("health_score", 0)
+            },
+            status="success"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_financial for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/compare")
+@router.post("/compare", response_model=CompareResponse)
 async def compare_financials(request: CompareRequest):
-    """Compare financial data across stocks."""
-    return {}
+    """Get peer comparison analysis."""
+    try:
+        # Normalize stock code
+        normalized_code = _normalize_stock_code(request.code)
+        
+        # Get peer comparison
+        analysis = financial_service.get_peer_comparison_analysis(normalized_code, request.end_date)
+        
+        if analysis.get("status") == "error":
+            raise HTTPException(status_code=400, detail=analysis.get("error", "Comparison failed"))
+        
+        comparison_data = analysis.get("comparison", {})
+        
+        return CompareResponse(
+            code=normalized_code,
+            end_date=analysis.get("end_date", ""),
+            peer_count=comparison_data.get("peer_count", 0),
+            comparison=comparison_data.get("comparison", {}),
+            interpretation=analysis.get("interpretation", {}),
+            status="success"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in compare_financials for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/analysis", response_model=AnalysisResponse)
+async def get_ai_analysis(request: AnalysisRequest):
+    """Get AI-powered financial analysis and insights."""
+    try:
+        # Normalize stock code
+        normalized_code = _normalize_stock_code(request.code)
+        
+        # Generate AI analysis based on type
+        if request.analysis_type == "comprehensive":
+            # Use ReportAgent for comprehensive analysis
+            from stock_datasource.agents.report_agent import get_comprehensive_financial_analysis
+            content = get_comprehensive_financial_analysis(normalized_code, request.periods)
+            
+            # Also get structured insights
+            insights_data = financial_service.get_investment_insights(normalized_code)
+            insights = insights_data.get("insights", {}) if insights_data.get("status") == "success" else None
+            
+        elif request.analysis_type == "peer_comparison":
+            from stock_datasource.agents.report_agent import get_peer_comparison_analysis
+            content = get_peer_comparison_analysis(normalized_code)
+            insights = None
+            
+        elif request.analysis_type == "investment_insights":
+            from stock_datasource.agents.report_agent import get_investment_insights
+            content = get_investment_insights(normalized_code)
+            
+            # Get structured insights
+            insights_data = financial_service.get_investment_insights(normalized_code)
+            insights = insights_data.get("insights", {}) if insights_data.get("status") == "success" else None
+            
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported analysis type: {request.analysis_type}")
+        
+        return AnalysisResponse(
+            code=normalized_code,
+            analysis_type=request.analysis_type,
+            content=content,
+            insights=insights,
+            status="success"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_ai_analysis for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "financial_report"}
+
+
+# Legacy endpoint for backward compatibility
+@router.post("/financial_legacy")
+async def get_financial_legacy(request: FinancialRequest):
+    """Legacy financial endpoint (deprecated)."""
+    # Mock implementation for backward compatibility
+    return {
+        "code": request.code,
+        "name": "示例公司",
+        "data": [
+            {
+                "period": "2024Q3",
+                "revenue": 100000000000,
+                "net_profit": 50000000000,
+                "roe": 0.25,
+                "gross_margin": 0.9
+            }
+        ]
+    }

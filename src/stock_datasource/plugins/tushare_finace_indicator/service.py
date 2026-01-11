@@ -97,6 +97,350 @@ class TuShareFinaceIndicatorService(BaseService):
         return df.to_dict('records')
     
     @query_method(
+        description="Get financial summary with key indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of latest periods to return", required=False)
+        ]
+    )
+    def get_financial_summary(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Get comprehensive financial summary for a stock."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Sanitize periods
+        periods_value = self._sanitize_limit(periods, default=4, max_limit=20)
+        
+        # Get latest financial data
+        latest_data = self.get_latest_indicators(code, periods_value)
+        
+        if not latest_data:
+            return {
+                "code": code,
+                "periods": 0,
+                "latest_period": None,
+                "profitability": {},
+                "solvency": {},
+                "efficiency": {},
+                "growth": {}
+            }
+        
+        # Calculate summary metrics
+        latest = latest_data[0]  # Most recent period
+        
+        # Profitability metrics
+        profitability = {
+            "roe": latest.get("roe"),
+            "roa": latest.get("roa"), 
+            "gross_profit_margin": latest.get("gross_profit_margin"),
+            "net_profit_margin": latest.get("net_profit_margin"),
+            "eps": latest.get("eps")
+        }
+        
+        # Solvency metrics
+        solvency = {
+            "debt_to_assets": latest.get("debt_to_assets"),
+            "debt_to_equity": latest.get("debt_to_equity"),
+            "current_ratio": latest.get("current_ratio"),
+            "quick_ratio": latest.get("quick_ratio")
+        }
+        
+        # Efficiency metrics
+        efficiency = {
+            "asset_turnover": latest.get("asset_turnover"),
+            "inventory_turnover": latest.get("inventory_turnover"),
+            "receivable_turnover": latest.get("receivable_turnover")
+        }
+        
+        # Growth rates (if multiple periods available)
+        growth = {}
+        if len(latest_data) >= 2:
+            current = latest_data[0]
+            previous = latest_data[1]
+            
+            if current.get("total_revenue") and previous.get("total_revenue"):
+                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
+                                         previous["total_revenue"] * 100)
+            
+            if current.get("net_profit") and previous.get("net_profit"):
+                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
+                                         previous["net_profit"] * 100)
+        
+        return {
+            "code": code,
+            "periods": len(latest_data),
+            "latest_period": latest.get("end_date"),
+            "profitability": profitability,
+            "solvency": solvency,
+            "efficiency": efficiency,
+            "growth": growth,
+            "raw_data": latest_data
+        }
+    
+    @query_method(
+        description="Calculate growth rates for financial indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods for trend analysis", required=False)
+        ]
+    )
+    def calculate_growth_rates(self, code: str, periods: Optional[int] = 8) -> Dict[str, Any]:
+        """Calculate growth rates for key financial indicators."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get historical data
+        historical_data = self.get_latest_indicators(code, periods or 8)
+        
+        if len(historical_data) < 2:
+            return {
+                "code": code,
+                "message": "Insufficient data for growth calculation",
+                "growth_rates": {}
+            }
+        
+        # Sort by date (newest first)
+        historical_data.sort(key=lambda x: x.get("end_date", ""), reverse=True)
+        
+        growth_rates = {}
+        metrics = ["total_revenue", "net_profit", "total_assets", "total_equity", "roe", "roa"]
+        
+        for metric in metrics:
+            rates = []
+            for i in range(len(historical_data) - 1):
+                current = historical_data[i].get(metric)
+                previous = historical_data[i + 1].get(metric)
+                
+                if current is not None and previous is not None and previous != 0:
+                    growth_rate = ((current - previous) / abs(previous)) * 100
+                    rates.append({
+                        "period": historical_data[i].get("end_date"),
+                        "rate": round(growth_rate, 2)
+                    })
+            
+            if rates:
+                # Calculate average growth rate
+                avg_growth = sum(r["rate"] for r in rates) / len(rates)
+                growth_rates[metric] = {
+                    "average_growth": round(avg_growth, 2),
+                    "periods": rates
+                }
+        
+        return {
+            "code": code,
+            "periods_analyzed": len(historical_data),
+            "growth_rates": growth_rates
+        }
+    
+    @query_method(
+        description="Get peer comparison data for industry analysis",
+        params=[
+            QueryParam(name="code", type="str", description="Target stock code", required=True),
+            QueryParam(name="end_date", type="str", description="Report date YYYYMMDD", required=True),
+            QueryParam(name="industry_limit", type="int", description="Number of peer companies to compare", required=False)
+        ]
+    )
+    def get_peer_comparison(self, code: str, end_date: str, industry_limit: Optional[int] = 20) -> Dict[str, Any]:
+        """Get peer comparison data for industry analysis."""
+        
+        # Input validation
+        if not code or not end_date:
+            raise ValueError("code and end_date are required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        if not self._validate_date_format(end_date):
+            raise ValueError("end_date must be in YYYYMMDD format")
+        
+        # Sanitize limit
+        limit_value = self._sanitize_limit(industry_limit, default=20, max_limit=100)
+        
+        # Get target company data
+        target_query = """
+        SELECT * FROM ods_fina_indicator
+        WHERE ts_code = %(code)s AND end_date = %(end_date)s
+        """
+        target_params = {'code': code, 'end_date': end_date}
+        target_df = self.db.execute_query(target_query, target_params)
+        
+        if target_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No data found for target company",
+                "comparison": {}
+            }
+        
+        target_data = target_df.iloc[0].to_dict()
+        
+        # Get industry peers (companies with similar market cap or industry)
+        # For now, get top performers by ROE as a proxy for industry peers
+        peers_query = """
+        SELECT ts_code, roe, roa, gross_profit_margin, net_profit_margin, 
+               debt_to_assets, current_ratio, total_revenue, net_profit
+        FROM ods_fina_indicator
+        WHERE end_date = %(end_date)s 
+        AND ts_code != %(code)s
+        AND roe IS NOT NULL
+        ORDER BY roe DESC
+        LIMIT %(limit)s
+        """
+        peers_params = {
+            'end_date': end_date,
+            'code': code,
+            'limit': str(limit_value)
+        }
+        peers_df = self.db.execute_query(peers_query, peers_params)
+        
+        if peers_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No peer data found",
+                "comparison": {}
+            }
+        
+        # Calculate industry statistics
+        metrics = ["roe", "roa", "gross_profit_margin", "net_profit_margin", "debt_to_assets", "current_ratio"]
+        comparison = {}
+        
+        for metric in metrics:
+            if metric in peers_df.columns:
+                peer_values = peers_df[metric].dropna()
+                target_value = target_data.get(metric)
+                
+                if not peer_values.empty and target_value is not None:
+                    comparison[metric] = {
+                        "target_value": target_value,
+                        "industry_median": float(peer_values.median()),
+                        "industry_mean": float(peer_values.mean()),
+                        "industry_p25": float(peer_values.quantile(0.25)),
+                        "industry_p75": float(peer_values.quantile(0.75)),
+                        "percentile_rank": float((peer_values < target_value).sum() / len(peer_values) * 100)
+                    }
+        
+        return {
+            "code": code,
+            "end_date": end_date,
+            "peer_count": len(peers_df),
+            "comparison": comparison,
+            "peer_companies": peers_df[["ts_code", "roe", "roa"]].to_dict('records')[:10]  # Top 10 peers
+        }
+    
+    @query_method(
+        description="Analyze financial health and provide insights",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods to analyze", required=False)
+        ]
+    )
+    def analyze_financial_health(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Analyze financial health and provide structured insights."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get financial summary
+        summary = self.get_financial_summary(code, periods)
+        
+        if summary["periods"] == 0:
+            return {
+                "code": code,
+                "health_score": 0,
+                "analysis": "No financial data available",
+                "strengths": [],
+                "weaknesses": [],
+                "recommendations": []
+            }
+        
+        # Analyze financial health
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        health_score = 50  # Base score
+        
+        # Profitability analysis
+        prof = summary["profitability"]
+        if prof.get("roe") and prof["roe"] > 15:
+            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+            health_score += 10
+        elif prof.get("roe") and prof["roe"] < 5:
+            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+            health_score -= 10
+        
+        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
+            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+            health_score += 5
+        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
+            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+            health_score -= 5
+        
+        # Solvency analysis
+        solv = summary["solvency"]
+        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
+            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+            health_score += 5
+        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
+            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+            health_score -= 10
+        
+        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
+            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+            health_score += 5
+        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
+            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+            health_score -= 10
+        
+        # Growth analysis
+        growth = summary["growth"]
+        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
+            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+            health_score += 10
+        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
+            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+            health_score -= 15
+        
+        # Generate recommendations
+        if weaknesses:
+            if any("ROE" in w for w in weaknesses):
+                recommendations.append("关注公司盈利能力改善措施")
+            if any("负债率" in w for w in weaknesses):
+                recommendations.append("关注债务结构优化和偿债能力")
+            if any("增长" in w or "下滑" in w for w in weaknesses):
+                recommendations.append("关注业务增长策略和市场竞争力")
+        
+        if not strengths:
+            recommendations.append("建议深入分析公司基本面和行业前景")
+        
+        # Ensure health score is within bounds
+        health_score = max(0, min(100, health_score))
+        
+        return {
+            "code": code,
+            "health_score": health_score,
+            "analysis": f"基于{summary['periods']}期财务数据的健康度分析",
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "recommendations": recommendations,
+            "summary": summary
+        }
+    
+    @query_method(
         description="Get latest financial indicators for a stock",
         params=[
             QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
@@ -116,16 +460,15 @@ class TuShareFinaceIndicatorService(BaseService):
         # Sanitize periods
         periods_value = self._sanitize_limit(periods, default=4, max_limit=100)
         
-        # Parameterized query
-        query = """
+        # Parameterized query - LIMIT needs to be hardcoded for ClickHouse
+        query = f"""
         SELECT * FROM ods_fina_indicator
         WHERE ts_code = %(code)s
         ORDER BY end_date DESC
-        LIMIT %(periods)s
+        LIMIT {periods_value}
         """
         params = {
-            'code': code,
-            'periods': str(periods_value)
+            'code': code
         }
         
         df = self.db.execute_query(query, params)
@@ -136,6 +479,350 @@ class TuShareFinaceIndicatorService(BaseService):
                 df[col] = df[col].astype(str)
         
         return df.to_dict('records')
+    
+    @query_method(
+        description="Get financial summary with key indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of latest periods to return", required=False)
+        ]
+    )
+    def get_financial_summary(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Get comprehensive financial summary for a stock."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Sanitize periods
+        periods_value = self._sanitize_limit(periods, default=4, max_limit=20)
+        
+        # Get latest financial data
+        latest_data = self.get_latest_indicators(code, periods_value)
+        
+        if not latest_data:
+            return {
+                "code": code,
+                "periods": 0,
+                "latest_period": None,
+                "profitability": {},
+                "solvency": {},
+                "efficiency": {},
+                "growth": {}
+            }
+        
+        # Calculate summary metrics
+        latest = latest_data[0]  # Most recent period
+        
+        # Profitability metrics
+        profitability = {
+            "roe": latest.get("roe"),
+            "roa": latest.get("roa"), 
+            "gross_profit_margin": latest.get("gross_profit_margin"),
+            "net_profit_margin": latest.get("net_profit_margin"),
+            "eps": latest.get("eps")
+        }
+        
+        # Solvency metrics
+        solvency = {
+            "debt_to_assets": latest.get("debt_to_assets"),
+            "debt_to_equity": latest.get("debt_to_equity"),
+            "current_ratio": latest.get("current_ratio"),
+            "quick_ratio": latest.get("quick_ratio")
+        }
+        
+        # Efficiency metrics
+        efficiency = {
+            "asset_turnover": latest.get("asset_turnover"),
+            "inventory_turnover": latest.get("inventory_turnover"),
+            "receivable_turnover": latest.get("receivable_turnover")
+        }
+        
+        # Growth rates (if multiple periods available)
+        growth = {}
+        if len(latest_data) >= 2:
+            current = latest_data[0]
+            previous = latest_data[1]
+            
+            if current.get("total_revenue") and previous.get("total_revenue"):
+                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
+                                         previous["total_revenue"] * 100)
+            
+            if current.get("net_profit") and previous.get("net_profit"):
+                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
+                                         previous["net_profit"] * 100)
+        
+        return {
+            "code": code,
+            "periods": len(latest_data),
+            "latest_period": latest.get("end_date"),
+            "profitability": profitability,
+            "solvency": solvency,
+            "efficiency": efficiency,
+            "growth": growth,
+            "raw_data": latest_data
+        }
+    
+    @query_method(
+        description="Calculate growth rates for financial indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods for trend analysis", required=False)
+        ]
+    )
+    def calculate_growth_rates(self, code: str, periods: Optional[int] = 8) -> Dict[str, Any]:
+        """Calculate growth rates for key financial indicators."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get historical data
+        historical_data = self.get_latest_indicators(code, periods or 8)
+        
+        if len(historical_data) < 2:
+            return {
+                "code": code,
+                "message": "Insufficient data for growth calculation",
+                "growth_rates": {}
+            }
+        
+        # Sort by date (newest first)
+        historical_data.sort(key=lambda x: x.get("end_date", ""), reverse=True)
+        
+        growth_rates = {}
+        metrics = ["total_revenue", "net_profit", "total_assets", "total_equity", "roe", "roa"]
+        
+        for metric in metrics:
+            rates = []
+            for i in range(len(historical_data) - 1):
+                current = historical_data[i].get(metric)
+                previous = historical_data[i + 1].get(metric)
+                
+                if current is not None and previous is not None and previous != 0:
+                    growth_rate = ((current - previous) / abs(previous)) * 100
+                    rates.append({
+                        "period": historical_data[i].get("end_date"),
+                        "rate": round(growth_rate, 2)
+                    })
+            
+            if rates:
+                # Calculate average growth rate
+                avg_growth = sum(r["rate"] for r in rates) / len(rates)
+                growth_rates[metric] = {
+                    "average_growth": round(avg_growth, 2),
+                    "periods": rates
+                }
+        
+        return {
+            "code": code,
+            "periods_analyzed": len(historical_data),
+            "growth_rates": growth_rates
+        }
+    
+    @query_method(
+        description="Get peer comparison data for industry analysis",
+        params=[
+            QueryParam(name="code", type="str", description="Target stock code", required=True),
+            QueryParam(name="end_date", type="str", description="Report date YYYYMMDD", required=True),
+            QueryParam(name="industry_limit", type="int", description="Number of peer companies to compare", required=False)
+        ]
+    )
+    def get_peer_comparison(self, code: str, end_date: str, industry_limit: Optional[int] = 20) -> Dict[str, Any]:
+        """Get peer comparison data for industry analysis."""
+        
+        # Input validation
+        if not code or not end_date:
+            raise ValueError("code and end_date are required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        if not self._validate_date_format(end_date):
+            raise ValueError("end_date must be in YYYYMMDD format")
+        
+        # Sanitize limit
+        limit_value = self._sanitize_limit(industry_limit, default=20, max_limit=100)
+        
+        # Get target company data
+        target_query = """
+        SELECT * FROM ods_fina_indicator
+        WHERE ts_code = %(code)s AND end_date = %(end_date)s
+        """
+        target_params = {'code': code, 'end_date': end_date}
+        target_df = self.db.execute_query(target_query, target_params)
+        
+        if target_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No data found for target company",
+                "comparison": {}
+            }
+        
+        target_data = target_df.iloc[0].to_dict()
+        
+        # Get industry peers (companies with similar market cap or industry)
+        # For now, get top performers by ROE as a proxy for industry peers
+        peers_query = """
+        SELECT ts_code, roe, roa, gross_profit_margin, net_profit_margin, 
+               debt_to_assets, current_ratio, total_revenue, net_profit
+        FROM ods_fina_indicator
+        WHERE end_date = %(end_date)s 
+        AND ts_code != %(code)s
+        AND roe IS NOT NULL
+        ORDER BY roe DESC
+        LIMIT %(limit)s
+        """
+        peers_params = {
+            'end_date': end_date,
+            'code': code,
+            'limit': str(limit_value)
+        }
+        peers_df = self.db.execute_query(peers_query, peers_params)
+        
+        if peers_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No peer data found",
+                "comparison": {}
+            }
+        
+        # Calculate industry statistics
+        metrics = ["roe", "roa", "gross_profit_margin", "net_profit_margin", "debt_to_assets", "current_ratio"]
+        comparison = {}
+        
+        for metric in metrics:
+            if metric in peers_df.columns:
+                peer_values = peers_df[metric].dropna()
+                target_value = target_data.get(metric)
+                
+                if not peer_values.empty and target_value is not None:
+                    comparison[metric] = {
+                        "target_value": target_value,
+                        "industry_median": float(peer_values.median()),
+                        "industry_mean": float(peer_values.mean()),
+                        "industry_p25": float(peer_values.quantile(0.25)),
+                        "industry_p75": float(peer_values.quantile(0.75)),
+                        "percentile_rank": float((peer_values < target_value).sum() / len(peer_values) * 100)
+                    }
+        
+        return {
+            "code": code,
+            "end_date": end_date,
+            "peer_count": len(peers_df),
+            "comparison": comparison,
+            "peer_companies": peers_df[["ts_code", "roe", "roa"]].to_dict('records')[:10]  # Top 10 peers
+        }
+    
+    @query_method(
+        description="Analyze financial health and provide insights",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods to analyze", required=False)
+        ]
+    )
+    def analyze_financial_health(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Analyze financial health and provide structured insights."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get financial summary
+        summary = self.get_financial_summary(code, periods)
+        
+        if summary["periods"] == 0:
+            return {
+                "code": code,
+                "health_score": 0,
+                "analysis": "No financial data available",
+                "strengths": [],
+                "weaknesses": [],
+                "recommendations": []
+            }
+        
+        # Analyze financial health
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        health_score = 50  # Base score
+        
+        # Profitability analysis
+        prof = summary["profitability"]
+        if prof.get("roe") and prof["roe"] > 15:
+            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+            health_score += 10
+        elif prof.get("roe") and prof["roe"] < 5:
+            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+            health_score -= 10
+        
+        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
+            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+            health_score += 5
+        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
+            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+            health_score -= 5
+        
+        # Solvency analysis
+        solv = summary["solvency"]
+        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
+            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+            health_score += 5
+        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
+            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+            health_score -= 10
+        
+        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
+            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+            health_score += 5
+        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
+            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+            health_score -= 10
+        
+        # Growth analysis
+        growth = summary["growth"]
+        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
+            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+            health_score += 10
+        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
+            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+            health_score -= 15
+        
+        # Generate recommendations
+        if weaknesses:
+            if any("ROE" in w for w in weaknesses):
+                recommendations.append("关注公司盈利能力改善措施")
+            if any("负债率" in w for w in weaknesses):
+                recommendations.append("关注债务结构优化和偿债能力")
+            if any("增长" in w or "下滑" in w for w in weaknesses):
+                recommendations.append("关注业务增长策略和市场竞争力")
+        
+        if not strengths:
+            recommendations.append("建议深入分析公司基本面和行业前景")
+        
+        # Ensure health score is within bounds
+        health_score = max(0, min(100, health_score))
+        
+        return {
+            "code": code,
+            "health_score": health_score,
+            "analysis": f"基于{summary['periods']}期财务数据的健康度分析",
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "recommendations": recommendations,
+            "summary": summary
+        }
     
     @query_method(
         description="Get financial indicators summary by date",
@@ -195,6 +882,350 @@ class TuShareFinaceIndicatorService(BaseService):
         return df.to_dict('records')
     
     @query_method(
+        description="Get financial summary with key indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of latest periods to return", required=False)
+        ]
+    )
+    def get_financial_summary(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Get comprehensive financial summary for a stock."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Sanitize periods
+        periods_value = self._sanitize_limit(periods, default=4, max_limit=20)
+        
+        # Get latest financial data
+        latest_data = self.get_latest_indicators(code, periods_value)
+        
+        if not latest_data:
+            return {
+                "code": code,
+                "periods": 0,
+                "latest_period": None,
+                "profitability": {},
+                "solvency": {},
+                "efficiency": {},
+                "growth": {}
+            }
+        
+        # Calculate summary metrics
+        latest = latest_data[0]  # Most recent period
+        
+        # Profitability metrics
+        profitability = {
+            "roe": latest.get("roe"),
+            "roa": latest.get("roa"), 
+            "gross_profit_margin": latest.get("gross_profit_margin"),
+            "net_profit_margin": latest.get("net_profit_margin"),
+            "eps": latest.get("eps")
+        }
+        
+        # Solvency metrics
+        solvency = {
+            "debt_to_assets": latest.get("debt_to_assets"),
+            "debt_to_equity": latest.get("debt_to_equity"),
+            "current_ratio": latest.get("current_ratio"),
+            "quick_ratio": latest.get("quick_ratio")
+        }
+        
+        # Efficiency metrics
+        efficiency = {
+            "asset_turnover": latest.get("asset_turnover"),
+            "inventory_turnover": latest.get("inventory_turnover"),
+            "receivable_turnover": latest.get("receivable_turnover")
+        }
+        
+        # Growth rates (if multiple periods available)
+        growth = {}
+        if len(latest_data) >= 2:
+            current = latest_data[0]
+            previous = latest_data[1]
+            
+            if current.get("total_revenue") and previous.get("total_revenue"):
+                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
+                                         previous["total_revenue"] * 100)
+            
+            if current.get("net_profit") and previous.get("net_profit"):
+                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
+                                         previous["net_profit"] * 100)
+        
+        return {
+            "code": code,
+            "periods": len(latest_data),
+            "latest_period": latest.get("end_date"),
+            "profitability": profitability,
+            "solvency": solvency,
+            "efficiency": efficiency,
+            "growth": growth,
+            "raw_data": latest_data
+        }
+    
+    @query_method(
+        description="Calculate growth rates for financial indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods for trend analysis", required=False)
+        ]
+    )
+    def calculate_growth_rates(self, code: str, periods: Optional[int] = 8) -> Dict[str, Any]:
+        """Calculate growth rates for key financial indicators."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get historical data
+        historical_data = self.get_latest_indicators(code, periods or 8)
+        
+        if len(historical_data) < 2:
+            return {
+                "code": code,
+                "message": "Insufficient data for growth calculation",
+                "growth_rates": {}
+            }
+        
+        # Sort by date (newest first)
+        historical_data.sort(key=lambda x: x.get("end_date", ""), reverse=True)
+        
+        growth_rates = {}
+        metrics = ["total_revenue", "net_profit", "total_assets", "total_equity", "roe", "roa"]
+        
+        for metric in metrics:
+            rates = []
+            for i in range(len(historical_data) - 1):
+                current = historical_data[i].get(metric)
+                previous = historical_data[i + 1].get(metric)
+                
+                if current is not None and previous is not None and previous != 0:
+                    growth_rate = ((current - previous) / abs(previous)) * 100
+                    rates.append({
+                        "period": historical_data[i].get("end_date"),
+                        "rate": round(growth_rate, 2)
+                    })
+            
+            if rates:
+                # Calculate average growth rate
+                avg_growth = sum(r["rate"] for r in rates) / len(rates)
+                growth_rates[metric] = {
+                    "average_growth": round(avg_growth, 2),
+                    "periods": rates
+                }
+        
+        return {
+            "code": code,
+            "periods_analyzed": len(historical_data),
+            "growth_rates": growth_rates
+        }
+    
+    @query_method(
+        description="Get peer comparison data for industry analysis",
+        params=[
+            QueryParam(name="code", type="str", description="Target stock code", required=True),
+            QueryParam(name="end_date", type="str", description="Report date YYYYMMDD", required=True),
+            QueryParam(name="industry_limit", type="int", description="Number of peer companies to compare", required=False)
+        ]
+    )
+    def get_peer_comparison(self, code: str, end_date: str, industry_limit: Optional[int] = 20) -> Dict[str, Any]:
+        """Get peer comparison data for industry analysis."""
+        
+        # Input validation
+        if not code or not end_date:
+            raise ValueError("code and end_date are required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        if not self._validate_date_format(end_date):
+            raise ValueError("end_date must be in YYYYMMDD format")
+        
+        # Sanitize limit
+        limit_value = self._sanitize_limit(industry_limit, default=20, max_limit=100)
+        
+        # Get target company data
+        target_query = """
+        SELECT * FROM ods_fina_indicator
+        WHERE ts_code = %(code)s AND end_date = %(end_date)s
+        """
+        target_params = {'code': code, 'end_date': end_date}
+        target_df = self.db.execute_query(target_query, target_params)
+        
+        if target_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No data found for target company",
+                "comparison": {}
+            }
+        
+        target_data = target_df.iloc[0].to_dict()
+        
+        # Get industry peers (companies with similar market cap or industry)
+        # For now, get top performers by ROE as a proxy for industry peers
+        peers_query = """
+        SELECT ts_code, roe, roa, gross_profit_margin, net_profit_margin, 
+               debt_to_assets, current_ratio, total_revenue, net_profit
+        FROM ods_fina_indicator
+        WHERE end_date = %(end_date)s 
+        AND ts_code != %(code)s
+        AND roe IS NOT NULL
+        ORDER BY roe DESC
+        LIMIT %(limit)s
+        """
+        peers_params = {
+            'end_date': end_date,
+            'code': code,
+            'limit': str(limit_value)
+        }
+        peers_df = self.db.execute_query(peers_query, peers_params)
+        
+        if peers_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No peer data found",
+                "comparison": {}
+            }
+        
+        # Calculate industry statistics
+        metrics = ["roe", "roa", "gross_profit_margin", "net_profit_margin", "debt_to_assets", "current_ratio"]
+        comparison = {}
+        
+        for metric in metrics:
+            if metric in peers_df.columns:
+                peer_values = peers_df[metric].dropna()
+                target_value = target_data.get(metric)
+                
+                if not peer_values.empty and target_value is not None:
+                    comparison[metric] = {
+                        "target_value": target_value,
+                        "industry_median": float(peer_values.median()),
+                        "industry_mean": float(peer_values.mean()),
+                        "industry_p25": float(peer_values.quantile(0.25)),
+                        "industry_p75": float(peer_values.quantile(0.75)),
+                        "percentile_rank": float((peer_values < target_value).sum() / len(peer_values) * 100)
+                    }
+        
+        return {
+            "code": code,
+            "end_date": end_date,
+            "peer_count": len(peers_df),
+            "comparison": comparison,
+            "peer_companies": peers_df[["ts_code", "roe", "roa"]].to_dict('records')[:10]  # Top 10 peers
+        }
+    
+    @query_method(
+        description="Analyze financial health and provide insights",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods to analyze", required=False)
+        ]
+    )
+    def analyze_financial_health(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Analyze financial health and provide structured insights."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get financial summary
+        summary = self.get_financial_summary(code, periods)
+        
+        if summary["periods"] == 0:
+            return {
+                "code": code,
+                "health_score": 0,
+                "analysis": "No financial data available",
+                "strengths": [],
+                "weaknesses": [],
+                "recommendations": []
+            }
+        
+        # Analyze financial health
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        health_score = 50  # Base score
+        
+        # Profitability analysis
+        prof = summary["profitability"]
+        if prof.get("roe") and prof["roe"] > 15:
+            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+            health_score += 10
+        elif prof.get("roe") and prof["roe"] < 5:
+            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+            health_score -= 10
+        
+        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
+            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+            health_score += 5
+        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
+            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+            health_score -= 5
+        
+        # Solvency analysis
+        solv = summary["solvency"]
+        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
+            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+            health_score += 5
+        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
+            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+            health_score -= 10
+        
+        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
+            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+            health_score += 5
+        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
+            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+            health_score -= 10
+        
+        # Growth analysis
+        growth = summary["growth"]
+        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
+            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+            health_score += 10
+        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
+            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+            health_score -= 15
+        
+        # Generate recommendations
+        if weaknesses:
+            if any("ROE" in w for w in weaknesses):
+                recommendations.append("关注公司盈利能力改善措施")
+            if any("负债率" in w for w in weaknesses):
+                recommendations.append("关注债务结构优化和偿债能力")
+            if any("增长" in w or "下滑" in w for w in weaknesses):
+                recommendations.append("关注业务增长策略和市场竞争力")
+        
+        if not strengths:
+            recommendations.append("建议深入分析公司基本面和行业前景")
+        
+        # Ensure health score is within bounds
+        health_score = max(0, min(100, health_score))
+        
+        return {
+            "code": code,
+            "health_score": health_score,
+            "analysis": f"基于{summary['periods']}期财务数据的健康度分析",
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "recommendations": recommendations,
+            "summary": summary
+        }
+    
+    @query_method(
         description="Get ROE trend for a stock",
         params=[
             QueryParam(name="code", type="str", description="Stock code", required=True),
@@ -214,8 +1245,8 @@ class TuShareFinaceIndicatorService(BaseService):
         # Sanitize periods
         periods_value = self._sanitize_limit(periods, default=8, max_limit=100)
         
-        # Parameterized query
-        query = """
+        # Parameterized query - LIMIT needs to be hardcoded for ClickHouse
+        query = f"""
         SELECT 
             end_date,
             roe,
@@ -224,11 +1255,10 @@ class TuShareFinaceIndicatorService(BaseService):
         FROM ods_fina_indicator
         WHERE ts_code = %(code)s
         ORDER BY end_date DESC
-        LIMIT %(periods)s
+        LIMIT {periods_value}
         """
         params = {
-            'code': code,
-            'periods': str(periods_value)
+            'code': code
         }
         
         df = self.db.execute_query(query, params)
@@ -239,3 +1269,347 @@ class TuShareFinaceIndicatorService(BaseService):
                 df[col] = df[col].astype(str)
         
         return df.to_dict('records')
+    
+    @query_method(
+        description="Get financial summary with key indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of latest periods to return", required=False)
+        ]
+    )
+    def get_financial_summary(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Get comprehensive financial summary for a stock."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Sanitize periods
+        periods_value = self._sanitize_limit(periods, default=4, max_limit=20)
+        
+        # Get latest financial data
+        latest_data = self.get_latest_indicators(code, periods_value)
+        
+        if not latest_data:
+            return {
+                "code": code,
+                "periods": 0,
+                "latest_period": None,
+                "profitability": {},
+                "solvency": {},
+                "efficiency": {},
+                "growth": {}
+            }
+        
+        # Calculate summary metrics
+        latest = latest_data[0]  # Most recent period
+        
+        # Profitability metrics
+        profitability = {
+            "roe": latest.get("roe"),
+            "roa": latest.get("roa"), 
+            "gross_profit_margin": latest.get("gross_profit_margin"),
+            "net_profit_margin": latest.get("net_profit_margin"),
+            "eps": latest.get("eps")
+        }
+        
+        # Solvency metrics
+        solvency = {
+            "debt_to_assets": latest.get("debt_to_assets"),
+            "debt_to_equity": latest.get("debt_to_equity"),
+            "current_ratio": latest.get("current_ratio"),
+            "quick_ratio": latest.get("quick_ratio")
+        }
+        
+        # Efficiency metrics
+        efficiency = {
+            "asset_turnover": latest.get("asset_turnover"),
+            "inventory_turnover": latest.get("inventory_turnover"),
+            "receivable_turnover": latest.get("receivable_turnover")
+        }
+        
+        # Growth rates (if multiple periods available)
+        growth = {}
+        if len(latest_data) >= 2:
+            current = latest_data[0]
+            previous = latest_data[1]
+            
+            if current.get("total_revenue") and previous.get("total_revenue"):
+                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
+                                         previous["total_revenue"] * 100)
+            
+            if current.get("net_profit") and previous.get("net_profit"):
+                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
+                                         previous["net_profit"] * 100)
+        
+        return {
+            "code": code,
+            "periods": len(latest_data),
+            "latest_period": latest.get("end_date"),
+            "profitability": profitability,
+            "solvency": solvency,
+            "efficiency": efficiency,
+            "growth": growth,
+            "raw_data": latest_data
+        }
+    
+    @query_method(
+        description="Calculate growth rates for financial indicators",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods for trend analysis", required=False)
+        ]
+    )
+    def calculate_growth_rates(self, code: str, periods: Optional[int] = 8) -> Dict[str, Any]:
+        """Calculate growth rates for key financial indicators."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get historical data
+        historical_data = self.get_latest_indicators(code, periods or 8)
+        
+        if len(historical_data) < 2:
+            return {
+                "code": code,
+                "message": "Insufficient data for growth calculation",
+                "growth_rates": {}
+            }
+        
+        # Sort by date (newest first)
+        historical_data.sort(key=lambda x: x.get("end_date", ""), reverse=True)
+        
+        growth_rates = {}
+        metrics = ["total_revenue", "net_profit", "total_assets", "total_equity", "roe", "roa"]
+        
+        for metric in metrics:
+            rates = []
+            for i in range(len(historical_data) - 1):
+                current = historical_data[i].get(metric)
+                previous = historical_data[i + 1].get(metric)
+                
+                if current is not None and previous is not None and previous != 0:
+                    growth_rate = ((current - previous) / abs(previous)) * 100
+                    rates.append({
+                        "period": historical_data[i].get("end_date"),
+                        "rate": round(growth_rate, 2)
+                    })
+            
+            if rates:
+                # Calculate average growth rate
+                avg_growth = sum(r["rate"] for r in rates) / len(rates)
+                growth_rates[metric] = {
+                    "average_growth": round(avg_growth, 2),
+                    "periods": rates
+                }
+        
+        return {
+            "code": code,
+            "periods_analyzed": len(historical_data),
+            "growth_rates": growth_rates
+        }
+    
+    @query_method(
+        description="Get peer comparison data for industry analysis",
+        params=[
+            QueryParam(name="code", type="str", description="Target stock code", required=True),
+            QueryParam(name="end_date", type="str", description="Report date YYYYMMDD", required=True),
+            QueryParam(name="industry_limit", type="int", description="Number of peer companies to compare", required=False)
+        ]
+    )
+    def get_peer_comparison(self, code: str, end_date: str, industry_limit: Optional[int] = 20) -> Dict[str, Any]:
+        """Get peer comparison data for industry analysis."""
+        
+        # Input validation
+        if not code or not end_date:
+            raise ValueError("code and end_date are required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        if not self._validate_date_format(end_date):
+            raise ValueError("end_date must be in YYYYMMDD format")
+        
+        # Sanitize limit
+        limit_value = self._sanitize_limit(industry_limit, default=20, max_limit=100)
+        
+        # Get target company data
+        target_query = """
+        SELECT * FROM ods_fina_indicator
+        WHERE ts_code = %(code)s AND end_date = %(end_date)s
+        """
+        target_params = {'code': code, 'end_date': end_date}
+        target_df = self.db.execute_query(target_query, target_params)
+        
+        if target_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No data found for target company",
+                "comparison": {}
+            }
+        
+        target_data = target_df.iloc[0].to_dict()
+        
+        # Get industry peers (companies with similar market cap or industry)
+        # For now, get top performers by ROE as a proxy for industry peers
+        peers_query = """
+        SELECT ts_code, roe, roa, gross_profit_margin, net_profit_margin, 
+               debt_to_assets, current_ratio, total_revenue, net_profit
+        FROM ods_fina_indicator
+        WHERE end_date = %(end_date)s 
+        AND ts_code != %(code)s
+        AND roe IS NOT NULL
+        ORDER BY roe DESC
+        LIMIT %(limit)s
+        """
+        peers_params = {
+            'end_date': end_date,
+            'code': code,
+            'limit': str(limit_value)
+        }
+        peers_df = self.db.execute_query(peers_query, peers_params)
+        
+        if peers_df.empty:
+            return {
+                "code": code,
+                "end_date": end_date,
+                "message": "No peer data found",
+                "comparison": {}
+            }
+        
+        # Calculate industry statistics
+        metrics = ["roe", "roa", "gross_profit_margin", "net_profit_margin", "debt_to_assets", "current_ratio"]
+        comparison = {}
+        
+        for metric in metrics:
+            if metric in peers_df.columns:
+                peer_values = peers_df[metric].dropna()
+                target_value = target_data.get(metric)
+                
+                if not peer_values.empty and target_value is not None:
+                    comparison[metric] = {
+                        "target_value": target_value,
+                        "industry_median": float(peer_values.median()),
+                        "industry_mean": float(peer_values.mean()),
+                        "industry_p25": float(peer_values.quantile(0.25)),
+                        "industry_p75": float(peer_values.quantile(0.75)),
+                        "percentile_rank": float((peer_values < target_value).sum() / len(peer_values) * 100)
+                    }
+        
+        return {
+            "code": code,
+            "end_date": end_date,
+            "peer_count": len(peers_df),
+            "comparison": comparison,
+            "peer_companies": peers_df[["ts_code", "roe", "roa"]].to_dict('records')[:10]  # Top 10 peers
+        }
+    
+    @query_method(
+        description="Analyze financial health and provide insights",
+        params=[
+            QueryParam(name="code", type="str", description="Stock code (e.g., 002579.SZ)", required=True),
+            QueryParam(name="periods", type="int", description="Number of periods to analyze", required=False)
+        ]
+    )
+    def analyze_financial_health(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
+        """Analyze financial health and provide structured insights."""
+        
+        # Input validation
+        if not code:
+            raise ValueError("code is required")
+        
+        if not self._validate_stock_code(code):
+            raise ValueError(f"Invalid stock code format: {code}")
+        
+        # Get financial summary
+        summary = self.get_financial_summary(code, periods)
+        
+        if summary["periods"] == 0:
+            return {
+                "code": code,
+                "health_score": 0,
+                "analysis": "No financial data available",
+                "strengths": [],
+                "weaknesses": [],
+                "recommendations": []
+            }
+        
+        # Analyze financial health
+        strengths = []
+        weaknesses = []
+        recommendations = []
+        health_score = 50  # Base score
+        
+        # Profitability analysis
+        prof = summary["profitability"]
+        if prof.get("roe") and prof["roe"] > 15:
+            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+            health_score += 10
+        elif prof.get("roe") and prof["roe"] < 5:
+            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+            health_score -= 10
+        
+        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
+            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+            health_score += 5
+        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
+            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+            health_score -= 5
+        
+        # Solvency analysis
+        solv = summary["solvency"]
+        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
+            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+            health_score += 5
+        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
+            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+            health_score -= 10
+        
+        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
+            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+            health_score += 5
+        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
+            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+            health_score -= 10
+        
+        # Growth analysis
+        growth = summary["growth"]
+        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
+            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+            health_score += 10
+        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
+            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+            health_score -= 15
+        
+        # Generate recommendations
+        if weaknesses:
+            if any("ROE" in w for w in weaknesses):
+                recommendations.append("关注公司盈利能力改善措施")
+            if any("负债率" in w for w in weaknesses):
+                recommendations.append("关注债务结构优化和偿债能力")
+            if any("增长" in w or "下滑" in w for w in weaknesses):
+                recommendations.append("关注业务增长策略和市场竞争力")
+        
+        if not strengths:
+            recommendations.append("建议深入分析公司基本面和行业前景")
+        
+        # Ensure health score is within bounds
+        health_score = max(0, min(100, health_score))
+        
+        return {
+            "code": code,
+            "health_score": health_score,
+            "analysis": f"基于{summary['periods']}期财务数据的健康度分析",
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "recommendations": recommendations,
+            "summary": summary
+        }
