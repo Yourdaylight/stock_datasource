@@ -10,7 +10,8 @@ import {
   ServerIcon,
   WalletIcon,
   ChartBubbleIcon,
-  ToolsIcon
+  ToolsIcon,
+  ControlPlatformIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -20,6 +21,7 @@ const menuItems = [
   { path: '/chat', title: '智能对话', icon: ChatIcon },
   { path: '/market', title: '行情分析', icon: ChartLineIcon },
   { path: '/screener', title: '智能选股', icon: FilterIcon },
+  { path: '/etf', title: 'ETF筛选', icon: ControlPlatformIcon },
   { path: '/report', title: '财报研读', icon: FileExcelIcon },
   { path: '/strategy', title: '策略工作台', icon: ToolsIcon },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon },

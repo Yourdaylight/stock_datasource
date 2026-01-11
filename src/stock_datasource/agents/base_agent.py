@@ -1,17 +1,29 @@
 """Base Agent class using LangGraph/DeepAgents framework.
 
 All agents in this platform should inherit from LangGraphAgent.
+
+Memory Architecture (A + B + D):
+- A: LangGraph MemorySaver for automatic checkpoint
+- B: Tool result compression to reduce context size
+- D: Shared state storage for cross-turn data caching
 """
 
 import os
+import time
+import hashlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, AsyncGenerator, Optional, Callable
+from collections import defaultdict
 from deepagents import create_deep_agent
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# Configuration Models
+# =============================================================================
 
 class AgentConfig(BaseModel):
     """Agent configuration."""
@@ -21,6 +33,10 @@ class AgentConfig(BaseModel):
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_tokens: int = Field(default=4000, ge=1)
     recursion_limit: int = Field(default=50, description="LangGraph recursion limit")
+    # Memory settings
+    max_history_messages: int = Field(default=20, description="Max messages to keep in history")
+    max_history_chars: int = Field(default=12000, description="Max chars before triggering summarization")
+    history_ttl_seconds: int = Field(default=3600, description="History TTL in seconds (default 1 hour)")
 
 
 class ToolDefinition(BaseModel):
@@ -48,8 +64,18 @@ class AgentResult(BaseModel):
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+# =============================================================================
+# Global Shared Resources
+# =============================================================================
+
 # Lazy-loaded LangGraph model
 _langchain_model = None
+
+# Lazy-loaded Langfuse handler
+_langfuse_handler = None
+
+# Lazy-loaded MemorySaver (LangGraph checkpoint)
+_memory_saver = None
 
 
 def get_langchain_model():
@@ -79,10 +105,6 @@ def get_langchain_model():
     return _langchain_model
 
 
-# Lazy-loaded Langfuse handler
-_langfuse_handler = None
-
-
 def get_langfuse_handler():
     """Get Langfuse callback handler for LangChain."""
     global _langfuse_handler
@@ -110,18 +132,262 @@ def get_langfuse_handler():
     return _langfuse_handler
 
 
+def get_memory_saver():
+    """Get LangGraph MemorySaver for checkpoint-based memory.
+    
+    This enables automatic state persistence across conversation turns.
+    """
+    global _memory_saver
+    if _memory_saver is None:
+        try:
+            from langgraph.checkpoint.memory import MemorySaver
+            _memory_saver = MemorySaver()
+            logger.info("LangGraph MemorySaver initialized")
+        except ImportError:
+            logger.warning("langgraph.checkpoint.memory not available, using fallback memory")
+            _memory_saver = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize MemorySaver: {e}")
+            _memory_saver = None
+    return _memory_saver
+
+
+# =============================================================================
+# Memory Management (D: Shared State Storage)
+# =============================================================================
+
+class SessionMemory:
+    """Session-based memory manager for conversation history and shared state.
+    
+    Features:
+    - Conversation history with TTL
+    - Automatic summarization when context grows too large
+    - Shared state cache for tool results
+    """
+    
+    def __init__(self):
+        # Conversation history: {session_id: [{"role": str, "content": str, "timestamp": float}]}
+        self._history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        # Shared state cache: {session_id: {key: {"value": Any, "timestamp": float}}}
+        self._cache: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        # Session metadata: {session_id: {"created": float, "last_access": float}}
+        self._sessions: Dict[str, Dict[str, float]] = {}
+    
+    def get_session_id(self, agent_name: str, user_id: str = "default", context_key: str = "") -> str:
+        """Generate unique session ID."""
+        key = f"{agent_name}:{user_id}:{context_key}"
+        return hashlib.md5(key.encode()).hexdigest()[:16]
+    
+    def add_message(
+        self, 
+        session_id: str, 
+        role: str, 
+        content: str,
+        max_messages: int = 20
+    ):
+        """Add message to conversation history."""
+        now = time.time()
+        
+        # Initialize session if needed
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {"created": now, "last_access": now}
+        else:
+            self._sessions[session_id]["last_access"] = now
+        
+        # Add message
+        self._history[session_id].append({
+            "role": role,
+            "content": content,
+            "timestamp": now
+        })
+        
+        # Trim if exceeds max
+        if len(self._history[session_id]) > max_messages:
+            self._history[session_id] = self._history[session_id][-max_messages:]
+    
+    def get_history(
+        self, 
+        session_id: str, 
+        ttl_seconds: int = 3600,
+        max_chars: int = 12000
+    ) -> List[Dict[str, str]]:
+        """Get conversation history, filtering expired messages and applying summarization if needed."""
+        now = time.time()
+        history = self._history.get(session_id, [])
+        
+        # Filter by TTL
+        valid_history = [
+            {"role": h["role"], "content": h["content"]}
+            for h in history
+            if now - h["timestamp"] < ttl_seconds
+        ]
+        
+        # Check if summarization needed
+        total_chars = sum(len(h["content"]) for h in valid_history)
+        if total_chars > max_chars and len(valid_history) > 4:
+            valid_history = self._summarize_history(valid_history, max_chars)
+        
+        return valid_history
+    
+    def _summarize_history(
+        self, 
+        history: List[Dict[str, str]], 
+        max_chars: int
+    ) -> List[Dict[str, str]]:
+        """Summarize middle portion of history to reduce context size.
+        
+        Strategy: Keep first 2 + last 2 messages, summarize middle.
+        """
+        if len(history) <= 4:
+            return history
+        
+        first_msgs = history[:2]
+        last_msgs = history[-2:]
+        middle_msgs = history[2:-2]
+        
+        if not middle_msgs:
+            return history
+        
+        # Create summary of middle messages
+        summary_parts = []
+        for msg in middle_msgs:
+            role = msg["role"]
+            content = msg["content"]
+            # Truncate long content
+            if len(content) > 150:
+                content = content[:150] + "..."
+            summary_parts.append(f"[{role}]: {content}")
+        
+        summary = {
+            "role": "system",
+            "content": f"[对话历史摘要 - {len(middle_msgs)}条消息]\n" + "\n".join(summary_parts)
+        }
+        
+        result = first_msgs + [summary] + last_msgs
+        logger.debug(f"Summarized history: {len(history)} -> {len(result)} messages")
+        return result
+    
+    def set_cache(self, session_id: str, key: str, value: Any, ttl_seconds: int = 300):
+        """Set cached value for session (default 5 min TTL)."""
+        self._cache[session_id][key] = {
+            "value": value,
+            "timestamp": time.time(),
+            "ttl": ttl_seconds
+        }
+    
+    def get_cache(self, session_id: str, key: str) -> Optional[Any]:
+        """Get cached value if not expired."""
+        cache_entry = self._cache.get(session_id, {}).get(key)
+        if not cache_entry:
+            return None
+        
+        if time.time() - cache_entry["timestamp"] > cache_entry["ttl"]:
+            # Expired
+            del self._cache[session_id][key]
+            return None
+        
+        return cache_entry["value"]
+    
+    def clear_session(self, session_id: str):
+        """Clear all data for a session."""
+        if session_id in self._history:
+            del self._history[session_id]
+        if session_id in self._cache:
+            del self._cache[session_id]
+        if session_id in self._sessions:
+            del self._sessions[session_id]
+    
+    def cleanup_expired(self, ttl_seconds: int = 3600):
+        """Clean up expired sessions."""
+        now = time.time()
+        expired = [
+            sid for sid, meta in self._sessions.items()
+            if now - meta["last_access"] > ttl_seconds
+        ]
+        for sid in expired:
+            self.clear_session(sid)
+        if expired:
+            logger.info(f"Cleaned up {len(expired)} expired sessions")
+
+
+# Global session memory instance
+_session_memory: Optional[SessionMemory] = None
+
+
+def get_session_memory() -> SessionMemory:
+    """Get global session memory instance."""
+    global _session_memory
+    if _session_memory is None:
+        _session_memory = SessionMemory()
+    return _session_memory
+
+
+# =============================================================================
+# Tool Result Compression (B: Compress large tool outputs)
+# =============================================================================
+
+def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
+    """Compress tool result to reduce context size.
+    
+    Strategies:
+    - Truncate long strings
+    - Limit list items
+    - Remove verbose nested data
+    """
+    if isinstance(result, str):
+        if len(result) > max_chars:
+            return result[:max_chars] + f"\n...[截断，原长度{len(result)}字符]"
+        return result
+    
+    if isinstance(result, dict):
+        compressed = {}
+        for key, value in result.items():
+            # Skip very large nested data
+            if key in ("raw_data", "full_data", "debug"):
+                compressed[key] = f"[数据已省略]"
+            elif isinstance(value, list) and len(value) > 10:
+                # Keep first 10 items for lists
+                compressed[key] = value[:10]
+                if len(value) > 10:
+                    compressed[f"{key}_note"] = f"[仅显示前10条，共{len(value)}条]"
+            elif isinstance(value, str) and len(value) > 500:
+                compressed[key] = value[:500] + "..."
+            else:
+                compressed[key] = compress_tool_result(value, max_chars // 2)
+        return compressed
+    
+    if isinstance(result, list):
+        if len(result) > 20:
+            return result[:20] + [f"...[共{len(result)}项]"]
+        return [compress_tool_result(item, max_chars // len(result)) for item in result]
+    
+    return result
+
+
+# =============================================================================
+# LangGraphAgent Base Class
+# =============================================================================
+
 class LangGraphAgent(ABC):
     """Base class for all agents using LangGraph/DeepAgents framework.
     
     All agents should inherit from this class and implement:
     - get_tools(): Return list of tool functions
     - get_system_prompt(): Return system prompt string
+    
+    Memory Features:
+    - Automatic conversation history management
+    - LangGraph checkpoint support (when available)
+    - Tool result caching to avoid redundant calls
+    - Automatic summarization for long conversations
     """
     
     def __init__(self, config: AgentConfig):
         self.config = config
         self._agent = None
         self._model = None
+        self._checkpointer = None
+        self._memory = get_session_memory()
     
     @abstractmethod
     def get_tools(self) -> List[Callable]:
@@ -144,6 +410,12 @@ class LangGraphAgent(ABC):
             self._model = get_langchain_model()
         return self._model
     
+    def _get_checkpointer(self):
+        """Get LangGraph checkpointer for memory persistence."""
+        if self._checkpointer is None:
+            self._checkpointer = get_memory_saver()
+        return self._checkpointer
+    
     def _get_callbacks(self, session_id: str = None) -> List:
         """Get callback handlers including Langfuse."""
         callbacks = []
@@ -152,9 +424,10 @@ class LangGraphAgent(ABC):
             callbacks.append(handler)
         return callbacks
     
-    def _init_agent(self):
-        """Initialize the DeepAgent."""
-        if self._agent is not None:
+    def _init_agent(self, checkpointer=None):
+        """Initialize the DeepAgent with optional checkpointer."""
+        # If checkpointer changed, recreate agent
+        if self._agent is not None and checkpointer is None:
             return self._agent
         
         try:
@@ -162,50 +435,109 @@ class LangGraphAgent(ABC):
             tools = self.get_tools()
             system_prompt = self.get_system_prompt()
             
-            self._agent = create_deep_agent(
-                model=model,
-                tools=tools,
-                system_prompt=system_prompt,
-            )
-            logger.info(f"{self.config.name} initialized with DeepAgents")
+            # Create agent with checkpointer if available
+            create_kwargs = {
+                "model": model,
+                "tools": tools,
+                "system_prompt": system_prompt,
+            }
+            
+            if checkpointer:
+                create_kwargs["checkpointer"] = checkpointer
+            
+            self._agent = create_deep_agent(**create_kwargs)
+            logger.info(f"{self.config.name} initialized with DeepAgents (checkpointer={checkpointer is not None})")
             return self._agent
         except Exception as e:
             logger.error(f"Failed to init {self.config.name}: {e}")
             raise
     
-    async def execute(self, task: str, context: Dict[str, Any] = None) -> AgentResult:
-        """Execute a task using DeepAgent.
+    def _build_messages(
+        self, 
+        task: str, 
+        session_id: str,
+        context: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
+        """Build messages list with history and current task."""
+        messages = []
+        
+        # Get history from session memory
+        history = self._memory.get_history(
+            session_id,
+            ttl_seconds=self.config.history_ttl_seconds,
+            max_chars=self.config.max_history_chars
+        )
+        
+        # Also merge any history passed in context
+        context_history = context.get("history", [])
+        if context_history and not history:
+            # Use context history if session memory is empty
+            history = context_history[-self.config.max_history_messages:]
+        
+        # Add history messages
+        for msg in history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ("user", "assistant", "system") and content:
+                messages.append({"role": role, "content": content})
+        
+        # Add current task
+        messages.append({"role": "user", "content": task})
+        
+        return messages
+    
+    async def execute(
+        self, 
+        task: str, 
+        context: Dict[str, Any] = None
+    ) -> AgentResult:
+        """Execute a task using DeepAgent with memory support.
         
         Args:
             task: User's query or task
-            context: Optional context (session_id, history, etc.)
+            context: Optional context with:
+                - session_id: Unique session identifier
+                - user_id: User identifier
+                - history: Previous conversation (fallback if session memory empty)
+                - clear_history: If True, clear session before execution
             
         Returns:
             AgentResult with response and metadata
         """
         context = context or {}
-        session_id = context.get("session_id", "default")
+        
+        # Generate or use provided session_id
+        user_id = context.get("user_id", "default")
+        context_key = context.get("context_key", "")
+        session_id = context.get("session_id") or self._memory.get_session_id(
+            self.config.name, user_id, context_key
+        )
+        
+        # Clear history if requested
+        if context.get("clear_history"):
+            self._memory.clear_session(session_id)
+            logger.info(f"Cleared session {session_id}")
         
         try:
-            agent = self._init_agent()
+            # Get checkpointer for LangGraph memory
+            checkpointer = self._get_checkpointer()
+            agent = self._init_agent(checkpointer)
             callbacks = self._get_callbacks(session_id)
             
-            # Build messages
-            messages = [{"role": "user", "content": task}]
+            # Build messages with history
+            messages = self._build_messages(task, session_id, context)
             
-            # Add history if available
-            history = context.get("history", [])
-            if history:
-                history_messages = []
-                for msg in history[-10:]:
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    if role in ("user", "assistant") and content:
-                        history_messages.append({"role": role, "content": content})
-                messages = history_messages + messages
+            # Save user message to history
+            self._memory.add_message(
+                session_id, "user", task,
+                max_messages=self.config.max_history_messages
+            )
             
             # Execute agent
-            config = {"recursion_limit": self.config.recursion_limit}
+            config = {
+                "recursion_limit": self.config.recursion_limit,
+                "configurable": {"thread_id": session_id}  # For LangGraph checkpoint
+            }
             if callbacks:
                 config["callbacks"] = callbacks
             
@@ -225,6 +557,15 @@ class LangGraphAgent(ABC):
                 response = "无法生成回复"
                 logger.warning(f"No AI response found in {len(messages_list)} messages")
             
+            # Save assistant response to history (truncate if too long)
+            response_for_history = response
+            if len(response_for_history) > 2000:
+                response_for_history = response_for_history[:2000] + "\n...[内容已截断]"
+            self._memory.add_message(
+                session_id, "assistant", response_for_history,
+                max_messages=self.config.max_history_messages
+            )
+            
             # Extract tool calls
             tool_calls = []
             for msg in messages_list:
@@ -242,6 +583,7 @@ class LangGraphAgent(ABC):
                     "agent": self.config.name,
                     "session_id": session_id,
                     "message_count": len(messages_list),
+                    "history_length": len(self._memory.get_history(session_id)),
                 },
                 tool_calls=tool_calls,
             )
@@ -251,7 +593,7 @@ class LangGraphAgent(ABC):
             return AgentResult(
                 response=f"执行出错: {str(e)}",
                 success=False,
-                metadata={"error": str(e), "agent": self.config.name},
+                metadata={"error": str(e), "agent": self.config.name, "session_id": session_id},
             )
     
     async def execute_stream(
@@ -269,35 +611,45 @@ class LangGraphAgent(ABC):
             Dict with type (thinking/content/done/error) and data
         """
         context = context or {}
-        session_id = context.get("session_id", "default")
+        
+        # Generate or use provided session_id
+        user_id = context.get("user_id", "default")
+        context_key = context.get("context_key", "")
+        session_id = context.get("session_id") or self._memory.get_session_id(
+            self.config.name, user_id, context_key
+        )
+        
+        # Clear history if requested
+        if context.get("clear_history"):
+            self._memory.clear_session(session_id)
         
         try:
-            agent = self._init_agent()
+            checkpointer = self._get_checkpointer()
+            agent = self._init_agent(checkpointer)
             callbacks = self._get_callbacks(session_id)
             
-            # Build messages
-            messages = [{"role": "user", "content": task}]
+            # Build messages with history
+            messages = self._build_messages(task, session_id, context)
             
-            # Add history
-            history = context.get("history", [])
-            if history:
-                history_messages = []
-                for msg in history[-10:]:
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    if role in ("user", "assistant") and content:
-                        history_messages.append({"role": role, "content": content})
-                messages = history_messages + messages
+            # Save user message to history
+            self._memory.add_message(
+                session_id, "user", task,
+                max_messages=self.config.max_history_messages
+            )
             
             # Yield thinking status
             yield {
                 "type": "thinking",
                 "agent": self.config.name,
                 "status": "分析中...",
+                "session_id": session_id,
             }
             
             # Execute with streaming
-            config = {"recursion_limit": self.config.recursion_limit}
+            config = {
+                "recursion_limit": self.config.recursion_limit,
+                "configurable": {"thread_id": session_id}
+            }
             if callbacks:
                 config["callbacks"] = callbacks
             
@@ -354,6 +706,16 @@ class LangGraphAgent(ABC):
                 except Exception as e:
                     logger.debug(f"Error processing event {event_type}: {e}")
             
+            # Save assistant response to history
+            if full_response:
+                response_for_history = full_response
+                if len(response_for_history) > 2000:
+                    response_for_history = response_for_history[:2000] + "\n...[内容已截断]"
+                self._memory.add_message(
+                    session_id, "assistant", response_for_history,
+                    max_messages=self.config.max_history_messages
+                )
+            
             # Yield done
             yield {
                 "type": "done",
@@ -361,6 +723,7 @@ class LangGraphAgent(ABC):
                     "agent": self.config.name,
                     "tool_calls": tool_calls_seen,
                     "session_id": session_id,
+                    "history_length": len(self._memory.get_history(session_id)),
                 },
             }
             
@@ -376,6 +739,11 @@ class LangGraphAgent(ABC):
                             "type": "content",
                             "content": msg.content,
                         }
+                        # Save to history
+                        self._memory.add_message(
+                            session_id, "assistant", msg.content[:2000],
+                            max_messages=self.config.max_history_messages
+                        )
                         break
             
         except Exception as e:
@@ -384,6 +752,22 @@ class LangGraphAgent(ABC):
                 "type": "error",
                 "error": str(e),
             }
+    
+    # =========================================================================
+    # Cache utilities for tool result caching
+    # =========================================================================
+    
+    def get_cached(self, session_id: str, key: str) -> Optional[Any]:
+        """Get cached tool result."""
+        return self._memory.get_cache(session_id, key)
+    
+    def set_cached(self, session_id: str, key: str, value: Any, ttl_seconds: int = 300):
+        """Cache tool result."""
+        self._memory.set_cache(session_id, key, value, ttl_seconds)
+    
+    def clear_session(self, session_id: str):
+        """Clear session history and cache."""
+        self._memory.clear_session(session_id)
 
 
 # Backward compatibility aliases

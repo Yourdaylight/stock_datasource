@@ -54,6 +54,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '策略回测', icon: 'chart-bubble' }
   },
   {
+    path: '/etf',
+    name: 'ETF',
+    component: () => import('@/views/etf/ETFScreenerView.vue'),
+    meta: { title: 'ETF选股', icon: 'chart-pie' }
+  },
+  {
     path: '/strategy',
     name: 'Strategy',
     component: () => import('@/views/StrategyWorkbench.vue'),
