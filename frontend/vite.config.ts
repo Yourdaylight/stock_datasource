@@ -11,10 +11,15 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    strictPort: false, // 允许使用其他端口
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        rewrite: (path) => {
+          console.log('Proxy rewrite:', path)
+          return path
+        }
       }
     }
   }

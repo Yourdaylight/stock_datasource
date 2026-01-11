@@ -52,6 +52,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Backtest',
     component: () => import('@/views/backtest/BacktestView.vue'),
     meta: { title: '策略回测', icon: 'chart-bubble' }
+  },
+  {
+    path: '/strategy',
+    name: 'Strategy',
+    component: () => import('@/views/StrategyWorkbench.vue'),
+    meta: { title: '策略工作台', icon: 'tools' }
   }
 ]
 

@@ -59,6 +59,9 @@ def create_app() -> FastAPI:
     # Register module routes (8 business modules)
     _register_module_routes(app)
     
+    # Register strategy routes
+    _register_strategy_routes(app)
+    
     # Health check endpoint
     @app.get("/health")
     async def health_check():
@@ -90,6 +93,16 @@ def _register_module_routes(app: FastAPI) -> None:
             logger.info(f"Registered module: {prefix}")
     except Exception as e:
         logger.warning(f"Failed to register module routes: {e}")
+
+
+def _register_strategy_routes(app: FastAPI) -> None:
+    """Register strategy management routes."""
+    try:
+        from stock_datasource.api.strategy_routes import router as strategy_router
+        app.include_router(strategy_router)
+        logger.info("Registered strategy routes")
+    except Exception as e:
+        logger.warning(f"Failed to register strategy routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):
