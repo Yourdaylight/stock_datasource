@@ -819,21 +819,23 @@ class SyncTaskManager:
             self.logger.error(f"Failed to save task {task.task_id} to database: {e}")
     
     def _load_tasks_from_db(self):
-        """Load recent tasks from database on startup."""
+        """Load recent tasks from database on startup (for display only, not auto-resume)."""
         try:
             # Load tasks from last 7 days
-            # Use FINAL to get deduplicated data from ReplacingMergeTree
+            # Use subquery with FINAL to get deduplicated data, then filter
             cutoff_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
             query = f"""
             SELECT 
                 task_id, plugin_name, task_type, status, progress,
                 records_processed, total_records, error_message,
                 trade_dates, 
-                toString(created_at) as created_at,
-                toString(started_at) as started_at,
-                toString(completed_at) as completed_at
-            FROM {self.TASK_TABLE} FINAL
-            WHERE created_at >= toDateTime('{cutoff_time}')
+                formatDateTime(created_at, '%Y-%m-%d %H:%M:%S') as created_at_str,
+                formatDateTime(started_at, '%Y-%m-%d %H:%M:%S') as started_at_str,
+                formatDateTime(completed_at, '%Y-%m-%d %H:%M:%S') as completed_at_str
+            FROM (
+                SELECT * FROM {self.TASK_TABLE} FINAL
+                WHERE created_at >= toDateTime('{cutoff_time}')
+            )
             ORDER BY created_at DESC
             """
             result = db_client.execute_query(query)
@@ -851,7 +853,7 @@ class SyncTaskManager:
                 
                 # Parse datetime strings
                 def parse_dt(val):
-                    if val and val != '' and val != 'None':
+                    if val and val != '' and val != 'None' and val != '1970-01-01 00:00:00':
                         try:
                             return datetime.strptime(str(val)[:19], '%Y-%m-%d %H:%M:%S')
                         except:
@@ -869,27 +871,24 @@ class SyncTaskManager:
                     total_records=int(row['total_records']),
                     error_message=row['error_message'] if row['error_message'] else None,
                     trade_dates=list(row['trade_dates']) if row['trade_dates'] else [],
-                    created_at=parse_dt(row['created_at']),
-                    started_at=parse_dt(row['started_at']),
-                    completed_at=parse_dt(row['completed_at'])
+                    created_at=parse_dt(row['created_at_str']),
+                    started_at=parse_dt(row['started_at_str']),
+                    completed_at=parse_dt(row['completed_at_str'])
                 )
                 
-                # Add to memory
+                # Add to memory for display
                 self._tasks[task_id] = task
                 loaded_count += 1
                 
-                # Re-queue pending or interrupted running tasks
+                # Count pending tasks but DO NOT auto-resume
+                # User must manually trigger resume if needed
                 if status in [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]:
-                    # Mark running tasks as pending (they were interrupted)
-                    if status == TaskStatus.RUNNING.value:
-                        task.status = TaskStatus.PENDING
-                        task.started_at = None
-                        self._save_task_to_db(task)
-                    
-                    self._task_queue.append(task_id)
                     pending_count += 1
             
-            self.logger.info(f"Loaded {loaded_count} tasks from database, {pending_count} re-queued")
+            if pending_count > 0:
+                self.logger.info(f"Loaded {loaded_count} tasks from database, {pending_count} pending/interrupted (manual resume required)")
+            else:
+                self.logger.info(f"Loaded {loaded_count} tasks from database")
             
         except Exception as e:
             self.logger.error(f"Failed to load tasks from database: {e}")
@@ -1273,16 +1272,18 @@ class SyncTaskManager:
             List of SyncHistory records
         """
         try:
-            # Use FINAL to get deduplicated data from ReplacingMergeTree
+            # Use subquery with FINAL to get deduplicated data
             cutoff_time = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
             query = f"""
             SELECT 
                 task_id, plugin_name, task_type, status,
                 records_processed, error_message,
-                toString(started_at) as started_at,
-                toString(completed_at) as completed_at
-            FROM {self.TASK_TABLE} FINAL
-            WHERE created_at >= toDateTime('{cutoff_time}')
+                formatDateTime(started_at, '%Y-%m-%d %H:%M:%S') as started_at_str,
+                formatDateTime(completed_at, '%Y-%m-%d %H:%M:%S') as completed_at_str
+            FROM (
+                SELECT * FROM {self.TASK_TABLE} FINAL
+                WHERE created_at >= toDateTime('{cutoff_time}')
+            )
             ORDER BY created_at DESC
             LIMIT {limit}
             """
@@ -1301,8 +1302,8 @@ class SyncTaskManager:
             
             history = []
             for _, row in result.iterrows():
-                started_at = parse_dt(row['started_at'])
-                completed_at = parse_dt(row['completed_at'])
+                started_at = parse_dt(row['started_at_str'])
+                completed_at = parse_dt(row['completed_at_str'])
                 
                 # Calculate duration
                 duration = None

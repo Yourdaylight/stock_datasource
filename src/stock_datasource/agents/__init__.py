@@ -38,6 +38,7 @@ from .memory_agent import MemoryAgent
 from .datamanage_agent import DataManageAgent
 from .portfolio_agent import PortfolioAgent
 from .backtest_agent import BacktestAgent
+from .etf_agent import ETFAgent, get_etf_agent
 
 # For backward compatibility with deep_agent imports
 from .deep_agent import StockDeepAgent, get_stock_agent
@@ -69,6 +70,8 @@ __all__ = [
     "DataManageAgent",
     "PortfolioAgent",
     "BacktestAgent",
+    "ETFAgent",
+    "get_etf_agent",
     # DeepAgent (for backward compatibility)
     "StockDeepAgent",
     "get_stock_agent",
