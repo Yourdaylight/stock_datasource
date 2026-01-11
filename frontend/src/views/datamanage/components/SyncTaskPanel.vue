@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useDataManageStore } from '@/stores/datamanage'
+import { MessagePlugin } from 'tdesign-vue-next'
 
 const dataStore = useDataManageStore()
 
@@ -17,6 +18,15 @@ const recentTasks = computed(() => {
 
 const handleCancel = async (taskId: string) => {
   await dataStore.cancelTask(taskId)
+}
+
+const handleDelete = async (taskId: string) => {
+  try {
+    await dataStore.deleteTask(taskId)
+    MessagePlugin.success('任务已删除')
+  } catch (e) {
+    MessagePlugin.error('删除失败')
+  }
 }
 
 const getStatusTheme = (status: string) => {
@@ -95,7 +105,8 @@ onUnmounted(() => {
           { colKey: 'task_type', title: '类型', width: 80 },
           { colKey: 'status', title: '状态', width: 80 },
           { colKey: 'records_processed', title: '记录数', width: 100 },
-          { colKey: 'completed_at', title: '完成时间', width: 100 }
+          { colKey: 'completed_at', title: '完成时间', width: 100 },
+          { colKey: 'operation', title: '操作', width: 80 }
         ]"
         row-key="task_id"
         size="small"
@@ -114,6 +125,11 @@ onUnmounted(() => {
         </template>
         <template #completed_at="{ row }">
           {{ formatTime(row.completed_at) }}
+        </template>
+        <template #operation="{ row }">
+          <t-popconfirm content="确定删除此任务？" @confirm="handleDelete(row.task_id)">
+            <t-link theme="danger" size="small">删除</t-link>
+          </t-popconfirm>
         </template>
       </t-table>
     </div>

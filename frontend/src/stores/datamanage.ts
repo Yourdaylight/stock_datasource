@@ -68,6 +68,16 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
+  const deleteTask = async (taskId: string) => {
+    try {
+      await datamanageApi.deleteSyncTask(taskId)
+      await fetchSyncTasks()
+    } catch (e) {
+      console.error('Failed to delete task:', e)
+      throw e
+    }
+  }
+
   const fetchSyncHistory = async (limit: number = 20, pluginName?: string) => {
     try {
       return await datamanageApi.getSyncHistory(limit, pluginName)
@@ -198,6 +208,7 @@ export const useDataManageStore = defineStore('datamanage', () => {
     fetchSyncTasks,
     triggerSync,
     cancelTask,
+    deleteTask,
     fetchSyncHistory,
     fetchMissingData,
     triggerMissingDataDetection,

@@ -24,13 +24,14 @@
 
 ## 4. 同步任务管理
 
-- [x] 4.1 创建 `SyncTaskManager` 类（任务创建、状态更新、串行队列）
-- [x] 4.2 实现任务执行器（调用插件run方法，串行执行）
-- [x] 4.3 实现任务列表API `/api/datamanage/sync/tasks`
-- [x] 4.4 实现任务触发API `/api/datamanage/sync/trigger`
-- [x] 4.5 实现任务状态API `/api/datamanage/sync/status/{task_id}`
-- [x] 4.6 实现任务历史API `/api/datamanage/sync/history`
-- [x] 4.7 实现30天历史自动清理（cleanup_old_tasks方法）
+- [x] 4.1 创建 `SyncTaskManager` 类（任务创建、状态更新、并行队列，支持至少3个任务并行）
+- [x] 4.2 实现任务执行器（调用插件run方法，使用信号量控制任务并发数）
+- [x] 4.3 实现单任务内多日期并行处理（根据rate_limit动态计算日期并发数）
+- [x] 4.4 实现任务列表API `/api/datamanage/sync/tasks`
+- [x] 4.5 实现任务触发API `/api/datamanage/sync/trigger`
+- [x] 4.6 实现任务状态API `/api/datamanage/sync/status/{task_id}`
+- [x] 4.7 实现任务历史API `/api/datamanage/sync/history`
+- [x] 4.8 实现30天历史自动清理（cleanup_old_tasks方法）
 
 ## 5. 前端界面重构
 

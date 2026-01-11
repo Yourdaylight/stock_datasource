@@ -7,9 +7,10 @@ import logging
 from .schemas import (
     DataSource, SyncTask, TriggerSyncRequest, ManualDetectRequest,
     QualityMetrics, PluginInfo, PluginDetail, PluginDataPreview,
-    PluginStatus, MissingDataSummary, TaskType,
+    PluginStatus, MissingDataSummary, TaskType, SyncHistory,
     DiagnosisRequest, DiagnosisResult,
-    CheckDataExistsRequest, DataExistsCheckResult
+    CheckDataExistsRequest, DataExistsCheckResult,
+    SyncConfig, SyncConfigRequest
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 
@@ -89,25 +90,50 @@ async def cancel_sync_task(task_id: str):
     return {"success": True, "message": "Task cancelled"}
 
 
-@router.get("/sync/history", response_model=List[SyncTask])
+@router.delete("/sync/tasks/{task_id}")
+async def delete_sync_task(task_id: str):
+    """Delete a sync task (any status except running)."""
+    success = sync_task_manager.delete_task(task_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot delete task (running or not found)")
+    return {"success": True, "message": "Task deleted"}
+
+
+@router.get("/sync/config", response_model=SyncConfig)
+async def get_sync_config():
+    """Get current sync configuration (parallelism settings)."""
+    config = sync_task_manager.get_config()
+    return SyncConfig(**config)
+
+
+@router.put("/sync/config", response_model=SyncConfig)
+async def update_sync_config(request: SyncConfigRequest):
+    """Update sync configuration (parallelism settings).
+    
+    - max_concurrent_tasks: Max parallel tasks (1-10), default 1 for TuShare IP limit
+    - max_date_threads: Max threads per task for multi-date processing (1-20), default 1
+    """
+    config = sync_task_manager.update_config(
+        max_concurrent_tasks=request.max_concurrent_tasks,
+        max_date_threads=request.max_date_threads
+    )
+    return SyncConfig(**config)
+
+
+@router.get("/sync/history", response_model=List[SyncHistory])
 async def get_sync_history(
-    limit: int = Query(default=20, ge=1, le=100),
+    days: int = Query(default=7, ge=1, le=30, description="Number of days to look back"),
+    limit: int = Query(default=50, ge=1, le=200),
     plugin_name: Optional[str] = None
 ):
-    """Get sync task history."""
-    tasks = sync_task_manager.get_all_tasks()
-    
-    # Filter completed/failed tasks
-    history = [t for t in tasks if t.status.value in ("completed", "failed", "cancelled")]
+    """Get sync task history from database."""
+    history = sync_task_manager.get_task_history(days=days, limit=limit)
     
     # Filter by plugin if specified
     if plugin_name:
-        history = [t for t in history if t.plugin_name == plugin_name]
+        history = [h for h in history if h.plugin_name == plugin_name]
     
-    # Sort by completed_at desc
-    history.sort(key=lambda x: x.completed_at or x.created_at, reverse=True)
-    
-    return history[:limit]
+    return history
 
 
 # ============ Plugins ============

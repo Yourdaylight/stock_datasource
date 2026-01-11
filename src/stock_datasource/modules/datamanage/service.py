@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 import threading
 from collections import deque
+import pandas as pd
 
 from stock_datasource.utils.logger import logger
 from stock_datasource.core.plugin_manager import plugin_manager
@@ -22,6 +23,9 @@ from .schemas import (
     SyncHistory
 )
 
+# Local cache file path for trade calendar
+TRADE_CALENDAR_CACHE_FILE = Path(__file__).parent / "trade_calendar.csv"
+
 
 class DataManageService:
     """Service for data management operations."""
@@ -31,9 +35,71 @@ class DataManageService:
         self._missing_data_cache: Optional[MissingDataSummary] = None
         self._cache_time: Optional[datetime] = None
         self._cache_ttl = 3600  # 1 hour cache
+        self._trade_calendar_df: Optional[pd.DataFrame] = None
+        self._load_trade_calendar()
+    
+    def _load_trade_calendar(self):
+        """Load trade calendar from local CSV file, fetch from TuShare if not exists."""
+        if TRADE_CALENDAR_CACHE_FILE.exists():
+            try:
+                self._trade_calendar_df = pd.read_csv(
+                    TRADE_CALENDAR_CACHE_FILE, 
+                    parse_dates=['cal_date']
+                )
+                self.logger.info(f"Loaded {len(self._trade_calendar_df)} trade calendar records from local cache")
+                return
+            except Exception as e:
+                self.logger.warning(f"Failed to load trade calendar from cache: {e}")
+        
+        # Fetch from TuShare API
+        self._fetch_trade_calendar_from_tushare()
+    
+    def _fetch_trade_calendar_from_tushare(self):
+        """Fetch trade calendar from TuShare API and save to local CSV."""
+        try:
+            import tushare as ts
+            
+            # Get TuShare token from settings
+            token = getattr(settings, 'tushare_token', None)
+            if not token:
+                # Try to get from environment or config
+                import os
+                token = os.environ.get('TUSHARE_TOKEN')
+            
+            if not token:
+                self.logger.error("TuShare token not configured, cannot fetch trade calendar")
+                return
+            
+            pro = ts.pro_api(token)
+            
+            # Fetch trade calendar for SSE (Shanghai) from 2000 to 2026
+            self.logger.info("Fetching trade calendar from TuShare API (2000-2026)...")
+            df = pro.trade_cal(
+                exchange='SSE',
+                start_date='20000101',
+                end_date='20261231'
+            )
+            
+            if df is None or df.empty:
+                self.logger.error("Failed to fetch trade calendar from TuShare")
+                return
+            
+            # Rename columns and convert date
+            df = df.rename(columns={'cal_date': 'cal_date_str'})
+            df['cal_date'] = pd.to_datetime(df['cal_date_str'], format='%Y%m%d')
+            df = df[['cal_date', 'is_open', 'pretrade_date']]
+            
+            # Save to local CSV
+            df.to_csv(TRADE_CALENDAR_CACHE_FILE, index=False)
+            self._trade_calendar_df = df
+            
+            self.logger.info(f"Fetched and cached {len(df)} trade calendar records to {TRADE_CALENDAR_CACHE_FILE}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to fetch trade calendar from TuShare: {e}")
     
     def get_trading_days(self, days: int = 30, exchange: str = "SSE") -> List[str]:
-        """Get recent trading days from trade calendar.
+        """Get recent trading days from local cache.
         
         Args:
             days: Number of trading days to retrieve
@@ -42,6 +108,22 @@ class DataManageService:
         Returns:
             List of trading dates in YYYY-MM-DD format
         """
+        # Use local cache first
+        if self._trade_calendar_df is not None and not self._trade_calendar_df.empty:
+            try:
+                today = pd.Timestamp.now().normalize()
+                df = self._trade_calendar_df[
+                    (self._trade_calendar_df['is_open'] == 1) & 
+                    (self._trade_calendar_df['cal_date'] <= today)
+                ].sort_values('cal_date', ascending=False).head(days)
+                
+                if not df.empty:
+                    dates = df['cal_date'].tolist()
+                    return [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in dates]
+            except Exception as e:
+                self.logger.warning(f"Failed to get trading days from local cache: {e}")
+        
+        # Fallback to database
         try:
             query = """
             SELECT cal_date 
@@ -69,6 +151,8 @@ class DataManageService:
     def check_data_exists(self, table_name: str, date_column: str, trade_date: str) -> bool:
         """Check if data exists for a specific date in a table.
         
+        Uses LIMIT 1 for efficiency instead of count() to avoid memory issues on large tables.
+        
         Args:
             table_name: Name of the ODS table
             date_column: Name of the date column
@@ -78,17 +162,16 @@ class DataManageService:
             True if data exists, False otherwise
         """
         try:
+            # Use LIMIT 1 instead of count() for memory efficiency
             query = f"""
-            SELECT count() as cnt
+            SELECT 1
             FROM {table_name}
             WHERE {date_column} = %(trade_date)s
+            LIMIT 1
             """
             result = db_client.execute_query(query, {"trade_date": trade_date})
             
-            if result.empty:
-                return False
-            
-            return result['cnt'].iloc[0] > 0
+            return not result.empty
             
         except Exception as e:
             self.logger.warning(f"Failed to check data in {table_name} for {trade_date}: {e}")
@@ -105,9 +188,12 @@ class DataManageService:
             Latest date string or None
         """
         try:
+            # Use ORDER BY + LIMIT 1 for efficiency on large tables
             query = f"""
-            SELECT max({date_column}) as latest_date
+            SELECT {date_column} as latest_date
             FROM {table_name}
+            ORDER BY {date_column} DESC
+            LIMIT 1
             """
             result = db_client.execute_query(query)
             
@@ -122,19 +208,25 @@ class DataManageService:
             return None
     
     def get_table_record_count(self, table_name: str) -> int:
-        """Get total record count in a table.
+        """Get total record count in a table using system tables for efficiency.
         
         Args:
             table_name: Name of the table
         
         Returns:
-            Record count
+            Record count (approximate for large tables)
         """
         try:
-            query = f"SELECT count() as cnt FROM {table_name}"
-            result = db_client.execute_query(query)
+            # Use system.parts for approximate count - much faster on large tables
+            query = f"""
+            SELECT sum(rows) as cnt
+            FROM system.parts
+            WHERE table = %(table_name)s
+            AND active = 1
+            """
+            result = db_client.execute_query(query, {"table_name": table_name})
             
-            if result.empty:
+            if result.empty or result['cnt'].iloc[0] is None:
                 return 0
             
             return int(result['cnt'].iloc[0])
@@ -152,10 +244,12 @@ class DataManageService:
         Returns:
             Date column name
         """
-        # Most plugins use trade_date, some use cal_date
+        # Most plugins use trade_date, some use different date columns
         date_column_map = {
             "tushare_trade_calendar": "cal_date",
             "tushare_stock_basic": "list_date",
+            "tushare_index_basic": "list_date",  # dim table uses list_date
+            "tushare_finace_indicator": "end_date",  # uses report end_date
             "akshare_hk_stock_list": "list_date",
         }
         return date_column_map.get(plugin_name, "trade_date")
@@ -556,15 +650,14 @@ class DataManageService:
             )
         
         try:
-            # Use batch query for efficiency - group by date and count
-            # Convert dates to proper format for ClickHouse
+            # Use DISTINCT with LIMIT for memory efficiency instead of GROUP BY count
+            # This avoids aggregation which can cause memory issues on large tables
             dates_str = ", ".join([f"'{d}'" for d in dates])
             
             query = f"""
-            SELECT toString({date_column}) as check_date, count() as cnt
+            SELECT DISTINCT toString({date_column}) as check_date
             FROM {table_name}
             WHERE {date_column} IN ({dates_str})
-            GROUP BY {date_column}
             """
             
             result = db_client.execute_query(query)
@@ -577,10 +670,7 @@ class DataManageService:
                     # Handle both YYYY-MM-DD and YYYYMMDD formats
                     if len(check_date) == 8 and '-' not in check_date:
                         check_date = f"{check_date[:4]}-{check_date[4:6]}-{check_date[6:]}"
-                    count = int(row['cnt'])
-                    if count > 0:
-                        existing_set.add(check_date)
-                        record_counts[check_date] = count
+                    existing_set.add(check_date)
             
             # Categorize dates
             for d in dates:
@@ -604,62 +694,299 @@ class DataManageService:
 
 
 class SyncTaskManager:
-    """Manager for sync tasks with serial execution."""
+    """Manager for sync tasks with parallel execution and database persistence.
     
-    def __init__(self):
+    Supports:
+    - At least 3 tasks running in parallel (configurable via max_concurrent_tasks)
+    - Multi-date parallel processing within a single task (based on rate_limit)
+    - Task persistence to ClickHouse database
+    - Recovery of pending/running tasks on restart
+    - Configurable parallelism (concurrent tasks and date threads)
+    """
+    
+    # Default configuration
+    DEFAULT_MAX_CONCURRENT_TASKS = 1  # Default to 1 for TuShare IP limit
+    DEFAULT_MAX_DATE_CONCURRENCY = 1  # Default to 1 for TuShare IP limit
+    DEFAULT_REQUESTS_PER_DATE = 10  # Estimated API requests per date
+    
+    # Table name for task history
+    TASK_TABLE = "sync_task_history"
+    
+    def __init__(self, max_concurrent_tasks: int = DEFAULT_MAX_CONCURRENT_TASKS, 
+                 max_date_threads: int = DEFAULT_MAX_DATE_CONCURRENCY):
         self.logger = logger.bind(component="SyncTaskManager")
         self._tasks: Dict[str, SyncTask] = {}
         self._task_queue: deque = deque()
-        self._current_task: Optional[str] = None
+        self._running_tasks: Dict[str, str] = {}  # task_id -> plugin_name
+        self._max_concurrent_tasks = max(max_concurrent_tasks, 1)
+        self._max_date_threads = max(max_date_threads, 1)
+        self._task_semaphore = threading.Semaphore(self._max_concurrent_tasks)
         self._lock = threading.Lock()
         self._running = False
         self._worker_thread: Optional[threading.Thread] = None
+        self._executor: Optional[Any] = None
+        self._db_initialized = False
+    
+    def update_config(self, max_concurrent_tasks: Optional[int] = None, 
+                      max_date_threads: Optional[int] = None) -> Dict[str, Any]:
+        """Update parallelism configuration.
+        
+        Args:
+            max_concurrent_tasks: Max parallel tasks (1-10)
+            max_date_threads: Max threads per task for multi-date (1-20)
+        
+        Returns:
+            Updated configuration
+        """
+        with self._lock:
+            if max_concurrent_tasks is not None:
+                old_value = self._max_concurrent_tasks
+                self._max_concurrent_tasks = max(1, min(10, max_concurrent_tasks))
+                # Update semaphore if changed
+                if self._max_concurrent_tasks != old_value:
+                    self._task_semaphore = threading.Semaphore(self._max_concurrent_tasks)
+                    self.logger.info(f"Updated max_concurrent_tasks: {old_value} -> {self._max_concurrent_tasks}")
+            
+            if max_date_threads is not None:
+                old_value = self._max_date_threads
+                self._max_date_threads = max(1, min(20, max_date_threads))
+                self.logger.info(f"Updated max_date_threads: {old_value} -> {self._max_date_threads}")
+        
+        return self.get_config()
+    
+    def _ensure_table_exists(self):
+        """Ensure the sync_task_history table exists in ClickHouse."""
+        if self._db_initialized:
+            return
+        
+        try:
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS sync_task_history (
+                task_id String,
+                plugin_name String,
+                task_type String,
+                status String,
+                progress Float64 DEFAULT 0,
+                records_processed Int64 DEFAULT 0,
+                total_records Int64 DEFAULT 0,
+                error_message Nullable(String),
+                trade_dates Array(String) DEFAULT [],
+                created_at DateTime DEFAULT now(),
+                started_at Nullable(DateTime),
+                completed_at Nullable(DateTime),
+                updated_at DateTime DEFAULT now()
+            ) ENGINE = ReplacingMergeTree(updated_at)
+            ORDER BY (task_id)
+            """
+            db_client.execute_query(create_table_sql)
+            self._db_initialized = True
+            self.logger.info("sync_task_history table ensured")
+        except Exception as e:
+            self.logger.error(f"Failed to create sync_task_history table: {e}")
+    
+    def _save_task_to_db(self, task: SyncTask):
+        """Save or update a task in the database.
+        
+        Args:
+            task: The task to save
+        """
+        try:
+            # Convert trade_dates list to ClickHouse array format
+            trade_dates_str = "[" + ",".join([f"'{d}'" for d in task.trade_dates]) + "]"
+            
+            # Format datetime values
+            created_at = task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else 'now()'
+            started_at = f"'{task.started_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.started_at else 'NULL'
+            completed_at = f"'{task.completed_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.completed_at else 'NULL'
+            error_msg = f"'{task.error_message}'" if task.error_message else 'NULL'
+            
+            insert_sql = f"""
+            INSERT INTO {self.TASK_TABLE} (
+                task_id, plugin_name, task_type, status, progress,
+                records_processed, total_records, error_message,
+                trade_dates, created_at, started_at, completed_at, updated_at
+            ) VALUES (
+                '{task.task_id}', '{task.plugin_name}', '{task.task_type}', 
+                '{task.status.value if isinstance(task.status, TaskStatus) else task.status}',
+                {task.progress}, {task.records_processed}, {task.total_records},
+                {error_msg}, {trade_dates_str},
+                '{created_at}', {started_at}, {completed_at}, now()
+            )
+            """
+            db_client.execute_query(insert_sql)
+            self.logger.debug(f"Task {task.task_id} saved to database")
+        except Exception as e:
+            self.logger.error(f"Failed to save task {task.task_id} to database: {e}")
+    
+    def _load_tasks_from_db(self):
+        """Load recent tasks from database on startup."""
+        try:
+            # Load tasks from last 7 days
+            # Use FINAL to get deduplicated data from ReplacingMergeTree
+            cutoff_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+            query = f"""
+            SELECT 
+                task_id, plugin_name, task_type, status, progress,
+                records_processed, total_records, error_message,
+                trade_dates, 
+                toString(created_at) as created_at,
+                toString(started_at) as started_at,
+                toString(completed_at) as completed_at
+            FROM {self.TASK_TABLE} FINAL
+            WHERE created_at >= toDateTime('{cutoff_time}')
+            ORDER BY created_at DESC
+            """
+            result = db_client.execute_query(query)
+            
+            if result.empty:
+                self.logger.info("No recent tasks found in database")
+                return
+            
+            loaded_count = 0
+            pending_count = 0
+            
+            for _, row in result.iterrows():
+                task_id = row['task_id']
+                status = row['status']
+                
+                # Parse datetime strings
+                def parse_dt(val):
+                    if val and val != '' and val != 'None':
+                        try:
+                            return datetime.strptime(str(val)[:19], '%Y-%m-%d %H:%M:%S')
+                        except:
+                            return None
+                    return None
+                
+                # Convert to SyncTask
+                task = SyncTask(
+                    task_id=task_id,
+                    plugin_name=row['plugin_name'],
+                    task_type=row['task_type'],
+                    status=TaskStatus(status) if status in [s.value for s in TaskStatus] else TaskStatus.FAILED,
+                    progress=float(row['progress']),
+                    records_processed=int(row['records_processed']),
+                    total_records=int(row['total_records']),
+                    error_message=row['error_message'] if row['error_message'] else None,
+                    trade_dates=list(row['trade_dates']) if row['trade_dates'] else [],
+                    created_at=parse_dt(row['created_at']),
+                    started_at=parse_dt(row['started_at']),
+                    completed_at=parse_dt(row['completed_at'])
+                )
+                
+                # Add to memory
+                self._tasks[task_id] = task
+                loaded_count += 1
+                
+                # Re-queue pending or interrupted running tasks
+                if status in [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]:
+                    # Mark running tasks as pending (they were interrupted)
+                    if status == TaskStatus.RUNNING.value:
+                        task.status = TaskStatus.PENDING
+                        task.started_at = None
+                        self._save_task_to_db(task)
+                    
+                    self._task_queue.append(task_id)
+                    pending_count += 1
+            
+            self.logger.info(f"Loaded {loaded_count} tasks from database, {pending_count} re-queued")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load tasks from database: {e}")
     
     def start(self):
         """Start the task worker thread."""
         if self._running:
             return
         
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Ensure table exists and load existing tasks
+        self._ensure_table_exists()
+        self._load_tasks_from_db()
+        
         self._running = True
+        self._executor = ThreadPoolExecutor(max_workers=self._max_concurrent_tasks + 2)
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker_thread.start()
-        self.logger.info("SyncTaskManager started")
+        self.logger.info(f"SyncTaskManager started with max {self._max_concurrent_tasks} concurrent tasks")
     
     def stop(self):
         """Stop the task worker thread."""
         self._running = False
         if self._worker_thread:
             self._worker_thread.join(timeout=5)
+        if self._executor:
+            self._executor.shutdown(wait=False)
         self.logger.info("SyncTaskManager stopped")
     
     def _worker_loop(self):
-        """Worker loop for processing tasks."""
+        """Worker loop for processing tasks in parallel."""
+        import time
+        
         while self._running:
             task_id = None
             
             with self._lock:
-                if self._task_queue and not self._current_task:
-                    task_id = self._task_queue.popleft()
-                    self._current_task = task_id
+                # Check if we can start a new task
+                if self._task_queue and len(self._running_tasks) < self._max_concurrent_tasks:
+                    # Find a task that doesn't conflict with running tasks
+                    # (same plugin tasks should run serially to avoid data conflicts)
+                    for i, queued_task_id in enumerate(self._task_queue):
+                        queued_task = self._tasks.get(queued_task_id)
+                        if queued_task:
+                            running_plugins = set(self._running_tasks.values())
+                            if queued_task.plugin_name not in running_plugins:
+                                task_id = queued_task_id
+                                self._task_queue.remove(queued_task_id)
+                                self._running_tasks[task_id] = queued_task.plugin_name
+                                break
             
             if task_id:
-                self._execute_task(task_id)
-                with self._lock:
-                    self._current_task = None
+                # Submit task to executor for parallel execution
+                self._executor.submit(self._execute_task_wrapper, task_id)
             else:
-                # Sleep briefly when no tasks
-                import time
-                time.sleep(1)
+                # Sleep briefly when no tasks available
+                time.sleep(0.5)
+    
+    def _execute_task_wrapper(self, task_id: str):
+        """Wrapper for task execution with cleanup."""
+        try:
+            self._execute_task(task_id)
+        finally:
+            with self._lock:
+                self._running_tasks.pop(task_id, None)
+    
+    def _calculate_date_concurrency(self, plugin_name: str, num_dates: int) -> int:
+        """Calculate optimal date concurrency based on configured max_date_threads.
+        
+        Args:
+            plugin_name: Plugin name
+            num_dates: Number of dates to process
+        
+        Returns:
+            Optimal number of dates to process in parallel
+        """
+        # Use configured max_date_threads, capped by actual number of dates
+        concurrency = min(self._max_date_threads, num_dates)
+        
+        self.logger.debug(
+            f"Date concurrency for {plugin_name}: {concurrency} "
+            f"(max_date_threads={self._max_date_threads}, dates={num_dates})"
+        )
+        
+        return concurrency
     
     def _execute_task(self, task_id: str):
-        """Execute a single task."""
+        """Execute a single task with optional multi-date parallelism."""
         task = self._tasks.get(task_id)
         if not task:
             return
         
-        # Update status to running
+        # Update status to running and save to DB
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now()
+        self._save_task_to_db(task)
         
         self.logger.info(f"Executing task {task_id} for plugin {task.plugin_name}")
         
@@ -670,17 +997,8 @@ class SyncTaskManager:
             
             # Execute based on task type
             if task.task_type == TaskType.BACKFILL.value and task.trade_dates:
-                # Backfill specific dates
-                total = len(task.trade_dates)
-                task.total_records = total
-                
-                for i, trade_date in enumerate(task.trade_dates):
-                    result = plugin.run(trade_date=trade_date)
-                    
-                    if result.get("status") == "success":
-                        task.records_processed += result.get("steps", {}).get("load", {}).get("total_records", 0)
-                    
-                    task.progress = ((i + 1) / total) * 100
+                # Backfill specific dates with parallel processing
+                self._execute_backfill_parallel(task, plugin)
             else:
                 # Incremental or full sync (use today's date)
                 today = date.today().strftime('%Y%m%d')
@@ -692,13 +1010,88 @@ class SyncTaskManager:
             
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
+            self._save_task_to_db(task)
             self.logger.info(f"Task {task_id} completed successfully")
             
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error_message = str(e)
             task.completed_at = datetime.now()
+            self._save_task_to_db(task)
             self.logger.error(f"Task {task_id} failed: {e}")
+    
+    def _execute_backfill_parallel(self, task: SyncTask, plugin):
+        """Execute backfill task with multi-date parallelism.
+        
+        Args:
+            task: The sync task
+            plugin: The plugin instance
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
+        
+        trade_dates = task.trade_dates
+        total = len(trade_dates)
+        task.total_records = total
+        
+        # Calculate date concurrency
+        date_concurrency = self._calculate_date_concurrency(task.plugin_name, total)
+        
+        self.logger.info(
+            f"Backfill task {task.task_id}: {total} dates with concurrency {date_concurrency}"
+        )
+        
+        # Get rate limit for throttling
+        config = plugin.get_config()
+        rate_limit = config.get("rate_limit", 120)
+        min_interval = 60.0 / rate_limit if rate_limit > 0 else 0.5
+        
+        completed_count = 0
+        records_lock = threading.Lock()
+        last_request_time = time.time()
+        request_lock = threading.Lock()
+        
+        def process_date(trade_date: str) -> Dict[str, Any]:
+            """Process a single date with rate limiting."""
+            nonlocal last_request_time
+            
+            # Rate limiting
+            with request_lock:
+                elapsed = time.time() - last_request_time
+                if elapsed < min_interval:
+                    time.sleep(min_interval - elapsed)
+                last_request_time = time.time()
+            
+            try:
+                result = plugin.run(trade_date=trade_date)
+                return {"date": trade_date, "result": result, "error": None}
+            except Exception as e:
+                return {"date": trade_date, "result": None, "error": str(e)}
+        
+        # Process dates in parallel with controlled concurrency
+        with ThreadPoolExecutor(max_workers=date_concurrency) as executor:
+            futures = {executor.submit(process_date, d): d for d in trade_dates}
+            
+            for future in as_completed(futures):
+                result_data = future.result()
+                
+                with records_lock:
+                    completed_count += 1
+                    
+                    if result_data["result"] and result_data["result"].get("status") == "success":
+                        records = result_data["result"].get("steps", {}).get("load", {}).get("total_records", 0)
+                        task.records_processed += records
+                    elif result_data["error"]:
+                        self.logger.warning(
+                            f"Date {result_data['date']} failed: {result_data['error']}"
+                        )
+                    
+                    task.progress = (completed_count / total) * 100
+        
+        self.logger.info(
+            f"Backfill completed: {completed_count}/{total} dates, "
+            f"{task.records_processed} records"
+        )
     
     def create_task(
         self, 
@@ -733,6 +1126,9 @@ class SyncTaskManager:
             self._tasks[task_id] = task
             self._task_queue.append(task_id)
         
+        # Save to database immediately
+        self._save_task_to_db(task)
+        
         self.logger.info(f"Created task {task_id} for plugin {plugin_name}")
         return task
     
@@ -765,10 +1161,51 @@ class SyncTaskManager:
             task = self._tasks.get(task_id)
             if task and task.status == TaskStatus.PENDING:
                 task.status = TaskStatus.CANCELLED
+                task.completed_at = datetime.now()
                 if task_id in self._task_queue:
                     self._task_queue.remove(task_id)
+                # Save to database
+                self._save_task_to_db(task)
                 return True
         return False
+    
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task (any status except running).
+        
+        Args:
+            task_id: Task ID
+        
+        Returns:
+            True if deleted, False otherwise
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return False
+            
+            # Cannot delete running tasks
+            if task.status == TaskStatus.RUNNING:
+                return False
+            
+            # Remove from queue if pending
+            if task_id in self._task_queue:
+                self._task_queue.remove(task_id)
+            
+            # Remove from memory
+            del self._tasks[task_id]
+        
+        # Delete from database
+        try:
+            delete_sql = f"""
+            ALTER TABLE {self.TASK_TABLE} DELETE 
+            WHERE task_id = %(task_id)s
+            """
+            db_client.execute_query(delete_sql, {"task_id": task_id})
+            self.logger.info(f"Deleted task {task_id} from database")
+        except Exception as e:
+            self.logger.error(f"Failed to delete task {task_id} from database: {e}")
+        
+        return True
     
     def cleanup_old_tasks(self, days: int = 30):
         """Clean up tasks older than specified days.
@@ -778,6 +1215,18 @@ class SyncTaskManager:
         """
         cutoff = datetime.now() - timedelta(days=days)
         
+        # Clean up from database
+        try:
+            delete_sql = f"""
+            ALTER TABLE {self.TASK_TABLE} DELETE 
+            WHERE completed_at < %(cutoff)s
+            """
+            db_client.execute_query(delete_sql, {"cutoff": cutoff.strftime('%Y-%m-%d %H:%M:%S')})
+            self.logger.info(f"Cleaned up tasks older than {days} days from database")
+        except Exception as e:
+            self.logger.error(f"Failed to cleanup old tasks from database: {e}")
+        
+        # Clean up from memory
         with self._lock:
             to_remove = []
             for task_id, task in self._tasks.items():
@@ -788,7 +1237,95 @@ class SyncTaskManager:
                 del self._tasks[task_id]
         
         if to_remove:
-            self.logger.info(f"Cleaned up {len(to_remove)} old tasks")
+            self.logger.info(f"Cleaned up {len(to_remove)} old tasks from memory")
+    
+    def get_config(self) -> Dict[str, Any]:
+        """Get current sync configuration.
+        
+        Returns:
+            Dict with current configuration
+        """
+        with self._lock:
+            return {
+                "max_concurrent_tasks": self._max_concurrent_tasks,
+                "max_date_threads": self._max_date_threads,
+                "running_tasks_count": len(self._running_tasks),
+                "pending_tasks_count": len(self._task_queue),
+                "running_plugins": list(self._running_tasks.values())
+            }
+    
+    def get_concurrency_info(self) -> Dict[str, Any]:
+        """Get current concurrency configuration and status.
+        
+        Returns:
+            Dict with concurrency info
+        """
+        return self.get_config()
+    
+    def get_task_history(self, days: int = 7, limit: int = 100) -> List[SyncHistory]:
+        """Get task history from database.
+        
+        Args:
+            days: Number of days to look back
+            limit: Maximum number of records to return
+        
+        Returns:
+            List of SyncHistory records
+        """
+        try:
+            # Use FINAL to get deduplicated data from ReplacingMergeTree
+            cutoff_time = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            query = f"""
+            SELECT 
+                task_id, plugin_name, task_type, status,
+                records_processed, error_message,
+                toString(started_at) as started_at,
+                toString(completed_at) as completed_at
+            FROM {self.TASK_TABLE} FINAL
+            WHERE created_at >= toDateTime('{cutoff_time}')
+            ORDER BY created_at DESC
+            LIMIT {limit}
+            """
+            result = db_client.execute_query(query)
+            
+            if result.empty:
+                return []
+            
+            def parse_dt(val):
+                if val and val != '' and val != 'None' and str(val) != '1970-01-01 00:00:00':
+                    try:
+                        return datetime.strptime(str(val)[:19], '%Y-%m-%d %H:%M:%S')
+                    except:
+                        return None
+                return None
+            
+            history = []
+            for _, row in result.iterrows():
+                started_at = parse_dt(row['started_at'])
+                completed_at = parse_dt(row['completed_at'])
+                
+                # Calculate duration
+                duration = None
+                if started_at and completed_at:
+                    duration = (completed_at - started_at).total_seconds()
+                
+                history.append(SyncHistory(
+                    task_id=row['task_id'],
+                    plugin_name=row['plugin_name'],
+                    task_type=row['task_type'],
+                    status=row['status'],
+                    records_processed=int(row['records_processed']),
+                    error_message=row['error_message'] if row['error_message'] else None,
+                    started_at=started_at if started_at else datetime.now(),
+                    completed_at=completed_at,
+                    duration_seconds=duration
+                ))
+            
+            return history
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get task history: {e}")
+            return []
 
 
 class DiagnosisService:

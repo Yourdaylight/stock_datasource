@@ -210,6 +210,10 @@ export const datamanageApi = {
     return request.post(`/datamanage/sync/cancel/${taskId}`)
   },
 
+  deleteSyncTask(taskId: string): Promise<{ success: boolean; message: string }> {
+    return request.delete(`/datamanage/sync/tasks/${taskId}`)
+  },
+
   getSyncHistory(limit?: number, pluginName?: string): Promise<SyncTask[]> {
     let url = '/datamanage/sync/history'
     const params: string[] = []

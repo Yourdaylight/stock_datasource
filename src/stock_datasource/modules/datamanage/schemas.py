@@ -35,6 +35,9 @@ class TriggerSyncRequest(BaseModel):
     task_type: TaskType = TaskType.INCREMENTAL
     trade_dates: Optional[List[str]] = None  # For backfill
     force_overwrite: bool = False  # Whether to overwrite existing data
+    # Parallelism settings (optional, use global settings if not provided)
+    max_concurrent_tasks: Optional[int] = Field(None, ge=1, le=10, description="Max parallel tasks (1-10)")
+    max_date_threads: Optional[int] = Field(None, ge=1, le=20, description="Max threads per task for multi-date (1-20)")
 
 
 class ManualDetectRequest(BaseModel):
@@ -45,6 +48,21 @@ class ManualDetectRequest(BaseModel):
 class CheckDataExistsRequest(BaseModel):
     """Request model for checking if data exists for specific dates."""
     dates: List[str] = Field(..., min_length=1, description="List of dates to check (YYYY-MM-DD format)")
+
+
+class SyncConfigRequest(BaseModel):
+    """Request model for updating sync configuration."""
+    max_concurrent_tasks: Optional[int] = Field(None, ge=1, le=10, description="Max parallel tasks (1-10)")
+    max_date_threads: Optional[int] = Field(None, ge=1, le=20, description="Max threads per task for multi-date (1-20)")
+
+
+class SyncConfig(BaseModel):
+    """Sync configuration response."""
+    max_concurrent_tasks: int = Field(description="Current max parallel tasks")
+    max_date_threads: int = Field(description="Current max threads per task")
+    running_tasks_count: int = Field(description="Currently running tasks")
+    pending_tasks_count: int = Field(description="Pending tasks in queue")
+    running_plugins: List[str] = Field(description="Plugins currently running")
 
 
 # Response Models
