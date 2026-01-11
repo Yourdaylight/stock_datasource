@@ -55,23 +55,23 @@ export interface BacktestResult {
 
 export const backtestApi = {
   getStrategies(): Promise<Strategy[]> {
-    return request.get('/backtest/strategies')
+    return request.get('/api/backtest/strategies')
   },
 
   getStrategy(id: string): Promise<Strategy> {
-    return request.get(`/backtest/strategies/${id}`)
+    return request.get(`/api/backtest/strategies/${id}`)
   },
 
   runBacktest(data: BacktestRequest): Promise<BacktestResult> {
-    return request.post('/backtest/run', data)
+    return request.post('/api/backtest/run', data)
   },
 
   getResults(limit?: number): Promise<BacktestResult[]> {
     const params = limit ? `?limit=${limit}` : ''
-    return request.get(`/backtest/results${params}`)
+    return request.get(`/api/backtest/results${params}`)
   },
 
   getResult(taskId: string): Promise<BacktestResult> {
-    return request.get(`/backtest/results/${taskId}`)
+    return request.get(`/api/backtest/results/${taskId}`)
   }
 }

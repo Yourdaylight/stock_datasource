@@ -14,8 +14,8 @@ class StrategyParam(BaseModel):
     name: str
     type: str
     default: Any
-    min_value: float = None
-    max_value: float = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
     description: str
 
 
@@ -71,40 +71,82 @@ class BacktestResult(BaseModel):
 @router.get("/strategies", response_model=List[Strategy])
 async def get_strategies():
     """Get available strategies."""
-    return [
-        Strategy(
-            id="ma",
-            name="均线策略",
-            description="基于短期和长期均线交叉的趋势跟踪策略",
-            category="trend",
-            params=[
-                StrategyParam(name="short_period", type="int", default=5, min_value=2, max_value=30, description="短期均线周期"),
-                StrategyParam(name="long_period", type="int", default=20, min_value=10, max_value=120, description="长期均线周期")
-            ]
-        ),
-        Strategy(
-            id="macd",
-            name="MACD策略",
-            description="基于MACD指标的趋势策略",
-            category="trend",
-            params=[
-                StrategyParam(name="fast", type="int", default=12, min_value=5, max_value=20, description="快线周期"),
-                StrategyParam(name="slow", type="int", default=26, min_value=20, max_value=40, description="慢线周期"),
-                StrategyParam(name="signal", type="int", default=9, min_value=5, max_value=15, description="信号线周期")
-            ]
-        ),
-        Strategy(
-            id="rsi",
-            name="RSI策略",
-            description="基于RSI超买超卖的震荡策略",
-            category="momentum",
-            params=[
-                StrategyParam(name="period", type="int", default=14, min_value=5, max_value=30, description="RSI周期"),
-                StrategyParam(name="oversold", type="int", default=30, min_value=10, max_value=40, description="超卖阈值"),
-                StrategyParam(name="overbought", type="int", default=70, min_value=60, max_value=90, description="超买阈值")
-            ]
-        )
-    ]
+    try:
+        # 导入策略注册表
+        from ...strategies.init import get_strategy_registry
+        
+        registry = get_strategy_registry()
+        strategies = []
+        
+        for strategy_id, strategy_info in registry._strategies.items():
+            metadata = strategy_info.metadata
+            
+            # 获取策略参数
+            strategy_class = registry.get_strategy_class(strategy_id)
+            if strategy_class:
+                param_schema = strategy_class().get_parameter_schema()
+                params = [
+                    StrategyParam(
+                        name=param.name,
+                        type=param.type,
+                        default=param.default,
+                        min_value=param.min_value,
+                        max_value=param.max_value,
+                        description=param.description
+                    )
+                    for param in param_schema
+                ]
+            else:
+                params = []
+            
+            strategies.append(Strategy(
+                id=metadata.id,
+                name=metadata.name,
+                description=metadata.description,
+                category=metadata.category.value,
+                params=params
+            ))
+        
+        logger.info(f"返回 {len(strategies)} 个策略给回测模块")
+        return strategies
+        
+    except Exception as e:
+        logger.error(f"获取策略列表失败: {e}")
+        # 如果出错，返回备用的硬编码策略
+        return [
+            Strategy(
+                id="ma_strategy",
+                name="均线策略",
+                description="基于短期和长期均线交叉的趋势跟踪策略",
+                category="trend",
+                params=[
+                    StrategyParam(name="short_period", type="int", default=5, min_value=2, max_value=30, description="短期均线周期"),
+                    StrategyParam(name="long_period", type="int", default=20, min_value=10, max_value=120, description="长期均线周期")
+                ]
+            ),
+            Strategy(
+                id="macd_strategy",
+                name="MACD策略",
+                description="基于MACD指标的趋势策略",
+                category="trend",
+                params=[
+                    StrategyParam(name="fast", type="int", default=12, min_value=5, max_value=20, description="快线周期"),
+                    StrategyParam(name="slow", type="int", default=26, min_value=20, max_value=40, description="慢线周期"),
+                    StrategyParam(name="signal", type="int", default=9, min_value=5, max_value=15, description="信号线周期")
+                ]
+            ),
+            Strategy(
+                id="rsi_strategy",
+                name="RSI策略",
+                description="基于RSI超买超卖的震荡策略",
+                category="momentum",
+                params=[
+                    StrategyParam(name="period", type="int", default=14, min_value=5, max_value=30, description="RSI周期"),
+                    StrategyParam(name="oversold", type="int", default=30, min_value=10, max_value=40, description="超卖阈值"),
+                    StrategyParam(name="overbought", type="int", default=70, min_value=60, max_value=90, description="超买阈值")
+                ]
+            )
+        ]
 
 
 @router.get("/strategies/{strategy_id}", response_model=Strategy)

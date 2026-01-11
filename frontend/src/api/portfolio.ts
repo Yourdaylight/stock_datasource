@@ -1,76 +1,70 @@
-import { request } from '@/utils/request'
-
-export interface Position {
-  id: string
-  ts_code: string
-  stock_name: string
-  quantity: number
-  cost_price: number
-  buy_date: string
-  current_price?: number
-  market_value?: number
-  profit_loss?: number
-  profit_rate?: number
-}
-
-export interface AddPositionRequest {
-  ts_code: string
-  quantity: number
-  cost_price: number
-  buy_date: string
-  notes?: string
-}
-
-export interface PortfolioSummary {
-  total_value: number
-  total_cost: number
-  total_profit: number
-  profit_rate: number
-  daily_change: number
-  daily_change_rate: number
-  position_count: number
-}
-
-export interface DailyAnalysis {
-  analysis_date: string
-  analysis_summary: string
-  stock_analyses: Record<string, string>
-  risk_alerts: string[]
-  recommendations: string[]
-}
+import request from '@/utils/request'
+import type { 
+  Position, 
+  PortfolioSummary, 
+  CreatePositionRequest,
+  UpdatePositionRequest,
+  AnalysisReport,
+  AlertCreateRequest
+} from '@/types/portfolio'
 
 export const portfolioApi = {
-  getPositions(): Promise<Position[]> {
-    return request.get('/portfolio/positions')
+  // Position management
+  getPositions(params?: { include_inactive?: boolean }) {
+    return request.get<Position[]>('/portfolio/positions', { params })
   },
 
-  addPosition(data: AddPositionRequest): Promise<Position> {
-    return request.post('/portfolio/positions', data)
+  createPosition(data: CreatePositionRequest) {
+    return request.post<Position>('/portfolio/positions', data)
   },
 
-  updatePosition(id: string, data: Partial<AddPositionRequest>): Promise<Position> {
-    return request.put(`/portfolio/positions/${id}`, data)
+  updatePosition(id: string, data: UpdatePositionRequest) {
+    return request.put<Position>(`/portfolio/positions/${id}`, data)
   },
 
-  deletePosition(id: string): Promise<void> {
+  deletePosition(id: string) {
     return request.delete(`/portfolio/positions/${id}`)
   },
 
-  getSummary(): Promise<PortfolioSummary> {
-    return request.get('/portfolio/summary')
+  // Portfolio summary
+  getSummary() {
+    return request.get<PortfolioSummary>('/portfolio/summary')
   },
 
-  getProfitHistory(days?: number): Promise<{ date: string; value: number; profit: number }[]> {
-    const params = days ? `?days=${days}` : ''
-    return request.get(`/portfolio/profit-history${params}`)
+  getProfitHistory(days: number = 30) {
+    return request.get('/portfolio/profit-history', { 
+      params: { days } 
+    })
   },
 
-  triggerDailyAnalysis(): Promise<{ task_id: string }> {
-    return request.post('/portfolio/daily-analysis')
+  // Analysis
+  triggerDailyAnalysis(analysisDate?: string) {
+    return request.post('/portfolio/daily-analysis', {
+      analysis_date: analysisDate
+    })
   },
 
-  getAnalysis(date?: string): Promise<DailyAnalysis> {
-    const params = date ? `?date=${date}` : ''
-    return request.get(`/portfolio/analysis${params}`)
+  getAnalysisReport(reportDate: string) {
+    return request.get<AnalysisReport>(`/portfolio/analysis/${reportDate}`)
+  },
+
+  getAnalysisHistory(days: number = 30) {
+    return request.get<AnalysisReport[]>('/portfolio/analysis', {
+      params: { days }
+    })
+  },
+
+  // Alerts
+  createAlert(data: AlertCreateRequest) {
+    return request.post('/portfolio/alerts', data)
+  },
+
+  checkAlerts() {
+    return request.get('/portfolio/alerts/check')
+  },
+
+  // Batch operations
+  batchUpdatePrices() {
+    return request.post('/portfolio/batch/update-prices')
   }
 }
