@@ -9,3 +9,4 @@ logs/
 .codebuddy
 .vscode
 uv.lock
+node_modules

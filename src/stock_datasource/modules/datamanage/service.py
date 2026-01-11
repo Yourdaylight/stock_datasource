@@ -517,6 +517,8 @@ class DataManageService:
     def check_dates_data_exists(self, plugin_name: str, dates: List[str]) -> Dict[str, Any]:
         """Check if data exists for specific dates in a plugin's table.
         
+        Uses batch query for efficiency when checking many dates.
+        
         Args:
             plugin_name: Plugin name
             dates: List of dates to check (YYYY-MM-DD format)
@@ -544,28 +546,53 @@ class DataManageService:
         non_existing_dates = []
         record_counts = {}
         
-        for trade_date in dates:
-            try:
-                query = f"""
-                SELECT count() as cnt
-                FROM {table_name}
-                WHERE {date_column} = %(trade_date)s
-                """
-                result = db_client.execute_query(query, {"trade_date": trade_date})
-                
-                if not result.empty:
-                    count = int(result['cnt'].iloc[0])
+        if not dates:
+            return DataExistsCheckResult(
+                plugin_name=plugin_name,
+                dates_checked=dates,
+                existing_dates=[],
+                non_existing_dates=[],
+                record_counts={}
+            )
+        
+        try:
+            # Use batch query for efficiency - group by date and count
+            # Convert dates to proper format for ClickHouse
+            dates_str = ", ".join([f"'{d}'" for d in dates])
+            
+            query = f"""
+            SELECT toString({date_column}) as check_date, count() as cnt
+            FROM {table_name}
+            WHERE {date_column} IN ({dates_str})
+            GROUP BY {date_column}
+            """
+            
+            result = db_client.execute_query(query)
+            
+            # Build set of existing dates from query result
+            existing_set = set()
+            if not result.empty:
+                for _, row in result.iterrows():
+                    check_date = str(row['check_date'])
+                    # Handle both YYYY-MM-DD and YYYYMMDD formats
+                    if len(check_date) == 8 and '-' not in check_date:
+                        check_date = f"{check_date[:4]}-{check_date[4:6]}-{check_date[6:]}"
+                    count = int(row['cnt'])
                     if count > 0:
-                        existing_dates.append(trade_date)
-                        record_counts[trade_date] = count
-                    else:
-                        non_existing_dates.append(trade_date)
+                        existing_set.add(check_date)
+                        record_counts[check_date] = count
+            
+            # Categorize dates
+            for d in dates:
+                if d in existing_set:
+                    existing_dates.append(d)
                 else:
-                    non_existing_dates.append(trade_date)
+                    non_existing_dates.append(d)
                     
-            except Exception as e:
-                self.logger.warning(f"Failed to check data for {trade_date}: {e}")
-                non_existing_dates.append(trade_date)
+        except Exception as e:
+            self.logger.error(f"Failed to batch check data for {plugin_name}: {e}")
+            # Fall back to marking all as non-existing on error
+            non_existing_dates = dates
         
         return DataExistsCheckResult(
             plugin_name=plugin_name,

@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "rate_limit": 30,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare index factor pro data plugin (100+ technical indicators)",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters": {
+    "validate_prices": true,
+    "require_ohlc": true
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Trade date in YYYYMMDD format"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "Index code (e.g., 000300.SH)"
+    }
+  }
+}

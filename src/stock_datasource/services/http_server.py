@@ -206,10 +206,13 @@ def _register_services(app: FastAPI) -> None:
             logger.error(f"Failed to register service {prefix}: {e}")
 
 
+# Create app instance for uvicorn
+app = create_app()
+
+
 if __name__ == "__main__":
     import uvicorn
     
-    app = create_app()
     uvicorn.run(
         app,
         host="0.0.0.0",

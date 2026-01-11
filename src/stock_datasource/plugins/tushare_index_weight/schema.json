@@ -1,0 +1,17 @@
+{
+  "table_name": "ods_index_weight",
+  "table_type": "ods",
+  "columns": [
+    {"name": "index_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "con_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "成分股代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "weight", "data_type": "Nullable(Float64)", "nullable": true, "comment": "权重"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["index_code", "con_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Index constituent weights from TuShare API"
+}

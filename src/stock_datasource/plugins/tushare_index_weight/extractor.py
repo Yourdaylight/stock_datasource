@@ -1,4 +1,4 @@
-"""TuShare adjustment factor extractor - independent implementation."""
+"""TuShare index weight extractor - independent implementation."""
 
 import logging
 import json
@@ -13,8 +13,8 @@ from stock_datasource.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
-class AdjFactorExtractor:
-    """Independent extractor for TuShare adjustment factor data."""
+class IndexWeightExtractor:
+    """Independent extractor for TuShare index weight data."""
     
     def __init__(self):
         self.token = settings.TUSHARE_TOKEN
@@ -23,7 +23,7 @@ class AdjFactorExtractor:
         config_file = Path(__file__).parent / "config.json"
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        self.rate_limit = config.get("rate_limit", 500)  # Default to 500 if not specified
+        self.rate_limit = config.get("rate_limit", 30)
         
         if not self.token:
             raise ValueError("TUSHARE_TOKEN not configured in settings")
@@ -64,22 +64,30 @@ class AdjFactorExtractor:
             logger.error(f"API call failed: {e}")
             raise
     
-    def extract(self, trade_date: str, ts_code: Optional[str] = None) -> pd.DataFrame:
-        """Extract adjustment factor data for a specific trade date.
+    def extract(self, index_code: str, start_date: Optional[str] = None,
+               end_date: Optional[str] = None, trade_date: Optional[str] = None) -> pd.DataFrame:
+        """Extract index weight data.
         
         Args:
+            index_code: Index code (e.g., 399300.SZ)
+            start_date: Start date in YYYYMMDD format
+            end_date: End date in YYYYMMDD format
             trade_date: Trade date in YYYYMMDD format
-            ts_code: Optional stock code (if not provided, gets all stocks)
         
         Returns:
-            DataFrame with adjustment factor data
+            DataFrame with index weight data
         """
-        kwargs = {'trade_date': trade_date}
-        if ts_code:
-            kwargs['ts_code'] = ts_code
+        kwargs = {'index_code': index_code}
         
-        return self._call_api(self.pro.adj_factor, **kwargs)
+        if start_date:
+            kwargs['start_date'] = start_date
+        if end_date:
+            kwargs['end_date'] = end_date
+        if trade_date:
+            kwargs['trade_date'] = trade_date
+        
+        return self._call_api(self.pro.index_weight, **kwargs)
 
 
 # Global extractor instance
-extractor = AdjFactorExtractor()
+extractor = IndexWeightExtractor()
