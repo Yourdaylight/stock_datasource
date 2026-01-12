@@ -115,17 +115,17 @@ export interface AnalysisResponse {
 export const reportApi = {
   // Get comprehensive financial data
   getFinancial(params: FinancialRequest): Promise<FinancialResponse> {
-    return request.post('/report/financial', params)
+    return request.post('/api/report/financial', params)
   },
 
   // Get peer comparison analysis
   getComparison(params: CompareRequest): Promise<CompareResponse> {
-    return request.post('/report/compare', params)
+    return request.post('/api/report/compare', params)
   },
 
   // Get AI analysis
   getAnalysis(params: AnalysisRequest): Promise<AnalysisResponse> {
-    return request.post('/report/analysis', params)
+    return request.post('/api/report/analysis', params)
   },
 
   // Legacy streaming analysis (for backward compatibility)

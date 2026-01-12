@@ -32,15 +32,15 @@ export interface AnalysisRequest {
 
 export const marketApi = {
   getKLine(params: KLineRequest): Promise<KLineResponse> {
-    return request.post('/market/kline', params)
+    return request.post('/api/market/kline', params)
   },
 
   getIndicators(params: IndicatorRequest): Promise<IndicatorResponse> {
-    return request.post('/market/indicators', params)
+    return request.post('/api/market/indicators', params)
   },
 
   searchStock(keyword: string): Promise<{ code: string; name: string }[]> {
-    return request.get(`/market/search?keyword=${encodeURIComponent(keyword)}`)
+    return request.get(`/api/market/search?keyword=${encodeURIComponent(keyword)}`)
   },
 
   analyzeStock(params: AnalysisRequest): EventSource {

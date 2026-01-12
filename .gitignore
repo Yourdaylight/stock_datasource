@@ -10,3 +10,4 @@ logs/
 .vscode
 uv.lock
 node_modules
+.idea

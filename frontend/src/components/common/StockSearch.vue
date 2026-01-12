@@ -31,10 +31,16 @@ const handleSearch = async (keyword: string) => {
       const results = await marketApi.searchStock(keyword)
       console.log('搜索结果:', results) // 调试日志
       
-      options.value = results.map(item => ({
-        value: item.code,
-        label: `${item.code} - ${item.name}`
-      }))
+      // 防御性检查：确保 results 是数组
+      if (Array.isArray(results)) {
+        options.value = results.map(item => ({
+          value: item.code,
+          label: `${item.code} - ${item.name}`
+        }))
+      } else {
+        console.warn('API 返回的数据不是数组:', results)
+        options.value = []
+      }
       console.log('处理后的选项:', options.value) // 调试日志
     } catch (e) {
       console.error('搜索失败:', e) // 调试日志
