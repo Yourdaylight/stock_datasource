@@ -253,3 +253,33 @@ class DataExistsCheckResult(BaseModel):
     existing_dates: List[str]
     non_existing_dates: List[str]
     record_counts: Dict[str, int] = {}  # date -> record count
+
+
+# ============================================
+# Proxy Configuration Models
+# ============================================
+
+class ProxyConfig(BaseModel):
+    """HTTP Proxy configuration."""
+    enabled: bool = Field(default=False, description="Whether proxy is enabled")
+    host: str = Field(default="", description="Proxy host address")
+    port: int = Field(default=0, description="Proxy port")
+    username: Optional[str] = Field(default=None, description="Proxy username (optional)")
+    password: Optional[str] = Field(default=None, description="Proxy password (optional)")
+
+
+class ProxyConfigRequest(BaseModel):
+    """Request model for updating proxy configuration."""
+    enabled: bool = Field(..., description="Whether to enable proxy")
+    host: str = Field(default="", description="Proxy host address")
+    port: int = Field(default=0, ge=0, le=65535, description="Proxy port (0-65535)")
+    username: Optional[str] = Field(default=None, description="Proxy username")
+    password: Optional[str] = Field(default=None, description="Proxy password")
+
+
+class ProxyTestResult(BaseModel):
+    """Result of proxy connection test."""
+    success: bool
+    message: str
+    latency_ms: Optional[float] = None
+    external_ip: Optional[str] = None

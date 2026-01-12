@@ -14,6 +14,7 @@ from stock_datasource.utils.logger import logger
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
 from stock_datasource.config.settings import settings
+from stock_datasource.config.runtime_config import load_runtime_config, save_runtime_config
 
 from .schemas import (
     SyncTask, TaskStatus, TaskType,
@@ -718,8 +719,21 @@ class SyncTaskManager:
         self._tasks: Dict[str, SyncTask] = {}
         self._task_queue: deque = deque()
         self._running_tasks: Dict[str, str] = {}  # task_id -> plugin_name
-        self._max_concurrent_tasks = max(max_concurrent_tasks, 1)
-        self._max_date_threads = max(max_date_threads, 1)
+
+        # Load persisted concurrency config (fallback to provided defaults)
+        base_max_tasks = max(max_concurrent_tasks, 1)
+        base_max_threads = max(max_date_threads, 1)
+        try:
+            from stock_datasource.config.runtime_config import load_runtime_config
+            persisted = load_runtime_config().get("sync", {})
+            base_max_tasks = max(1, min(10, int(persisted.get("max_concurrent_tasks", base_max_tasks))))
+            base_max_threads = max(1, min(20, int(persisted.get("max_date_threads", base_max_threads))))
+        except Exception:
+            # Ignore persistence errors and keep defaults
+            pass
+
+        self._max_concurrent_tasks = base_max_tasks
+        self._max_date_threads = base_max_threads
         self._task_semaphore = threading.Semaphore(self._max_concurrent_tasks)
         self._lock = threading.Lock()
         self._running = False
@@ -752,7 +766,16 @@ class SyncTaskManager:
                 self._max_date_threads = max(1, min(20, max_date_threads))
                 self.logger.info(f"Updated max_date_threads: {old_value} -> {self._max_date_threads}")
         
-        return self.get_config()
+        updated = self.get_config()
+        try:
+            save_runtime_config(sync={
+                "max_concurrent_tasks": self._max_concurrent_tasks,
+                "max_date_threads": self._max_date_threads
+            })
+        except Exception as e:
+            self.logger.warning(f"Failed to persist sync config: {e}")
+        
+        return updated
     
     def _ensure_table_exists(self):
         """Ensure the sync_task_history table exists in ClickHouse."""

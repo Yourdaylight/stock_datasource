@@ -43,41 +43,41 @@ export interface UserProfile {
 
 export const memoryApi = {
   getPreference(): Promise<UserPreference> {
-    return request.get('/memory/preference')
+    return request.get('/api/memory/preference')
   },
 
   updatePreference(data: Partial<UserPreference>): Promise<void> {
-    return request.put('/memory/preference', data)
+    return request.put('/api/memory/preference', data)
   },
 
   getWatchlist(group?: string): Promise<WatchlistItem[]> {
     const params = group ? `?group=${encodeURIComponent(group)}` : ''
-    return request.get(`/memory/watchlist${params}`)
+    return request.get(`/api/memory/watchlist${params}`)
   },
 
   addToWatchlist(data: { ts_code: string; group_name?: string; add_reason?: string }): Promise<void> {
-    return request.post('/memory/watchlist', data)
+    return request.post('/api/memory/watchlist', data)
   },
 
   removeFromWatchlist(tsCode: string): Promise<void> {
-    return request.delete(`/memory/watchlist/${tsCode}`)
+    return request.delete(`/api/memory/watchlist/${tsCode}`)
   },
 
   getMemories(type?: string): Promise<MemoryItem[]> {
     const params = type ? `?type=${encodeURIComponent(type)}` : ''
-    return request.get(`/memory/list${params}`)
+    return request.get(`/api/memory/list${params}`)
   },
 
   searchMemories(query: string): Promise<MemoryItem[]> {
-    return request.get(`/memory/search?query=${encodeURIComponent(query)}`)
+    return request.get(`/api/memory/search?query=${encodeURIComponent(query)}`)
   },
 
   getHistory(limit?: number): Promise<InteractionHistory[]> {
     const params = limit ? `?limit=${limit}` : ''
-    return request.get(`/memory/history${params}`)
+    return request.get(`/api/memory/history${params}`)
   },
 
   getProfile(): Promise<UserProfile> {
-    return request.get('/memory/profile')
+    return request.get('/api/memory/profile')
   }
 }

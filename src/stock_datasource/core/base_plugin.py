@@ -21,6 +21,7 @@ class BasePlugin(ABC):
         self._plugin_dir = None
         self.db = None
         self._init_db()
+        self._init_proxy()
     
     @property
     @abstractmethod
@@ -50,6 +51,14 @@ class BasePlugin(ABC):
             self.db = db_client
         except Exception as e:
             self.logger.warning(f"Failed to initialize database: {e}")
+    
+    def _init_proxy(self):
+        """Initialize HTTP proxy settings for data fetching."""
+        try:
+            from stock_datasource.core.proxy import apply_proxy_settings
+            apply_proxy_settings()
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize proxy: {e}")
     
     def _get_plugin_dir(self) -> Path:
         """Get the plugin directory path."""

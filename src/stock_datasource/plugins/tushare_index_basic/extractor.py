@@ -24,12 +24,22 @@ class IndexBasicExtractor:
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
         self.rate_limit = config.get("rate_limit", 500)
+        self.timeout = config.get("timeout", 30)
         
         if not self.token:
             raise ValueError("TUSHARE_TOKEN not configured in settings")
         
         ts.set_token(self.token)
-        self.pro = ts.pro_api()
+        try:
+            self.pro = ts.pro_api(timeout=self.timeout)
+        except TypeError:
+            # Fallback for older tushare versions
+            self.pro = ts.pro_api()
+            if hasattr(self.pro, "timeout"):
+                try:
+                    self.pro.timeout = self.timeout
+                except Exception:
+                    pass
         
         # Rate limiting
         self._last_call_time = 0

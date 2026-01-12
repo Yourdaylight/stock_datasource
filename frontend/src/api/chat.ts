@@ -57,15 +57,15 @@ export type StreamEvent = ThinkingEvent | ContentEvent | DoneEvent | ErrorEvent
 
 export const chatApi = {
   sendMessage(data: SendMessageRequest): Promise<ChatMessage> {
-    return request.post('/chat/message', data)
+    return request.post('/api/chat/message', data)
   },
 
   getHistory(sessionId: string): Promise<ChatHistoryResponse> {
-    return request.get(`/chat/history?session_id=${sessionId}`)
+    return request.get(`/api/chat/history?session_id=${sessionId}`)
   },
 
   createSession(): Promise<{ session_id: string }> {
-    return request.post('/chat/session')
+    return request.post('/api/chat/session')
   },
 
   // Stream message via EventSource (GET)
