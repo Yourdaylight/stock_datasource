@@ -1,0 +1,22 @@
+{
+  "table_name": "ods_etf_stk_mins",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "ETF代码"},
+    {"name": "trade_time", "data_type": "DateTime", "nullable": false, "comment": "交易时间"},
+    {"name": "freq", "data_type": "LowCardinality(String)", "nullable": false, "comment": "频率"},
+    {"name": "open", "data_type": "Nullable(Float64)", "nullable": true, "comment": "开盘价"},
+    {"name": "high", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最高价"},
+    {"name": "low", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最低价"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收盘价"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交量"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交金额"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_time)",
+  "order_by": ["ts_code", "freq", "trade_time"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "ETF分钟数据 from TuShare stk_mins API"
+}

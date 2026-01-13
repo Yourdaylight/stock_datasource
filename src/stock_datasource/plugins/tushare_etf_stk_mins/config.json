@@ -1,0 +1,35 @@
+{
+  "enabled": true,
+  "rate_limit": 2,
+  "timeout": 60,
+  "retry_attempts": 3,
+  "description": "TuShare ETF分钟数据 from stk_mins API",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "ETF代码，不指定则获取所有ETF"
+    },
+    "freq": {
+      "type": "string",
+      "enum": ["1min", "5min", "15min", "30min", "60min"],
+      "required": false,
+      "default": "1min",
+      "description": "分钟频度"
+    },
+    "start_date": {
+      "type": "string",
+      "required": false,
+      "description": "开始时间 格式：YYYY-MM-DD HH:MM:SS"
+    },
+    "end_date": {
+      "type": "string",
+      "required": false,
+      "description": "结束时间 格式：YYYY-MM-DD HH:MM:SS"
+    }
+  }
+}
