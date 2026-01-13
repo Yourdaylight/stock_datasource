@@ -144,3 +144,43 @@ class TuShareTopListPlugin(BasePlugin):
         
         self.logger.info(f"Data validation passed for {len(data)} records")
         return True
+    
+    def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Load top list data into ODS table.
+        
+        Args:
+            data: Top list data to load
+        
+        Returns:
+            Loading statistics
+        """
+        if not self.db:
+            self.logger.error("Database not initialized")
+            return {"status": "failed", "error": "Database not initialized"}
+        
+        if data.empty:
+            self.logger.warning("No data to load")
+            return {"status": "no_data", "loaded_records": 0}
+        
+        try:
+            self.logger.info(f"Loading {len(data)} records into ods_top_list")
+            ods_data = data.copy()
+            ods_data['version'] = int(datetime.now().timestamp())
+            ods_data['_ingested_at'] = datetime.now()
+            
+            # Prepare data types
+            ods_data = self._prepare_data_for_insert('ods_top_list', ods_data)
+            
+            # Insert data
+            self.db.insert_dataframe('ods_top_list', ods_data)
+            
+            self.logger.info(f"Successfully loaded {len(ods_data)} records into ods_top_list")
+            return {
+                "status": "success",
+                "loaded_records": len(ods_data),
+                "table": "ods_top_list"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data: {e}")
+            return {"status": "failed", "error": str(e)}
