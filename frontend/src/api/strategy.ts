@@ -74,62 +74,62 @@ export interface AIGenerationRequest {
 export const strategyApi = {
   // 获取策略列表
   async getStrategies(): Promise<{ data: StrategyMetadata[] }> {
-    return request.get('/strategies/')
+    return request.get('/api/strategies/')
   },
 
   // 获取单个策略详情
   async getStrategy(id: string): Promise<{ data: StrategyMetadata }> {
-    return request.get(`/strategies/${id}`)
+    return request.get(`/api/strategies/${id}`)
   },
 
   // 创建新策略
   async createStrategy(strategy: Partial<StrategyMetadata>): Promise<{ data: StrategyMetadata }> {
-    return request.post('/strategies', strategy)
+    return request.post('/api/strategies', strategy)
   },
 
   // 更新策略
   async updateStrategy(id: string, strategy: Partial<StrategyMetadata>): Promise<{ data: StrategyMetadata }> {
-    return request.put(`/strategies/${id}`, strategy)
+    return request.put(`/api/strategies/${id}`, strategy)
   },
 
   // 删除策略
   async deleteStrategy(id: string): Promise<void> {
-    return request.delete(`/strategies/${id}`)
+    return request.delete(`/api/strategies/${id}`)
   },
 
   // 运行回测
   async runBacktest(config: BacktestConfig): Promise<{ data: BacktestResult }> {
-    return request.post('/strategies/backtest', config)
+    return request.post('/api/strategies/backtest', config)
   },
 
   // 获取回测结果
   async getBacktestResult(id: string): Promise<{ data: BacktestResult }> {
-    return request.get(`/strategies/backtest/${id}`)
+    return request.get(`/api/strategies/backtest/${id}`)
   },
 
   // 获取策略的回测历史
   async getBacktestHistory(strategyId: string): Promise<{ data: BacktestResult[] }> {
-    return request.get(`/strategies/${strategyId}/backtest-history`)
+    return request.get(`/api/strategies/${strategyId}/backtest-history`)
   },
 
   // 参数优化
   async optimizeStrategy(config: OptimizationConfig): Promise<{ data: any }> {
-    return request.post('/strategies/optimize', config)
+    return request.post('/api/strategies/optimize', config)
   },
 
   // AI生成策略
-  async generateAIStrategy(request: AIGenerationRequest): Promise<{ data: StrategyMetadata }> {
-    return request.post('/strategies/ai-generate', request)
+  async generateAIStrategy(req: AIGenerationRequest): Promise<{ data: StrategyMetadata }> {
+    return request.post('/api/strategies/ai-generate', req)
   },
 
   // 获取AI策略解释
   async explainStrategy(strategyId: string): Promise<{ data: { explanation: string } }> {
-    return request.get(`/strategies/${strategyId}/explain`)
+    return request.get(`/api/strategies/${strategyId}/explain`)
   },
 
   // 获取策略分类统计
   async getCategoryStats(): Promise<{ data: Record<string, number> }> {
-    return request.get('/strategies/category-stats')
+    return request.get('/api/strategies/category-stats')
   },
 
   // 搜索策略
@@ -142,6 +142,6 @@ export const strategyApi = {
         }
       })
     }
-    return request.get(`/strategies/search?${params.toString()}`)
+    return request.get(`/api/strategies/search?${params.toString()}`)
   }
 }

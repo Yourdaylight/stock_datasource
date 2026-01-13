@@ -11,3 +11,4 @@ logs/
 uv.lock
 node_modules
 runtime_config.json
+.idea

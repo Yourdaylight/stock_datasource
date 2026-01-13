@@ -14,6 +14,13 @@ USER_POSITIONS_SCHEMA = TableSchema(
             comment="Unique position identifier"
         ),
         ColumnDefinition(
+            name="user_id",
+            data_type="String",
+            nullable=False,
+            default_value="'default_user'",
+            comment="User identifier"
+        ),
+        ColumnDefinition(
             name="ts_code",
             data_type="LowCardinality(String)",
             nullable=False,
@@ -89,7 +96,7 @@ USER_POSITIONS_SCHEMA = TableSchema(
         )
     ],
     partition_by="toYYYYMM(buy_date)",
-    order_by=["ts_code", "buy_date", "id"],
+    order_by=["user_id", "ts_code", "id"],
     engine="ReplacingMergeTree",
     engine_params=["updated_at"],
     comment="User stock positions and holdings"

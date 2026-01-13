@@ -176,12 +176,7 @@
             <!-- 参数摘要 -->
             <div class="preview-section">
               <h4>参数配置</h4>
-              <t-table :data="parameterSummary" size="small">
-                <t-table-column prop="name" label="参数名称" width="120" />
-                <t-table-column prop="description" label="描述" />
-                <t-table-column prop="value" label="当前值" width="100" />
-                <t-table-column prop="range" label="取值范围" width="120" />
-              </t-table>
+              <t-table :data="parameterSummary" :columns="parameterColumns" size="small" />
             </div>
           </div>
         </div>
@@ -298,6 +293,14 @@ export default {
           : '-'
       }))
     })
+
+    // 参数表格列配置
+    const parameterColumns = [
+      { colKey: 'name', title: '参数名称', width: 120 },
+      { colKey: 'description', title: '描述' },
+      { colKey: 'value', title: '当前值', width: 100 },
+      { colKey: 'range', title: '取值范围', width: 120 }
+    ]
 
     // 监听器
     watch(() => props.modelValue, (val) => {
@@ -459,6 +462,7 @@ export default {
       strategyTemplates,
       canProceed,
       parameterSummary,
+      parameterColumns,
 
       // 方法
       selectTemplate,

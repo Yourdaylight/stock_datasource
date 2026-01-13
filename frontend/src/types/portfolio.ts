@@ -47,19 +47,11 @@ export interface UpdatePositionRequest {
 }
 
 export interface AnalysisReport {
-  id: string
-  user_id: string
-  report_date: string
-  report_type: string
-  market_analysis: string
-  portfolio_summary: string
-  individual_analysis: string
-  risk_assessment: string
-  recommendations: string
-  ai_insights: string
-  status: string
-  created_at?: string
-  updated_at?: string
+  analysis_date: string
+  analysis_summary: string
+  stock_analyses?: Record<string, any>
+  risk_alerts?: string[]
+  recommendations?: string[]
 }
 
 export interface AlertCreateRequest {
