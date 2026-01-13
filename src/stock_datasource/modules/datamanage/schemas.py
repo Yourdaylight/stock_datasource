@@ -28,6 +28,22 @@ class ScheduleFrequency(str, Enum):
     WEEKLY = "weekly"
 
 
+class PluginCategoryEnum(str, Enum):
+    """Plugin category enum."""
+    STOCK = "stock"
+    INDEX = "index"
+    ETF_FUND = "etf_fund"
+    SYSTEM = "system"
+
+
+class PluginRoleEnum(str, Enum):
+    """Plugin role enum."""
+    PRIMARY = "primary"
+    BASIC = "basic"
+    DERIVED = "derived"
+    AUXILIARY = "auxiliary"
+
+
 # Request Models
 class TriggerSyncRequest(BaseModel):
     """Request model for triggering sync."""
@@ -35,6 +51,7 @@ class TriggerSyncRequest(BaseModel):
     task_type: TaskType = TaskType.INCREMENTAL
     trade_dates: Optional[List[str]] = None  # For backfill
     force_overwrite: bool = False  # Whether to overwrite existing data
+    include_optional: bool = True  # Whether to include optional dependencies
     # Parallelism settings (optional, use global settings if not provided)
     max_concurrent_tasks: Optional[int] = Field(None, ge=1, le=10, description="Max parallel tasks (1-10)")
     max_date_threads: Optional[int] = Field(None, ge=1, le=20, description="Max threads per task for multi-date (1-20)")
@@ -145,6 +162,8 @@ class PluginInfo(BaseModel):
     version: str = "1.0.0"
     description: str = ""
     type: str = "data_source"
+    category: str = "stock"
+    role: str = "primary"
     is_enabled: bool = True
     schedule_frequency: Optional[str] = None
     schedule_time: Optional[str] = None
@@ -152,6 +171,8 @@ class PluginInfo(BaseModel):
     missing_count: int = 0
     last_run_at: Optional[str] = None
     last_run_status: Optional[str] = None
+    dependencies: List[str] = []
+    optional_dependencies: List[str] = []
 
 
 class PluginDetail(BaseModel):
@@ -283,3 +304,47 @@ class ProxyTestResult(BaseModel):
     message: str
     latency_ms: Optional[float] = None
     external_ip: Optional[str] = None
+
+
+# ============================================
+# Plugin Dependency Models
+# ============================================
+
+class PluginDependency(BaseModel):
+    """Plugin dependency information."""
+    plugin_name: str
+    has_data: bool
+    table_name: Optional[str] = None
+    record_count: int = 0
+
+
+class DependencyCheckResponse(BaseModel):
+    """Response for dependency check endpoint."""
+    plugin_name: str
+    dependencies: List[str]
+    optional_dependencies: List[str] = []
+    satisfied: bool
+    missing_plugins: List[str] = []
+    missing_data: Dict[str, str] = {}
+    dependency_details: List[PluginDependency] = []
+
+
+class DependencyGraphResponse(BaseModel):
+    """Response for dependency graph endpoint."""
+    graph: Dict[str, List[str]]
+    reverse_graph: Dict[str, List[str]]
+
+
+class BatchSyncRequest(BaseModel):
+    """Request model for batch sync."""
+    plugin_names: List[str] = Field(..., min_length=1, description="List of plugin names to sync")
+    task_type: TaskType = TaskType.INCREMENTAL
+    include_optional: bool = True
+    trade_dates: Optional[List[str]] = None
+
+
+class BatchSyncResponse(BaseModel):
+    """Response for batch sync endpoint."""
+    tasks: List[Dict[str, Any]]
+    total_plugins: int
+    execution_order: List[str]

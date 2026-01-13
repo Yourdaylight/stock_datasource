@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useDataManageStore } from '@/stores/datamanage'
+import type { PluginCategory, PluginRole } from '@/api/datamanage'
 import MissingDataPanel from './components/MissingDataPanel.vue'
 import SyncTaskPanel from './components/SyncTaskPanel.vue'
 import PluginDetailDialog from './components/PluginDetailDialog.vue'
@@ -13,6 +14,59 @@ import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
 const dataStore = useDataManageStore()
 const activeTab = ref('plugins')
 
+// Plugin filter states
+const searchKeyword = ref('')
+const selectedCategory = ref<PluginCategory | ''>('')
+const selectedRole = ref<PluginRole | ''>('')
+
+const categoryOptions = [
+  { label: '全部类别', value: '' },
+  { label: '股票', value: 'stock' },
+  { label: '指数', value: 'index' },
+  { label: 'ETF基金', value: 'etf_fund' },
+  { label: '系统', value: 'system' }
+]
+
+const roleOptions = [
+  { label: '全部角色', value: '' },
+  { label: '主数据', value: 'primary' },
+  { label: '基础数据', value: 'basic' },
+  { label: '衍生数据', value: 'derived' },
+  { label: '辅助数据', value: 'auxiliary' }
+]
+
+// Filtered plugins based on search and filters
+const filteredPlugins = computed(() => {
+  let result = dataStore.plugins
+  
+  // Filter by keyword
+  if (searchKeyword.value) {
+    const keyword = searchKeyword.value.toLowerCase()
+    result = result.filter(p => 
+      p.name.toLowerCase().includes(keyword) || 
+      p.description.toLowerCase().includes(keyword)
+    )
+  }
+  
+  // Filter by category
+  if (selectedCategory.value) {
+    result = result.filter(p => p.category === selectedCategory.value)
+  }
+  
+  // Filter by role
+  if (selectedRole.value) {
+    result = result.filter(p => p.role === selectedRole.value)
+  }
+  
+  return result
+})
+
+const handleResetFilters = () => {
+  searchKeyword.value = ''
+  selectedCategory.value = ''
+  selectedRole.value = ''
+}
+
 // Dialog states
 const detailDialogVisible = ref(false)
 const dataDialogVisible = ref(false)
@@ -22,12 +76,54 @@ const selectedPluginName = ref('')
 const pluginColumns = [
   { colKey: 'name', title: '插件名称', width: 180 },
   { colKey: 'description', title: '描述', minWidth: 200, ellipsis: true },
+  { colKey: 'category', title: '类别', width: 100 },
+  { colKey: 'role', title: '角色', width: 100 },
   { colKey: 'schedule_frequency', title: '调度频率', width: 100 },
   { colKey: 'latest_date', title: '最新数据', width: 120 },
   { colKey: 'missing_count', title: '缺失天数', width: 100 },
   { colKey: 'is_enabled', title: '状态', width: 80 },
   { colKey: 'operation', title: '操作', width: 200, fixed: 'right' }
 ]
+
+const getCategoryText = (category?: string) => {
+  const map: Record<string, string> = {
+    stock: '股票',
+    index: '指数',
+    etf_fund: 'ETF基金',
+    system: '系统'
+  }
+  return category ? map[category] || category : '-'
+}
+
+const getRoleText = (role?: string) => {
+  const map: Record<string, string> = {
+    primary: '主数据',
+    basic: '基础数据',
+    derived: '衍生数据',
+    auxiliary: '辅助数据'
+  }
+  return role ? map[role] || role : '-'
+}
+
+const getCategoryTheme = (category?: string) => {
+  const map: Record<string, string> = {
+    stock: 'primary',
+    index: 'success',
+    etf_fund: 'warning',
+    system: 'default'
+  }
+  return category ? map[category] || 'default' : 'default'
+}
+
+const getRoleTheme = (role?: string) => {
+  const map: Record<string, string> = {
+    primary: 'primary',
+    basic: 'success',
+    derived: 'warning',
+    auxiliary: 'default'
+  }
+  return role ? map[role] || 'default' : 'default'
+}
 
 const taskColumns = [
   { colKey: 'plugin_name', title: '插件', width: 150 },
@@ -185,24 +281,64 @@ onMounted(() => {
       </t-col>
     </t-row>
 
-    <!-- Missing Data Panel -->
-    <MissingDataPanel @sync="handleBackfill" />
-
-    <!-- AI Diagnosis Panel -->
-    <DiagnosisPanel />
 
     <!-- Main Content -->
     <t-card>
       <t-tabs v-model="activeTab">
         <!-- Plugins Tab -->
         <t-tab-panel value="plugins" label="插件管理">
+          <!-- Filter Bar -->
+          <div class="filter-bar">
+            <t-input
+              v-model="searchKeyword"
+              placeholder="搜索插件名称或描述"
+              clearable
+              style="width: 240px"
+            >
+              <template #prefix-icon>
+                <t-icon name="search" />
+              </template>
+            </t-input>
+            <t-select
+              v-model="selectedCategory"
+              :options="categoryOptions"
+              placeholder="选择类别"
+              clearable
+              style="width: 140px"
+            />
+            <t-select
+              v-model="selectedRole"
+              :options="roleOptions"
+              placeholder="选择角色"
+              clearable
+              style="width: 140px"
+            />
+            <t-button theme="default" variant="outline" @click="handleResetFilters">
+              <t-icon name="refresh" style="margin-right: 4px" />
+              重置
+            </t-button>
+            <div class="filter-result">
+              共 <span class="count">{{ filteredPlugins.length }}</span> 个插件
+            </div>
+          </div>
+          
           <t-table
-            :data="dataStore.plugins"
+            :data="filteredPlugins"
             :columns="pluginColumns"
             :loading="dataStore.loading"
             row-key="name"
             hover
           >
+            <template #category="{ row }">
+              <t-tag :theme="getCategoryTheme(row.category)" variant="light" size="small">
+                {{ getCategoryText(row.category) }}
+              </t-tag>
+            </template>
+            <template #role="{ row }">
+              <t-tag :theme="getRoleTheme(row.role)" variant="outline" size="small">
+                {{ getRoleText(row.role) }}
+              </t-tag>
+            </template>
             <template #schedule_frequency="{ row }">
               <t-tag :theme="row.schedule_frequency === 'daily' ? 'primary' : 'default'" variant="light">
                 {{ getFrequencyText(row.schedule_frequency) }}
@@ -304,7 +440,11 @@ onMounted(() => {
         </t-tab-panel>
       </t-tabs>
     </t-card>
+    <!-- Missing Data Panel -->
+    <MissingDataPanel @sync="handleBackfill" />
 
+    <!-- AI Diagnosis Panel -->
+    <DiagnosisPanel />
     <!-- Dialogs -->
     <PluginDetailDialog 
       v-model:visible="detailDialogVisible" 
@@ -331,5 +471,26 @@ onMounted(() => {
   font-size: 32px;
   font-weight: 600;
   color: #0052d9;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--td-bg-color-container-hover);
+  border-radius: 6px;
+}
+
+.filter-result {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.filter-result .count {
+  font-weight: 600;
+  color: var(--td-brand-color);
 }
 </style>

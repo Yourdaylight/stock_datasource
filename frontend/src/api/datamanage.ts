@@ -47,11 +47,16 @@ export interface QualityMetrics {
   latest_update?: string
 }
 
+export type PluginCategory = 'stock' | 'index' | 'etf_fund' | 'system'
+export type PluginRole = 'primary' | 'basic' | 'derived' | 'auxiliary'
+
 export interface PluginInfo {
   name: string
   version: string
   description: string
   type: string
+  category: PluginCategory
+  role: PluginRole
   is_enabled: boolean
   schedule_frequency?: string
   schedule_time?: string
@@ -59,6 +64,8 @@ export interface PluginInfo {
   missing_count: number
   last_run_at?: string
   last_run_status?: string
+  dependencies: string[]
+  optional_dependencies: string[]
 }
 
 export interface PluginSchedule {
@@ -203,6 +210,56 @@ export interface ProxyTestResult {
   external_ip?: string
 }
 
+// Plugin Dependency Types
+export interface PluginDependency {
+  plugin_name: string
+  has_data: boolean
+  table_name?: string
+  record_count: number
+}
+
+export interface DependencyCheckResult {
+  plugin_name: string
+  dependencies: string[]
+  optional_dependencies: string[]
+  satisfied: boolean
+  missing_plugins: string[]
+  missing_data: Record<string, string>
+  dependency_details: PluginDependency[]
+}
+
+export interface DependencyGraphResult {
+  graph: Record<string, string[]>
+  reverse_graph: Record<string, string[]>
+}
+
+export interface BatchSyncRequest {
+  plugin_names: string[]
+  task_type: 'full' | 'incremental' | 'backfill'
+  include_optional?: boolean
+  trade_dates?: string[]
+}
+
+export interface BatchSyncTask {
+  task_id: string
+  plugin_name: string
+  task_type: string
+  status: string
+  order: number
+  dependencies_satisfied: boolean
+}
+
+export interface BatchSyncResponse {
+  tasks: BatchSyncTask[]
+  total_plugins: number
+  execution_order: string[]
+}
+
+export interface PluginFilterParams {
+  category?: PluginCategory
+  role?: PluginRole
+}
+
 export const datamanageApi = {
   // Data Sources
   getDataSources(): Promise<DataSource[]> {
@@ -261,8 +318,13 @@ export const datamanageApi = {
   },
 
   // Plugins
-  getPlugins(): Promise<PluginInfo[]> {
-    return request.get('/api/datamanage/plugins')
+  getPlugins(params?: PluginFilterParams): Promise<PluginInfo[]> {
+    let url = '/api/datamanage/plugins'
+    const queryParams: string[] = []
+    if (params?.category) queryParams.push(`category=${params.category}`)
+    if (params?.role) queryParams.push(`role=${params.role}`)
+    if (queryParams.length) url += '?' + queryParams.join('&')
+    return request.get(url)
   },
 
   getPluginDetail(name: string): Promise<PluginDetail> {
@@ -289,6 +351,24 @@ export const datamanageApi = {
 
   disablePlugin(name: string): Promise<void> {
     return request.post(`/api/datamanage/plugins/${name}/disable`)
+  },
+
+  // Plugin Dependencies
+  getPluginDependencies(name: string): Promise<DependencyCheckResult> {
+    return request.get(`/api/datamanage/plugins/${name}/dependencies`)
+  },
+
+  checkPluginDependencies(name: string): Promise<DependencyCheckResult> {
+    return request.get(`/api/datamanage/plugins/${name}/check-dependencies`)
+  },
+
+  getDependencyGraph(): Promise<DependencyGraphResult> {
+    return request.get('/api/datamanage/plugins/dependency-graph')
+  },
+
+  // Batch Sync
+  batchTriggerSync(req: BatchSyncRequest): Promise<BatchSyncResponse> {
+    return request.post('/api/datamanage/sync/batch', req)
   },
 
   // Quality

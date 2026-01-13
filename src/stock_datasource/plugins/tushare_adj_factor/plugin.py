@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 
 from stock_datasource.plugins import BasePlugin
+from stock_datasource.core.base_plugin import PluginCategory, PluginRole
 from .extractor import extractor
 
 
@@ -37,6 +38,25 @@ class TuShareAdjFactorPlugin(BasePlugin):
         schema_file = Path(__file__).parent / "schema.json"
         with open(schema_file, 'r', encoding='utf-8') as f:
             return json.load(f)
+    
+    def get_category(self) -> PluginCategory:
+        """Get plugin category."""
+        return PluginCategory.STOCK
+    
+    def get_role(self) -> PluginRole:
+        """Get plugin role."""
+        return PluginRole.DERIVED
+    
+    def get_dependencies(self) -> List[str]:
+        """Get plugin dependencies.
+        
+        This plugin depends on tushare_stock_basic to provide the list of stock codes.
+        """
+        return ["tushare_stock_basic"]
+    
+    def get_optional_dependencies(self) -> List[str]:
+        """Get optional plugin dependencies."""
+        return []
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
         """Extract adjustment factor data from TuShare."""
@@ -99,10 +119,6 @@ class TuShareAdjFactorPlugin(BasePlugin):
         
         self.logger.info(f"Transformed {len(data)} adjustment factor records")
         return data
-    
-    def get_dependencies(self) -> List[str]:
-        """Get plugin dependencies."""
-        return []
     
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Load adjustment factor data into ODS table.

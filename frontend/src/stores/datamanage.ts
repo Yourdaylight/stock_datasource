@@ -10,7 +10,12 @@ import {
   type PluginDataPreview,
   type MissingDataSummary,
   type TriggerSyncRequest,
-  type DataExistsCheckResult
+  type DataExistsCheckResult,
+  type DependencyCheckResult,
+  type DependencyGraphResult,
+  type BatchSyncRequest,
+  type BatchSyncResponse,
+  type PluginFilterParams
 } from '@/api/datamanage'
 
 export const useDataManageStore = defineStore('datamanage', () => {
@@ -22,9 +27,12 @@ export const useDataManageStore = defineStore('datamanage', () => {
   const missingData = ref<MissingDataSummary | null>(null)
   const currentPluginDetail = ref<PluginDetail | null>(null)
   const currentPluginData = ref<PluginDataPreview | null>(null)
+  const currentDependencies = ref<DependencyCheckResult | null>(null)
+  const dependencyGraph = ref<DependencyGraphResult | null>(null)
   const loading = ref(false)
   const detailLoading = ref(false)
   const dataLoading = ref(false)
+  const dependencyLoading = ref(false)
 
   // Data Sources
   const fetchDataSources = async () => {
@@ -111,9 +119,9 @@ export const useDataManageStore = defineStore('datamanage', () => {
   }
 
   // Plugins
-  const fetchPlugins = async () => {
+  const fetchPlugins = async (params?: PluginFilterParams) => {
     try {
-      plugins.value = await datamanageApi.getPlugins()
+      plugins.value = await datamanageApi.getPlugins(params)
     } catch (e) {
       console.error('Failed to fetch plugins:', e)
     }
@@ -161,6 +169,54 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
+  // Plugin Dependencies
+  const fetchPluginDependencies = async (name: string) => {
+    dependencyLoading.value = true
+    try {
+      currentDependencies.value = await datamanageApi.getPluginDependencies(name)
+      return currentDependencies.value
+    } catch (e) {
+      console.error('Failed to fetch plugin dependencies:', e)
+      currentDependencies.value = null
+      return null
+    } finally {
+      dependencyLoading.value = false
+    }
+  }
+
+  const checkPluginDependencies = async (name: string): Promise<DependencyCheckResult | null> => {
+    try {
+      return await datamanageApi.checkPluginDependencies(name)
+    } catch (e) {
+      console.error('Failed to check plugin dependencies:', e)
+      return null
+    }
+  }
+
+  const fetchDependencyGraph = async () => {
+    try {
+      dependencyGraph.value = await datamanageApi.getDependencyGraph()
+      return dependencyGraph.value
+    } catch (e) {
+      console.error('Failed to fetch dependency graph:', e)
+      dependencyGraph.value = null
+      return null
+    }
+  }
+
+  // Batch Sync
+  const batchTriggerSync = async (req: BatchSyncRequest): Promise<BatchSyncResponse | null> => {
+    try {
+      const response = await datamanageApi.batchTriggerSync(req)
+      // Refresh tasks after batch sync
+      await fetchSyncTasks()
+      return response
+    } catch (e) {
+      console.error('Failed to batch trigger sync:', e)
+      throw e
+    }
+  }
+
   // Quality
   const fetchQualityMetrics = async () => {
     try {
@@ -199,9 +255,12 @@ export const useDataManageStore = defineStore('datamanage', () => {
     missingData,
     currentPluginDetail,
     currentPluginData,
+    currentDependencies,
+    dependencyGraph,
     loading,
     detailLoading,
     dataLoading,
+    dependencyLoading,
     
     // Actions
     fetchDataSources,
@@ -217,6 +276,10 @@ export const useDataManageStore = defineStore('datamanage', () => {
     fetchPluginData,
     enablePlugin,
     disablePlugin,
+    fetchPluginDependencies,
+    checkPluginDependencies,
+    fetchDependencyGraph,
+    batchTriggerSync,
     fetchQualityMetrics,
     startTaskPolling,
     stopTaskPolling

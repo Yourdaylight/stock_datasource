@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { datamanageApi, type DataExistsCheckResult } from '@/api/datamanage'
+import { datamanageApi, type DataExistsCheckResult, type DependencyCheckResult } from '@/api/datamanage'
 
 const props = defineProps<{
   visible: boolean
@@ -25,13 +25,30 @@ const checking = ref(false)
 const checkResult = ref<DataExistsCheckResult | null>(null)
 const showOverwriteConfirm = ref(false)
 
+// Dependency check state
+const dependencyResult = ref<DependencyCheckResult | null>(null)
+const dependencyLoading = ref(false)
+
 // Reset state when dialog opens
-watch(() => props.visible, (val) => {
+watch(() => props.visible, async (val) => {
   if (val) {
     taskType.value = 'incremental'
     dateRange.value = []
     checkResult.value = null
     showOverwriteConfirm.value = false
+    dependencyResult.value = null
+    
+    // Check dependencies when dialog opens
+    if (props.pluginName) {
+      dependencyLoading.value = true
+      try {
+        dependencyResult.value = await datamanageApi.getPluginDependencies(props.pluginName)
+      } catch (e) {
+        console.error('Failed to check dependencies:', e)
+      } finally {
+        dependencyLoading.value = false
+      }
+    }
   }
 })
 
@@ -75,6 +92,12 @@ watch(dateRange, () => {
 })
 
 const handleConfirm = async () => {
+  // Check dependencies first
+  if (dependencyResult.value && !dependencyResult.value.satisfied) {
+    MessagePlugin.error('依赖未满足，请先运行依赖插件')
+    return
+  }
+  
   if (taskType.value === 'backfill' && dateRange.value.length !== 2) {
     MessagePlugin.warning('请选择要补录的日期范围')
     return
@@ -147,6 +170,63 @@ const selectedDateCount = computed(() => {
     :cancel-btn="null"
   >
     <div class="sync-dialog">
+      <!-- Dependency Warning -->
+      <t-loading :loading="dependencyLoading" size="small" style="margin-bottom: 16px">
+        <t-alert 
+          v-if="dependencyResult && !dependencyResult.satisfied" 
+          theme="error" 
+          :close="false"
+          style="margin-bottom: 16px"
+        >
+          <template #message>
+            <div class="dep-warning">
+              <p style="margin: 0 0 8px 0"><strong>依赖未满足，无法同步</strong></p>
+              <div v-if="dependencyResult.missing_plugins.length > 0">
+                <span>缺失插件: </span>
+                <t-tag 
+                  v-for="p in dependencyResult.missing_plugins" 
+                  :key="p" 
+                  theme="danger" 
+                  variant="light"
+                  style="margin-right: 4px"
+                >
+                  {{ p }}
+                </t-tag>
+              </div>
+              <div v-if="Object.keys(dependencyResult.missing_data).length > 0" style="margin-top: 8px">
+                <span>缺失数据: </span>
+                <t-tag 
+                  v-for="(reason, name) in dependencyResult.missing_data" 
+                  :key="name" 
+                  theme="warning" 
+                  variant="light"
+                  style="margin-right: 4px"
+                >
+                  {{ name }}
+                </t-tag>
+              </div>
+              <p style="margin: 8px 0 0 0; font-size: 12px; color: var(--td-text-color-secondary)">
+                请先运行上述依赖插件的同步任务
+              </p>
+            </div>
+          </template>
+        </t-alert>
+        
+        <t-alert 
+          v-else-if="dependencyResult && dependencyResult.dependencies.length > 0 && dependencyResult.satisfied" 
+          theme="success" 
+          :close="false"
+          style="margin-bottom: 16px"
+        >
+          <template #message>
+            <div class="dep-ok">
+              <t-icon name="check-circle" style="margin-right: 4px" />
+              <span>依赖已满足 ({{ dependencyResult.dependencies.join(', ') }})</span>
+            </div>
+          </template>
+        </t-alert>
+      </t-loading>
+
       <t-form label-align="left" :label-width="80">
         <t-form-item label="插件名称">
           <t-input :value="pluginName" disabled />
@@ -285,7 +365,7 @@ const selectedDateCount = computed(() => {
         <t-button 
           theme="primary" 
           :loading="checking"
-          :disabled="showOverwriteConfirm"
+          :disabled="showOverwriteConfirm || (dependencyResult && !dependencyResult.satisfied)"
           @click="handleConfirm"
         >
           {{ checking ? '检查中...' : '开始同步' }}
@@ -339,5 +419,14 @@ const selectedDateCount = computed(() => {
 
 .overwrite-confirm p {
   margin: 0 0 12px 0;
+}
+
+.dep-warning {
+  width: 100%;
+}
+
+.dep-ok {
+  display: flex;
+  align-items: center;
 }
 </style>

@@ -12,6 +12,7 @@ import pandas as pd
 
 from stock_datasource.utils.logger import logger
 from stock_datasource.core.plugin_manager import plugin_manager
+from stock_datasource.core.trade_calendar import trade_calendar_service
 from stock_datasource.models.database import db_client
 from stock_datasource.config.settings import settings
 from stock_datasource.config.runtime_config import load_runtime_config, save_runtime_config
@@ -24,9 +25,6 @@ from .schemas import (
     SyncHistory
 )
 
-# Local cache file path for trade calendar
-TRADE_CALENDAR_CACHE_FILE = Path(__file__).parent / "trade_calendar.csv"
-
 
 class DataManageService:
     """Service for data management operations."""
@@ -36,118 +34,19 @@ class DataManageService:
         self._missing_data_cache: Optional[MissingDataSummary] = None
         self._cache_time: Optional[datetime] = None
         self._cache_ttl = 3600  # 1 hour cache
-        self._trade_calendar_df: Optional[pd.DataFrame] = None
-        self._load_trade_calendar()
-    
-    def _load_trade_calendar(self):
-        """Load trade calendar from local CSV file, fetch from TuShare if not exists."""
-        if TRADE_CALENDAR_CACHE_FILE.exists():
-            try:
-                self._trade_calendar_df = pd.read_csv(
-                    TRADE_CALENDAR_CACHE_FILE, 
-                    parse_dates=['cal_date']
-                )
-                self.logger.info(f"Loaded {len(self._trade_calendar_df)} trade calendar records from local cache")
-                return
-            except Exception as e:
-                self.logger.warning(f"Failed to load trade calendar from cache: {e}")
-        
-        # Fetch from TuShare API
-        self._fetch_trade_calendar_from_tushare()
-    
-    def _fetch_trade_calendar_from_tushare(self):
-        """Fetch trade calendar from TuShare API and save to local CSV."""
-        try:
-            import tushare as ts
-            
-            # Get TuShare token from settings
-            token = getattr(settings, 'tushare_token', None)
-            if not token:
-                # Try to get from environment or config
-                import os
-                token = os.environ.get('TUSHARE_TOKEN')
-            
-            if not token:
-                self.logger.error("TuShare token not configured, cannot fetch trade calendar")
-                return
-            
-            pro = ts.pro_api(token)
-            
-            # Fetch trade calendar for SSE (Shanghai) from 2000 to 2026
-            self.logger.info("Fetching trade calendar from TuShare API (2000-2026)...")
-            df = pro.trade_cal(
-                exchange='SSE',
-                start_date='20000101',
-                end_date='20261231'
-            )
-            
-            if df is None or df.empty:
-                self.logger.error("Failed to fetch trade calendar from TuShare")
-                return
-            
-            # Rename columns and convert date
-            df = df.rename(columns={'cal_date': 'cal_date_str'})
-            df['cal_date'] = pd.to_datetime(df['cal_date_str'], format='%Y%m%d')
-            df = df[['cal_date', 'is_open', 'pretrade_date']]
-            
-            # Save to local CSV
-            df.to_csv(TRADE_CALENDAR_CACHE_FILE, index=False)
-            self._trade_calendar_df = df
-            
-            self.logger.info(f"Fetched and cached {len(df)} trade calendar records to {TRADE_CALENDAR_CACHE_FILE}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to fetch trade calendar from TuShare: {e}")
     
     def get_trading_days(self, days: int = 30, exchange: str = "SSE") -> List[str]:
-        """Get recent trading days from local cache.
+        """Get recent trading days from TradeCalendarService.
         
         Args:
             days: Number of trading days to retrieve
-            exchange: Exchange code (default: SSE for Shanghai)
+            exchange: Exchange code (default: SSE for Shanghai, not used - kept for API compatibility)
         
         Returns:
             List of trading dates in YYYY-MM-DD format
         """
-        # Use local cache first
-        if self._trade_calendar_df is not None and not self._trade_calendar_df.empty:
-            try:
-                today = pd.Timestamp.now().normalize()
-                df = self._trade_calendar_df[
-                    (self._trade_calendar_df['is_open'] == 1) & 
-                    (self._trade_calendar_df['cal_date'] <= today)
-                ].sort_values('cal_date', ascending=False).head(days)
-                
-                if not df.empty:
-                    dates = df['cal_date'].tolist()
-                    return [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in dates]
-            except Exception as e:
-                self.logger.warning(f"Failed to get trading days from local cache: {e}")
-        
-        # Fallback to database
-        try:
-            query = """
-            SELECT cal_date 
-            FROM ods_trade_calendar 
-            WHERE is_open = 1 
-            AND exchange = %(exchange)s
-            AND cal_date <= today() 
-            ORDER BY cal_date DESC 
-            LIMIT %(limit)s
-            """
-            result = db_client.execute_query(query, {"exchange": exchange, "limit": days})
-            
-            if result.empty:
-                self.logger.warning("No trading days found in calendar")
-                return []
-            
-            # Convert to string format
-            dates = result['cal_date'].tolist()
-            return [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in dates]
-            
-        except Exception as e:
-            self.logger.error(f"Failed to get trading days: {e}")
-            return []
+        # Use global TradeCalendarService
+        return trade_calendar_service.get_trading_days(n=days)
     
     def check_data_exists(self, table_name: str, date_column: str, trade_date: str) -> bool:
         """Check if data exists for a specific date in a table.
@@ -381,18 +280,30 @@ class DataManageService:
                         else:
                             break
             
+            # Get category and role
+            category = plugin.get_category().value
+            role = plugin.get_role().value
+            
+            # Get dependencies
+            dependencies = plugin.get_dependencies()
+            optional_dependencies = plugin.get_optional_dependencies()
+            
             info = PluginInfo(
                 name=plugin_name,
                 version=plugin.version,
                 description=plugin.description,
                 type="data_source",
+                category=category,
+                role=role,
                 is_enabled=plugin.is_enabled(),
                 schedule_frequency=frequency,
                 schedule_time=time,
                 latest_date=latest_date,
                 missing_count=missing_count,
                 last_run_at=None,  # TODO: Get from task history
-                last_run_status=None
+                last_run_status=None,
+                dependencies=dependencies,
+                optional_dependencies=optional_dependencies
             )
             plugins.append(info)
         
