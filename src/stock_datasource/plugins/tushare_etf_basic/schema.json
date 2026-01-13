@@ -1,0 +1,27 @@
+{
+  "table_name": "ods_etf_basic",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "ETF代码"},
+    {"name": "csname", "data_type": "String", "nullable": true, "comment": "ETF中文简称"},
+    {"name": "extname", "data_type": "String", "nullable": true, "comment": "ETF扩位简称"},
+    {"name": "cname", "data_type": "String", "nullable": true, "comment": "基金中文全称"},
+    {"name": "index_code", "data_type": "String", "nullable": true, "comment": "ETF基准指数代码"},
+    {"name": "index_name", "data_type": "String", "nullable": true, "comment": "ETF基准指数中文全称"},
+    {"name": "setup_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "设立日期"},
+    {"name": "list_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "上市日期"},
+    {"name": "list_status", "data_type": "LowCardinality(String)", "nullable": false, "comment": "存续状态 L上市 D退市 P待上市"},
+    {"name": "exchange", "data_type": "LowCardinality(String)", "nullable": true, "comment": "交易所 SH/SZ"},
+    {"name": "mgr_name", "data_type": "String", "nullable": true, "comment": "基金管理人简称"},
+    {"name": "custod_name", "data_type": "String", "nullable": true, "comment": "基金托管人名称"},
+    {"name": "mgt_fee", "data_type": "Nullable(Float64)", "nullable": true, "comment": "管理费率"},
+    {"name": "etf_type", "data_type": "String", "nullable": true, "comment": "基金投资通道类型"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "tuple()",
+  "order_by": ["ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "ETF基础信息 from TuShare etf_basic API"
+}

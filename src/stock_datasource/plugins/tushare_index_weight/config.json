@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "rate_limit": 30,
-  "timeout": 30,
+  "timeout": 60,
   "retry_attempts": 3,
   "description": "TuShare index weight plugin (constituent stocks and weights)",
   "schedule": {
@@ -10,6 +10,7 @@
     "time": "18:00"
   },
   "parameters": {
+    "index_code": "399300.SZ",
     "validate_weights": true
   },
   "parameters_schema": {

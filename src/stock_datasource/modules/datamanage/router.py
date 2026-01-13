@@ -10,9 +10,11 @@ from .schemas import (
     PluginStatus, MissingDataSummary, TaskType, SyncHistory,
     DiagnosisRequest, DiagnosisResult,
     CheckDataExistsRequest, DataExistsCheckResult,
-    SyncConfig, SyncConfigRequest
+    SyncConfig, SyncConfigRequest,
+    ProxyConfig, ProxyConfigRequest, ProxyTestResult
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
+from ...config.runtime_config import save_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -276,3 +278,138 @@ async def trigger_diagnosis(request: DiagnosisRequest):
         errors_only=request.include_errors_only,
         context=request.context
     )
+
+
+# ============ Proxy Configuration ============
+
+@router.get("/proxy/config", response_model=ProxyConfig)
+async def get_proxy_config():
+    """Get current HTTP proxy configuration."""
+    from ...config.settings import settings
+    return ProxyConfig(
+        enabled=settings.HTTP_PROXY_ENABLED,
+        host=settings.HTTP_PROXY_HOST,
+        port=settings.HTTP_PROXY_PORT,
+        username=settings.HTTP_PROXY_USERNAME,
+        password="******" if settings.HTTP_PROXY_PASSWORD else None  # Mask password
+    )
+
+
+@router.put("/proxy/config", response_model=ProxyConfig)
+async def update_proxy_config(request: ProxyConfigRequest):
+    """Update HTTP proxy configuration (runtime + persisted)."""
+    from ...config.settings import settings
+    import os
+    
+    # Update runtime settings
+    settings.HTTP_PROXY_ENABLED = request.enabled
+    settings.HTTP_PROXY_HOST = request.host
+    settings.HTTP_PROXY_PORT = request.port
+    settings.HTTP_PROXY_USERNAME = request.username
+    settings.HTTP_PROXY_PASSWORD = request.password
+    
+    # Apply proxy to environment for tushare and other libraries
+    if request.enabled and request.host and request.port:
+        proxy_url = settings.http_proxy_url
+        if proxy_url:
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['http_proxy'] = proxy_url
+            os.environ['https_proxy'] = proxy_url
+            logger.info(f"Proxy enabled: {request.host}:{request.port}")
+    else:
+        # Clear proxy environment variables
+        for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+            os.environ.pop(key, None)
+        logger.info("Proxy disabled")
+    
+    # Persist to runtime config file
+    try:
+        save_runtime_config(proxy={
+            "enabled": request.enabled,
+            "host": request.host,
+            "port": request.port,
+            "username": request.username,
+            "password": request.password,
+        })
+    except Exception as e:
+        logger.warning(f"Failed to persist proxy config: {e}")
+    
+    return ProxyConfig(
+        enabled=settings.HTTP_PROXY_ENABLED,
+        host=settings.HTTP_PROXY_HOST,
+        port=settings.HTTP_PROXY_PORT,
+        username=settings.HTTP_PROXY_USERNAME,
+        password="******" if settings.HTTP_PROXY_PASSWORD else None
+    )
+
+
+@router.post("/proxy/test", response_model=ProxyTestResult)
+async def test_proxy_connection(request: ProxyConfigRequest):
+    """Test HTTP proxy connection."""
+    import time
+    import requests
+    from urllib.parse import quote
+    
+    if not request.enabled or not request.host or not request.port:
+        return ProxyTestResult(
+            success=False,
+            message="代理未启用或配置不完整"
+        )
+    
+    # Build proxy URL
+    if request.username and request.password:
+        encoded_password = quote(request.password, safe='')
+        proxy_url = f"http://{request.username}:{encoded_password}@{request.host}:{request.port}"
+    else:
+        proxy_url = f"http://{request.host}:{request.port}"
+    
+    proxies = {
+        "http": proxy_url,
+        "https": proxy_url
+    }
+    
+    try:
+        start_time = time.time()
+        # Test connection by fetching a simple endpoint
+        response = requests.get(
+            "https://httpbin.org/ip",
+            proxies=proxies,
+            timeout=10
+        )
+        latency = (time.time() - start_time) * 1000
+        
+        if response.status_code == 200:
+            data = response.json()
+            external_ip = data.get("origin", "Unknown")
+            return ProxyTestResult(
+                success=True,
+                message=f"代理连接成功",
+                latency_ms=round(latency, 2),
+                external_ip=external_ip
+            )
+        else:
+            return ProxyTestResult(
+                success=False,
+                message=f"代理返回错误状态码: {response.status_code}"
+            )
+    except requests.exceptions.ProxyError as e:
+        return ProxyTestResult(
+            success=False,
+            message=f"代理连接失败: 认证错误或代理不可用"
+        )
+    except requests.exceptions.ConnectTimeout:
+        return ProxyTestResult(
+            success=False,
+            message=f"代理连接超时: {request.host}:{request.port}"
+        )
+    except requests.exceptions.ConnectionError as e:
+        return ProxyTestResult(
+            success=False,
+            message=f"无法连接到代理服务器: {request.host}:{request.port}"
+        )
+    except Exception as e:
+        return ProxyTestResult(
+            success=False,
+            message=f"测试失败: {str(e)}"
+        )

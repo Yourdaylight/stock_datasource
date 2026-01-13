@@ -15,28 +15,61 @@ logger = logging.getLogger(__name__)
 class ClickHouseClient:
     """ClickHouse database client."""
     
-    def __init__(self):
+    def __init__(self, host: str = None, port: int = None, user: str = None, 
+                 password: str = None, database: str = None, name: str = "primary"):
+        """Initialize ClickHouse client.
+        
+        Args:
+            host: ClickHouse host (default: from settings)
+            port: ClickHouse port (default: from settings)
+            user: ClickHouse user (default: from settings)
+            password: ClickHouse password (default: from settings)
+            database: ClickHouse database (default: from settings)
+            name: Client name for logging (default: "primary")
+        """
+        self.host = host or settings.CLICKHOUSE_HOST
+        self.port = port or settings.CLICKHOUSE_PORT
+        self.user = user or settings.CLICKHOUSE_USER
+        self.password = password or settings.CLICKHOUSE_PASSWORD
+        self.database = database or settings.CLICKHOUSE_DATABASE
+        self.name = name
         self.client = None
         self._connect()
     
     def _connect(self):
         """Establish connection to ClickHouse."""
         try:
+            # Register Asia/Beijing as alias for Asia/Shanghai to handle non-standard timezone
+            self._register_timezone_alias()
+            
             self.client = Client(
-                host=settings.CLICKHOUSE_HOST,
-                port=settings.CLICKHOUSE_PORT,
-                user=settings.CLICKHOUSE_USER,
-                password=settings.CLICKHOUSE_PASSWORD,
-                database=settings.CLICKHOUSE_DATABASE,
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.database,
                 settings={
                     'use_numpy': True,
                     'enable_http_compression': 1,
+                    'session_timezone': 'Asia/Shanghai',  # Use standard timezone
                 }
             )
-            logger.info(f"Connected to ClickHouse: {settings.CLICKHOUSE_HOST}:{settings.CLICKHOUSE_PORT}")
+            logger.info(f"Connected to ClickHouse [{self.name}]: {self.host}:{self.port}")
         except Exception as e:
-            logger.error(f"Failed to connect to ClickHouse: {e}")
+            logger.error(f"Failed to connect to ClickHouse [{self.name}]: {e}")
             raise
+    
+    @staticmethod
+    def _register_timezone_alias():
+        """Register Asia/Beijing as alias for Asia/Shanghai."""
+        try:
+            import pytz
+            # Check if already registered
+            if 'Asia/Beijing' not in pytz.all_timezones_set:
+                # Add Beijing as alias to Shanghai
+                pytz._tzinfo_cache['Asia/Beijing'] = pytz.timezone('Asia/Shanghai')
+        except Exception:
+            pass  # Ignore if registration fails
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
@@ -44,7 +77,7 @@ class ClickHouseClient:
         try:
             return self.client.execute(query, params)
         except Exception as e:
-            logger.error(f"Query execution failed: {e}")
+            logger.error(f"Query execution failed [{self.name}]: {e}")
             raise
     
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
@@ -53,7 +86,7 @@ class ClickHouseClient:
             result = self.client.query_dataframe(query, params)
             return result
         except Exception as e:
-            logger.error(f"Query execution failed: {e}")
+            logger.error(f"Query execution failed [{self.name}]: {e}")
             raise
     
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
@@ -65,28 +98,28 @@ class ClickHouseClient:
                 df,
                 settings=settings or {}
             )
-            logger.info(f"Inserted {len(df)} rows into {table_name}")
+            logger.info(f"Inserted {len(df)} rows into {table_name} [{self.name}]")
         except Exception as e:
-            logger.error(f"Failed to insert data into {table_name}: {e}")
+            logger.error(f"Failed to insert data into {table_name} [{self.name}]: {e}")
             raise
     
     def create_database(self, database_name: str) -> None:
         """Create database if not exists."""
         query = f"CREATE DATABASE IF NOT EXISTS {database_name}"
         self.execute(query)
-        logger.info(f"Database {database_name} created or already exists")
+        logger.info(f"Database {database_name} created or already exists [{self.name}]")
     
     def create_table(self, create_table_sql: str) -> None:
         """Create table from SQL definition."""
         self.execute(create_table_sql)
-        logger.info("Table created successfully")
+        logger.info(f"Table created successfully [{self.name}]")
     
     def table_exists(self, table_name: str) -> bool:
         """Check if table exists."""
         query = f"""
         SELECT count() 
         FROM system.tables 
-        WHERE database = '{settings.CLICKHOUSE_DATABASE}' 
+        WHERE database = '{self.database}' 
         AND name = '{table_name}'
         """
         result = self.execute(query)
@@ -101,7 +134,7 @@ class ClickHouseClient:
             default_expression,
             comment
         FROM system.columns
-        WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+        WHERE database = '{self.database}'
         AND table = '{table_name}'
         ORDER BY position
         """
@@ -112,13 +145,13 @@ class ClickHouseClient:
         """Add column to existing table."""
         query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_def}"
         self.execute(query)
-        logger.info(f"Added column to {table_name}: {column_def}")
+        logger.info(f"Added column to {table_name}: {column_def} [{self.name}]")
     
     def modify_column(self, table_name: str, column_name: str, new_type: str) -> None:
         """Modify column type."""
         query = f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {new_type}"
         self.execute(query)
-        logger.info(f"Modified column {column_name} in {table_name} to {new_type}")
+        logger.info(f"Modified column {column_name} in {table_name} to {new_type} [{self.name}]")
     
     def get_partition_info(self, table_name: str) -> List[Dict[str, Any]]:
         """Get partition information for table."""
@@ -128,7 +161,7 @@ class ClickHouseClient:
             sum(rows) as rows,
             sum(bytes_on_disk) as bytes_on_disk
         FROM system.parts
-        WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+        WHERE database = '{self.database}'
         AND table = '{table_name}'
         GROUP BY partition
         ORDER BY partition
@@ -142,14 +175,133 @@ class ClickHouseClient:
         if final:
             query += " FINAL"
         self.execute(query)
-        logger.info(f"Optimized table {table_name}")
+        logger.info(f"Optimized table {table_name} [{self.name}]")
     
     def close(self):
         """Close database connection."""
         if self.client:
             self.client.disconnect()
-            logger.info("ClickHouse connection closed")
+            logger.info(f"ClickHouse connection closed [{self.name}]")
 
 
-# Global database client instance
-db_client = ClickHouseClient()
+class DualWriteClient:
+    """Client that writes to both primary and backup ClickHouse databases."""
+    
+    def __init__(self):
+        """Initialize dual write client with primary and optional backup."""
+        self.primary = ClickHouseClient(name="primary")
+        self.backup = None
+        
+        # Initialize backup client if configured
+        if settings.BACKUP_CLICKHOUSE_HOST:
+            try:
+                self.backup = ClickHouseClient(
+                    host=settings.BACKUP_CLICKHOUSE_HOST,
+                    port=settings.BACKUP_CLICKHOUSE_PORT,
+                    user=settings.BACKUP_CLICKHOUSE_USER,
+                    password=settings.BACKUP_CLICKHOUSE_PASSWORD,
+                    database=settings.BACKUP_CLICKHOUSE_DATABASE,
+                    name="backup"
+                )
+                logger.info(f"Dual write enabled: backup at {settings.BACKUP_CLICKHOUSE_HOST}")
+            except Exception as e:
+                logger.warning(f"Failed to connect to backup ClickHouse, dual write disabled: {e}")
+                self.backup = None
+    
+    @property
+    def client(self):
+        """For backward compatibility - return primary client's underlying client."""
+        return self.primary.client
+    
+    def execute(self, query: str, params: Optional[Dict] = None) -> Any:
+        """Execute query on primary (read operations use primary only)."""
+        return self.primary.execute(query, params)
+    
+    def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
+        """Execute query on primary and return DataFrame."""
+        return self.primary.execute_query(query, params)
+    
+    def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
+                        settings: Optional[Dict] = None) -> None:
+        """Insert DataFrame into both primary and backup databases."""
+        # Always write to primary
+        self.primary.insert_dataframe(table_name, df, settings)
+        
+        # Write to backup if available
+        if self.backup:
+            try:
+                self.backup.insert_dataframe(table_name, df, settings)
+            except Exception as e:
+                logger.error(f"Failed to write to backup database: {e}")
+                # Don't raise - primary write succeeded
+    
+    def create_database(self, database_name: str) -> None:
+        """Create database on both primary and backup."""
+        self.primary.create_database(database_name)
+        if self.backup:
+            try:
+                self.backup.create_database(database_name)
+            except Exception as e:
+                logger.warning(f"Failed to create database on backup: {e}")
+    
+    def create_table(self, create_table_sql: str) -> None:
+        """Create table on both primary and backup."""
+        self.primary.create_table(create_table_sql)
+        if self.backup:
+            try:
+                self.backup.create_table(create_table_sql)
+            except Exception as e:
+                logger.warning(f"Failed to create table on backup: {e}")
+    
+    def table_exists(self, table_name: str) -> bool:
+        """Check if table exists on primary."""
+        return self.primary.table_exists(table_name)
+    
+    def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
+        """Get table schema from primary."""
+        return self.primary.get_table_schema(table_name)
+    
+    def add_column(self, table_name: str, column_def: str) -> None:
+        """Add column on both primary and backup."""
+        self.primary.add_column(table_name, column_def)
+        if self.backup:
+            try:
+                self.backup.add_column(table_name, column_def)
+            except Exception as e:
+                logger.warning(f"Failed to add column on backup: {e}")
+    
+    def modify_column(self, table_name: str, column_name: str, new_type: str) -> None:
+        """Modify column on both primary and backup."""
+        self.primary.modify_column(table_name, column_name, new_type)
+        if self.backup:
+            try:
+                self.backup.modify_column(table_name, column_name, new_type)
+            except Exception as e:
+                logger.warning(f"Failed to modify column on backup: {e}")
+    
+    def get_partition_info(self, table_name: str) -> List[Dict[str, Any]]:
+        """Get partition info from primary."""
+        return self.primary.get_partition_info(table_name)
+    
+    def optimize_table(self, table_name: str, final: bool = True) -> None:
+        """Optimize table on both primary and backup."""
+        self.primary.optimize_table(table_name, final)
+        if self.backup:
+            try:
+                self.backup.optimize_table(table_name, final)
+            except Exception as e:
+                logger.warning(f"Failed to optimize table on backup: {e}")
+    
+    def close(self):
+        """Close both connections."""
+        self.primary.close()
+        if self.backup:
+            self.backup.close()
+    
+    def is_dual_write_enabled(self) -> bool:
+        """Check if dual write is enabled."""
+        return self.backup is not None
+
+
+# Global database client instance (now with dual write support)
+db_client = DualWriteClient()

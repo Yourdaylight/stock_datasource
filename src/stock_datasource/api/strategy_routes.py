@@ -50,13 +50,30 @@ class AIStrategyRequest(BaseModel):
     risk_level: str = "medium"
     time_frame: str = "daily"
 
+class TradingConfig(BaseModel):
+    initial_capital: float = 100000.0
+    commission_rate: float = 0.0003
+    slippage_rate: float = 0.001
+    min_commission: float = 5.0
+
+
+class IntelligentConfig(BaseModel):
+    enable_optimization: bool = False
+    enable_robustness: bool = False
+    optimization_algorithm: str = "grid_search"
+
+
 class BacktestRequest(BaseModel):
     strategy_id: str
-    symbol: str
+    symbols: List[str] = []  # 支持多个股票
+    symbol: Optional[str] = None  # 兼容单个股票
     start_date: str
     end_date: str
-    initial_capital: float = 100000.0
+    benchmark: Optional[str] = "000300.SH"
+    initial_capital: float = 100000.0  # 兼容旧格式
+    trading_config: Optional[TradingConfig] = None
     parameters: Dict[str, Any] = {}
+    intelligent_config: Optional[IntelligentConfig] = None
 
 @router.get("/", response_model=StrategyListResponse)
 async def get_strategies():
@@ -130,6 +147,121 @@ async def explain_strategy(strategy_id: str):
         return {"data": {"explanation": explanation}}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/backtest")
+async def run_backtest(request: BacktestRequest):
+    """运行策略回测"""
+    import uuid
+    from datetime import datetime
+    
+    try:
+        registry = get_strategy_registry()
+        strategy_class = registry.get_strategy_class(request.strategy_id)
+        
+        if not strategy_class:
+            raise HTTPException(status_code=404, detail=f"策略 {request.strategy_id} 不存在")
+        
+        # 获取策略信息
+        strategy_info = registry._strategies[request.strategy_id]
+        strategy_name = strategy_info.metadata.name
+        
+        # TODO: 实现真实回测逻辑，目前返回模拟数据
+        backtest_id = str(uuid.uuid4())
+        
+        # 处理 symbols（兼容 symbols 数组和 symbol 单个字符串）
+        symbols = request.symbols if request.symbols else ([request.symbol] if request.symbol else [])
+        
+        # 获取初始资金（优先从 trading_config 获取）
+        if request.trading_config:
+            initial_capital = request.trading_config.initial_capital
+        else:
+            initial_capital = request.initial_capital
+        
+        final_capital = initial_capital * 1.15  # 模拟15%收益
+        
+        return {
+            "data": {
+                "id": backtest_id,
+                "strategy_id": request.strategy_id,
+                "config": {
+                    "strategy_id": request.strategy_id,
+                    "symbol": symbols[0] if symbols else "",
+                    "symbols": symbols,
+                    "start_date": request.start_date,
+                    "end_date": request.end_date,
+                    "initial_capital": initial_capital,
+                    "parameters": request.parameters
+                },
+                "performance_metrics": {
+                    "total_return": 15.0,
+                    "annual_return": 12.5,
+                    "sharpe_ratio": 1.2,
+                    "max_drawdown": 8.5,
+                    "win_rate": 55.0,
+                    "profit_factor": 1.8
+                },
+                "trades": [
+                    {
+                        "date": request.start_date,
+                        "direction": "buy",
+                        "price": 100.0,
+                        "quantity": int(initial_capital / 100),
+                        "amount": initial_capital,
+                        "signal_reason": "策略信号"
+                    }
+                ],
+                "equity_curve": [
+                    {"date": request.start_date, "value": initial_capital},
+                    {"date": request.end_date, "value": final_capital}
+                ],
+                "created_at": datetime.now().isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/backtest/{backtest_id}")
+async def get_backtest_result(backtest_id: str):
+    """获取回测结果"""
+    from datetime import datetime
+    
+    # TODO: 从数据库获取真实回测结果
+    return {
+        "data": {
+            "id": backtest_id,
+            "strategy_id": "ma_strategy",
+            "config": {
+                "strategy_id": "ma_strategy",
+                "symbol": "600519.SH",
+                "start_date": "2023-01-01",
+                "end_date": "2024-01-01",
+                "initial_capital": 100000,
+                "parameters": {}
+            },
+            "performance_metrics": {
+                "total_return": 15.0,
+                "annual_return": 12.5,
+                "sharpe_ratio": 1.2,
+                "max_drawdown": 8.5,
+                "win_rate": 55.0,
+                "profit_factor": 1.8
+            },
+            "trades": [],
+            "equity_curve": [],
+            "created_at": datetime.now().isoformat()
+        }
+    }
+
+
+@router.get("/{strategy_id}/backtest-history")
+async def get_backtest_history(strategy_id: str):
+    """获取策略回测历史"""
+    # TODO: 从数据库获取真实历史记录
+    return {"data": []}
+
 
 @router.get("/{strategy_id}")
 async def get_strategy(strategy_id: str):

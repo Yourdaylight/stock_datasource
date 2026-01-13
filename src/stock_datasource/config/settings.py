@@ -31,17 +31,56 @@ class Settings(BaseSettings):
             return v.lower() in ('true', '1', 'yes', 'on')
         return False
     
-    # ClickHouse settings
+    # ClickHouse settings (Primary)
     CLICKHOUSE_HOST: str = Field(default="localhost")
     CLICKHOUSE_PORT: int = Field(default=9000)
     CLICKHOUSE_USER: str = Field(default="default")
     CLICKHOUSE_PASSWORD: str = Field(default="")
     CLICKHOUSE_DATABASE: str = Field(default="stock_data")
     
+    # Backup ClickHouse settings (Optional - for dual write)
+    BACKUP_CLICKHOUSE_HOST: Optional[str] = Field(default=None)
+    BACKUP_CLICKHOUSE_PORT: int = Field(default=9000)
+    BACKUP_CLICKHOUSE_USER: str = Field(default="default")
+    BACKUP_CLICKHOUSE_PASSWORD: str = Field(default="")
+    BACKUP_CLICKHOUSE_DATABASE: str = Field(default="stock_datasource")
+    
     # TuShare settings
     TUSHARE_TOKEN: str = Field(default="")
     TUSHARE_RATE_LIMIT: int = Field(default=120)  # calls per minute
     TUSHARE_MAX_RETRIES: int = Field(default=3)
+    
+    # HTTP Proxy settings
+    HTTP_PROXY_ENABLED: bool = Field(default=False)
+    HTTP_PROXY_HOST: str = Field(default="")
+    HTTP_PROXY_PORT: int = Field(default=0)
+    HTTP_PROXY_USERNAME: Optional[str] = Field(default=None)
+    HTTP_PROXY_PASSWORD: Optional[str] = Field(default=None)
+    
+    @property
+    def http_proxy_url(self) -> Optional[str]:
+        """Get formatted HTTP proxy URL."""
+        if not self.HTTP_PROXY_ENABLED or not self.HTTP_PROXY_HOST or not self.HTTP_PROXY_PORT:
+            return None
+        
+        if self.HTTP_PROXY_USERNAME and self.HTTP_PROXY_PASSWORD:
+            # URL encode the password to handle special characters
+            from urllib.parse import quote
+            encoded_password = quote(self.HTTP_PROXY_PASSWORD, safe='')
+            return f"http://{self.HTTP_PROXY_USERNAME}:{encoded_password}@{self.HTTP_PROXY_HOST}:{self.HTTP_PROXY_PORT}"
+        else:
+            return f"http://{self.HTTP_PROXY_HOST}:{self.HTTP_PROXY_PORT}"
+    
+    @property
+    def proxy_dict(self) -> Optional[dict]:
+        """Get proxy dict for requests library."""
+        proxy_url = self.http_proxy_url
+        if proxy_url:
+            return {
+                "http": proxy_url,
+                "https": proxy_url
+            }
+        return None
     
     # Airflow settings
     AIRFLOW_HOME: str = Field(default="/opt/airflow")
@@ -78,6 +117,37 @@ class Settings(BaseSettings):
 # Create settings instance
 settings = Settings()
 
+# Apply runtime persisted config (proxy/concurrency overrides)
+try:
+    from .runtime_config import load_runtime_config
+
+    _runtime_cfg = load_runtime_config()
+    _proxy_cfg = _runtime_cfg.get("proxy", {})
+    settings.HTTP_PROXY_ENABLED = _proxy_cfg.get("enabled", settings.HTTP_PROXY_ENABLED)
+    settings.HTTP_PROXY_HOST = _proxy_cfg.get("host", settings.HTTP_PROXY_HOST)
+    settings.HTTP_PROXY_PORT = _proxy_cfg.get("port", settings.HTTP_PROXY_PORT)
+    settings.HTTP_PROXY_USERNAME = _proxy_cfg.get("username", settings.HTTP_PROXY_USERNAME)
+    settings.HTTP_PROXY_PASSWORD = _proxy_cfg.get("password", settings.HTTP_PROXY_PASSWORD)
+except Exception:
+    # Fallback to env-only configuration on any error
+    pass
+
 # Ensure directories exist
 settings.DATA_DIR.mkdir(exist_ok=True)
 settings.LOGS_DIR.mkdir(exist_ok=True)
+
+# Patch TuShare to use HTTPS instead of HTTP
+# This is necessary because some proxies block HTTP POST requests but allow HTTPS
+def _patch_tushare_https():
+    """Patch TuShare client to use HTTPS URL."""
+    try:
+        import tushare.pro.client as tushare_client
+        if hasattr(tushare_client, 'DataApi'):
+            # Change from http:// to https://
+            original_url = getattr(tushare_client.DataApi, '_DataApi__http_url', None)
+            if original_url and original_url.startswith('http://'):
+                tushare_client.DataApi._DataApi__http_url = original_url.replace('http://', 'https://', 1)
+    except Exception:
+        pass
+
+_patch_tushare_https()

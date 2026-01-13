@@ -1,0 +1,36 @@
+{
+  "enabled": true,
+  "rate_limit": 30,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare ETF日线行情 from fund_daily API",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期 YYYYMMDD格式"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "ETF代码"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期 YYYYMMDD格式"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期 YYYYMMDD格式"
+    }
+  }
+}

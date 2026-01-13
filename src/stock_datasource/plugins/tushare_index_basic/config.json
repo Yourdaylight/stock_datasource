@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "rate_limit": 500,
-  "timeout": 30,
+  "timeout": 90,
   "retry_attempts": 3,
   "description": "TuShare index basic information plugin",
   "schedule": {

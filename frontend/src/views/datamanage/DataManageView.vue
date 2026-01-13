@@ -8,6 +8,7 @@ import PluginDetailDialog from './components/PluginDetailDialog.vue'
 import PluginDataDialog from './components/PluginDataDialog.vue'
 import DiagnosisPanel from './components/DiagnosisPanel.vue'
 import SyncDialog from './components/SyncDialog.vue'
+import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
 
 const dataStore = useDataManageStore()
 const activeTab = ref('plugins')
@@ -295,6 +296,11 @@ onMounted(() => {
               {{ row.record_count.toLocaleString() }}
             </template>
           </t-table>
+        </t-tab-panel>
+
+        <!-- Settings Tab -->
+        <t-tab-panel value="settings" label="配置">
+          <ProxyConfigPanel />
         </t-tab-panel>
       </t-tabs>
     </t-card>

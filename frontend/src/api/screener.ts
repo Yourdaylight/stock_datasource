@@ -85,33 +85,33 @@ export const screenerApi = {
     if (params.search) queryParams.append('search', params.search)
     
     const query = queryParams.toString()
-    return request.get(`/screener/stocks${query ? '?' + query : ''}`)
+    return request.get(`/api/screener/stocks${query ? '?' + query : ''}`)
   },
 
   // Get market summary
   getSummary(): Promise<MarketSummary> {
-    return request.get('/screener/summary')
+    return request.get('/api/screener/summary')
   },
 
   filter(params: ScreenerRequest, page = 1, page_size = 20): Promise<StockListResponse> {
     const queryParams = new URLSearchParams()
     queryParams.append('page', page.toString())
     queryParams.append('page_size', page_size.toString())
-    return request.post(`/screener/filter?${queryParams.toString()}`, params)
+    return request.post(`/api/screener/filter?${queryParams.toString()}`, params)
   },
 
   nlScreener(params: NLScreenerRequest, page = 1, page_size = 20): Promise<StockListResponse> {
     const queryParams = new URLSearchParams()
     queryParams.append('page', page.toString())
     queryParams.append('page_size', page_size.toString())
-    return request.post(`/screener/nl?${queryParams.toString()}`, params)
+    return request.post(`/api/screener/nl?${queryParams.toString()}`, params)
   },
 
   getPresets(): Promise<PresetStrategy[]> {
-    return request.get('/screener/presets')
+    return request.get('/api/screener/presets')
   },
 
   getFields(): Promise<{ field: string; label: string; type: string }[]> {
-    return request.get('/screener/fields')
+    return request.get('/api/screener/fields')
   }
 }

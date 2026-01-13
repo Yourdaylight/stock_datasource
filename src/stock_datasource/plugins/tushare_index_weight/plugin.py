@@ -40,13 +40,24 @@ class TuShareIndexWeightPlugin(BasePlugin):
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
         """Extract index weight data from TuShare."""
-        index_code = kwargs.get('index_code')
+        config = self.get_config()
+        index_code = kwargs.get('index_code') or config.get('parameters', {}).get('index_code')
         start_date = kwargs.get('start_date')
         end_date = kwargs.get('end_date')
         trade_date = kwargs.get('trade_date')
         
+        # Normalize date formats to YYYYMMDD as required by TuShare
+        def _normalize(date_str: Any) -> Any:
+            if not date_str or not isinstance(date_str, str):
+                return date_str
+            return date_str.replace('-', '')
+        
+        start_date = _normalize(start_date)
+        end_date = _normalize(end_date)
+        trade_date = _normalize(trade_date)
+        
         if not index_code:
-            raise ValueError("index_code is required")
+            raise ValueError("index_code is required (set in task params or config.parameters.index_code)")
         
         self.logger.info(f"Extracting index weight data for {index_code}")
         

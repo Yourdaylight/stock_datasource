@@ -24,6 +24,19 @@ export interface SyncTask {
   completed_at?: string
 }
 
+export interface SyncConfig {
+  max_concurrent_tasks: number
+  max_date_threads: number
+  running_tasks_count: number
+  pending_tasks_count: number
+  running_plugins: string[]
+}
+
+export interface SyncConfigRequest {
+  max_concurrent_tasks?: number
+  max_date_threads?: number
+}
+
 export interface QualityMetrics {
   table_name: string
   completeness_score: number
@@ -174,48 +187,72 @@ export interface DiagnosisRequest {
   context?: string
 }
 
+// Proxy Configuration Types
+export interface ProxyConfig {
+  enabled: boolean
+  host: string
+  port: number
+  username?: string
+  password?: string
+}
+
+export interface ProxyTestResult {
+  success: boolean
+  message: string
+  latency_ms?: number
+  external_ip?: string
+}
+
 export const datamanageApi = {
   // Data Sources
   getDataSources(): Promise<DataSource[]> {
-    return request.get('/datamanage/datasources')
+    return request.get('/api/datamanage/datasources')
   },
 
   testConnection(sourceId: string): Promise<{ success: boolean; message: string }> {
-    return request.post(`/datamanage/datasources/${sourceId}/test`)
+    return request.post(`/api/datamanage/datasources/${sourceId}/test`)
   },
 
   // Missing Data Detection
   getMissingData(days: number = 30, forceRefresh: boolean = false): Promise<MissingDataSummary> {
-    return request.get(`/datamanage/missing-data?days=${days}&force_refresh=${forceRefresh}`)
+    return request.get(`/api/datamanage/missing-data?days=${days}&force_refresh=${forceRefresh}`)
   },
 
   triggerMissingDataDetection(days: number = 30): Promise<MissingDataSummary> {
-    return request.post('/datamanage/missing-data/detect', { days })
+    return request.post('/api/datamanage/missing-data/detect', { days })
   },
 
   // Sync Tasks
   getSyncTasks(): Promise<SyncTask[]> {
-    return request.get('/datamanage/sync/tasks')
+    return request.get('/api/datamanage/sync/tasks')
   },
 
   triggerSync(req: TriggerSyncRequest): Promise<SyncTask> {
-    return request.post('/datamanage/sync/trigger', req)
+    return request.post('/api/datamanage/sync/trigger', req)
   },
 
   getSyncStatus(taskId: string): Promise<SyncTask> {
-    return request.get(`/datamanage/sync/status/${taskId}`)
+    return request.get(`/api/datamanage/sync/status/${taskId}`)
   },
 
   cancelSyncTask(taskId: string): Promise<{ success: boolean; message: string }> {
-    return request.post(`/datamanage/sync/cancel/${taskId}`)
+    return request.post(`/api/datamanage/sync/cancel/${taskId}`)
+  },
+
+  updateSyncConfig(req: SyncConfigRequest): Promise<SyncConfig> {
+    return request.put('/api/datamanage/sync/config', req)
+  },
+
+  getSyncConfig(): Promise<SyncConfig> {
+    return request.get('/api/datamanage/sync/config')
   },
 
   deleteSyncTask(taskId: string): Promise<{ success: boolean; message: string }> {
-    return request.delete(`/datamanage/sync/tasks/${taskId}`)
+    return request.delete(`/api/datamanage/sync/tasks/${taskId}`)
   },
 
   getSyncHistory(limit?: number, pluginName?: string): Promise<SyncTask[]> {
-    let url = '/datamanage/sync/history'
+    let url = '/api/datamanage/sync/history'
     const params: string[] = []
     if (limit) params.push(`limit=${limit}`)
     if (pluginName) params.push(`plugin_name=${encodeURIComponent(pluginName)}`)
@@ -225,56 +262,69 @@ export const datamanageApi = {
 
   // Plugins
   getPlugins(): Promise<PluginInfo[]> {
-    return request.get('/datamanage/plugins')
+    return request.get('/api/datamanage/plugins')
   },
 
   getPluginDetail(name: string): Promise<PluginDetail> {
-    return request.get(`/datamanage/plugins/${name}/detail`)
+    return request.get(`/api/datamanage/plugins/${name}/detail`)
   },
 
   getPluginStatus(name: string): Promise<PluginStatus> {
-    return request.get(`/datamanage/plugins/${name}/status`)
+    return request.get(`/api/datamanage/plugins/${name}/status`)
   },
 
   getPluginData(name: string, tradeDate?: string, page: number = 1, pageSize: number = 100): Promise<PluginDataPreview> {
-    let url = `/datamanage/plugins/${name}/data?page=${page}&page_size=${pageSize}`
+    let url = `/api/datamanage/plugins/${name}/data?page=${page}&page_size=${pageSize}`
     if (tradeDate) url += `&trade_date=${tradeDate}`
     return request.get(url)
   },
 
   checkDataExists(name: string, dates: string[]): Promise<DataExistsCheckResult> {
-    return request.post(`/datamanage/plugins/${name}/check-exists`, { dates })
+    return request.post(`/api/datamanage/plugins/${name}/check-exists`, { dates })
   },
 
   enablePlugin(name: string): Promise<void> {
-    return request.post(`/datamanage/plugins/${name}/enable`)
+    return request.post(`/api/datamanage/plugins/${name}/enable`)
   },
 
   disablePlugin(name: string): Promise<void> {
-    return request.post(`/datamanage/plugins/${name}/disable`)
+    return request.post(`/api/datamanage/plugins/${name}/disable`)
   },
 
   // Quality
   getQualityMetrics(): Promise<QualityMetrics[]> {
-    return request.get('/datamanage/quality/metrics')
+    return request.get('/api/datamanage/quality/metrics')
   },
 
   getQualityReport(tableName?: string): Promise<any> {
     const params = tableName ? `?table=${encodeURIComponent(tableName)}` : ''
-    return request.get(`/datamanage/quality/report${params}`)
+    return request.get(`/api/datamanage/quality/report${params}`)
   },
 
   // Metadata
   getTableMetadata(): Promise<TableMetadata[]> {
-    return request.get('/datamanage/metadata/tables')
+    return request.get('/api/datamanage/metadata/tables')
   },
 
   // AI Diagnosis
   getDiagnosis(logLines: number = 100, errorsOnly: boolean = false): Promise<DiagnosisResult> {
-    return request.get(`/datamanage/diagnosis?log_lines=${logLines}&errors_only=${errorsOnly}`)
+    return request.get(`/api/datamanage/diagnosis?log_lines=${logLines}&errors_only=${errorsOnly}`)
   },
 
   triggerDiagnosis(req: DiagnosisRequest): Promise<DiagnosisResult> {
-    return request.post('/datamanage/diagnosis', req)
+    return request.post('/api/datamanage/diagnosis', req)
+  },
+
+  // Proxy Configuration
+  getProxyConfig(): Promise<ProxyConfig> {
+    return request.get('/api/datamanage/proxy/config')
+  },
+
+  updateProxyConfig(config: ProxyConfig): Promise<ProxyConfig> {
+    return request.put('/api/datamanage/proxy/config', config)
+  },
+
+  testProxyConnection(config: ProxyConfig): Promise<ProxyTestResult> {
+    return request.post('/api/datamanage/proxy/test', config)
   }
 }
