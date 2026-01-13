@@ -11,7 +11,8 @@ import {
   WalletIcon,
   ChartBubbleIcon,
   ToolsIcon,
-  ControlPlatformIcon
+  ControlPlatformIcon,
+  ChartBarIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -25,6 +26,7 @@ const menuItems = [
   { path: '/report', title: '财报研读', icon: FileExcelIcon },
   { path: '/strategy', title: '策略工作台', icon: ToolsIcon },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon },
+  { path: '/toplist', title: '龙虎榜分析', icon: ChartBarIcon },
   { path: '/memory', title: '用户记忆', icon: UserIcon },
   { path: '/datamanage', title: '数据管理', icon: ServerIcon },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon }

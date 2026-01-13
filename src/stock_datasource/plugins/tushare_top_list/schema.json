@@ -1,0 +1,28 @@
+{
+  "table_name": "ods_top_list",
+  "table_type": "ods",
+  "columns": [
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "name", "data_type": "String", "nullable": true, "comment": "股票名称"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收盘价"},
+    {"name": "pct_chg", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌幅"},
+    {"name": "turnover_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "换手率"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总成交额"},
+    {"name": "l_sell", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜卖出额"},
+    {"name": "l_buy", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜买入额"},
+    {"name": "l_amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜成交额"},
+    {"name": "net_amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜净买入额"},
+    {"name": "net_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜净买入率"},
+    {"name": "amount_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "龙虎榜成交额占比"},
+    {"name": "float_values", "data_type": "Nullable(Float64)", "nullable": true, "comment": "当日流通市值"},
+    {"name": "reason", "data_type": "String", "nullable": true, "comment": "上榜原因"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["trade_date", "ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Top list (龙虎榜) data from TuShare API"
+}

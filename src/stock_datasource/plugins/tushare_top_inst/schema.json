@@ -1,0 +1,22 @@
+{
+  "table_name": "ods_top_inst",
+  "table_type": "ods",
+  "columns": [
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "exalter", "data_type": "String", "nullable": false, "comment": "营业部名称"},
+    {"name": "buy", "data_type": "Nullable(Float64)", "nullable": true, "comment": "买入额(万)"},
+    {"name": "buy_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "买入额占总成交比例"},
+    {"name": "sell", "data_type": "Nullable(Float64)", "nullable": true, "comment": "卖出额(万)"},
+    {"name": "sell_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "卖出额占总成交比例"},
+    {"name": "net_buy", "data_type": "Nullable(Float64)", "nullable": true, "comment": "净买入额(万)"},
+    {"name": "seat_type", "data_type": "Enum8('institution' = 1, 'hot_money' = 2, 'unknown' = 3)", "nullable": false, "default": "'unknown'", "comment": "席位类型"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["trade_date", "ts_code", "exalter"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Top institutional seats (机构席位) data from TuShare API"
+}
