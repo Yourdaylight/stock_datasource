@@ -6,9 +6,26 @@ from pathlib import Path
 import json
 import inspect
 from datetime import datetime
+from enum import Enum
 import pandas as pd
 
 from stock_datasource.utils.logger import logger
+
+
+class PluginCategory(str, Enum):
+    """Plugin category enum."""
+    STOCK = "stock"        # 股票相关
+    INDEX = "index"        # 指数相关
+    ETF_FUND = "etf_fund"  # ETF/基金相关（合并为一类）
+    SYSTEM = "system"      # 系统数据（如交易日历）
+
+
+class PluginRole(str, Enum):
+    """Plugin role enum."""
+    PRIMARY = "primary"      # 主数据（如 daily 行情）
+    BASIC = "basic"          # 基础数据（如 stock_basic）
+    DERIVED = "derived"      # 衍生数据（如复权因子）
+    AUXILIARY = "auxiliary"  # 辅助数据（如指数权重）
 
 
 class BasePlugin(ABC):
@@ -137,6 +154,58 @@ class BasePlugin(ABC):
     def get_dependencies(self) -> List[str]:
         """Get list of plugin dependencies (default: none)."""
         return []
+    
+    def get_optional_dependencies(self) -> List[str]:
+        """Get list of optional plugin dependencies (default: none).
+        
+        Optional dependencies are synced by default when syncing the main plugin,
+        but users can choose to disable them.
+        
+        Example: tushare_daily has tushare_adj_factor as optional dependency.
+        """
+        return []
+    
+    def get_category(self) -> PluginCategory:
+        """Get plugin category.
+        
+        Subclasses should override this to specify their category.
+        Default: STOCK
+        """
+        return PluginCategory.STOCK
+    
+    def get_role(self) -> PluginRole:
+        """Get plugin role.
+        
+        Subclasses should override this to specify their role.
+        Default: PRIMARY
+        """
+        return PluginRole.PRIMARY
+    
+    def has_data(self) -> bool:
+        """Check if plugin has data in its target table.
+        
+        This method is used for dependency checking to verify that
+        dependent plugins have their data available.
+        
+        Returns:
+            True if the plugin's table has data, False otherwise
+        """
+        try:
+            schema = self.get_schema()
+            table_name = schema.get('table_name')
+            
+            if not table_name or not self.db:
+                return False
+            
+            # Use LIMIT 1 for efficiency
+            result = self.db.execute_query(
+                f"SELECT 1 FROM {table_name} LIMIT 1"
+            )
+            return result is not None and not result.empty
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to check data existence: {e}")
+            return False
     
     def get_config_schema(self) -> Dict[str, Any]:
         """Get configuration schema for plugin parameters from config.json."""

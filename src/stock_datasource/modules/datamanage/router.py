@@ -11,9 +11,13 @@ from .schemas import (
     DiagnosisRequest, DiagnosisResult,
     CheckDataExistsRequest, DataExistsCheckResult,
     SyncConfig, SyncConfigRequest,
-    ProxyConfig, ProxyConfigRequest, ProxyTestResult
+    ProxyConfig, ProxyConfigRequest, ProxyTestResult,
+    DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
+    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
+from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
+from ...core.base_plugin import PluginCategory, PluginRole
 from ...config.runtime_config import save_runtime_config
 
 logger = logging.getLogger(__name__)
@@ -65,7 +69,36 @@ async def get_sync_tasks():
 
 @router.post("/sync/trigger", response_model=SyncTask)
 async def trigger_sync(request: TriggerSyncRequest):
-    """Trigger a sync task for a plugin."""
+    """Trigger a sync task for a plugin.
+    
+    This endpoint checks plugin dependencies before creating the task.
+    If dependencies are not satisfied, returns a 400 error with details.
+    """
+    # Check if plugin exists
+    plugin = plugin_manager.get_plugin(request.plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"Plugin {request.plugin_name} not found")
+    
+    # Check dependencies
+    dep_result = plugin_manager.check_dependencies(request.plugin_name)
+    if not dep_result.satisfied:
+        error_msg = f"Plugin dependencies not satisfied."
+        if dep_result.missing_plugins:
+            error_msg += f" Missing plugins: {', '.join(dep_result.missing_plugins)}."
+        if dep_result.missing_data:
+            data_msgs = [f"{k} ({v})" for k, v in dep_result.missing_data.items()]
+            error_msg += f" Missing data: {', '.join(data_msgs)}."
+        error_msg += " Please run the dependent plugins first."
+        
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": error_msg,
+                "missing_plugins": dep_result.missing_plugins,
+                "missing_data": dep_result.missing_data
+            }
+        )
+    
     task = sync_task_manager.create_task(
         plugin_name=request.plugin_name,
         task_type=request.task_type,
@@ -141,9 +174,29 @@ async def get_sync_history(
 # ============ Plugins ============
 
 @router.get("/plugins", response_model=List[PluginInfo])
-async def get_plugins():
-    """Get plugin list with status info."""
-    return data_manage_service.get_plugin_list()
+async def get_plugins(
+    category: Optional[str] = Query(default=None, description="Filter by category: stock, index, etf_fund, system"),
+    role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary")
+):
+    """Get plugin list with status info, optionally filtered by category and/or role."""
+    plugins = data_manage_service.get_plugin_list()
+    
+    # Apply filters
+    if category:
+        try:
+            cat_enum = PluginCategory(category)
+            plugins = [p for p in plugins if p.category == category]
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+    
+    if role:
+        try:
+            role_enum = PluginRole(role)
+            plugins = [p for p in plugins if p.role == role]
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
+    
+    return plugins
 
 
 @router.get("/plugins/{name}/detail", response_model=PluginDetail)
@@ -202,6 +255,149 @@ async def disable_plugin(name: str):
     """Disable a plugin."""
     # TODO: Implement plugin enable/disable in config
     return {"success": True}
+
+
+# ============ Plugin Dependencies ============
+
+@router.get("/plugins/{name}/dependencies", response_model=DependencyCheckResponse)
+async def get_plugin_dependencies(name: str):
+    """Get plugin dependencies and their status.
+    
+    Returns the list of dependencies for a plugin and whether they are satisfied.
+    """
+    plugin = plugin_manager.get_plugin(name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
+    
+    dependencies = plugin.get_dependencies()
+    optional_deps = plugin.get_optional_dependencies()
+    dep_result = plugin_manager.check_dependencies(name)
+    
+    # Build dependency details
+    dep_details = []
+    for dep_name in dependencies:
+        dep_plugin = plugin_manager.get_plugin(dep_name)
+        if dep_plugin:
+            schema = dep_plugin.get_schema()
+            table_name = schema.get('table_name') if schema else None
+            has_data = dep_plugin.has_data()
+            dep_details.append(PluginDependency(
+                plugin_name=dep_name,
+                has_data=has_data,
+                table_name=table_name,
+                record_count=0  # Could be expensive to calculate
+            ))
+        else:
+            dep_details.append(PluginDependency(
+                plugin_name=dep_name,
+                has_data=False
+            ))
+    
+    return DependencyCheckResponse(
+        plugin_name=name,
+        dependencies=dependencies,
+        optional_dependencies=optional_deps,
+        satisfied=dep_result.satisfied,
+        missing_plugins=dep_result.missing_plugins,
+        missing_data=dep_result.missing_data,
+        dependency_details=dep_details
+    )
+
+
+@router.get("/plugins/{name}/check-dependencies", response_model=DependencyCheckResponse)
+async def check_plugin_dependencies(name: str):
+    """Check if plugin dependencies are satisfied.
+    
+    This is an alias for GET /plugins/{name}/dependencies for backward compatibility.
+    """
+    return await get_plugin_dependencies(name)
+
+
+@router.get("/plugins/dependency-graph", response_model=DependencyGraphResponse)
+async def get_dependency_graph():
+    """Get the dependency graph for all plugins.
+    
+    Returns both the forward dependency graph (plugin -> dependencies)
+    and the reverse graph (plugin -> dependents).
+    """
+    graph = plugin_manager.get_dependency_graph()
+    
+    # Build reverse graph
+    reverse_graph = {}
+    for plugin_name in plugin_manager.list_plugins():
+        reverse_graph[plugin_name] = plugin_manager.get_reverse_dependencies(plugin_name)
+    
+    return DependencyGraphResponse(
+        graph=graph,
+        reverse_graph=reverse_graph
+    )
+
+
+@router.post("/sync/batch", response_model=BatchSyncResponse)
+async def batch_trigger_sync(request: BatchSyncRequest):
+    """Trigger sync for multiple plugins in dependency order.
+    
+    This endpoint:
+    1. Validates all requested plugins exist
+    2. Sorts plugins by dependency order (dependencies first)
+    3. Creates sync tasks for each plugin in order
+    
+    Args:
+        request: BatchSyncRequest with plugin names and options
+    
+    Returns:
+        BatchSyncResponse with tasks and execution order
+    """
+    # Validate all plugins exist
+    invalid_plugins = []
+    for name in request.plugin_names:
+        if not plugin_manager.get_plugin(name):
+            invalid_plugins.append(name)
+    
+    if invalid_plugins:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid plugins: {', '.join(invalid_plugins)}"
+        )
+    
+    # Get sorted execution order with optional dependencies
+    tasks_info = plugin_manager.batch_trigger_sync(
+        plugin_names=request.plugin_names,
+        task_type=request.task_type.value,
+        include_optional=request.include_optional
+    )
+    
+    execution_order = [t["plugin_name"] for t in tasks_info]
+    
+    # Create sync tasks for each plugin
+    created_tasks = []
+    for task_info in tasks_info:
+        plugin_name = task_info["plugin_name"]
+        
+        # Check dependencies for this plugin
+        dep_result = plugin_manager.check_dependencies(plugin_name)
+        
+        # Create task (dependency check is informational for batch)
+        task = sync_task_manager.create_task(
+            plugin_name=plugin_name,
+            task_type=request.task_type,
+            trade_dates=request.trade_dates
+        )
+        
+        created_tasks.append({
+            "task_id": task.task_id,
+            "plugin_name": plugin_name,
+            "task_type": task.task_type,
+            "status": task.status.value,
+            "order": task_info["order"],
+            "dependencies_satisfied": dep_result.satisfied
+        })
+    
+    return BatchSyncResponse(
+        tasks=created_tasks,
+        total_plugins=len(created_tasks),
+        execution_order=execution_order
+    )
 
 
 # ============ Data Quality ============
