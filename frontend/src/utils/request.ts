@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
 const instance: AxiosInstance = axios.create({
   baseURL,

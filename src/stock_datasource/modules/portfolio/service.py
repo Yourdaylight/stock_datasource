@@ -90,6 +90,11 @@ class PortfolioService:
                 
                 if not df.empty:
                     positions = []
+                    ts_codes = df['ts_code'].unique().tolist()
+                    
+                    # 批量获取所有股票的最新价格
+                    prices_cache = await self._batch_get_latest_prices(ts_codes)
+                    
                     for _, row in df.iterrows():
                         position = Position(
                             id=str(row['id']),
@@ -104,12 +109,10 @@ class PortfolioService:
                             profit_rate=float(row['profit_rate']) if pd.notna(row['profit_rate']) else None,
                             notes=row['notes'] if pd.notna(row['notes']) else None
                         )
-                        # Update current prices and calculations
-                        await self._update_position_prices(position)
+                        # Update current prices and calculations using cached prices
+                        await self._update_position_prices(position, prices_cache)
                         positions.append(position)
                     
-                    # Update positions in database with latest prices
-                    await self._batch_update_positions(positions)
                     return positions
         except Exception as e:
             logger.warning(f"Failed to get positions from database: {e}")
@@ -257,22 +260,55 @@ class PortfolioService:
         }
         return stock_names.get(ts_code, f"股票{ts_code}")
     
-    async def _update_position_prices(self, position: Position):
-        """Update position current price and calculations."""
+    async def _batch_get_latest_prices(self, ts_codes: List[str]) -> Dict[str, float]:
+        """Batch get latest prices for multiple stocks."""
+        prices = {}
+        if not ts_codes:
+            return prices
+            
         try:
             if self.db is not None:
-                # Try to get latest price from database
-                query = """
-                    SELECT close FROM ods_daily 
-                    WHERE ts_code = %(code)s 
-                    ORDER BY trade_date DESC 
-                    LIMIT 1
+                # 使用单条 SQL 批量获取所有股票的最新价格
+                codes_str = "', '".join(ts_codes)
+                query = f"""
+                    SELECT ts_code, close 
+                    FROM (
+                        SELECT ts_code, close, 
+                               ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY trade_date DESC) as rn
+                        FROM ods_daily 
+                        WHERE ts_code IN ('{codes_str}')
+                    ) t
+                    WHERE rn = 1
                 """
-                df = self.db.execute_query(query, {'code': position.ts_code})
+                df = self.db.execute_query(query)
                 if not df.empty:
-                    position.current_price = float(df.iloc[0]['close'])
+                    for _, row in df.iterrows():
+                        prices[row['ts_code']] = float(row['close'])
         except Exception as e:
-            logger.warning(f"Failed to get current price from database: {e}")
+            logger.warning(f"Failed to batch get prices from database: {e}")
+        
+        return prices
+    
+    async def _update_position_prices(self, position: Position, prices_cache: Dict[str, float] = None):
+        """Update position current price and calculations."""
+        # 优先使用缓存的价格
+        if prices_cache and position.ts_code in prices_cache:
+            position.current_price = prices_cache[position.ts_code]
+        elif position.current_price is None:
+            try:
+                if self.db is not None:
+                    # Try to get latest price from database
+                    query = """
+                        SELECT close FROM ods_daily 
+                        WHERE ts_code = %(code)s 
+                        ORDER BY trade_date DESC 
+                        LIMIT 1
+                    """
+                    df = self.db.execute_query(query, {'code': position.ts_code})
+                    if not df.empty:
+                        position.current_price = float(df.iloc[0]['close'])
+            except Exception as e:
+                logger.warning(f"Failed to get current price from database: {e}")
         
         # Fallback to mock prices
         if position.current_price is None:
