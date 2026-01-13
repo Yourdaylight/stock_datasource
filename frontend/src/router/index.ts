@@ -64,6 +64,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Strategy',
     component: () => import('@/views/StrategyWorkbench.vue'),
     meta: { title: '策略工作台', icon: 'tools' }
+  },
+  {
+    path: '/toplist',
+    name: 'TopList',
+    component: () => import('@/views/TopListView.vue'),
+    meta: { title: '龙虎榜分析', icon: 'chart-bar' }
   }
 ]
 

@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare top institutional seats (机构席位) data plugin",
+  "schedule": {
+    "frequency": "daily",
+    "time": "19:30"
+  },
+  "parameters": {
+    "max_empty_days": 5,
+    "validate_data": true,
+    "classify_seats": true
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": true,
+      "description": "Trade date in YYYYMMDD format"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "Stock code (optional, if not provided gets all stocks)"
+    }
+  }
+}

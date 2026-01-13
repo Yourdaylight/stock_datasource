@@ -20,6 +20,8 @@ class EnhancedPortfolioAgent(LangGraphAgent):
         super().__init__(config)
         self._portfolio_service = None
         self._market_service = None
+        self._toplist_service = None
+        self._toplist_analysis_service = None
         
         # Add portfolio-specific tools
         self.tools.extend([
@@ -62,6 +64,21 @@ class EnhancedPortfolioAgent(LangGraphAgent):
                 "name": "optimize_portfolio_allocation",
                 "description": "优化投资组合配置",
                 "function": self.optimize_portfolio_allocation
+            },
+            {
+                "name": "analyze_portfolio_toplist",
+                "description": "分析投资组合相关龙虎榜情况",
+                "function": self.analyze_portfolio_toplist
+            },
+            {
+                "name": "check_position_toplist_status",
+                "description": "检查持仓股票的龙虎榜状态",
+                "function": self.check_position_toplist_status
+            },
+            {
+                "name": "analyze_position_capital_flow",
+                "description": "分析持仓股票的资金流向",
+                "function": self.analyze_position_capital_flow
             }
         ])
     
@@ -86,6 +103,28 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             except Exception as e:
                 logger.warning(f"Failed to get market service: {e}")
         return self._market_service
+    
+    @property
+    def toplist_service(self):
+        """Lazy load toplist service."""
+        if self._toplist_service is None:
+            try:
+                from stock_datasource.services.toplist_service import TopListService
+                self._toplist_service = TopListService()
+            except Exception as e:
+                logger.warning(f"Failed to get toplist service: {e}")
+        return self._toplist_service
+    
+    @property
+    def toplist_analysis_service(self):
+        """Lazy load toplist analysis service."""
+        if self._toplist_analysis_service is None:
+            try:
+                from stock_datasource.services.toplist_analysis_service import TopListAnalysisService
+                self._toplist_analysis_service = TopListAnalysisService()
+            except Exception as e:
+                logger.warning(f"Failed to get toplist analysis service: {e}")
+        return self._toplist_analysis_service
     
     async def analyze_portfolio_performance(self, user_id: str = "default_user", 
                                           analysis_period: int = 30) -> Dict[str, Any]:
@@ -1078,6 +1117,316 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             "expected_return": "在控制风险的前提下优化收益",
             "implementation_cost": "预计交易成本0.2-0.5%"
         }
+    
+    async def analyze_portfolio_toplist(self, user_id: str = "default_user") -> Dict[str, Any]:
+        """分析投资组合相关的龙虎榜情况"""
+        try:
+            if not self.portfolio_service or not self.toplist_service:
+                return {"error": "Required services not available"}
+            
+            # 获取持仓股票
+            positions = await self.portfolio_service.get_positions(user_id)
+            if not positions:
+                return {"message": "当前无持仓股票"}
+            
+            # 分析持仓股票的龙虎榜情况
+            toplist_analysis = {
+                "on_list_positions": [],
+                "capital_flow_analysis": {},
+                "risk_alerts": [],
+                "investment_suggestions": []
+            }
+            
+            # 获取最近5天的数据
+            from datetime import datetime, timedelta
+            end_date = datetime.now().date()
+            
+            for position in positions:
+                ts_code = position.get("ts_code")
+                if not ts_code:
+                    continue
+                
+                # 获取该股票的龙虎榜历史
+                history = await self.toplist_service.get_stock_top_list_history(ts_code, 5)
+                
+                if history:
+                    # 计算席位集中度
+                    concentration = await self.toplist_analysis_service.calculate_seat_concentration(ts_code, 5)
+                    
+                    position_analysis = {
+                        "ts_code": ts_code,
+                        "stock_name": position.get("stock_name", ""),
+                        "position_weight": position.get("weight", 0),
+                        "toplist_appearances": len(history),
+                        "latest_appearance": history[0]["trade_date"] if history else None,
+                        "concentration_index": concentration.get("concentration_index", 0),
+                        "institution_dominance": concentration.get("institution_dominance", 0),
+                        "recent_net_flow": sum(item.get("net_amount", 0) for item in history),
+                        "risk_level": self._assess_toplist_risk(history, concentration)
+                    }
+                    
+                    toplist_analysis["on_list_positions"].append(position_analysis)
+                    
+                    # 生成风险预警
+                    if concentration.get("concentration_index", 0) > 0.7:
+                        toplist_analysis["risk_alerts"].append({
+                            "ts_code": ts_code,
+                            "type": "high_concentration",
+                            "message": f"{position.get('stock_name', ts_code)}席位高度集中，需关注流动性风险"
+                        })
+                    
+                    if position_analysis["recent_net_flow"] < -100000:  # 净流出超过10万
+                        toplist_analysis["risk_alerts"].append({
+                            "ts_code": ts_code,
+                            "type": "capital_outflow",
+                            "message": f"{position.get('stock_name', ts_code)}近期资金净流出明显，建议关注"
+                        })
+            
+            # 生成投资建议
+            toplist_analysis["investment_suggestions"] = self._generate_toplist_suggestions(
+                toplist_analysis["on_list_positions"]
+            )
+            
+            # 整体资金流向分析
+            total_net_flow = sum(pos["recent_net_flow"] for pos in toplist_analysis["on_list_positions"])
+            avg_concentration = np.mean([pos["concentration_index"] for pos in toplist_analysis["on_list_positions"]]) if toplist_analysis["on_list_positions"] else 0
+            
+            toplist_analysis["capital_flow_analysis"] = {
+                "total_net_flow": total_net_flow,
+                "average_concentration": avg_concentration,
+                "positions_on_toplist": len(toplist_analysis["on_list_positions"]),
+                "high_risk_positions": len([pos for pos in toplist_analysis["on_list_positions"] if pos["risk_level"] == "high"])
+            }
+            
+            return {
+                "success": True,
+                "data": toplist_analysis,
+                "message": f"成功分析投资组合龙虎榜情况，{len(toplist_analysis['on_list_positions'])}只股票有龙虎榜记录"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze portfolio toplist: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def check_position_toplist_status(self, user_id: str = "default_user") -> Dict[str, Any]:
+        """检查持仓股票的龙虎榜状态"""
+        try:
+            if not self.portfolio_service or not self.toplist_service:
+                return {"error": "Required services not available"}
+            
+            positions = await self.portfolio_service.get_positions(user_id)
+            if not positions:
+                return {"message": "当前无持仓股票"}
+            
+            # 获取今日龙虎榜数据
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            today_toplist = await self.toplist_service.get_top_list_by_date(today)
+            
+            # 检查持仓股票是否在今日龙虎榜中
+            toplist_codes = {item["ts_code"] for item in today_toplist}
+            
+            status_results = []
+            for position in positions:
+                ts_code = position.get("ts_code")
+                if ts_code in toplist_codes:
+                    # 找到对应的龙虎榜数据
+                    toplist_data = next((item for item in today_toplist if item["ts_code"] == ts_code), None)
+                    if toplist_data:
+                        status_results.append({
+                            "ts_code": ts_code,
+                            "stock_name": position.get("stock_name", ""),
+                            "on_toplist": True,
+                            "pct_chg": toplist_data.get("pct_chg", 0),
+                            "net_amount": toplist_data.get("net_amount", 0),
+                            "reason": toplist_data.get("reason", ""),
+                            "position_weight": position.get("weight", 0)
+                        })
+                else:
+                    status_results.append({
+                        "ts_code": ts_code,
+                        "stock_name": position.get("stock_name", ""),
+                        "on_toplist": False,
+                        "position_weight": position.get("weight", 0)
+                    })
+            
+            on_toplist_count = len([r for r in status_results if r["on_toplist"]])
+            
+            return {
+                "success": True,
+                "data": {
+                    "positions_status": status_results,
+                    "total_positions": len(status_results),
+                    "on_toplist_count": on_toplist_count,
+                    "toplist_ratio": on_toplist_count / len(status_results) if status_results else 0
+                },
+                "message": f"持仓中有{on_toplist_count}只股票今日上榜龙虎榜"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to check toplist status: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def analyze_position_capital_flow(self, user_id: str = "default_user", days: int = 5) -> Dict[str, Any]:
+        """分析持仓股票的资金流向"""
+        try:
+            if not self.portfolio_service or not self.toplist_analysis_service:
+                return {"error": "Required services not available"}
+            
+            positions = await self.portfolio_service.get_positions(user_id)
+            if not positions:
+                return {"message": "当前无持仓股票"}
+            
+            flow_analysis = {
+                "position_flows": [],
+                "summary": {
+                    "total_positions": len(positions),
+                    "analyzed_positions": 0,
+                    "net_inflow_positions": 0,
+                    "net_outflow_positions": 0,
+                    "total_net_flow": 0
+                }
+            }
+            
+            for position in positions:
+                ts_code = position.get("ts_code")
+                if not ts_code:
+                    continue
+                
+                try:
+                    # 获取席位集中度分析
+                    concentration = await self.toplist_analysis_service.calculate_seat_concentration(ts_code, days)
+                    
+                    # 获取龙虎榜历史
+                    history = await self.toplist_service.get_stock_top_list_history(ts_code, days)
+                    
+                    if history:
+                        net_flow = sum(item.get("net_amount", 0) for item in history)
+                        avg_pct_chg = np.mean([item.get("pct_chg", 0) for item in history])
+                        
+                        position_flow = {
+                            "ts_code": ts_code,
+                            "stock_name": position.get("stock_name", ""),
+                            "position_weight": position.get("weight", 0),
+                            "net_flow": net_flow,
+                            "avg_pct_chg": avg_pct_chg,
+                            "concentration_index": concentration.get("concentration_index", 0),
+                            "institution_dominance": concentration.get("institution_dominance", 0),
+                            "appearance_count": len(history),
+                            "flow_direction": "流入" if net_flow > 0 else "流出",
+                            "risk_assessment": self._assess_flow_risk(net_flow, concentration, avg_pct_chg)
+                        }
+                        
+                        flow_analysis["position_flows"].append(position_flow)
+                        flow_analysis["summary"]["analyzed_positions"] += 1
+                        flow_analysis["summary"]["total_net_flow"] += net_flow
+                        
+                        if net_flow > 0:
+                            flow_analysis["summary"]["net_inflow_positions"] += 1
+                        else:
+                            flow_analysis["summary"]["net_outflow_positions"] += 1
+                
+                except Exception as e:
+                    logger.warning(f"Failed to analyze flow for {ts_code}: {e}")
+                    continue
+            
+            # 按净流入排序
+            flow_analysis["position_flows"].sort(key=lambda x: x["net_flow"], reverse=True)
+            
+            return {
+                "success": True,
+                "data": flow_analysis,
+                "message": f"成功分析{flow_analysis['summary']['analyzed_positions']}只持仓股票的资金流向"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze capital flow: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _assess_toplist_risk(self, history: List[Dict], concentration: Dict) -> str:
+        """评估龙虎榜风险等级"""
+        risk_score = 0
+        
+        # 基于出现频率
+        if len(history) >= 3:
+            risk_score += 2
+        elif len(history) >= 2:
+            risk_score += 1
+        
+        # 基于席位集中度
+        hhi = concentration.get("concentration_index", 0)
+        if hhi > 0.7:
+            risk_score += 3
+        elif hhi > 0.5:
+            risk_score += 2
+        elif hhi > 0.3:
+            risk_score += 1
+        
+        # 基于资金流向
+        net_flow = sum(item.get("net_amount", 0) for item in history)
+        if net_flow < -200000:  # 大额流出
+            risk_score += 2
+        elif net_flow < -50000:
+            risk_score += 1
+        
+        if risk_score >= 5:
+            return "high"
+        elif risk_score >= 3:
+            return "medium"
+        else:
+            return "low"
+    
+    def _assess_flow_risk(self, net_flow: float, concentration: Dict, avg_pct_chg: float) -> str:
+        """评估资金流向风险"""
+        risk_factors = []
+        
+        if net_flow < -100000:
+            risk_factors.append("大额资金流出")
+        
+        if concentration.get("concentration_index", 0) > 0.6:
+            risk_factors.append("席位高度集中")
+        
+        if abs(avg_pct_chg) > 8:
+            risk_factors.append("价格波动剧烈")
+        
+        if len(risk_factors) >= 2:
+            return f"高风险: {', '.join(risk_factors)}"
+        elif len(risk_factors) == 1:
+            return f"中等风险: {risk_factors[0]}"
+        else:
+            return "低风险"
+    
+    def _generate_toplist_suggestions(self, positions: List[Dict]) -> List[str]:
+        """生成基于龙虎榜的投资建议"""
+        suggestions = []
+        
+        if not positions:
+            return ["当前持仓股票无龙虎榜记录，建议关注市场热点"]
+        
+        # 高风险持仓建议
+        high_risk_positions = [pos for pos in positions if pos["risk_level"] == "high"]
+        if high_risk_positions:
+            suggestions.append(f"建议关注{len(high_risk_positions)}只高风险股票，考虑适当减仓")
+        
+        # 资金流出建议
+        outflow_positions = [pos for pos in positions if pos["recent_net_flow"] < -50000]
+        if outflow_positions:
+            suggestions.append(f"{len(outflow_positions)}只股票存在明显资金流出，建议密切关注")
+        
+        # 席位集中度建议
+        high_concentration = [pos for pos in positions if pos["concentration_index"] > 0.6]
+        if high_concentration:
+            suggestions.append(f"{len(high_concentration)}只股票席位集中度较高，注意流动性风险")
+        
+        # 机构主导建议
+        institution_dominated = [pos for pos in positions if pos["institution_dominance"] > 0.7]
+        if institution_dominated:
+            suggestions.append(f"{len(institution_dominated)}只股票机构主导明显，可关注后续动向")
+        
+        if not suggestions:
+            suggestions.append("持仓股票龙虎榜表现相对稳定，建议继续观察")
+        
+        return suggestions
 
 
 # Global agent instance

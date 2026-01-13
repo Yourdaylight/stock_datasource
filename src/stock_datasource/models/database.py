@@ -221,6 +221,10 @@ class DualWriteClient:
         """Execute query on primary and return DataFrame."""
         return self.primary.execute_query(query, params)
     
+    def query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
+        """Execute query on primary and return DataFrame (alias for execute_query)."""
+        return self.primary.execute_query(query, params)
+    
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
         """Insert DataFrame into both primary and backup databases."""

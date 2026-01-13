@@ -91,6 +91,9 @@ def create_app() -> FastAPI:
     # Register strategy routes
     _register_strategy_routes(app)
     
+    # Register top list routes
+    _register_toplist_routes(app)
+    
     # Health check endpoint
     @app.get("/health")
     async def health_check():
@@ -102,7 +105,7 @@ def create_app() -> FastAPI:
         return {
             "name": "AI Stock Platform",
             "version": "2.0.0",
-            "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest"]
+            "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest", "toplist"]
         }
     
     return app
@@ -132,6 +135,16 @@ def _register_strategy_routes(app: FastAPI) -> None:
         logger.info("Registered strategy routes")
     except Exception as e:
         logger.warning(f"Failed to register strategy routes: {e}")
+
+
+def _register_toplist_routes(app: FastAPI) -> None:
+    """Register top list (龙虎榜) routes."""
+    try:
+        from stock_datasource.api.toplist_routes import router as toplist_router
+        app.include_router(toplist_router)
+        logger.info("Registered top list routes")
+    except Exception as e:
+        logger.warning(f"Failed to register top list routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):
