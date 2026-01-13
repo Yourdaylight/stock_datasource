@@ -1,29 +1,29 @@
-# Capability: ETF/指数选股
+# Capability: 指数选股
 
-ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分析功能。
+指数选股模块提供指数浏览、筛选、成分分析和AI量化分析功能。
 
 ## ADDED Requirements
 
-### Requirement: ETF Agent实现
+### Requirement: Index Agent实现
 
-系统 SHALL 提供专门的ETF Agent用于指数量化分析。
+系统 SHALL 提供专门的Index Agent用于指数量化分析。
 
-- 系统 SHALL 创建`ETFAgent`类，继承`LangGraphAgent`基类
-- 系统 SHALL 实现ETF专用的工具函数集
-- 系统 SHALL 配置符合ETF量化分析特点的System Prompt
+- 系统 SHALL 创建`IndexAgent`类，继承`LangGraphAgent`基类
+- 系统 SHALL 实现指数专用的工具函数集
+- 系统 SHALL 配置符合指数量化分析特点的System Prompt
 - 系统 SHALL 支持通过Agent执行综合分析任务
 
-#### Scenario: 初始化ETF Agent
+#### Scenario: 初始化Index Agent
 
 - **GIVEN** 系统启动
-- **WHEN** 调用`get_etf_agent()`
-- **THEN** 系统返回已初始化的`ETFAgent`实例
-- **AND** Agent配置名称为"ETFAgent"
-- **AND** Agent绑定ETF分析工具函数
+- **WHEN** 调用`get_index_agent()`
+- **THEN** 系统返回已初始化的`IndexAgent`实例
+- **AND** Agent配置名称为"IndexAgent"
+- **AND** Agent绑定指数分析工具函数
 
 #### Scenario: Agent执行分析任务
 
-- **GIVEN** ETF Agent已初始化
+- **GIVEN** Index Agent已初始化
 - **WHEN** 调用`agent.execute("分析沪深300指数")`
 - **THEN** Agent识别指数代码为`000300.SH`
 - **AND** Agent调用相关工具函数获取数据
@@ -31,9 +31,9 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 
 ---
 
-### Requirement: ETF分析工具函数
+### Requirement: 指数分析工具函数
 
-系统 SHALL 提供ETF分析专用的工具函数。
+系统 SHALL 提供指数分析专用的工具函数。
 
 - 系统 SHALL 实现`get_index_info`获取指数基础信息
 - 系统 SHALL 实现`get_index_constituents`获取成分股权重
@@ -41,7 +41,7 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 - 系统 SHALL 实现`analyze_index_valuation`分析指数估值
 - 系统 SHALL 实现`analyze_concentration_risk`分析集中度风险
 - 系统 SHALL 实现`analyze_technical_signals`分析技术信号
-- 系统 SHALL 实现`get_comprehensive_etf_analysis`生成综合报告
+- 系统 SHALL 实现`get_comprehensive_index_analysis`生成综合报告
 
 #### Scenario: 获取指数基础信息
 
@@ -169,11 +169,11 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 
 ---
 
-### Requirement: ETF量化分析
+### Requirement: 指数量化分析
 
-系统 SHALL 提供基于ETF特点的AI量化分析功能。
+系统 SHALL 提供基于指数特点的AI量化分析功能。
 
-- 系统 SHALL 调用ETF Agent执行分析任务
+- 系统 SHALL 调用Index Agent执行分析任务
 - 系统 SHALL 分析指数的估值水平（加权PE/PB）
 - 系统 SHALL 分析成分股集中度风险（CR10、HHI）
 - 系统 SHALL 分析技术指标趋势
@@ -184,7 +184,7 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 
 - **GIVEN** 用户在指数详情面板中
 - **WHEN** 用户点击"AI分析"按钮
-- **THEN** 系统调用ETF Agent的`execute()`方法
+- **THEN** 系统调用Index Agent的`execute()`方法
 - **AND** 展示分析加载状态
 
 #### Scenario: 展示分析结果
@@ -221,9 +221,9 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 
 ---
 
-### Requirement: ETF筛选预设策略
+### Requirement: 指数筛选预设策略
 
-系统 SHALL 提供ETF筛选的预设策略。
+系统 SHALL 提供指数筛选的预设策略。
 
 - 系统 SHALL 提供"宽基指数"预设（沪深300、中证500等）
 - 系统 SHALL 提供"行业指数"预设
@@ -232,13 +232,13 @@ ETF/指数选股模块提供指数浏览、筛选、成分分析和AI量化分�
 
 #### Scenario: 应用宽基指数预设
 
-- **GIVEN** 用户在ETF选股页面
+- **GIVEN** 用户在指数选股页面
 - **WHEN** 用户点击"宽基指数"预设标签
 - **THEN** 系统筛选并展示沪深300、中证500、上证50等宽基指数
 
 #### Scenario: 应用行业指数预设
 
-- **GIVEN** 用户在ETF选股页面
+- **GIVEN** 用户在指数选股页面
 - **WHEN** 用户点击"行业指数"预设标签
 - **THEN** 系统筛选并展示各行业指数（金融、科技、消费等）
 

@@ -1,21 +1,21 @@
-# Change: 新增ETF/指数选股界面
+# Change: 新增指数选股界面
 
 ## Why
 
-当前系统已有三个指数相关数据插件（`tushare_index_basic`、`tushare_index_weight`、`tushare_idx_factor_pro`），但缺少专门的ETF/指数选股界面。用户无法：
+当前系统已有三个指数相关数据插件（`tushare_index_basic`、`tushare_index_weight`、`tushare_idx_factor_pro`），但缺少专门的指数选股界面。用户无法：
 1. 浏览和筛选指数列表（沪深300、中证500等）
 2. 查看指数的成分股及权重分布
-3. 获取基于ETF量化分析策略的AI投资建议
+3. 获取基于指数量化分析策略的AI投资建议
 
 ## What Changes
 
 ### 新增功能
-- **ETF/指数列表页面**：展示所有指数的基础信息，支持按市场、类别筛选
+- **指数列表页面**：展示所有指数的基础信息，支持按市场、类别筛选
 - **指数详情面板**：展示指数成分股、权重分布、技术指标
-- **AI量化分析**：基于ETF特有的量化分析策略提供投资建议
+- **AI量化分析**：基于指数特有的量化分析策略提供投资建议
 
-### 新增ETF Agent (`etf_agent.py`)
-继承`LangGraphAgent`基类，专门处理ETF/指数量化分析任务：
+### 新增Index Agent (`index_agent.py`)
+继承`LangGraphAgent`基类，专门处理指数量化分析任务：
 
 **Agent职责**：
 - 指数基础信息查询
@@ -44,18 +44,18 @@
 - 输出格式：结构化Markdown报告，包含多空评分(0-100)
 
 ### 前端组件
-- `ETFScreenerView.vue` - ETF选股主页面
-- `ETFDetailDialog.vue` - 指数详情弹窗（成分股、权重、技术指标）
-- `ETFAnalysisPanel.vue` - AI量化分析面板
+- `IndexScreenerView.vue` - 指数选股主页面
+- `IndexDetailDialog.vue` - 指数详情弹窗（成分股、权重、技术指标）
+- `IndexAnalysisPanel.vue` - AI量化分析面板
 
 ### 后端接口
-- `GET /api/etf/indices` - 获取指数列表（分页、筛选）
-- `GET /api/etf/indices/{ts_code}` - 获取指数详情
-- `GET /api/etf/indices/{ts_code}/constituents` - 获取成分股及权重
-- `GET /api/etf/indices/{ts_code}/factors` - 获取技术因子数据
-- `POST /api/etf/analyze` - AI量化分析接口（调用ETF Agent）
+- `GET /api/index/indices` - 获取指数列表（分页、筛选）
+- `GET /api/index/indices/{ts_code}` - 获取指数详情
+- `GET /api/index/indices/{ts_code}/constituents` - 获取成分股及权重
+- `GET /api/index/indices/{ts_code}/factors` - 获取技术因子数据
+- `POST /api/index/analyze` - AI量化分析接口（调用Index Agent）
 
-### ETF量化分析策略（基于ods_idx_factor_pro表80+技术指标）
+### 指数量化分析策略（基于ods_idx_factor_pro表80+技术指标）
 
 **1. 趋势分析（权重30%）**
 - 均线系统：MA5/10/20/60/250排列状态（多头/空头/交织）
@@ -89,18 +89,18 @@
 ## Impact
 
 ### Affected Specs
-- etf-screener（新增）
+- index-screener（新增）
 
 ### Affected Code
-- `src/stock_datasource/agents/etf_agent.py` - **新增ETF Agent**
-- `src/stock_datasource/agents/etf_tools.py` - **新增ETF分析工具函数**
-- `src/stock_datasource/agents/__init__.py` - 注册ETF Agent
-- `frontend/src/views/etf/` - 新增ETF选股页面
-- `frontend/src/api/etf.ts` - 新增ETF API
-- `frontend/src/stores/etf.ts` - 新增ETF状态管理
-- `frontend/src/router/index.ts` - 添加ETF路由
-- `src/stock_datasource/modules/etf/` - 新增ETF后端模块
-- `src/stock_datasource/modules/__init__.py` - 注册ETF模块
+- `src/stock_datasource/agents/index_agent.py` - **新增Index Agent**
+- `src/stock_datasource/agents/index_tools.py` - **新增指数分析工具函数**
+- `src/stock_datasource/agents/__init__.py` - 注册Index Agent
+- `frontend/src/views/index/` - 新增指数选股页面
+- `frontend/src/api/index.ts` - 新增Index API
+- `frontend/src/stores/index.ts` - 新增Index状态管理
+- `frontend/src/router/index.ts` - 添加Index路由
+- `src/stock_datasource/modules/index/` - 新增Index后端模块
+- `src/stock_datasource/modules/__init__.py` - 注册Index模块
 
 ### Dependencies
 - 依赖已有的三个指数插件数据及其service层

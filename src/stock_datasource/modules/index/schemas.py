@@ -1,4 +1,4 @@
-"""Pydantic schemas for ETF module."""
+"""Pydantic schemas for Index module."""
 
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field

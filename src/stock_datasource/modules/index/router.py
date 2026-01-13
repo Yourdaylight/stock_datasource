@@ -1,10 +1,10 @@
-"""FastAPI router for ETF module."""
+"""FastAPI router for Index module."""
 
 from typing import Optional, List
 from fastapi import APIRouter, Query, HTTPException
 import logging
 
-from .service import get_etf_service
+from .service import get_index_service
 from .schemas import (
     IndexListResponse,
     IndexInfo,
@@ -29,7 +29,7 @@ async def get_indices(
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
 ):
     """获取指数列表，支持分页和筛选。"""
-    service = get_etf_service()
+    service = get_index_service()
     result = service.get_indices(
         market=market,
         category=category,
@@ -43,7 +43,7 @@ async def get_indices(
 @router.get("/indices/{ts_code}", response_model=IndexInfo, summary="获取指数详情")
 async def get_index_detail(ts_code: str):
     """获取指数详细信息。"""
-    service = get_etf_service()
+    service = get_index_service()
     result = service.get_index_detail(ts_code)
     if not result:
         raise HTTPException(status_code=404, detail=f"Index {ts_code} not found")
@@ -57,7 +57,7 @@ async def get_constituents(
     limit: int = Query(100, ge=1, le=500, description="返回数量"),
 ):
     """获取指数成分股及权重。"""
-    service = get_etf_service()
+    service = get_index_service()
     result = service.get_constituents(ts_code, trade_date, limit)
     return result
 
@@ -69,7 +69,7 @@ async def get_factors(
     indicators: Optional[str] = Query(None, description="指标列表，逗号分隔"),
 ):
     """获取指数技术因子数据。"""
-    service = get_etf_service()
+    service = get_index_service()
     indicator_list = indicators.split(",") if indicators else None
     result = service.get_factors(ts_code, days, indicator_list)
     return result
@@ -78,14 +78,14 @@ async def get_factors(
 @router.get("/markets", summary="获取市场列表")
 async def get_markets():
     """获取所有可用市场。"""
-    service = get_etf_service()
+    service = get_index_service()
     return service.get_markets()
 
 
 @router.get("/categories", summary="获取类别列表")
 async def get_categories():
     """获取所有可用类别。"""
-    service = get_etf_service()
+    service = get_index_service()
     return service.get_categories()
 
 
@@ -97,7 +97,7 @@ async def analyze_index(request: AnalyzeRequest):
     - 设置clear_history=true可清空历史重新开始
     - 历史消息会在1小时后自动过期
     """
-    service = get_etf_service()
+    service = get_index_service()
     try:
         result = await service.analyze_index(
             ts_code=request.ts_code,
@@ -114,7 +114,7 @@ async def analyze_index(request: AnalyzeRequest):
 @router.get("/indices/{ts_code}/quick-analysis", summary="快速量化分析")
 async def get_quick_analysis(ts_code: str):
     """获取快速量化分析（不使用AI，直接数据分析）。"""
-    service = get_etf_service()
+    service = get_index_service()
     result = service.get_quick_analysis(ts_code)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])

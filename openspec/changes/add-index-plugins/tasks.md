@@ -1,4 +1,4 @@
-# ETF插件开发任务清单
+# 指数插件开发任务清单
 
 ## Phase 1: tushare_idx_factor_pro
 

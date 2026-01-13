@@ -1,10 +1,10 @@
-"""ETF Agent for intelligent ETF/Index quantitative analysis using LangGraph/DeepAgents."""
+"""Index Agent for intelligent index quantitative analysis using LangGraph/DeepAgents."""
 
 from typing import List, Callable
 import logging
 
 from .base_agent import LangGraphAgent, AgentConfig
-from .etf_tools import (
+from .index_tools import (
     get_index_info,
     get_index_constituents,
     get_index_factors,
@@ -20,8 +20,8 @@ from .etf_tools import (
 logger = logging.getLogger(__name__)
 
 
-class ETFAgent(LangGraphAgent):
-    """ETF Agent for intelligent ETF/Index quantitative analysis using DeepAgents.
+class IndexAgent(LangGraphAgent):
+    """Index Agent for intelligent index quantitative analysis using DeepAgents.
     
     Handles:
     - Index basic information query
@@ -33,13 +33,13 @@ class ETFAgent(LangGraphAgent):
     
     def __init__(self):
         config = AgentConfig(
-            name="ETFAgent",
-            description="负责ETF/指数量化分析，提供趋势、动量、波动、量能、情绪、集中度等多维度分析"
+            name="IndexAgent",
+            description="负责指数量化分析，提供趋势、动量、波动、量能、情绪、集中度等多维度分析"
         )
         super().__init__(config)
     
     def get_tools(self) -> List[Callable]:
-        """Return ETF analysis tools."""
+        """Return index analysis tools."""
         return [
             get_index_info,
             get_index_constituents,
@@ -54,8 +54,8 @@ class ETFAgent(LangGraphAgent):
         ]
     
     def get_system_prompt(self) -> str:
-        """Return system prompt for ETF quantitative analysis."""
-        return """你是一个专业的ETF/指数量化分析师，专注于A股指数的技术分析。
+        """Return system prompt for index quantitative analysis."""
+        return """你是一个专业的指数量化分析师，专注于A股指数的技术分析。
 
 ## 可用数据
 你可以获取以下数据进行分析：
@@ -153,6 +153,6 @@ class ETFAgent(LangGraphAgent):
 """
 
 
-def get_etf_agent() -> ETFAgent:
-    """Get ETF Agent instance."""
-    return ETFAgent()
+def get_index_agent() -> IndexAgent:
+    """Get Index Agent instance."""
+    return IndexAgent()

@@ -1,4 +1,4 @@
-# Design: ETF/指数选股界面
+# Design: 指数选股界面
 
 ## Context
 
@@ -7,7 +7,7 @@
 - `tushare_index_weight`：指数成分股及权重
 - `tushare_idx_factor_pro`：指数技术因子（80+技术指标）
 
-需要构建前端界面和后端API，将这些数据整合展示，并提供符合ETF量化分析特点的AI分析功能。
+需要构建前端界面和后端API，将这些数据整合展示，并提供符合指数量化分析特点的AI分析功能。
 
 ## 数据源分析
 
@@ -200,33 +200,33 @@
 ## Goals / Non-Goals
 
 ### Goals
-- 提供直观的ETF/指数浏览和筛选界面
+- 提供直观的指数浏览和筛选界面
 - 展示指数成分股及权重分布
-- **新增ETF Agent**，基于上述技术指标提供专业量化分析
+- **新增Index Agent**，基于上述技术指标提供专业量化分析
 - 复用现有的插件service层
 
 ### Non-Goals
 - 不新增数据采集插件
-- 不实现ETF交易功能
+- 不实现指数交易功能
 - 不实现实时行情推送
 
 ## Decisions
 
-### 1. ETF Agent架构设计
+### 1. Index Agent架构设计
 
-**决策**：创建独立的`ETFAgent`类，继承`LangGraphAgent`基类
+**决策**：创建独立的`IndexAgent`类，继承`LangGraphAgent`基类
 
 **文件结构**：
 ```
 src/stock_datasource/agents/
-├── etf_agent.py      # ETF Agent主类
-├── etf_tools.py      # ETF专用工具函数
-└── __init__.py       # 注册get_etf_agent()
+├── index_agent.py      # Index Agent主类
+├── index_tools.py      # 指数专用工具函数
+└── __init__.py       # 注册get_index_agent()
 ```
 
-### 2. ETF Agent工具函数设计
+### 2. Index Agent工具函数设计
 
-**决策**：在`etf_tools.py`中实现以下工具函数
+**决策**：在`index_tools.py`中实现以下工具函数
 
 | 工具函数 | 数据来源 | 功能描述 |
 |---------|---------|---------|
@@ -241,13 +241,13 @@ src/stock_datasource/agents/
 | `analyze_concentration(ts_code)` | 成分股权重 | 分析集中度风险 |
 | `get_comprehensive_analysis(ts_code)` | 综合以上 | 生成完整分析报告 |
 
-### 3. ETF量化分析框架
+### 3. 指数量化分析框架
 
 基于实际可用的技术指标，设计以下分析框架：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ETF量化分析框架                           │
+│                    指数量化分析框架                           │
 ├─────────────────────────────────────────────────────────────┤
 │  1. 指数概况                                                 │
 │     - 基础信息：名称、市场、发布方、加权方式                    │
@@ -345,10 +345,10 @@ src/stock_datasource/agents/
 | 30-50% | 500-1000 | 中 | 适度集中 |
 | > 50% | > 1000 | 高 | 高度集中 |
 
-### 6. ETF Agent System Prompt设计
+### 6. Index Agent System Prompt设计
 
 ```python
-SYSTEM_PROMPT = """你是一个专业的ETF/指数量化分析师，专注于A股指数的技术分析。
+SYSTEM_PROMPT = """你是一个专业的指数量化分析师，专注于A股指数的技术分析。
 
 ## 可用数据
 你可以获取以下数据进行分析：
@@ -426,14 +426,14 @@ SYSTEM_PROMPT = """你是一个专业的ETF/指数量化分析师，专注于A�
 ```
 
 ### 7. 前端架构
-**决策**：参照现有`ScreenerView.vue`的设计模式，创建独立的ETF选股页面
+**决策**：参照现有`ScreenerView.vue`的设计模式，创建独立的指数选股页面
 
 ### 8. 后端模块设计
-**决策**：创建独立的`etf`模块，直接调用现有插件的service层
+**决策**：创建独立的`index`模块，直接调用现有插件的service层
 
 **结构**：
 ```
-src/stock_datasource/modules/etf/
+src/stock_datasource/modules/index/
 ├── __init__.py
 ├── router.py      # FastAPI路由
 ├── service.py     # 业务逻辑
@@ -466,4 +466,4 @@ src/stock_datasource/modules/etf/
 
 1. 是否需要支持指数对比功能？（建议后续迭代）
 2. 是否需要指数历史走势图表？（建议后续迭代）
-3. 是否需要将ETF Agent集成到Orchestrator中？（建议是，便于通过Chat界面调用）
+3. 是否需要将Index Agent集成到Orchestrator中？（建议是，便于通过Chat界面调用）

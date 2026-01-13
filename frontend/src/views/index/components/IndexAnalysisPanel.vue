@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useETFStore } from '@/stores/etf'
+import { useIndexStore } from '@/stores/index'
 
 const props = defineProps<{
   indexCode: string
   indexName: string
 }>()
 
-const etfStore = useETFStore()
+const indexStore = useIndexStore()
 const activeTab = ref('quick')
 const aiQuestion = ref('')
 
@@ -36,7 +36,7 @@ const getRiskLevelTheme = (level: string) => {
 
 // Format dimension scores for display
 const dimensionScores = computed(() => {
-  const analysis = etfStore.quickAnalysis
+  const analysis = indexStore.quickAnalysis
   if (!analysis?.dimension_scores) return []
   
   const ds = analysis.dimension_scores
@@ -51,16 +51,16 @@ const dimensionScores = computed(() => {
 
 // Load quick analysis on mount
 onMounted(() => {
-  etfStore.fetchQuickAnalysis(props.indexCode)
+  indexStore.fetchQuickAnalysis(props.indexCode)
 })
 
 // Handlers
 const handleRunAIAnalysis = () => {
-  etfStore.runAIAnalysis(props.indexCode, aiQuestion.value || undefined)
+  indexStore.runAIAnalysis(props.indexCode, aiQuestion.value || undefined)
 }
 
 const handleRefreshQuickAnalysis = () => {
-  etfStore.fetchQuickAnalysis(props.indexCode)
+  indexStore.fetchQuickAnalysis(props.indexCode)
 }
 </script>
 
@@ -69,17 +69,17 @@ const handleRefreshQuickAnalysis = () => {
     <t-tabs v-model="activeTab">
       <!-- Quick Analysis Tab -->
       <t-tab-panel value="quick" label="快速分析">
-        <t-loading :loading="etfStore.analysisLoading">
-          <div v-if="etfStore.quickAnalysis" class="quick-analysis">
+        <t-loading :loading="indexStore.analysisLoading">
+          <div v-if="indexStore.quickAnalysis" class="quick-analysis">
             <!-- Overall Score -->
             <div class="score-section">
               <div class="score-card">
                 <div class="score-label">多空评分</div>
                 <div 
                   class="score-value" 
-                  :style="{ color: getScoreColor(etfStore.quickAnalysis.overall_score) }"
+                  :style="{ color: getScoreColor(indexStore.quickAnalysis.overall_score) }"
                 >
-                  {{ etfStore.quickAnalysis.overall_score }}
+                  {{ indexStore.quickAnalysis.overall_score }}
                 </div>
                 <div class="score-hint">满分100，50为中性</div>
               </div>
@@ -87,13 +87,13 @@ const handleRefreshQuickAnalysis = () => {
               <div class="suggestion-card">
                 <div class="suggestion-label">操作建议</div>
                 <t-tag 
-                  :theme="getSuggestionTheme(etfStore.quickAnalysis.suggestion)"
+                  :theme="getSuggestionTheme(indexStore.quickAnalysis.suggestion)"
                   size="large"
                 >
-                  {{ etfStore.quickAnalysis.suggestion }}
+                  {{ indexStore.quickAnalysis.suggestion }}
                 </t-tag>
                 <div class="suggestion-detail">
-                  {{ etfStore.quickAnalysis.suggestion_detail }}
+                  {{ indexStore.quickAnalysis.suggestion_detail }}
                 </div>
               </div>
             </div>
@@ -122,13 +122,13 @@ const handleRefreshQuickAnalysis = () => {
             </div>
             
             <!-- Concentration Risk -->
-            <div class="concentration-section" v-if="etfStore.quickAnalysis.concentration">
+            <div class="concentration-section" v-if="indexStore.quickAnalysis.concentration">
               <div class="section-title">集中度风险</div>
               <t-space>
-                <t-tag>CR10: {{ etfStore.quickAnalysis.concentration.cr10 }}%</t-tag>
-                <t-tag>HHI: {{ etfStore.quickAnalysis.concentration.hhi?.toFixed(0) }}</t-tag>
-                <t-tag :theme="getRiskLevelTheme(etfStore.quickAnalysis.concentration.risk_level)">
-                  风险等级: {{ etfStore.quickAnalysis.concentration.risk_level }}
+                <t-tag>CR10: {{ indexStore.quickAnalysis.concentration.cr10 }}%</t-tag>
+                <t-tag>HHI: {{ indexStore.quickAnalysis.concentration.hhi?.toFixed(0) }}</t-tag>
+                <t-tag :theme="getRiskLevelTheme(indexStore.quickAnalysis.concentration.risk_level)">
+                  风险等级: {{ indexStore.quickAnalysis.concentration.risk_level }}
                 </t-tag>
               </t-space>
             </div>
@@ -137,7 +137,7 @@ const handleRefreshQuickAnalysis = () => {
             <div class="risks-section">
               <div class="section-title">风险提示</div>
               <t-list :split="true">
-                <t-list-item v-for="(risk, index) in etfStore.quickAnalysis.risks" :key="index">
+                <t-list-item v-for="(risk, index) in indexStore.quickAnalysis.risks" :key="index">
                   <t-icon name="error-circle" style="color: #e37318; margin-right: 8px" />
                   {{ risk }}
                 </t-list-item>
@@ -146,7 +146,7 @@ const handleRefreshQuickAnalysis = () => {
             
             <!-- Disclaimer -->
             <div class="disclaimer">
-              {{ etfStore.quickAnalysis.disclaimer }}
+              {{ indexStore.quickAnalysis.disclaimer }}
             </div>
             
             <!-- Refresh Button -->
@@ -183,21 +183,21 @@ const handleRefreshQuickAnalysis = () => {
               theme="primary" 
               block 
               style="margin-top: 12px"
-              :loading="etfStore.analysisLoading"
+              :loading="indexStore.analysisLoading"
               @click="handleRunAIAnalysis"
             >
               开始AI分析
             </t-button>
           </div>
           
-          <div class="ai-result-section" v-if="etfStore.aiAnalysisResult">
+          <div class="ai-result-section" v-if="indexStore.aiAnalysisResult">
             <div class="section-title">AI分析结果</div>
             <div class="ai-result-content">
-              <pre>{{ etfStore.aiAnalysisResult }}</pre>
+              <pre>{{ indexStore.aiAnalysisResult }}</pre>
             </div>
           </div>
           
-          <div v-else-if="!etfStore.analysisLoading" class="ai-hint">
+          <div v-else-if="!indexStore.analysisLoading" class="ai-hint">
             <t-icon name="tips" size="24px" />
             <p>点击"开始AI分析"获取更详细的量化分析报告</p>
           </div>

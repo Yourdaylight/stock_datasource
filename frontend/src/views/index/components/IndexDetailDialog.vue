@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useETFStore } from '@/stores/etf'
+import { useIndexStore } from '@/stores/index'
 
 const props = defineProps<{
   visible: boolean
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   (e: 'analyze', row: any): void
 }>()
 
-const etfStore = useETFStore()
+const indexStore = useIndexStore()
 const activeTab = ref('info')
 
 // Constituent table columns
@@ -26,8 +26,8 @@ const constituentColumns = [
 watch(() => props.indexCode, async (newCode) => {
   if (newCode) {
     await Promise.all([
-      etfStore.fetchIndexDetail(newCode),
-      etfStore.fetchConstituents(newCode),
+      indexStore.fetchIndexDetail(newCode),
+      indexStore.fetchConstituents(newCode),
     ])
   }
 }, { immediate: true })
@@ -38,8 +38,8 @@ const handleClose = () => {
 }
 
 const handleAnalyze = () => {
-  if (etfStore.currentIndex) {
-    emit('analyze', etfStore.currentIndex)
+  if (indexStore.currentIndex) {
+    emit('analyze', indexStore.currentIndex)
     handleClose()
   }
 }
@@ -54,79 +54,79 @@ const formatWeight = (weight: number | undefined) => {
 <template>
   <t-dialog
     :visible="visible"
-    :header="`${etfStore.currentIndex?.name || indexCode} 详情`"
+    :header="`${indexStore.currentIndex?.name || indexCode} 详情`"
     width="800px"
     :footer="false"
     @close="handleClose"
   >
-    <t-loading :loading="etfStore.detailLoading">
+    <t-loading :loading="indexStore.detailLoading">
       <t-tabs v-model="activeTab">
         <!-- Basic Info Tab -->
         <t-tab-panel value="info" label="基础信息">
-          <div class="info-grid" v-if="etfStore.currentIndex">
+          <div class="info-grid" v-if="indexStore.currentIndex">
             <div class="info-item">
               <span class="info-label">指数代码</span>
-              <span class="info-value">{{ etfStore.currentIndex.ts_code }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.ts_code }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">指数名称</span>
-              <span class="info-value">{{ etfStore.currentIndex.name }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.name }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">全称</span>
-              <span class="info-value">{{ etfStore.currentIndex.fullname || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.fullname || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">市场</span>
-              <span class="info-value">{{ etfStore.currentIndex.market || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.market || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">发布方</span>
-              <span class="info-value">{{ etfStore.currentIndex.publisher || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.publisher || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">指数类型</span>
-              <span class="info-value">{{ etfStore.currentIndex.index_type || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.index_type || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">类别</span>
-              <span class="info-value">{{ etfStore.currentIndex.category || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.category || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">加权方式</span>
-              <span class="info-value">{{ etfStore.currentIndex.weight_rule || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.weight_rule || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">基期</span>
-              <span class="info-value">{{ etfStore.currentIndex.base_date || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.base_date || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">基点</span>
-              <span class="info-value">{{ etfStore.currentIndex.base_point || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.base_point || '-' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">发布日期</span>
-              <span class="info-value">{{ etfStore.currentIndex.list_date || '-' }}</span>
+              <span class="info-value">{{ indexStore.currentIndex.list_date || '-' }}</span>
             </div>
             <div class="info-item full-width">
               <span class="info-label">描述</span>
-              <span class="info-value desc">{{ etfStore.currentIndex.desc || '-' }}</span>
+              <span class="info-value desc">{{ indexStore.currentIndex.desc || '-' }}</span>
             </div>
           </div>
         </t-tab-panel>
         
         <!-- Constituents Tab -->
         <t-tab-panel value="constituents" label="成分股">
-          <div class="constituents-header" v-if="etfStore.constituents">
+          <div class="constituents-header" v-if="indexStore.constituents">
             <t-space>
-              <t-tag theme="primary">成分股数量: {{ etfStore.constituents.constituent_count }}</t-tag>
-              <t-tag theme="success">总权重: {{ etfStore.constituents.total_weight?.toFixed(2) }}%</t-tag>
-              <t-tag>数据日期: {{ etfStore.constituents.trade_date || '-' }}</t-tag>
+              <t-tag theme="primary">成分股数量: {{ indexStore.constituents.constituent_count }}</t-tag>
+              <t-tag theme="success">总权重: {{ indexStore.constituents.total_weight?.toFixed(2) }}%</t-tag>
+              <t-tag>数据日期: {{ indexStore.constituents.trade_date || '-' }}</t-tag>
             </t-space>
           </div>
           
           <t-table
-            :data="etfStore.constituents?.constituents || []"
+            :data="indexStore.constituents?.constituents || []"
             :columns="constituentColumns"
             row-key="con_code"
             max-height="400px"

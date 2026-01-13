@@ -1,15 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
-  etfApi,
+  indexApi,
   type IndexInfo,
   type ConstituentResponse,
   type QuickAnalysisResult,
   type MarketOption,
   type CategoryOption,
-} from '@/api/etf'
+} from '@/api/index'
 
-export const useETFStore = defineStore('etf', () => {
+export const useIndexStore = defineStore('index', () => {
   // State
   const indices = ref<IndexInfo[]>([])
   const total = ref(0)
@@ -46,7 +46,7 @@ export const useETFStore = defineStore('etf', () => {
     
     loading.value = true
     try {
-      const result = await etfApi.getIndices({
+      const result = await indexApi.getIndices({
         market: selectedMarket.value || undefined,
         category: selectedCategory.value || undefined,
         keyword: searchKeyword.value || undefined,
@@ -65,7 +65,7 @@ export const useETFStore = defineStore('etf', () => {
   const fetchIndexDetail = async (tsCode: string) => {
     detailLoading.value = true
     try {
-      currentIndex.value = await etfApi.getIndexDetail(tsCode)
+      currentIndex.value = await indexApi.getIndexDetail(tsCode)
     } catch (e) {
       console.error('Failed to fetch index detail:', e)
       currentIndex.value = null
@@ -77,7 +77,7 @@ export const useETFStore = defineStore('etf', () => {
   const fetchConstituents = async (tsCode: string, tradeDate?: string) => {
     detailLoading.value = true
     try {
-      constituents.value = await etfApi.getConstituents(tsCode, tradeDate)
+      constituents.value = await indexApi.getConstituents(tsCode, tradeDate)
     } catch (e) {
       console.error('Failed to fetch constituents:', e)
       constituents.value = null
@@ -90,7 +90,7 @@ export const useETFStore = defineStore('etf', () => {
     analysisLoading.value = true
     quickAnalysis.value = null
     try {
-      quickAnalysis.value = await etfApi.getQuickAnalysis(tsCode)
+      quickAnalysis.value = await indexApi.getQuickAnalysis(tsCode)
     } catch (e) {
       console.error('Failed to fetch quick analysis:', e)
     } finally {
@@ -102,7 +102,7 @@ export const useETFStore = defineStore('etf', () => {
     analysisLoading.value = true
     aiAnalysisResult.value = ''
     try {
-      const result = await etfApi.analyze({ 
+      const result = await indexApi.analyze({ 
         ts_code: tsCode, 
         question,
         clear_history: clearHistory
@@ -121,7 +121,7 @@ export const useETFStore = defineStore('etf', () => {
   const clearConversation = async (tsCode: string) => {
     analysisLoading.value = true
     try {
-      const result = await etfApi.clearHistory(tsCode)
+      const result = await indexApi.clearHistory(tsCode)
       aiAnalysisResult.value = result.response
       sessionId.value = result.session_id
       historyLength.value = result.history_length
@@ -134,7 +134,7 @@ export const useETFStore = defineStore('etf', () => {
 
   const fetchMarkets = async () => {
     try {
-      markets.value = await etfApi.getMarkets()
+      markets.value = await indexApi.getMarkets()
     } catch (e) {
       console.error('Failed to fetch markets:', e)
     }
@@ -142,7 +142,7 @@ export const useETFStore = defineStore('etf', () => {
 
   const fetchCategories = async () => {
     try {
-      categories.value = await etfApi.getCategories()
+      categories.value = await indexApi.getCategories()
     } catch (e) {
       console.error('Failed to fetch categories:', e)
     }

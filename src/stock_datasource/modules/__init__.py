@@ -55,8 +55,8 @@ def get_all_routers() -> list:
         pass
     
     try:
-        from .etf.router import router as etf_router
-        routers.append(("/etf", etf_router, ["ETF选股"]))
+        from .index.router import router as index_router
+        routers.append(("/index", index_router, ["指数选股"]))
     except ImportError:
         pass
     

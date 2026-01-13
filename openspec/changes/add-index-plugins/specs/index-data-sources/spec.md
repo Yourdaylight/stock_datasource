@@ -1,6 +1,6 @@
-# Capability: ETF Data Sources
+# Capability: Index Data Sources
 
-ETF数据源模块负责获取和维护指数相关的各类数据，包括技术因子、基础信息和成分权重。
+指数数据源模块负责获取和维护指数相关的各类数据，包括技术因子、基础信息和成分权重。
 
 ## ADDED Requirements
 
@@ -175,7 +175,7 @@ ETF数据源模块负责获取和维护指数相关的各类数据，包括技�
 
 ### Requirement: 插件注册与发现
 
-系统 SHALL 自动注册和发现新增的ETF插件。
+系统 SHALL 自动注册和发现新增的指数插件。
 
 - 系统 SHALL 在 `plugins/__init__.py` 中注册新插件
 - 系统 SHALL 支持通过CLI命令调用插件
@@ -214,7 +214,7 @@ ETF数据源模块负责获取和维护指数相关的各类数据，包括技�
 
 ### Requirement: 数据质量控制
 
-系统 SHALL 确保ETF数据的质量和完整性。
+系统 SHALL 确保指数数据的质量和完整性。
 
 - 系统 SHALL 验证必需字段不为空
 - 系统 SHALL 验证数值类型字段的合理性

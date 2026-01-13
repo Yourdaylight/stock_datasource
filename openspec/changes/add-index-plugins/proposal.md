@@ -1,4 +1,4 @@
-# Change: 新增ETF相关数据源插件
+# Change: 新增指数相关数据源插件
 
 ## Why
 
@@ -38,7 +38,7 @@
 ## Impact
 
 ### Affected Specs
-- etf-data-sources（新增）
+- index-data-sources（新增）
 
 ### Affected Code
 - `src/stock_datasource/plugins/tushare_idx_factor_pro/` - 新增插件目录

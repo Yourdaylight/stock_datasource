@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { useETFStore } from '@/stores/etf'
-import ETFDetailDialog from './components/ETFDetailDialog.vue'
-import ETFAnalysisPanel from './components/ETFAnalysisPanel.vue'
+import { useIndexStore } from '@/stores/index'
+import IndexDetailDialog from './components/IndexDetailDialog.vue'
+import IndexAnalysisPanel from './components/IndexAnalysisPanel.vue'
 
-const etfStore = useETFStore()
+const indexStore = useIndexStore()
 const searchInput = ref('')
 
 // Dialog state
@@ -42,20 +42,20 @@ const columns = [
 // Market options for filter
 const marketOptions = computed(() => [
   { value: '', label: '全部市场' },
-  ...etfStore.markets.map(m => ({ value: m.market, label: `${m.market} (${m.count})` }))
+  ...indexStore.markets.map(m => ({ value: m.market, label: `${m.market} (${m.count})` }))
 ])
 
 // Category options for filter
 const categoryOptions = computed(() => [
   { value: '', label: '全部类别' },
-  ...etfStore.categories.map(c => ({ value: c.category, label: `${c.category} (${c.count})` }))
+  ...indexStore.categories.map(c => ({ value: c.category, label: `${c.category} (${c.count})` }))
 ])
 
 // Pagination
 const pagination = computed(() => ({
-  current: etfStore.page,
-  pageSize: etfStore.pageSize,
-  total: etfStore.total,
+  current: indexStore.page,
+  pageSize: indexStore.pageSize,
+  total: indexStore.total,
   showJumper: true,
   showPageSize: true,
   pageSizeOptions: [10, 20, 50, 100],
@@ -63,28 +63,28 @@ const pagination = computed(() => ({
 
 // Handlers
 const handleSearch = () => {
-  etfStore.setKeyword(searchInput.value)
+  indexStore.setKeyword(searchInput.value)
 }
 
 const handleMarketChange = (value: string) => {
-  etfStore.setMarket(value)
+  indexStore.setMarket(value)
 }
 
 const handleCategoryChange = (value: string) => {
-  etfStore.setCategory(value)
+  indexStore.setCategory(value)
 }
 
 const handlePageChange = (current: number) => {
-  etfStore.changePage(current)
+  indexStore.changePage(current)
 }
 
 const handlePageSizeChange = (size: number) => {
-  etfStore.changePageSize(size)
+  indexStore.changePageSize(size)
 }
 
 const handleClearFilters = () => {
   searchInput.value = ''
-  etfStore.clearFilters()
+  indexStore.clearFilters()
 }
 
 const handleViewDetail = (row: any) => {
@@ -111,19 +111,19 @@ const handleDetailDialogClose = () => {
 
 const handleAnalysisPanelClose = () => {
   showAnalysisPanel.value = false
-  etfStore.clearAnalysis()
+  indexStore.clearAnalysis()
 }
 
 // Load data on mount
 onMounted(() => {
-  etfStore.fetchIndices()
-  etfStore.fetchMarkets()
-  etfStore.fetchCategories()
+  indexStore.fetchIndices()
+  indexStore.fetchMarkets()
+  indexStore.fetchCategories()
 })
 </script>
 
 <template>
-  <div class="etf-screener-view">
+  <div class="index-screener-view">
     <!-- Quick Access Panel -->
     <t-card class="quick-access-card" :bordered="false">
       <div class="quick-access-header">
@@ -152,7 +152,7 @@ onMounted(() => {
             <div class="filter-item">
               <div class="filter-label">市场</div>
               <t-select
-                :value="etfStore.selectedMarket"
+                :value="indexStore.selectedMarket"
                 :options="marketOptions"
                 placeholder="选择市场"
                 clearable
@@ -163,7 +163,7 @@ onMounted(() => {
             <div class="filter-item">
               <div class="filter-label">类别</div>
               <t-select
-                :value="etfStore.selectedCategory"
+                :value="indexStore.selectedCategory"
                 :options="categoryOptions"
                 placeholder="选择类别"
                 clearable
@@ -196,13 +196,13 @@ onMounted(() => {
       <t-col :span="9">
         <t-card title="指数列表">
           <template #actions>
-            <span class="result-count">共 {{ etfStore.total }} 个指数</span>
+            <span class="result-count">共 {{ indexStore.total }} 个指数</span>
           </template>
           
           <t-table
-            :data="etfStore.indices"
+            :data="indexStore.indices"
             :columns="columns"
-            :loading="etfStore.loading"
+            :loading="indexStore.loading"
             row-key="ts_code"
             max-height="calc(100vh - 300px)"
           >
@@ -222,9 +222,9 @@ onMounted(() => {
           <!-- Pagination -->
           <div class="pagination-wrapper">
             <t-pagination
-              :current="etfStore.page"
-              :page-size="etfStore.pageSize"
-              :total="etfStore.total"
+              :current="indexStore.page"
+              :page-size="indexStore.pageSize"
+              :total="indexStore.total"
               :page-size-options="[10, 20, 50, 100]"
               show-jumper
               @current-change="handlePageChange"
@@ -236,7 +236,7 @@ onMounted(() => {
     </t-row>
     
     <!-- Detail Dialog -->
-    <ETFDetailDialog
+    <IndexDetailDialog
       v-model:visible="showDetailDialog"
       :index-code="selectedIndexCode"
       @close="handleDetailDialogClose"
@@ -251,7 +251,7 @@ onMounted(() => {
       :close-on-overlay-click="true"
       @close="handleAnalysisPanelClose"
     >
-      <ETFAnalysisPanel
+      <IndexAnalysisPanel
         v-if="showAnalysisPanel"
         :index-code="analysisIndexCode"
         :index-name="analysisIndexName"
@@ -261,7 +261,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.etf-screener-view {
+.index-screener-view {
   height: 100%;
 }
 

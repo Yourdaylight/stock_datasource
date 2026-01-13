@@ -1,4 +1,4 @@
-"""ETF/Index analysis tool functions for ETF Agent.
+"""Index analysis tool functions for Index Agent.
 
 Provides tools for:
 - Index basic information query

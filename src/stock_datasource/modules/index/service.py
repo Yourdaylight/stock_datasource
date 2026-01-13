@@ -1,4 +1,4 @@
-"""ETF module service layer.
+"""Index module service layer.
 
 Memory is now handled by base_agent.LangGraphAgent, which provides:
 - A: LangGraph MemorySaver for automatic checkpoint
@@ -27,8 +27,8 @@ def _execute_query(query: str) -> List[Dict[str, Any]]:
     return df.to_dict('records')
 
 
-class ETFService:
-    """Service for ETF/Index operations."""
+class IndexService:
+    """Service for Index operations."""
     
     def get_indices(
         self,
@@ -281,7 +281,7 @@ class ETFService:
         user_id: str = "default",
         clear_history: bool = False,
     ) -> Dict[str, Any]:
-        """Analyze index using ETF Agent with conversation memory.
+        """Analyze index using Index Agent with conversation memory.
         
         Memory is handled by base_agent.LangGraphAgent which provides:
         - LangGraph MemorySaver for checkpoint-based memory
@@ -298,9 +298,9 @@ class ETFService:
         Returns:
             Analysis result with session info
         """
-        from stock_datasource.agents import get_etf_agent
+        from stock_datasource.agents import get_index_agent
         
-        agent = get_etf_agent()
+        agent = get_index_agent()
         
         # Build task
         if question:
@@ -336,17 +336,17 @@ class ETFService:
         Returns:
             Quick analysis result
         """
-        from stock_datasource.agents.etf_tools import get_comprehensive_analysis
+        from stock_datasource.agents.index_tools import get_comprehensive_analysis
         return get_comprehensive_analysis(ts_code)
 
 
 # Singleton instance
-_etf_service: Optional[ETFService] = None
+_index_service: Optional[IndexService] = None
 
 
-def get_etf_service() -> ETFService:
-    """Get ETF service singleton."""
-    global _etf_service
-    if _etf_service is None:
-        _etf_service = ETFService()
-    return _etf_service
+def get_index_service() -> IndexService:
+    """Get Index service singleton."""
+    global _index_service
+    if _index_service is None:
+        _index_service = IndexService()
+    return _index_service

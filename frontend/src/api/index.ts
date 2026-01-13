@@ -93,7 +93,7 @@ export interface CategoryOption {
   count: number
 }
 
-export const etfApi = {
+export const indexApi = {
   // Get index list with pagination and filters
   getIndices(params: {
     market?: string
@@ -110,12 +110,12 @@ export const etfApi = {
     if (params.page_size) queryParams.append('page_size', params.page_size.toString())
     
     const queryString = queryParams.toString()
-    return request.get(`/api/etf/indices${queryString ? '?' + queryString : ''}`)
+    return request.get(`/api/index/indices${queryString ? '?' + queryString : ''}`)
   },
 
   // Get index detail
   getIndexDetail(tsCode: string): Promise<IndexInfo> {
-    return request.get(`/api/etf/indices/${tsCode}`)
+    return request.get(`/api/index/indices/${tsCode}`)
   },
 
   // Get index constituents
@@ -123,7 +123,7 @@ export const etfApi = {
     const params = new URLSearchParams()
     if (tradeDate) params.append('trade_date', tradeDate)
     params.append('limit', limit.toString())
-    return request.get(`/api/etf/indices/${tsCode}/constituents?${params.toString()}`)
+    return request.get(`/api/index/indices/${tsCode}/constituents?${params.toString()}`)
   },
 
   // Get technical factors
@@ -133,27 +133,27 @@ export const etfApi = {
     if (indicators && indicators.length > 0) {
       params.append('indicators', indicators.join(','))
     }
-    return request.get(`/api/etf/indices/${tsCode}/factors?${params.toString()}`)
+    return request.get(`/api/index/indices/${tsCode}/factors?${params.toString()}`)
   },
 
   // Get available markets
   getMarkets(): Promise<MarketOption[]> {
-    return request.get('/api/etf/markets')
+    return request.get('/api/index/markets')
   },
 
   // Get available categories
   getCategories(): Promise<CategoryOption[]> {
-    return request.get('/api/etf/categories')
+    return request.get('/api/index/categories')
   },
 
   // AI analysis with conversation memory
   analyze(req: AnalyzeRequest): Promise<AnalysisResult> {
-    return request.post('/api/etf/analyze', req)
+    return request.post('/api/index/analyze', req)
   },
 
   // Clear conversation history for a specific index
   clearHistory(tsCode: string, userId: string = 'default'): Promise<AnalysisResult> {
-    return request.post('/api/etf/analyze', {
+    return request.post('/api/index/analyze', {
       ts_code: tsCode,
       user_id: userId,
       clear_history: true,
@@ -163,6 +163,6 @@ export const etfApi = {
 
   // Quick analysis (without AI)
   getQuickAnalysis(tsCode: string): Promise<QuickAnalysisResult> {
-    return request.get(`/api/etf/indices/${tsCode}/quick-analysis`)
+    return request.get(`/api/index/indices/${tsCode}/quick-analysis`)
   }
 }

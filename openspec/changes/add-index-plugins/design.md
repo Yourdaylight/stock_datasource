@@ -1,8 +1,8 @@
-# Design: ETF插件技术设计
+# Design: 指数插件技术设计
 
 ## 架构概述
 
-ETF插件采用与现有tushare_daily插件相同的架构模式，继承`BasePlugin`基类，实现ETL流程。
+指数插件采用与现有tushare_daily插件相同的架构模式，继承`BasePlugin`基类，实现ETL流程。
 
 ## 插件设计
 
