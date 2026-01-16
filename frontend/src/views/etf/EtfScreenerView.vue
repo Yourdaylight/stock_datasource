@@ -30,13 +30,19 @@ const commonEtfs = [
 // Table columns
 const columns = [
   { colKey: 'ts_code', title: '代码', width: 110 },
-  { colKey: 'name', title: '名称', width: 180 },
-  { colKey: 'market', title: '交易所', width: 80 },
-  { colKey: 'fund_type', title: '基金类型', width: 100 },
-  { colKey: 'management', title: '管理人', width: 150, ellipsis: true },
-  { colKey: 'm_fee', title: '管理费率', width: 90 },
+  { colKey: 'csname', title: '名称', width: 160 },
+  { colKey: 'index_name', title: '跟踪指数', width: 160, ellipsis: true },
+  { colKey: 'trade_date', title: '日期', width: 100 },
+  { colKey: 'close', title: '收盘价', width: 90 },
+  { colKey: 'pct_chg', title: '涨跌幅', width: 90 },
+  { colKey: 'vol', title: '成交量', width: 100 },
+  { colKey: 'amount', title: '成交额', width: 110 },
+  { colKey: 'exchange', title: '交易所', width: 80 },
+  { colKey: 'etf_type', title: '基金类型', width: 100 },
+  { colKey: 'mgr_name', title: '管理人', width: 140, ellipsis: true },
+  { colKey: 'mgt_fee', title: '管理费率', width: 90 },
   { colKey: 'list_date', title: '上市日期', width: 100 },
-  { colKey: 'status', title: '状态', width: 70 },
+  { colKey: 'list_status', title: '状态', width: 70 },
   { colKey: 'operation', title: '操作', width: 150, fixed: 'right' }
 ]
 
@@ -107,7 +113,7 @@ const handleViewDetail = (row: any) => {
 
 const handleAnalyze = (row: any) => {
   analysisEtfCode.value = row.ts_code
-  analysisEtfName.value = row.name || row.ts_code
+  analysisEtfName.value = row.csname || row.ts_code
   showAnalysisPanel.value = true
 }
 
@@ -131,6 +137,8 @@ const getMarketLabel = (market?: string) => {
   const map: Record<string, string> = {
     'E': '上交所',
     'Z': '深交所',
+    'SH': '上交所',
+    'SZ': '深交所',
   }
   return market ? map[market] || market : '-'
 }
@@ -139,6 +147,7 @@ const getStatusLabel = (status?: string) => {
   const map: Record<string, string> = {
     'L': '上市',
     'D': '退市',
+    'P': '待上市',
     'I': '发行',
   }
   return status ? map[status] || status : '-'
@@ -148,9 +157,20 @@ const getStatusTheme = (status?: string) => {
   const map: Record<string, string> = {
     'L': 'success',
     'D': 'default',
+    'P': 'warning',
     'I': 'warning',
   }
   return status ? map[status] || 'default' : 'default'
+}
+
+const formatVolume = (val?: number) => {
+  if (!val) return '-'
+  return (val / 10000).toFixed(2) + '万手'
+}
+
+const formatAmount = (val?: number) => {
+  if (!val) return '-'
+  return (val / 10000).toFixed(2) + '万'
 }
 
 // Load data on mount
@@ -273,15 +293,29 @@ onMounted(() => {
                 {{ row.ts_code }}
               </t-link>
             </template>
-            <template #market="{ row }">
-              {{ getMarketLabel(row.market) }}
+            <template #close="{ row }">
+              {{ row.close?.toFixed(2) || '-' }}
             </template>
-            <template #m_fee="{ row }">
-              {{ row.m_fee ? (row.m_fee * 100).toFixed(2) + '%' : '-' }}
+            <template #pct_chg="{ row }">
+              <span :style="{ color: (row.pct_chg || 0) >= 0 ? '#e34d59' : '#00a870' }">
+                {{ row.pct_chg?.toFixed(2) || '0.00' }}%
+              </span>
             </template>
-            <template #status="{ row }">
-              <t-tag :theme="getStatusTheme(row.status)" size="small">
-                {{ getStatusLabel(row.status) }}
+            <template #vol="{ row }">
+              {{ formatVolume(row.vol) }}
+            </template>
+            <template #amount="{ row }">
+              {{ formatAmount(row.amount) }}
+            </template>
+            <template #exchange="{ row }">
+              {{ getMarketLabel(row.exchange) }}
+            </template>
+            <template #mgt_fee="{ row }">
+              {{ row.mgt_fee ? (row.mgt_fee * 100).toFixed(2) + '%' : '-' }}
+            </template>
+            <template #list_status="{ row }">
+              <t-tag :theme="getStatusTheme(row.list_status)" size="small">
+                {{ getStatusLabel(row.list_status) }}
               </t-tag>
             </template>
             <template #operation="{ row }">

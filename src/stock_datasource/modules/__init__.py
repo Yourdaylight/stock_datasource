@@ -72,4 +72,7 @@ def get_all_routers() -> list:
     except ImportError:
         pass
     
+    # Note: toplist routes are registered separately in http_server.py
+    # from stock_datasource.api.toplist_routes
+    
     return routers

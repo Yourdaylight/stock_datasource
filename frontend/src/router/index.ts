@@ -43,8 +43,8 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/etf',
-    name: 'ETF',
-    component: () => import('@/views/index/IndexScreenerView.vue'),
+    name: 'Etf',
+    component: () => import('@/views/etf/EtfScreenerView.vue'),
     meta: { title: '智能选ETF', icon: 'control-platform' }
   },
   {
@@ -76,18 +76,6 @@ const routes: RouteRecordRaw[] = [
     name: 'Index',
     component: () => import('@/views/index/IndexScreenerView.vue'),
     meta: { title: '指数选股', icon: 'chart-pie' }
-  },
-  {
-    path: '/etf',
-    name: 'Etf',
-    component: () => import('@/views/etf/EtfScreenerView.vue'),
-    meta: { title: 'ETF基金', icon: 'coin' }
-  },
-  {
-    path: '/strategy',
-    name: 'Strategy',
-    component: () => import('@/views/StrategyWorkbench.vue'),
-    meta: { title: '策略工作台', icon: 'tools' }
   }
 ]
 

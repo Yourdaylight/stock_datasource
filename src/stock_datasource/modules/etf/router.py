@@ -22,22 +22,32 @@ router = APIRouter()
 
 @router.get("/etfs", response_model=EtfListResponse, summary="获取ETF列表")
 async def get_etfs(
-    exchange: Optional[str] = Query(None, description="交易所筛选 (SH=上交所, SZ=深交所)"),
-    etf_type: Optional[str] = Query(None, description="ETF类型筛选"),
-    list_status: Optional[str] = Query(None, description="状态筛选 (L=上市, D=退市, P=待上市)"),
+    market: Optional[str] = Query(None, description="交易所筛选 (E=上交所, Z=深交所)"),
+    fund_type: Optional[str] = Query(None, description="ETF类型筛选"),
+    status: Optional[str] = Query(None, description="状态筛选 (L=上市, D=退市, P=待上市)"),
+    invest_type: Optional[str] = Query(None, description="投资类型筛选"),
     keyword: Optional[str] = Query(None, description="名称/代码搜索关键词"),
+    sort_by: Optional[str] = Query(None, description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向 (asc/desc)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
 ):
-    """获取ETF列表，支持分页和筛选。"""
+    """获取ETF列表（包含最新日行情），支持分页和筛选。"""
     service = get_etf_service()
+    
+    # Map frontend parameter names to backend field names
+    exchange_map = {'E': 'SH', 'Z': 'SZ'}
+    exchange = exchange_map.get(market, market) if market else None
+    
     result = service.get_etfs(
         exchange=exchange,
-        etf_type=etf_type,
-        list_status=list_status,
+        etf_type=fund_type,
+        list_status=status,
         keyword=keyword,
         page=page,
         page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return result
 

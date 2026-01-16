@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   etfApi,
   type EtfInfo,
+  type EtfQuoteItem,
   type ExchangeOption,
   type EtfTypeOption,
   type QuickAnalysisResult,
@@ -10,7 +11,7 @@ import {
 
 export const useEtfStore = defineStore('etf', () => {
   // State
-  const etfs = ref<EtfInfo[]>([])
+  const etfs = ref<EtfQuoteItem[]>([])
   const total = ref(0)
   const page = ref(1)
   const pageSize = ref(20)
@@ -56,7 +57,7 @@ export const useEtfStore = defineStore('etf', () => {
         page: page.value,
         page_size: pageSize.value,
       })
-      etfs.value = result.data
+      etfs.value = result.items
       total.value = result.total
     } catch (e) {
       console.error('Failed to fetch ETFs:', e)

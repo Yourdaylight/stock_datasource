@@ -2,37 +2,49 @@ import { request } from '@/utils/request'
 
 export interface EtfInfo {
   ts_code: string
-  name?: string
-  management?: string
-  custodian?: string
-  fund_type?: string
-  found_date?: string
-  due_date?: string
+  csname?: string
+  cname?: string
+  mgr_name?: string
+  custod_name?: string
+  etf_type?: string
+  setup_date?: string
   list_date?: string
-  issue_date?: string
-  delist_date?: string
-  issue_amount?: number
-  m_fee?: number
-  c_fee?: number
-  duration_year?: number
-  p_value?: number
-  min_amount?: number
-  exp_return?: number
-  benchmark?: string
-  status?: string
-  invest_type?: string
-  type?: string
-  trustee?: string
-  purc_startdate?: string
-  redm_startdate?: string
-  market?: string
+  mgt_fee?: number
+  index_code?: string
+  index_name?: string
+  list_status?: string
+  exchange?: string
+}
+
+export interface EtfQuoteItem {
+  ts_code: string
+  trade_date?: string
+  open?: number
+  high?: number
+  low?: number
+  close?: number
+  pct_chg?: number
+  vol?: number
+  amount?: number
+  csname?: string
+  cname?: string
+  index_code?: string
+  index_name?: string
+  exchange?: string
+  mgr_name?: string
+  custod_name?: string
+  list_date?: string
+  list_status?: string
+  etf_type?: string
+  mgt_fee?: number
 }
 
 export interface EtfListResponse {
+  items: EtfQuoteItem[]
   total: number
   page: number
   page_size: number
-  data: EtfInfo[]
+  total_pages: number
 }
 
 export interface EtfDailyData {

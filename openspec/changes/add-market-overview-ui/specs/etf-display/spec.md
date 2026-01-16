@@ -14,7 +14,7 @@
 
 **Given** 用户访问ETF页面
 **When** 页面加载完成
-**Then** 系统显示ETF列表，包含以下字段：
+**Then** 系统显示ETF列表（最新交易日行情 + 基本信息），包含以下字段：
   - ETF代码 (ts_code)
   - ETF简称 (csname)
   - 跟踪指数 (index_name)
@@ -22,6 +22,11 @@
   - 管理人 (mgr_name)
   - 上市日期 (list_date)
   - 存续状态 (list_status)
+  - 交易日期 (trade_date)
+  - 收盘价 (close)
+  - 涨跌幅 (pct_chg)
+  - 成交量 (vol)
+  - 成交额 (amount)
 
 #### Scenario: 用户按交易所筛选ETF
 
@@ -90,24 +95,28 @@
 
 ### Requirement: ETF后端API
 
-系统 MUST 提供ETF数据的RESTful API接口。
+系统 MUST 提供ETF数据的RESTful API接口（ETF列表默认返回最新日行情）。
 
 #### Scenario: 获取ETF列表API
 
 **Given** 客户端请求 `GET /api/etf/etfs`
 **When** 请求包含可选参数：
-  - `exchange`: 交易所筛选
-  - `etf_type`: ETF类型筛选
+  - `market`: 交易所筛选（E=上交所, Z=深交所）
+  - `fund_type`: ETF类型筛选
+  - `status`: 状态筛选（L/D/P）
   - `keyword`: 搜索关键词
+  - `sort_by`: 排序字段（如 close/pct_chg/vol/amount）
+  - `sort_order`: 排序方向（asc/desc）
   - `page`: 页码（默认1）
   - `page_size`: 每页数量（默认20）
-**Then** 系统返回ETF列表响应：
+**Then** 系统返回ETF列表响应（包含最新日行情字段）：
 ```json
 {
   "items": [...],
   "total": 500,
   "page": 1,
-  "page_size": 20
+  "page_size": 20,
+  "total_pages": 25
 }
 ```
 
