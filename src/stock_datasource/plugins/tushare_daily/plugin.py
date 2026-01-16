@@ -181,13 +181,16 @@ class TuShareDailyPlugin(BasePlugin):
             fact_data['created_at'] = datetime.now()
             fact_data['updated_at'] = datetime.now()
             
+            # adj_factor is optional - set to None if not available
+            if 'adj_factor' not in fact_data.columns:
+                fact_data['adj_factor'] = None
+            
             fact_data = self._prepare_data_for_insert('fact_daily_bar', fact_data)
             self.db.insert_dataframe('fact_daily_bar', fact_data)
             
             results['tables_loaded'].append({
                 'table': 'fact_daily_bar',
-                'records': len(fact_data),
-                'has_adj_factors': adj_factor_data is not None and not adj_factor_data.empty
+                'records': len(fact_data)
             })
             results['total_records'] += len(fact_data)
             self.logger.info(f"Loaded {len(fact_data)} records into fact_daily_bar")

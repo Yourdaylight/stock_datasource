@@ -1,4 +1,4 @@
-"""TuShare index basic info extractor - independent implementation."""
+"""TuShare index daily data extractor - independent implementation."""
 
 import logging
 import json
@@ -9,15 +9,32 @@ from pathlib import Path
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
+from stock_datasource.core.proxy import apply_proxy_settings
 
 logger = logging.getLogger(__name__)
 
 
-class IndexBasicExtractor:
-    """Independent extractor for TuShare index basic info data."""
+# Major indices to prioritize (from OverviewService)
+MAJOR_INDICES = [
+    "000001.SH",  # 上证指数
+    "399001.SZ",  # 深证成指
+    "000300.SH",  # 沪深300
+    "000905.SH",  # 中证500
+    "000016.SH",  # 上证50
+    "399006.SZ",  # 创业板指
+    "000852.SH",  # 中证1000
+    "000688.SH",  # 科创50
+]
+
+
+class IndexDailyExtractor:
+    """Independent extractor for TuShare index daily price data."""
     
     def __init__(self):
         self.token = settings.TUSHARE_TOKEN
+        
+        # Apply proxy settings before making any API calls
+        apply_proxy_settings()
         
         # Load rate_limit from config.json
         config_file = Path(__file__).parent / "config.json"
@@ -64,7 +81,7 @@ class IndexBasicExtractor:
         try:
             result = api_func(**kwargs)
             if result is None or result.empty:
-                logger.warning(f"API returned empty data")
+                logger.warning(f"API returned empty data for {kwargs}")
                 return pd.DataFrame()
             
             logger.info(f"API call successful, records: {len(result)}")
@@ -74,39 +91,33 @@ class IndexBasicExtractor:
             logger.error(f"API call failed: {e}")
             raise
     
-    def extract(self, market: Optional[str] = None, ts_code: Optional[str] = None,
-               name: Optional[str] = None, publisher: Optional[str] = None,
-               category: Optional[str] = None) -> pd.DataFrame:
-        """Extract index basic information.
+    def extract(self, trade_date: str, ts_code: Optional[str] = None) -> pd.DataFrame:
+        """Extract index daily data for a specific trade date.
         
         Args:
-            market: Market code (SSE/SZSE/CSI/CICC/SW)
-            ts_code: Index code
-            name: Index name
-            publisher: Publisher name
-            category: Index category
+            trade_date: Trade date in YYYYMMDD format
+            ts_code: Optional index code (if not provided, gets major indices only)
         
         Returns:
-            DataFrame with index basic information
+            DataFrame with index daily data (OHLCV)
         """
-        kwargs = {}
-        
-        if market:
-            kwargs['market'] = market
         if ts_code:
-            kwargs['ts_code'] = ts_code
-        if name:
-            kwargs['name'] = name
-        if publisher:
-            kwargs['publisher'] = publisher
-        if category:
-            kwargs['category'] = category
-        
-        # 必须明确指定 fields 参数，否则 TuShare 只返回部分字段
-        kwargs['fields'] = 'ts_code,name,fullname,market,publisher,index_type,category,base_date,base_point,list_date,weight_rule,desc,exp_date'
-        
-        return self._call_api(self.pro.index_basic, **kwargs)
+            # Get data for specific index
+            kwargs = {'ts_code': ts_code, 'trade_date': trade_date}
+            return self._call_api(self.pro.index_daily, **kwargs)
+        else:
+            # Get data for major indices only (to avoid too many API calls)
+            all_data = []
+            for idx_code in MAJOR_INDICES:
+                kwargs = {'ts_code': idx_code, 'trade_date': trade_date}
+                data = self._call_api(self.pro.index_daily, **kwargs)
+                if not data.empty:
+                    all_data.append(data)
+            
+            if all_data:
+                return pd.concat(all_data, ignore_index=True)
+            return pd.DataFrame()
 
 
 # Global extractor instance
-extractor = IndexBasicExtractor()
+extractor = IndexDailyExtractor()

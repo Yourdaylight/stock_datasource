@@ -60,6 +60,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '指数选股', icon: 'chart-pie' }
   },
   {
+    path: '/etf',
+    name: 'Etf',
+    component: () => import('@/views/etf/EtfScreenerView.vue'),
+    meta: { title: 'ETF基金', icon: 'coin' }
+  },
+  {
     path: '/strategy',
     name: 'Strategy',
     component: () => import('@/views/StrategyWorkbench.vue'),

@@ -4,11 +4,22 @@ from fastapi import APIRouter, Query
 from typing import List, Any, Optional
 from pydantic import BaseModel, Field
 import logging
+import pandas as pd
 
 from stock_datasource.models.database import db_client
 from stock_datasource.agents.tools import _format_date
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(value) -> Optional[float]:
+    """Convert value to float, return None if NaN or invalid."""
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
 
 router = APIRouter()
 
@@ -153,17 +164,17 @@ async def get_stocks(
             item = StockItem(
                 ts_code=row['ts_code'],
                 trade_date=_format_date(row['trade_date']),
-                open=float(row['open']) if row.get('open') else None,
-                high=float(row['high']) if row.get('high') else None,
-                low=float(row['low']) if row.get('low') else None,
-                close=float(row['close']) if row.get('close') else None,
-                pct_chg=float(row['pct_chg']) if row.get('pct_chg') else None,
-                vol=float(row['vol']) if row.get('vol') else None,
-                amount=float(row['amount']) if row.get('amount') else None,
-                pe_ttm=float(row['pe_ttm']) if row.get('pe_ttm') else None,
-                pb=float(row['pb']) if row.get('pb') else None,
-                total_mv=float(row['total_mv']) if row.get('total_mv') else None,
-                turnover_rate=float(row['turnover_rate']) if row.get('turnover_rate') else None,
+                open=_safe_float(row.get('open')),
+                high=_safe_float(row.get('high')),
+                low=_safe_float(row.get('low')),
+                close=_safe_float(row.get('close')),
+                pct_chg=_safe_float(row.get('pct_chg')),
+                vol=_safe_float(row.get('vol')),
+                amount=_safe_float(row.get('amount')),
+                pe_ttm=_safe_float(row.get('pe_ttm')),
+                pb=_safe_float(row.get('pb')),
+                total_mv=_safe_float(row.get('total_mv')),
+                turnover_rate=_safe_float(row.get('turnover_rate')),
             )
             items.append(item)
         
@@ -276,17 +287,17 @@ async def filter_stocks(
             item = StockItem(
                 ts_code=row['ts_code'],
                 trade_date=_format_date(row['trade_date']),
-                open=float(row['open']) if row.get('open') else None,
-                high=float(row['high']) if row.get('high') else None,
-                low=float(row['low']) if row.get('low') else None,
-                close=float(row['close']) if row.get('close') else None,
-                pct_chg=float(row['pct_chg']) if row.get('pct_chg') else None,
-                vol=float(row['vol']) if row.get('vol') else None,
-                amount=float(row['amount']) if row.get('amount') else None,
-                pe_ttm=float(row['pe_ttm']) if row.get('pe_ttm') else None,
-                pb=float(row['pb']) if row.get('pb') else None,
-                total_mv=float(row['total_mv']) if row.get('total_mv') else None,
-                turnover_rate=float(row['turnover_rate']) if row.get('turnover_rate') else None,
+                open=_safe_float(row.get('open')),
+                high=_safe_float(row.get('high')),
+                low=_safe_float(row.get('low')),
+                close=_safe_float(row.get('close')),
+                pct_chg=_safe_float(row.get('pct_chg')),
+                vol=_safe_float(row.get('vol')),
+                amount=_safe_float(row.get('amount')),
+                pe_ttm=_safe_float(row.get('pe_ttm')),
+                pb=_safe_float(row.get('pb')),
+                total_mv=_safe_float(row.get('total_mv')),
+                turnover_rate=_safe_float(row.get('turnover_rate')),
             )
             items.append(item)
         
@@ -427,13 +438,13 @@ async def get_market_summary():
         row = df.iloc[0]
         return {
             "trade_date": latest_date,
-            "total_stocks": int(row['total_stocks']),
-            "up_count": int(row['up_count']),
-            "down_count": int(row['down_count']),
-            "flat_count": int(row['flat_count']),
-            "limit_up": int(row['limit_up']),
-            "limit_down": int(row['limit_down']),
-            "avg_change": float(row['avg_change']) if row['avg_change'] else 0,
+            "total_stocks": int(row['total_stocks']) if pd.notna(row['total_stocks']) else 0,
+            "up_count": int(row['up_count']) if pd.notna(row['up_count']) else 0,
+            "down_count": int(row['down_count']) if pd.notna(row['down_count']) else 0,
+            "flat_count": int(row['flat_count']) if pd.notna(row['flat_count']) else 0,
+            "limit_up": int(row['limit_up']) if pd.notna(row['limit_up']) else 0,
+            "limit_down": int(row['limit_down']) if pd.notna(row['limit_down']) else 0,
+            "avg_change": _safe_float(row['avg_change']) or 0,
         }
         
     except Exception as e:
