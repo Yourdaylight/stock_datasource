@@ -134,6 +134,22 @@ async def delete_sync_task(task_id: str):
     return {"success": True, "message": "Task deleted"}
 
 
+@router.post("/sync/retry/{task_id}", response_model=SyncTask)
+async def retry_sync_task(task_id: str):
+    """Retry a failed or cancelled sync task.
+    
+    Creates a new task with the same parameters as the original task.
+    Only works for tasks with status 'failed' or 'cancelled'.
+    """
+    new_task = sync_task_manager.retry_task(task_id)
+    if not new_task:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot retry task (not found or not in failed/cancelled status)"
+        )
+    return new_task
+
+
 @router.get("/sync/config", response_model=SyncConfig)
 async def get_sync_config():
     """Get current sync configuration (parallelism settings)."""

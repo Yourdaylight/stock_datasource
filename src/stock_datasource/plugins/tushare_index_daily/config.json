@@ -1,0 +1,5 @@
+{
+  "rate_limit": 500,
+  "api_name": "index_dailybasic",
+  "description": "指数日线行情及指标"
+}

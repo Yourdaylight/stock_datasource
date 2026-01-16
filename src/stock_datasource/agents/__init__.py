@@ -39,6 +39,8 @@ from .datamanage_agent import DataManageAgent
 from .portfolio_agent import PortfolioAgent
 from .backtest_agent import BacktestAgent
 from .index_agent import IndexAgent, get_index_agent
+from .etf_agent import EtfAgent, get_etf_agent
+from .overview_agent import OverviewAgent, get_overview_agent
 from .toplist_agent import TopListAgent
 
 # For backward compatibility with deep_agent imports
@@ -73,6 +75,10 @@ __all__ = [
     "BacktestAgent",
     "IndexAgent",
     "get_index_agent",
+    "EtfAgent",
+    "get_etf_agent",
+    "OverviewAgent",
+    "get_overview_agent",
     # DeepAgent (for backward compatibility)
     "StockDeepAgent",
     "get_stock_agent",

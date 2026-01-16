@@ -176,44 +176,37 @@ class TuShareStockBasicPlugin(BasePlugin):
             self.logger.info(f"Loading {len(data)} records into dim_security")
             dim_data = data.copy()
             
-            # Map columns
-            column_mapping = {
-                'ts_code': 'ts_code',
-                'symbol': 'ticker',
-                'name': 'name',
-                'list_date': 'list_date',
-                'delist_date': 'delist_date',
-                'list_status': 'status'
-            }
+            # dim_security table schema:
+            # ts_code, symbol, name, area, industry, market, list_date, delist_date, list_status, version, _ingested_at
             
-            # Select and rename columns
-            available_cols = [col for col in column_mapping.keys() if col in dim_data.columns]
-            dim_data = dim_data[available_cols].rename(columns=column_mapping)
+            # Select only the columns needed for dim_security
+            dim_columns = ['ts_code', 'symbol', 'name', 'area', 'industry', 'market', 
+                          'list_date', 'delist_date', 'list_status']
             
-            # Add market column
-            dim_data['market'] = 'CN'
+            # Keep only columns that exist in the data
+            available_cols = [col for col in dim_columns if col in dim_data.columns]
+            dim_data = dim_data[available_cols].copy()
             
-            # Ensure required columns exist
-            required_cols = ['ts_code', 'ticker', 'name', 'list_date', 'status']
-            for col in required_cols:
+            # Ensure required columns have values
+            if 'market' not in dim_data.columns:
+                dim_data['market'] = 'CN'
+            
+            # Handle optional columns
+            for col in ['area', 'industry']:
                 if col not in dim_data.columns:
-                    if col == 'status':
-                        dim_data[col] = 'L'  # Default to Listed
-                    else:
-                        self.logger.warning(f"Missing required column {col} in stock basic data")
+                    dim_data[col] = None
             
             # Convert date formats
             if 'list_date' in dim_data.columns:
-                dim_data['list_date'] = pd.to_datetime(dim_data['list_date']).dt.date
+                dim_data['list_date'] = pd.to_datetime(dim_data['list_date'], errors='coerce').dt.date
             
             if 'delist_date' in dim_data.columns:
                 dim_data['delist_date'] = pd.to_datetime(dim_data['delist_date'], errors='coerce').dt.date
             
             # Add timestamps and version
             now = datetime.now()
-            dim_data['created_at'] = now
-            dim_data['updated_at'] = now
             dim_data['version'] = int(now.timestamp())
+            dim_data['_ingested_at'] = now
             
             dim_data = self._prepare_data_for_insert('dim_security', dim_data)
             self.db.insert_dataframe('dim_security', dim_data)

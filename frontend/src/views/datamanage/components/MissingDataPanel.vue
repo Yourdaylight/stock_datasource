@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDataManageStore } from '@/stores/datamanage'
 
 const dataStore = useDataManageStore()
@@ -7,6 +7,18 @@ const dataStore = useDataManageStore()
 const emit = defineEmits<{
   (e: 'sync', pluginName: string, dates: string[]): void
 }>()
+
+// 检测天数选项
+const checkDays = ref(30)
+const daysOptions = [
+  { label: '7天', value: 7 },
+  { label: '15天', value: 15 },
+  { label: '30天', value: 30 },
+  { label: '60天', value: 60 },
+  { label: '90天', value: 90 },
+  { label: '180天', value: 180 },
+  { label: '365天', value: 365 }
+]
 
 const summary = computed(() => dataStore.missingData)
 
@@ -16,7 +28,12 @@ const pluginsWithMissing = computed(() => {
 })
 
 const handleRefresh = () => {
-  dataStore.triggerMissingDataDetection(30)
+  dataStore.triggerMissingDataDetection(checkDays.value)
+}
+
+const handleDaysChange = (value: number) => {
+  checkDays.value = value
+  dataStore.triggerMissingDataDetection(value)
 }
 
 const handleSync = (pluginName: string, dates: string[]) => {
@@ -39,14 +56,23 @@ const formatTime = (timeStr: string) => {
           检测时间: {{ formatTime(summary.check_time) }}
         </span>
       </div>
-      <t-button 
-        theme="default" 
-        size="small" 
-        :loading="dataStore.loading"
-        @click="handleRefresh"
-      >
-        刷新检测
-      </t-button>
+      <div class="header-right">
+        <t-select
+          v-model="checkDays"
+          :options="daysOptions"
+          size="small"
+          style="width: 100px"
+          @change="handleDaysChange"
+        />
+        <t-button 
+          theme="default" 
+          size="small" 
+          :loading="dataStore.loading"
+          @click="handleRefresh"
+        >
+          刷新检测
+        </t-button>
+      </div>
     </div>
 
     <t-loading :loading="dataStore.loading">
@@ -55,7 +81,12 @@ const formatTime = (timeStr: string) => {
           <t-col :span="4">
             <div class="stat-item">
               <div class="stat-value">{{ summary.total_plugins }}</div>
-              <div class="stat-label">检测插件数</div>
+              <div class="stat-label">
+                检测插件数
+                <t-tooltip content="仅检测每日更新(daily)频率的插件">
+                  <t-icon name="help-circle" size="14px" style="margin-left: 4px; cursor: help;" />
+                </t-tooltip>
+              </div>
             </div>
           </t-col>
           <t-col :span="4">
@@ -148,6 +179,12 @@ const formatTime = (timeStr: string) => {
 
 .header-left h4 {
   margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .check-time {

@@ -75,6 +75,29 @@ async def get_factors(
     return result
 
 
+@router.get("/indices/{ts_code}/daily", summary="获取指数日线数据")
+async def get_index_daily(
+    ts_code: str,
+    days: int = Query(30, ge=1, le=250, description="获取天数"),
+):
+    """获取指数日线行情数据。"""
+    service = get_index_service()
+    result = service.get_daily(ts_code, days)
+    return result
+
+
+@router.get("/indices/{ts_code}/kline", summary="获取指数K线数据")
+async def get_index_kline(
+    ts_code: str,
+    start_date: Optional[str] = Query(None, description="开始日期 (YYYYMMDD)"),
+    end_date: Optional[str] = Query(None, description="结束日期 (YYYYMMDD)"),
+):
+    """获取指数K线数据。"""
+    service = get_index_service()
+    result = service.get_kline(ts_code, start_date, end_date)
+    return result
+
+
 @router.get("/markets", summary="获取市场列表")
 async def get_markets():
     """获取所有可用市场。"""

@@ -60,4 +60,16 @@ def get_all_routers() -> list:
     except ImportError:
         pass
     
+    try:
+        from .etf.router import router as etf_router
+        routers.append(("/etf", etf_router, ["ETF基金"]))
+    except ImportError:
+        pass
+    
+    try:
+        from .overview.router import router as overview_router
+        routers.append(("/overview", overview_router, ["市场概览"]))
+    except ImportError:
+        pass
+    
     return routers
