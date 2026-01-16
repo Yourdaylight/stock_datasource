@@ -1,171 +1,58 @@
-"""Screener module router."""
+"""Screener module router - 智能选股模块API
 
-from fastapi import APIRouter, Query
-from typing import List, Any, Optional
-from pydantic import BaseModel, Field
+增强功能：
+- 多维度条件筛选
+- 十维画像
+- 自然语言选股
+- AI推荐
+- 行业筛选
+"""
+
+from fastapi import APIRouter, Query, HTTPException
+from typing import List, Any, Optional, Dict
 import logging
 
-from stock_datasource.models.database import db_client
-from stock_datasource.agents.tools import _format_date
+from .schemas import (
+    ScreenerCondition, ScreenerRequest, NLScreenerRequest, BatchProfileRequest,
+    StockItem, StockListResponse, NLScreenerResponse, 
+    StockProfile, PresetStrategy,
+    SectorInfo, SectorListResponse,
+    FieldDefinition, MarketSummary,
+    Recommendation, RecommendationResponse,
+    TechnicalSignal, TechnicalSignalResponse,
+)
+from .service import get_screener_service
+from .profile import get_profile_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-class ScreenerCondition(BaseModel):
-    field: str
-    operator: str
-    value: Any
-
-
-class ScreenerRequest(BaseModel):
-    conditions: List[ScreenerCondition] = Field(default_factory=list)
-    sort_by: str = None
-    sort_order: str = "desc"
-    limit: int = 100
-
-
-class NLScreenerRequest(BaseModel):
-    query: str
-
-
-class StockItem(BaseModel):
-    """Stock item with basic info and latest quote."""
-    ts_code: str
-    trade_date: Optional[str] = None
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    close: Optional[float] = None
-    pct_chg: Optional[float] = None
-    vol: Optional[float] = None
-    amount: Optional[float] = None
-    pe_ttm: Optional[float] = None
-    pb: Optional[float] = None
-    total_mv: Optional[float] = None
-    turnover_rate: Optional[float] = None
-
-
-class StockListResponse(BaseModel):
-    """Paginated stock list response."""
-    items: List[StockItem]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
-
-
-class PresetStrategy(BaseModel):
-    id: str
-    name: str
-    description: str
-    conditions: List[ScreenerCondition]
-
+# =============================================================================
+# 股票列表 API
+# =============================================================================
 
 @router.get("/stocks", response_model=StockListResponse)
 async def get_stocks(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     sort_by: str = "pct_chg",
     sort_order: str = "desc",
     search: Optional[str] = None
 ):
-    """Get paginated stock list with latest quotes.
-    
-    This is the default API for the screener page, showing all stocks
-    with their latest market data.
-    """
+    """获取分页股票列表（含最新行情）"""
     try:
-        db = db_client
+        service = get_screener_service()
+        items, total = service.get_stocks(
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            search=search
+        )
         
-        # Get latest trade date
-        date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
-        date_df = db.execute_query(date_query)
-        if date_df.empty or date_df.iloc[0]['max_date'] is None:
-            return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
-        
-        latest_date = _format_date(date_df.iloc[0]['max_date'])
-        
-        # Build WHERE clause
-        where_parts = [f"d.trade_date = '{latest_date}'"]
-        if search:
-            # Search by stock code (support partial match)
-            search_clean = search.strip().upper()
-            where_parts.append(f"d.ts_code LIKE '%{search_clean}%'")
-        
-        where_clause = " AND ".join(where_parts)
-        
-        # Validate sort field to prevent SQL injection
-        allowed_sort_fields = {
-            "ts_code", "close", "pct_chg", "vol", "amount", 
-            "pe_ttm", "pb", "total_mv", "turnover_rate"
-        }
-        if sort_by not in allowed_sort_fields:
-            sort_by = "pct_chg"
-        
-        sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
-        
-        # Get total count
-        count_query = f"""
-            SELECT count(*) as cnt
-            FROM ods_daily d
-            WHERE {where_clause}
-        """
-        count_df = db.execute_query(count_query)
-        total = int(count_df.iloc[0]['cnt']) if not count_df.empty else 0
-        
-        if total == 0:
-            return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
-        
-        # Calculate pagination
-        total_pages = (total + page_size - 1) // page_size
-        offset = (page - 1) * page_size
-        
-        # Get paginated data with valuation info
-        data_query = f"""
-            SELECT 
-                d.ts_code,
-                d.trade_date,
-                d.open,
-                d.high,
-                d.low,
-                d.close,
-                d.pct_chg,
-                d.vol,
-                d.amount,
-                b.pe_ttm,
-                b.pb,
-                b.total_mv,
-                b.turnover_rate
-            FROM ods_daily d
-            LEFT JOIN ods_daily_basic b 
-                ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
-            WHERE {where_clause}
-            ORDER BY {sort_by} {sort_direction}
-            LIMIT {page_size} OFFSET {offset}
-        """
-        
-        df = db.execute_query(data_query)
-        
-        items = []
-        for _, row in df.iterrows():
-            item = StockItem(
-                ts_code=row['ts_code'],
-                trade_date=_format_date(row['trade_date']),
-                open=float(row['open']) if row.get('open') else None,
-                high=float(row['high']) if row.get('high') else None,
-                low=float(row['low']) if row.get('low') else None,
-                close=float(row['close']) if row.get('close') else None,
-                pct_chg=float(row['pct_chg']) if row.get('pct_chg') else None,
-                vol=float(row['vol']) if row.get('vol') else None,
-                amount=float(row['amount']) if row.get('amount') else None,
-                pe_ttm=float(row['pe_ttm']) if row.get('pe_ttm') else None,
-                pb=float(row['pb']) if row.get('pb') else None,
-                total_mv=float(row['total_mv']) if row.get('total_mv') else None,
-                turnover_rate=float(row['turnover_rate']) if row.get('turnover_rate') else None,
-            )
-            items.append(item)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
         
         return StockListResponse(
             items=items,
@@ -174,11 +61,14 @@ async def get_stocks(
             page_size=page_size,
             total_pages=total_pages,
         )
-        
     except Exception as e:
         logger.error(f"Failed to get stocks: {e}")
         return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
 
+
+# =============================================================================
+# 条件筛选 API
+# =============================================================================
 
 @router.post("/filter", response_model=StockListResponse)
 async def filter_stocks(
@@ -186,109 +76,18 @@ async def filter_stocks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """Filter stocks by conditions."""
+    """多条件筛选股票"""
     try:
-        db = db_client
+        service = get_screener_service()
+        items, total = service.filter_by_conditions(
+            conditions=request.conditions,
+            sort_by=request.sort_by or "pct_chg",
+            sort_order=request.sort_order,
+            page=page,
+            page_size=page_size
+        )
         
-        # Get latest trade date
-        date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
-        date_df = db.execute_query(date_query)
-        if date_df.empty or date_df.iloc[0]['max_date'] is None:
-            return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
-        
-        latest_date = _format_date(date_df.iloc[0]['max_date'])
-        
-        # Build WHERE clause from conditions
-        where_parts = [f"d.trade_date = '{latest_date}'"]
-        
-        # Map operators
-        op_map = {
-            "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
-            "eq": "=", "neq": "!=", ">": ">", ">=": ">=",
-            "<": "<", "<=": "<=", "=": "=", "!=": "!="
-        }
-        
-        # Map fields to table aliases
-        field_map = {
-            "pe": "b.pe_ttm", "pe_ttm": "b.pe_ttm",
-            "pb": "b.pb",
-            "turnover_rate": "b.turnover_rate",
-            "total_mv": "b.total_mv",
-            "circ_mv": "b.circ_mv",
-            "pct_chg": "d.pct_chg",
-            "close": "d.close",
-            "vol": "d.vol",
-            "amount": "d.amount",
-        }
-        
-        for cond in request.conditions:
-            field = field_map.get(cond.field, f"d.{cond.field}")
-            op = op_map.get(cond.operator, cond.operator)
-            value = cond.value
-            
-            # Validate numeric value
-            if isinstance(value, (int, float)):
-                where_parts.append(f"{field} {op} {value}")
-        
-        where_clause = " AND ".join(where_parts)
-        
-        # Get total count
-        count_query = f"""
-            SELECT count(*) as cnt
-            FROM ods_daily d
-            LEFT JOIN ods_daily_basic b ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
-            WHERE {where_clause}
-        """
-        count_df = db.execute_query(count_query)
-        total = int(count_df.iloc[0]['cnt']) if not count_df.empty else 0
-        
-        if total == 0:
-            return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
-        
-        # Calculate pagination
-        total_pages = (total + page_size - 1) // page_size
-        offset = (page - 1) * page_size
-        
-        # Determine sort
-        sort_by = request.sort_by or "pct_chg"
-        sort_field = field_map.get(sort_by, f"d.{sort_by}")
-        sort_direction = "DESC" if request.sort_order.lower() == "desc" else "ASC"
-        
-        # Get data
-        data_query = f"""
-            SELECT 
-                d.ts_code,
-                d.trade_date,
-                d.open, d.high, d.low, d.close,
-                d.pct_chg, d.vol, d.amount,
-                b.pe_ttm, b.pb, b.total_mv, b.turnover_rate
-            FROM ods_daily d
-            LEFT JOIN ods_daily_basic b ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
-            WHERE {where_clause}
-            ORDER BY {sort_field} {sort_direction}
-            LIMIT {page_size} OFFSET {offset}
-        """
-        
-        df = db.execute_query(data_query)
-        
-        items = []
-        for _, row in df.iterrows():
-            item = StockItem(
-                ts_code=row['ts_code'],
-                trade_date=_format_date(row['trade_date']),
-                open=float(row['open']) if row.get('open') else None,
-                high=float(row['high']) if row.get('high') else None,
-                low=float(row['low']) if row.get('low') else None,
-                close=float(row['close']) if row.get('close') else None,
-                pct_chg=float(row['pct_chg']) if row.get('pct_chg') else None,
-                vol=float(row['vol']) if row.get('vol') else None,
-                amount=float(row['amount']) if row.get('amount') else None,
-                pe_ttm=float(row['pe_ttm']) if row.get('pe_ttm') else None,
-                pb=float(row['pb']) if row.get('pb') else None,
-                total_mv=float(row['total_mv']) if row.get('total_mv') else None,
-                turnover_rate=float(row['turnover_rate']) if row.get('turnover_rate') else None,
-            )
-            items.append(item)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
         
         return StockListResponse(
             items=items,
@@ -297,48 +96,267 @@ async def filter_stocks(
             page_size=page_size,
             total_pages=total_pages,
         )
-        
     except Exception as e:
         logger.error(f"Failed to filter stocks: {e}")
         return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
 
 
-@router.post("/nl", response_model=StockListResponse)
+# =============================================================================
+# 自然语言选股 API
+# =============================================================================
+
+@router.post("/nl", response_model=NLScreenerResponse)
 async def nl_screener(
     request: NLScreenerRequest,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """Natural language stock screening using AI agent."""
+    """自然语言选股 - 使用AI解析用户意图"""
     try:
         from stock_datasource.agents import get_screener_agent
         
         agent = get_screener_agent()
         result = await agent.execute(request.query, {"session_id": "screener"})
         
-        # For now, return the AI response as a message
-        # In a full implementation, the agent would return structured data
-        if result.success:
-            # Try to parse structured results from agent
-            # For now, just return empty with a note
-            return StockListResponse(
-                items=[],
-                total=0,
-                page=page,
-                page_size=page_size,
-                total_pages=0,
-            )
-        else:
-            return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
+        # 解析Agent返回的结果 - 使用正确的字段名 metadata 和 response
+        if result.success and result.metadata:
+            parsed_data = result.metadata.get('parsed_conditions', {})
+            parsed_conditions = parsed_data.get('conditions', [])
+            explanation = parsed_data.get('explanation', '') or result.response
             
+            # 使用解析出的条件进行筛选
+            if parsed_conditions:
+                service = get_screener_service()
+                conditions = [ScreenerCondition(**c) for c in parsed_conditions]
+                items, total = service.filter_by_conditions(
+                    conditions=conditions,
+                    page=page,
+                    page_size=page_size
+                )
+                
+                total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+                
+                return NLScreenerResponse(
+                    parsed_conditions=conditions,
+                    items=items,
+                    total=total,
+                    page=page,
+                    page_size=page_size,
+                    total_pages=total_pages,
+                    explanation=explanation
+                )
+        
+        # 未能解析出有效条件
+        return NLScreenerResponse(
+            parsed_conditions=[],
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            total_pages=0,
+            explanation=result.response if result.response else "无法解析您的选股条件，请尝试更具体的描述"
+        )
+        
     except Exception as e:
         logger.error(f"NL screener failed: {e}")
+        return NLScreenerResponse(
+            parsed_conditions=[],
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            total_pages=0,
+            explanation=f"选股失败: {str(e)}"
+        )
+
+
+# =============================================================================
+# 十维画像 API
+# =============================================================================
+
+@router.get("/profile/{ts_code}", response_model=StockProfile)
+async def get_stock_profile(ts_code: str):
+    """获取单只股票的十维画像"""
+    try:
+        service = get_profile_service()
+        profile = service.calculate_profile(ts_code.upper())
+        
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"未找到股票 {ts_code} 的数据")
+        
+        return profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get profile for {ts_code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch-profile", response_model=List[StockProfile])
+async def batch_get_profiles(request: BatchProfileRequest):
+    """批量获取股票画像"""
+    try:
+        if len(request.ts_codes) > 50:
+            raise HTTPException(status_code=400, detail="一次最多查询50只股票")
+        
+        service = get_profile_service()
+        profiles = service.batch_calculate_profiles([c.upper() for c in request.ts_codes])
+        
+        return profiles
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to batch get profiles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 行业筛选 API
+# =============================================================================
+
+@router.get("/sectors", response_model=SectorListResponse)
+async def get_sectors():
+    """获取行业列表"""
+    try:
+        service = get_screener_service()
+        sectors = service.get_sectors()
+        
+        return SectorListResponse(
+            sectors=sectors,
+            total=len(sectors)
+        )
+    except Exception as e:
+        logger.error(f"Failed to get sectors: {e}")
+        return SectorListResponse(sectors=[], total=0)
+
+
+@router.get("/sectors/{sector}/stocks", response_model=StockListResponse)
+async def get_sector_stocks(
+    sector: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort_by: str = "pct_chg",
+    sort_order: str = "desc",
+):
+    """获取特定行业的股票列表"""
+    try:
+        service = get_screener_service()
+        items, total = service.get_stocks_by_sector(
+            sector=sector,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
+        return StockListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
+    except Exception as e:
+        logger.error(f"Failed to get sector stocks: {e}")
         return StockListResponse(items=[], total=0, page=page, page_size=page_size, total_pages=0)
 
 
+# =============================================================================
+# AI推荐 API
+# =============================================================================
+
+@router.get("/recommendations", response_model=RecommendationResponse)
+async def get_recommendations():
+    """获取AI智能推荐"""
+    try:
+        service = get_screener_service()
+        profile_service = get_profile_service()
+        latest_date = service.get_latest_trade_date() or ""
+        
+        categories: Dict[str, List[Recommendation]] = {}
+        
+        # 低估值推荐
+        low_pe_conds = [
+            ScreenerCondition(field="pe", operator="lt", value=15),
+            ScreenerCondition(field="pe", operator="gt", value=0),
+            ScreenerCondition(field="pb", operator="lt", value=2),
+        ]
+        items, _ = service.filter_by_conditions(low_pe_conds, sort_by="pe", sort_order="asc", page=1, page_size=5)
+        categories["low_valuation"] = [
+            Recommendation(
+                ts_code=item.ts_code,
+                stock_name=item.stock_name or item.ts_code,
+                reason=f"PE={item.pe_ttm:.1f}, PB={item.pb:.2f}, 估值较低" if item.pe_ttm and item.pb else "低估值",
+                score=80.0,
+                category="低估值"
+            ) for item in items
+        ]
+        
+        # 强势股推荐
+        momentum_conds = [
+            ScreenerCondition(field="pct_chg", operator="gt", value=5),
+        ]
+        items, _ = service.filter_by_conditions(momentum_conds, sort_by="pct_chg", sort_order="desc", page=1, page_size=5)
+        categories["strong_momentum"] = [
+            Recommendation(
+                ts_code=item.ts_code,
+                stock_name=item.stock_name or item.ts_code,
+                reason=f"今日涨幅 {item.pct_chg:.2f}%，动量强劲" if item.pct_chg else "强势股",
+                score=75.0,
+                category="强势股"
+            ) for item in items
+        ]
+        
+        # 活跃股推荐
+        active_conds = [
+            ScreenerCondition(field="turnover_rate", operator="gt", value=10),
+        ]
+        items, _ = service.filter_by_conditions(active_conds, sort_by="turnover_rate", sort_order="desc", page=1, page_size=5)
+        categories["high_activity"] = [
+            Recommendation(
+                ts_code=item.ts_code,
+                stock_name=item.stock_name or item.ts_code,
+                reason=f"换手率 {item.turnover_rate:.2f}%，交投活跃" if item.turnover_rate else "活跃股",
+                score=70.0,
+                category="活跃股"
+            ) for item in items
+        ]
+        
+        return RecommendationResponse(
+            trade_date=latest_date,
+            categories=categories
+        )
+    except Exception as e:
+        logger.error(f"Failed to get recommendations: {e}")
+        return RecommendationResponse(trade_date="", categories={})
+
+
+# =============================================================================
+# 技术信号 API
+# =============================================================================
+
+@router.get("/signals", response_model=TechnicalSignalResponse)
+async def get_technical_signals():
+    """获取技术信号股票"""
+    # 暂时返回空结果，需要后续实现技术指标计算
+    service = get_screener_service()
+    latest_date = service.get_latest_trade_date() or ""
+    
+    return TechnicalSignalResponse(
+        trade_date=latest_date,
+        signals={}
+    )
+
+
+# =============================================================================
+# 预设策略 API
+# =============================================================================
+
 @router.get("/presets", response_model=List[PresetStrategy])
 async def get_presets():
-    """Get preset screening strategies."""
+    """获取预设筛选策略"""
     return [
         PresetStrategy(
             id="low_pe",
@@ -347,6 +365,14 @@ async def get_presets():
             conditions=[
                 ScreenerCondition(field="pe", operator="lt", value=15),
                 ScreenerCondition(field="pb", operator="lt", value=2)
+            ]
+        ),
+        PresetStrategy(
+            id="value_dividend",
+            name="高股息策略",
+            description="股息率 > 3%",
+            conditions=[
+                ScreenerCondition(field="dv_ratio", operator="gt", value=3)
             ]
         ),
         PresetStrategy(
@@ -372,38 +398,73 @@ async def get_presets():
             conditions=[
                 ScreenerCondition(field="pct_chg", operator="gt", value=5)
             ]
-        )
+        ),
+        PresetStrategy(
+            id="momentum_volume",
+            name="放量上涨策略",
+            description="涨幅 > 3%, 换手率 > 3%",
+            conditions=[
+                ScreenerCondition(field="pct_chg", operator="gt", value=3),
+                ScreenerCondition(field="turnover_rate", operator="gt", value=3)
+            ]
+        ),
     ]
 
 
-@router.get("/fields")
+@router.post("/presets/{preset_id}/apply", response_model=StockListResponse)
+async def apply_preset(
+    preset_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """应用预设策略进行筛选"""
+    presets = await get_presets()
+    preset = next((p for p in presets if p.id == preset_id), None)
+    
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"预设策略 {preset_id} 不存在")
+    
+    return await filter_stocks(
+        ScreenerRequest(conditions=preset.conditions),
+        page=page,
+        page_size=page_size
+    )
+
+
+# =============================================================================
+# 字段定义 API
+# =============================================================================
+
+@router.get("/fields", response_model=List[Dict[str, Any]])
 async def get_fields():
-    """Get available screening fields."""
-    return [
-        {"field": "pe", "label": "PE (市盈率)", "type": "number"},
-        {"field": "pb", "label": "PB (市净率)", "type": "number"},
-        {"field": "turnover_rate", "label": "换手率 (%)", "type": "number"},
-        {"field": "pct_chg", "label": "涨跌幅 (%)", "type": "number"},
-        {"field": "close", "label": "收盘价", "type": "number"},
-        {"field": "total_mv", "label": "总市值 (万元)", "type": "number"},
-        {"field": "vol", "label": "成交量 (手)", "type": "number"},
-        {"field": "amount", "label": "成交额 (千元)", "type": "number"},
-    ]
+    """获取可用筛选字段"""
+    service = get_screener_service()
+    return service.get_available_fields()
 
 
-@router.get("/summary")
+# =============================================================================
+# 市场概况 API
+# =============================================================================
+
+@router.get("/summary", response_model=MarketSummary)
 async def get_market_summary():
-    """Get market summary statistics."""
+    """获取市场概况统计"""
     try:
+        from stock_datasource.models.database import db_client
+        
         db = db_client
         
         # Get latest trade date
         date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
         date_df = db.execute_query(date_query)
         if date_df.empty or date_df.iloc[0]['max_date'] is None:
-            return {"error": "No data available"}
+            raise HTTPException(status_code=404, detail="No data available")
         
-        latest_date = _format_date(date_df.iloc[0]['max_date'])
+        latest_date_raw = date_df.iloc[0]['max_date']
+        if hasattr(latest_date_raw, 'strftime'):
+            latest_date = latest_date_raw.strftime('%Y-%m-%d')
+        else:
+            latest_date = str(latest_date_raw).split()[0].split('T')[0]
         
         # Get summary statistics
         summary_query = f"""
@@ -422,20 +483,22 @@ async def get_market_summary():
         df = db.execute_query(summary_query)
         
         if df.empty:
-            return {"error": "No data available"}
+            raise HTTPException(status_code=404, detail="No data available")
         
         row = df.iloc[0]
-        return {
-            "trade_date": latest_date,
-            "total_stocks": int(row['total_stocks']),
-            "up_count": int(row['up_count']),
-            "down_count": int(row['down_count']),
-            "flat_count": int(row['flat_count']),
-            "limit_up": int(row['limit_up']),
-            "limit_down": int(row['limit_down']),
-            "avg_change": float(row['avg_change']) if row['avg_change'] else 0,
-        }
+        return MarketSummary(
+            trade_date=latest_date,
+            total_stocks=int(row['total_stocks']),
+            up_count=int(row['up_count']),
+            down_count=int(row['down_count']),
+            flat_count=int(row['flat_count']),
+            limit_up=int(row['limit_up']),
+            limit_down=int(row['limit_down']),
+            avg_change=float(row['avg_change']) if row['avg_change'] else 0,
+        )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get market summary: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))

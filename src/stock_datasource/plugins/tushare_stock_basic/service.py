@@ -68,6 +68,70 @@ class TuShareStockBasicService(BaseService):
         return [_convert_to_json_serializable(record) for record in records]
     
     @query_method(
+        description="Get all stock names as a mapping",
+        params=[]
+    )
+    def get_all_stock_names(self) -> Dict[str, str]:
+        """
+        Get all stock names as a ts_code -> name mapping.
+        
+        Returns:
+            Dict mapping ts_code to stock name
+        """
+        query = """
+        SELECT ts_code, name
+        FROM ods_stock_basic
+        WHERE list_status = 'L'
+        """
+        df = self.db.execute_query(query)
+        return dict(zip(df['ts_code'], df['name']))
+    
+    @query_method(
+        description="Get all stock basic info as DataFrame",
+        params=[]
+    )
+    def get_all_stock_basic_df(self) -> pd.DataFrame:
+        """
+        Get all listed stocks basic info as DataFrame.
+        Includes deduplication by ts_code.
+        
+        Returns:
+            DataFrame with stock basic info
+        """
+        query = """
+        SELECT ts_code, symbol, name, area, industry, market, list_date, list_status
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY ts_code) as rn
+            FROM ods_stock_basic
+            WHERE list_status = 'L'
+        )
+        WHERE rn = 1
+        """
+        return self.db.execute_query(query)
+    
+    @query_method(
+        description="Get all industries with stock count",
+        params=[]
+    )
+    def get_all_industries(self) -> List[Dict[str, Any]]:
+        """
+        Get all industries with stock count.
+        
+        Returns:
+            List of industry info with stock count
+        """
+        query = """
+        SELECT industry, count(DISTINCT ts_code) as stock_count
+        FROM ods_stock_basic
+        WHERE list_status = 'L' AND industry IS NOT NULL AND industry != ''
+        GROUP BY industry
+        ORDER BY stock_count DESC
+        """
+        df = self.db.execute_query(query)
+        return df.to_dict('records')
+    
+    @query_method(
         description="Query all listed stocks",
         params=[
             QueryParam(
@@ -113,6 +177,70 @@ class TuShareStockBasicService(BaseService):
         return [_convert_to_json_serializable(record) for record in records]
     
     @query_method(
+        description="Get all stock names as a mapping",
+        params=[]
+    )
+    def get_all_stock_names(self) -> Dict[str, str]:
+        """
+        Get all stock names as a ts_code -> name mapping.
+        
+        Returns:
+            Dict mapping ts_code to stock name
+        """
+        query = """
+        SELECT ts_code, name
+        FROM ods_stock_basic
+        WHERE list_status = 'L'
+        """
+        df = self.db.execute_query(query)
+        return dict(zip(df['ts_code'], df['name']))
+    
+    @query_method(
+        description="Get all stock basic info as DataFrame",
+        params=[]
+    )
+    def get_all_stock_basic_df(self) -> pd.DataFrame:
+        """
+        Get all listed stocks basic info as DataFrame.
+        Includes deduplication by ts_code.
+        
+        Returns:
+            DataFrame with stock basic info
+        """
+        query = """
+        SELECT ts_code, symbol, name, area, industry, market, list_date, list_status
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY ts_code) as rn
+            FROM ods_stock_basic
+            WHERE list_status = 'L'
+        )
+        WHERE rn = 1
+        """
+        return self.db.execute_query(query)
+    
+    @query_method(
+        description="Get all industries with stock count",
+        params=[]
+    )
+    def get_all_industries(self) -> List[Dict[str, Any]]:
+        """
+        Get all industries with stock count.
+        
+        Returns:
+            List of industry info with stock count
+        """
+        query = """
+        SELECT industry, count(DISTINCT ts_code) as stock_count
+        FROM ods_stock_basic
+        WHERE list_status = 'L' AND industry IS NOT NULL AND industry != ''
+        GROUP BY industry
+        ORDER BY stock_count DESC
+        """
+        df = self.db.execute_query(query)
+        return df.to_dict('records')
+    
+    @query_method(
         description="Query stocks by industry",
         params=[
             QueryParam(
@@ -156,3 +284,67 @@ class TuShareStockBasicService(BaseService):
         df = self.db.execute_query(query)
         records = df.to_dict('records')
         return [_convert_to_json_serializable(record) for record in records]
+    
+    @query_method(
+        description="Get all stock names as a mapping",
+        params=[]
+    )
+    def get_all_stock_names(self) -> Dict[str, str]:
+        """
+        Get all stock names as a ts_code -> name mapping.
+        
+        Returns:
+            Dict mapping ts_code to stock name
+        """
+        query = """
+        SELECT ts_code, name
+        FROM ods_stock_basic
+        WHERE list_status = 'L'
+        """
+        df = self.db.execute_query(query)
+        return dict(zip(df['ts_code'], df['name']))
+    
+    @query_method(
+        description="Get all stock basic info as DataFrame",
+        params=[]
+    )
+    def get_all_stock_basic_df(self) -> pd.DataFrame:
+        """
+        Get all listed stocks basic info as DataFrame.
+        Includes deduplication by ts_code.
+        
+        Returns:
+            DataFrame with stock basic info
+        """
+        query = """
+        SELECT ts_code, symbol, name, area, industry, market, list_date, list_status
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY ts_code) as rn
+            FROM ods_stock_basic
+            WHERE list_status = 'L'
+        )
+        WHERE rn = 1
+        """
+        return self.db.execute_query(query)
+    
+    @query_method(
+        description="Get all industries with stock count",
+        params=[]
+    )
+    def get_all_industries(self) -> List[Dict[str, Any]]:
+        """
+        Get all industries with stock count.
+        
+        Returns:
+            List of industry info with stock count
+        """
+        query = """
+        SELECT industry, count(DISTINCT ts_code) as stock_count
+        FROM ods_stock_basic
+        WHERE list_status = 'L' AND industry IS NOT NULL AND industry != ''
+        GROUP BY industry
+        ORDER BY stock_count DESC
+        """
+        df = self.db.execute_query(query)
+        return df.to_dict('records')
