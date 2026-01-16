@@ -11,23 +11,25 @@ import {
   WalletIcon,
   ChartBubbleIcon,
   ToolsIcon,
-  ControlPlatformIcon
+  ControlPlatformIcon,
+  ChartBarIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 
 const menuItems = [
-  { path: '/chat', title: '智能对话', icon: ChatIcon },
   { path: '/market', title: '行情分析', icon: ChartLineIcon },
-  { path: '/screener', title: '智能选股', icon: FilterIcon },
-  { path: '/etf', title: 'ETF筛选', icon: ControlPlatformIcon },
+  { path: '/toplist', title: '龙虎榜分析', icon: ChartBarIcon },
   { path: '/report', title: '财报研读', icon: FileExcelIcon },
-  { path: '/strategy', title: '策略工作台', icon: ToolsIcon },
+  { path: '/chat', title: '智能对话', icon: ChatIcon },
+  { path: '/screener', title: '智能选股', icon: FilterIcon },
+  { path: '/portfolio', title: '持仓管理', icon: WalletIcon },
+  { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon },
+  { path: '/strategy', title: '策略工具台', icon: ToolsIcon },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon },
   { path: '/memory', title: '用户记忆', icon: UserIcon },
-  { path: '/datamanage', title: '数据管理', icon: ServerIcon },
-  { path: '/portfolio', title: '持仓管理', icon: WalletIcon }
+  { path: '/datamanage', title: '数据管理', icon: ServerIcon }
 ]
 
 const activeMenu = computed(() => route.path)

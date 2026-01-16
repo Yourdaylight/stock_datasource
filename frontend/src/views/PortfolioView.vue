@@ -56,39 +56,49 @@
       </el-row>
     </div>
 
-    <!-- Main Content -->
-    <el-row :gutter="20" class="main-content">
-      <!-- Position List -->
-      <el-col :span="16">
-        <PositionList 
-          :positions="positions" 
-          :loading="loading"
-          @edit="handleEditPosition"
-          @delete="handleDeletePosition"
-          @refresh="loadPositions"
-        />
-      </el-col>
-      
-      <!-- Charts and Analysis -->
-      <el-col :span="8">
-        <div class="right-panel">
-          <!-- Profit Chart -->
-          <ProfitChart 
-            :profit-history="profitHistory"
-            :loading="chartLoading"
-            class="chart-section"
-          />
-          
-          <!-- Daily Analysis -->
-          <DailyAnalysis 
-            :analysis-data="analysisData"
-            :loading="analysisLoading"
-            @trigger-analysis="triggerAnalysis"
-            class="analysis-section"
-          />
-        </div>
-      </el-col>
-    </el-row>
+    <!-- Main Content with Tabs -->
+    <div class="main-content">
+      <el-tabs v-model="activeTab" class="portfolio-tabs">
+        <el-tab-pane label="持仓管理" name="positions">
+          <el-row :gutter="20">
+            <!-- Position List -->
+            <el-col :span="16">
+              <PositionList 
+                :positions="positions" 
+                :loading="loading"
+                @edit="handleEditPosition"
+                @delete="handleDeletePosition"
+                @refresh="loadPositions"
+              />
+            </el-col>
+            
+            <!-- Charts and Analysis -->
+            <el-col :span="8">
+              <div class="right-panel">
+                <!-- Profit Chart -->
+                <ProfitChart 
+                  :profit-history="profitHistory"
+                  :loading="chartLoading"
+                  class="chart-section"
+                />
+                
+                <!-- Daily Analysis -->
+                <DailyAnalysis 
+                  :analysis-data="analysisData"
+                  :loading="analysisLoading"
+                  @trigger-analysis="triggerAnalysis"
+                  class="analysis-section"
+                />
+              </div>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
+        
+        <el-tab-pane label="龙虎榜分析" name="toplist">
+          <PortfolioTopListAnalysis />
+        </el-tab-pane>
+      </el-tabs>
+    </div>
 
     <!-- Add Position Modal -->
     <AddPositionModal 
@@ -106,6 +116,7 @@ import PositionList from '@/components/PositionList.vue'
 import ProfitChart from '@/components/ProfitChart.vue'
 import DailyAnalysis from '@/components/DailyAnalysis.vue'
 import AddPositionModal from '@/components/AddPositionModal.vue'
+import PortfolioTopListAnalysis from '@/components/PortfolioTopListAnalysis.vue'
 import { portfolioApi } from '@/api/portfolio'
 import type { Position, PortfolioSummary } from '@/types/portfolio'
 
@@ -114,6 +125,7 @@ const loading = ref(false)
 const chartLoading = ref(false)
 const analysisLoading = ref(false)
 const showAddModal = ref(false)
+const activeTab = ref('positions')
 
 const positions = ref<Position[]>([])
 const summary = reactive<PortfolioSummary>({
@@ -310,6 +322,25 @@ onMounted(() => {
 
 .main-content {
   margin-top: 20px;
+}
+
+.portfolio-tabs {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.portfolio-tabs :deep(.el-tabs__header) {
+  margin-bottom: 20px;
+}
+
+.portfolio-tabs :deep(.el-tabs__nav-wrap) {
+  padding: 0 20px;
+}
+
+.portfolio-tabs :deep(.el-tabs__content) {
+  padding: 0;
 }
 
 .right-panel {
