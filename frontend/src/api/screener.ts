@@ -3,8 +3,8 @@ import type { StockInfo } from '@/types/common'
 
 export interface ScreenerCondition {
   field: string
-  operator: 'gt' | 'lt' | 'eq' | 'gte' | 'lte' | 'between' | 'in'
-  value: number | number[] | string[]
+  operator: 'gt' | 'lt' | 'eq' | 'gte' | 'lte' | 'between' | 'in' | 'neq'
+  value: number | number[] | string | string[]
 }
 
 export interface ScreenerRequest {
@@ -16,6 +16,7 @@ export interface ScreenerRequest {
 
 export interface StockItem {
   ts_code: string
+  stock_name?: string  // 股票名称
   trade_date?: string
   open?: number
   high?: number
@@ -26,8 +27,12 @@ export interface StockItem {
   amount?: number
   pe_ttm?: number
   pb?: number
+  ps_ttm?: number
+  dv_ratio?: number
   total_mv?: number
+  circ_mv?: number
   turnover_rate?: number
+  industry?: string
 }
 
 export interface StockListResponse {
@@ -38,16 +43,18 @@ export interface StockListResponse {
   total_pages: number
 }
 
-export interface ScreenerResult extends StockInfo {
-  pe?: number
-  pb?: number
-  turnover_rate?: number
-  pct_chg?: number
-  close?: number
-}
-
 export interface NLScreenerRequest {
   query: string
+}
+
+export interface NLScreenerResponse {
+  parsed_conditions: ScreenerCondition[]
+  items: StockItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+  explanation: string
 }
 
 export interface PresetStrategy {
@@ -68,8 +75,66 @@ export interface MarketSummary {
   avg_change: number
 }
 
+// =============================================================================
+// 十维画像相关类型
+// =============================================================================
+
+export interface ProfileDimension {
+  name: string
+  score: number
+  level: string
+  weight: number
+  indicators: Record<string, any>
+}
+
+export interface StockProfile {
+  ts_code: string
+  stock_name: string
+  trade_date: string
+  total_score: number
+  dimensions: ProfileDimension[]
+  recommendation: string
+  raw_data?: Record<string, any>
+}
+
+// =============================================================================
+// 推荐相关类型
+// =============================================================================
+
+export interface Recommendation {
+  ts_code: string
+  stock_name: string
+  reason: string
+  score: number
+  category: string
+  profile?: StockProfile
+}
+
+export interface RecommendationResponse {
+  trade_date: string
+  categories: Record<string, Recommendation[]>
+}
+
+// =============================================================================
+// 行业相关类型
+// =============================================================================
+
+export interface SectorInfo {
+  name: string
+  stock_count: number
+}
+
+export interface SectorListResponse {
+  sectors: SectorInfo[]
+  total: number
+}
+
+// =============================================================================
+// API 接口
+// =============================================================================
+
 export const screenerApi = {
-  // Get paginated stock list with latest quotes
+  // 获取分页股票列表（含最新行情）
   getStocks(params: {
     page?: number
     page_size?: number
@@ -88,11 +153,12 @@ export const screenerApi = {
     return request.get(`/api/screener/stocks${query ? '?' + query : ''}`)
   },
 
-  // Get market summary
+  // 获取市场概况
   getSummary(): Promise<MarketSummary> {
     return request.get('/api/screener/summary')
   },
 
+  // 多条件筛选
   filter(params: ScreenerRequest, page = 1, page_size = 20): Promise<StockListResponse> {
     const queryParams = new URLSearchParams()
     queryParams.append('page', page.toString())
@@ -100,18 +166,83 @@ export const screenerApi = {
     return request.post(`/api/screener/filter?${queryParams.toString()}`, params)
   },
 
-  nlScreener(params: NLScreenerRequest, page = 1, page_size = 20): Promise<StockListResponse> {
+  // 自然语言选股
+  nlScreener(params: NLScreenerRequest, page = 1, page_size = 20): Promise<NLScreenerResponse> {
     const queryParams = new URLSearchParams()
     queryParams.append('page', page.toString())
     queryParams.append('page_size', page_size.toString())
     return request.post(`/api/screener/nl?${queryParams.toString()}`, params)
   },
 
+  // 获取预设策略列表
   getPresets(): Promise<PresetStrategy[]> {
     return request.get('/api/screener/presets')
   },
 
+  // 应用预设策略
+  applyPreset(presetId: string, page = 1, page_size = 20): Promise<StockListResponse> {
+    const queryParams = new URLSearchParams()
+    queryParams.append('page', page.toString())
+    queryParams.append('page_size', page_size.toString())
+    return request.post(`/api/screener/presets/${presetId}/apply?${queryParams.toString()}`)
+  },
+
+  // 获取可用筛选字段
   getFields(): Promise<{ field: string; label: string; type: string }[]> {
     return request.get('/api/screener/fields')
-  }
+  },
+
+  // =============================================================================
+  // 十维画像 API
+  // =============================================================================
+
+  // 获取单只股票画像
+  getProfile(tsCode: string): Promise<StockProfile> {
+    return request.get(`/api/screener/profile/${tsCode}`)
+  },
+
+  // 批量获取股票画像
+  batchGetProfiles(tsCodes: string[]): Promise<StockProfile[]> {
+    return request.post('/api/screener/batch-profile', { ts_codes: tsCodes })
+  },
+
+  // =============================================================================
+  // 行业 API
+  // =============================================================================
+
+  // 获取行业列表
+  getSectors(): Promise<SectorListResponse> {
+    return request.get('/api/screener/sectors')
+  },
+
+  // 获取行业内股票
+  getSectorStocks(sector: string, params: {
+    page?: number
+    page_size?: number
+    sort_by?: string
+    sort_order?: 'asc' | 'desc'
+  } = {}): Promise<StockListResponse> {
+    const queryParams = new URLSearchParams()
+    if (params.page) queryParams.append('page', params.page.toString())
+    if (params.page_size) queryParams.append('page_size', params.page_size.toString())
+    if (params.sort_by) queryParams.append('sort_by', params.sort_by)
+    if (params.sort_order) queryParams.append('sort_order', params.sort_order)
+    
+    const query = queryParams.toString()
+    return request.get(`/api/screener/sectors/${encodeURIComponent(sector)}/stocks${query ? '?' + query : ''}`)
+  },
+
+  // =============================================================================
+  // 推荐 API
+  // =============================================================================
+
+  // 获取AI推荐
+  getRecommendations(): Promise<RecommendationResponse> {
+    return request.get('/api/screener/recommendations')
+  },
+
+  // 获取技术信号
+  getSignals(): Promise<any> {
+    return request.get('/api/screener/signals')
+  },
 }

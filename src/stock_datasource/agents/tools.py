@@ -512,6 +512,163 @@ def get_market_overview() -> str:
         return f"获取市场概况失败: {str(e)}"
 
 
+def get_stock_profile(ts_code: str) -> str:
+    """获取股票十维画像评分。
+    
+    Args:
+        ts_code: 股票代码，如 600519.SH
+        
+    Returns:
+        股票的十维画像评分和投资建议。
+    """
+    # Auto-complete code suffix
+    if len(ts_code) == 6 and ts_code.isdigit():
+        if ts_code.startswith('6'):
+            ts_code = f"{ts_code}.SH"
+        elif ts_code.startswith(('0', '3')):
+            ts_code = f"{ts_code}.SZ"
+    
+    ts_code = ts_code.upper()
+    
+    try:
+        from stock_datasource.modules.screener.profile import get_profile_service
+        
+        service = get_profile_service()
+        profile = service.calculate_profile(ts_code)
+        
+        if not profile:
+            return f"未找到股票 {ts_code} 的画像数据"
+        
+        header = f"## {ts_code} {profile.stock_name} 十维画像"
+        score_line = f"### 综合评分: {profile.total_score:.1f} 分"
+        
+        lines = [header, "", score_line, ""]
+        lines.append("### 各维度评分")
+        lines.append("| 维度 | 评分 | 等级 | 权重 |")
+        lines.append("|------|------|------|------|")
+        
+        for dim in profile.dimensions:
+            lines.append(f"| {dim.name} | {dim.score:.1f} | {dim.level} | {dim.weight*100:.0f}% |")
+        
+        lines.append("")
+        lines.append("### 投资建议")
+        lines.append(profile.recommendation)
+        
+        newline = chr(10)
+        return newline.join(lines)
+    except Exception as e:
+        logger.error(f"Get stock profile failed: {e}")
+        return f"获取 {ts_code} 画像失败: {str(e)}"
+
+
+def get_sector_stocks(sector: str, limit: int = 20) -> str:
+    """获取特定行业的股票列表。
+    
+    Args:
+        sector: 行业名称，如 "白酒"、"电子"、"银行"
+        limit: 返回数量，默认20
+        
+    Returns:
+        该行业的股票列表。
+    """
+    db = _get_db()
+    
+    if db is None:
+        return f"数据库连接失败，无法查询 {sector} 行业股票"
+    
+    try:
+        # Get latest trade date
+        date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
+        date_df = db.execute_query(date_query)
+        latest_date_raw = date_df.iloc[0]['max_date'] if not date_df.empty else None
+        
+        if not latest_date_raw:
+            return "无法获取最新交易日期"
+        
+        latest_date = _format_date(latest_date_raw)
+        
+        query = f"""
+            SELECT 
+                s.ts_code, s.name, s.industry,
+                d.close, d.pct_chg,
+                b.pe_ttm, b.pb, b.total_mv
+            FROM ods_stock_basic s
+            JOIN ods_daily d ON s.ts_code = d.ts_code
+            LEFT JOIN ods_daily_basic b ON s.ts_code = b.ts_code AND d.trade_date = b.trade_date
+            WHERE s.industry = %(sector)s
+            AND s.list_status = 'L'
+            AND d.trade_date = '{latest_date}'
+            ORDER BY b.total_mv DESC
+            LIMIT %(limit)s
+        """
+        
+        df = db.execute_query(query, {"sector": sector, "limit": limit})
+        
+        if df.empty:
+            return f"未找到 {sector} 行业的股票，请确认行业名称是否正确"
+        
+        header = f"## {sector} 行业股票列表 (共 {len(df)} 只)"
+        lines = [header, ""]
+        lines.append("| 代码 | 名称 | 收盘价 | 涨跌幅 | PE | PB | 市值(亿) |")
+        lines.append("|------|------|--------|--------|-----|-----|----------|")
+        
+        for _, row in df.iterrows():
+            close = f"{row['close']:.2f}" if row.get('close') else "-"
+            pct = f"{row['pct_chg']:+.2f}%" if row.get('pct_chg') else "-"
+            pe = f"{row['pe_ttm']:.1f}" if row.get('pe_ttm') else "-"
+            pb = f"{row['pb']:.2f}" if row.get('pb') else "-"
+            mv = f"{row['total_mv']/10000:.1f}" if row.get('total_mv') else "-"
+            lines.append(f"| {row['ts_code']} | {row['name']} | {close} | {pct} | {pe} | {pb} | {mv} |")
+        
+        newline = chr(10)
+        return newline.join(lines)
+    except Exception as e:
+        logger.error(f"Get sector stocks failed: {e}")
+        return f"获取 {sector} 行业股票失败: {str(e)}"
+
+
+def get_available_sectors() -> str:
+    """获取所有可用的行业列表。
+    
+    Returns:
+        行业列表及每个行业的股票数量。
+    """
+    db = _get_db()
+    
+    if db is None:
+        return "数据库连接失败，无法获取行业列表"
+    
+    try:
+        query = """
+            SELECT industry, count(*) as stock_count
+            FROM ods_stock_basic
+            WHERE list_status = 'L' AND industry IS NOT NULL AND industry != ''
+            GROUP BY industry
+            ORDER BY stock_count DESC
+        """
+        
+        df = db.execute_query(query)
+        
+        if df.empty:
+            return "未找到行业数据"
+        
+        lines = ["## A股行业列表", ""]
+        lines.append("| 行业 | 股票数量 |")
+        lines.append("|------|----------|")
+        
+        for _, row in df.iterrows():
+            lines.append(f"| {row['industry']} | {row['stock_count']} |")
+        
+        lines.append("")
+        lines.append(f"共 {len(df)} 个行业")
+        
+        newline = chr(10)
+        return newline.join(lines)
+    except Exception as e:
+        logger.error(f"Get available sectors failed: {e}")
+        return f"获取行业列表失败: {str(e)}"
+
+
 # Export all tools
 STOCK_TOOLS = [
     get_stock_info,
@@ -520,4 +677,7 @@ STOCK_TOOLS = [
     calculate_technical_indicators,
     screen_stocks,
     get_market_overview,
+    get_stock_profile,
+    get_sector_stocks,
+    get_available_sectors,
 ]

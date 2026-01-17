@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useScreenerStore } from '@/stores/screener'
 import { usePortfolioStore } from '@/stores/portfolio'
 import StockDetailDialog from '@/components/StockDetailDialog.vue'
+import ProfileCard from './components/ProfileCard.vue'
+import RecommendationPanel from './components/RecommendationPanel.vue'
+import SectorFilter from './components/SectorFilter.vue'
 import type { ScreenerCondition } from '@/api/screener'
 
 const screenerStore = useScreenerStore()
@@ -16,11 +19,17 @@ const searchInput = ref('')
 const showDetailDialog = ref(false)
 const selectedStockCode = ref('')
 
+// Profile drawer
+const showProfileDrawer = ref(false)
+const profileStockCode = ref('')
+
 const presetStrategies = [
   { id: 'low_pe', name: '低估值策略', description: 'PE < 15, PB < 2' },
+  { id: 'value_dividend', name: '高股息策略', description: '股息率 > 3%' },
   { id: 'high_turnover', name: '活跃股策略', description: '换手率 > 5%' },
   { id: 'large_cap', name: '大盘股策略', description: '总市值 > 1000亿' },
-  { id: 'strong_momentum', name: '强势股策略', description: '涨幅 > 5%' }
+  { id: 'strong_momentum', name: '强势股策略', description: '涨幅 > 5%' },
+  { id: 'momentum_volume', name: '放量上涨策略', description: '涨幅 > 3%, 换手率 > 3%' },
 ]
 
 const conditions = ref<ScreenerCondition[]>([
@@ -28,15 +37,25 @@ const conditions = ref<ScreenerCondition[]>([
 ])
 
 const fieldOptions = [
-  { value: 'pe', label: 'PE (市盈率)' },
-  { value: 'pb', label: 'PB (市净率)' },
-  { value: 'turnover_rate', label: '换手率 (%)' },
-  { value: 'pct_chg', label: '涨跌幅 (%)' },
-  { value: 'close', label: '收盘价' },
-  { value: 'total_mv', label: '总市值 (万元)' },
-  { value: 'vol', label: '成交量 (手)' },
-  { value: 'amount', label: '成交额 (千元)' }
+  { value: 'pe', label: 'PE (市盈率)', defaultValue: 30 },
+  { value: 'pb', label: 'PB (市净率)', defaultValue: 3 },
+  { value: 'ps', label: 'PS (市销率)', defaultValue: 5 },
+  { value: 'dv_ratio', label: '股息率 (%)', defaultValue: 2 },
+  { value: 'turnover_rate', label: '换手率 (%)', defaultValue: 5 },
+  { value: 'volume_ratio', label: '量比', defaultValue: 1.5 },
+  { value: 'pct_chg', label: '涨跌幅 (%)', defaultValue: 3 },
+  { value: 'close', label: '收盘价', defaultValue: 50 },
+  { value: 'total_mv', label: '总市值 (万元)', defaultValue: 1000000 },
+  { value: 'circ_mv', label: '流通市值 (万元)', defaultValue: 500000 },
+  { value: 'vol', label: '成交量 (手)', defaultValue: 100000 },
+  { value: 'amount', label: '成交额 (千元)', defaultValue: 50000 },
 ]
+
+// 获取字段默认值
+const getFieldDefaultValue = (field: string): number => {
+  const option = fieldOptions.find(opt => opt.value === field)
+  return option?.defaultValue ?? 0
+}
 
 const operatorOptions = [
   { value: 'gt', label: '>' },
@@ -47,7 +66,18 @@ const operatorOptions = [
 ]
 
 const addCondition = () => {
-  conditions.value.push({ field: 'pe', operator: 'lt', value: 0 })
+  const defaultField = 'pe'
+  conditions.value.push({ 
+    field: defaultField, 
+    operator: 'lt', 
+    value: getFieldDefaultValue(defaultField) 
+  })
+}
+
+// 当字段变更时更新默认值
+const handleFieldChange = (index: number, field: string) => {
+  conditions.value[index].field = field
+  conditions.value[index].value = getFieldDefaultValue(field)
 }
 
 const removeCondition = (index: number) => {
@@ -75,11 +105,17 @@ const handleSearch = () => {
 const handleClearFilters = () => {
   conditions.value = [{ field: 'pe', operator: 'lt', value: 30 }]
   searchInput.value = ''
+  nlQuery.value = ''
   screenerStore.clearFilters()
 }
 
-const handlePageChange = (current: number) => {
-  screenerStore.changePage(current)
+const handlePageChange = (pageInfo: { current: number; pageSize: number }) => {
+  if (pageInfo.current !== screenerStore.page) {
+    screenerStore.changePage(pageInfo.current)
+  }
+  if (pageInfo.pageSize !== screenerStore.pageSize) {
+    screenerStore.changePageSize(pageInfo.pageSize)
+  }
 }
 
 const handlePageSizeChange = (size: number) => {
@@ -95,21 +131,25 @@ const handleViewDetail = (stockCode: string) => {
   showDetailDialog.value = true
 }
 
+const handleViewProfile = (stockCode: string) => {
+  profileStockCode.value = stockCode
+  showProfileDrawer.value = true
+}
+
 const handleAddToWatchlist = async (row: any) => {
   try {
-    // Use close price, or fallback to a reasonable default
     const costPrice = row.close || row.current_price || 10.0
     
     await portfolioStore.addPosition({
       ts_code: row.ts_code,
-      quantity: 100, // Default quantity
+      quantity: 100,
       cost_price: costPrice,
       buy_date: new Date().toISOString().split('T')[0],
-      notes: `从智能选股添加 - ${row.ts_code}`
+      notes: `从智能选股添加 - ${row.stock_name || row.ts_code}`
     })
     
-    MessagePlugin.success(`已将 ${row.ts_code} 添加到自选股`)
-  } catch (error) {
+    MessagePlugin.success(`已将 ${row.stock_name || row.ts_code} 添加到自选股`)
+  } catch (error: any) {
     console.error('Failed to add to watchlist:', error)
     MessagePlugin.error(`添加自选股失败: ${error.message || error}`)
   }
@@ -118,6 +158,11 @@ const handleAddToWatchlist = async (row: any) => {
 const handleDetailDialogClose = () => {
   showDetailDialog.value = false
   selectedStockCode.value = ''
+}
+
+const handleProfileDrawerClose = () => {
+  showProfileDrawer.value = false
+  profileStockCode.value = ''
 }
 
 // Format market value to billions
@@ -132,27 +177,18 @@ const formatVolume = (val: number | undefined) => {
   return (val / 10000).toFixed(2) + '万手'
 }
 
-// Pagination config
-const pagination = computed(() => ({
-  current: screenerStore.page,
-  pageSize: screenerStore.pageSize,
-  total: screenerStore.total,
-  showJumper: true,
-  showPageSize: true,
-  pageSizeOptions: [10, 20, 50, 100],
-}))
-
 const columns = [
-  { colKey: 'ts_code', title: '代码', width: 110, sortable: true },
+  { colKey: 'ts_code', title: '代码', width: 100, sortable: true },
+  { colKey: 'stock_name', title: '名称', width: 90 },
   { colKey: 'trade_date', title: '日期', width: 100 },
-  { colKey: 'close', title: '收盘价', width: 90, sortable: true },
+  { colKey: 'close', title: '收盘价', width: 80, sortable: true },
   { colKey: 'pct_chg', title: '涨跌幅', width: 90, sortable: true },
-  { colKey: 'pe_ttm', title: 'PE', width: 80, sortable: true },
-  { colKey: 'pb', title: 'PB', width: 70, sortable: true },
-  { colKey: 'total_mv', title: '总市值', width: 100, sortable: true },
+  { colKey: 'pe_ttm', title: 'PE', width: 70, sortable: true },
+  { colKey: 'pb', title: 'PB', width: 60, sortable: true },
+  { colKey: 'total_mv', title: '总市值', width: 90, sortable: true },
   { colKey: 'turnover_rate', title: '换手率', width: 80, sortable: true },
-  { colKey: 'vol', title: '成交量', width: 100 },
-  { colKey: 'operation', title: '操作', width: 100, fixed: 'right' }
+  { colKey: 'industry', title: '行业', width: 80 },
+  { colKey: 'operation', title: '操作', width: 140, fixed: 'right' }
 ]
 
 // Load data on mount
@@ -217,9 +253,20 @@ onMounted(() => {
                   :key="index"
                   class="condition-item"
                 >
-                  <t-select v-model="cond.field" :options="fieldOptions" style="width: 120px" />
+                  <t-select 
+                    v-model="cond.field" 
+                    :options="fieldOptions" 
+                    style="width: 120px" 
+                    @change="(val: string) => handleFieldChange(index, val)"
+                  />
                   <t-select v-model="cond.operator" :options="operatorOptions" style="width: 70px" />
-                  <t-input-number v-model="cond.value" style="width: 100px" />
+                  <t-input-number 
+                    v-model="cond.value" 
+                    style="width: 120px"
+                    :decimal-places="2"
+                    :allow-input-over-limit="false"
+                    theme="normal"
+                  />
                   <t-button
                     theme="danger"
                     variant="text"
@@ -246,15 +293,35 @@ onMounted(() => {
               </div>
             </t-tab-panel>
             
-            <t-tab-panel value="nl" label="自然语言">
+            <t-tab-panel value="nl" label="智能选股">
               <t-textarea
                 v-model="nlQuery"
-                placeholder="例如：找出市盈率低于20，换手率超过5%的股票"
+                placeholder="例如：找出市盈率低于20，换手率超过5%的科技股"
                 :autosize="{ minRows: 3, maxRows: 6 }"
               />
               <t-button theme="primary" block style="margin-top: 16px" @click="handleNLScreener">
+                <template #icon><t-icon name="lightbulb" /></template>
                 智能选股
               </t-button>
+              
+              <!-- NL解析结果提示 -->
+              <t-alert 
+                v-if="screenerStore.nlExplanation" 
+                theme="info" 
+                :message="screenerStore.nlExplanation"
+                style="margin-top: 12px"
+              />
+            </t-tab-panel>
+            
+            <t-tab-panel value="sector" label="行业筛选">
+              <SectorFilter />
+            </t-tab-panel>
+            
+            <t-tab-panel value="recommend" label="AI推荐">
+              <RecommendationPanel 
+                @view-detail="handleViewDetail" 
+                @add-watchlist="handleAddToWatchlist"
+              />
             </t-tab-panel>
           </t-tabs>
           
@@ -281,7 +348,7 @@ onMounted(() => {
             <t-space>
               <t-input
                 v-model="searchInput"
-                placeholder="搜索股票代码"
+                placeholder="搜索代码/名称"
                 style="width: 200px"
                 @enter="handleSearch"
               >
@@ -298,11 +365,12 @@ onMounted(() => {
             :columns="columns"
             :loading="screenerStore.loading"
             row-key="ts_code"
-            :pagination="pagination"
             max-height="calc(100vh - 350px)"
-            @page-change="handlePageChange"
             @sort-change="handleSortChange"
           >
+            <template #stock_name="{ row }">
+              {{ row.stock_name || '-' }}
+            </template>
             <template #close="{ row }">
               {{ row.close?.toFixed(2) || '-' }}
             </template>
@@ -323,12 +391,13 @@ onMounted(() => {
             <template #turnover_rate="{ row }">
               {{ row.turnover_rate?.toFixed(2) || '-' }}%
             </template>
-            <template #vol="{ row }">
-              {{ formatVolume(row.vol) }}
+            <template #industry="{ row }">
+              {{ row.industry || '-' }}
             </template>
             <template #operation="{ row }">
               <t-space>
                 <t-link theme="primary" @click="handleViewDetail(row.ts_code)">详情</t-link>
+                <t-link theme="primary" @click="handleViewProfile(row.ts_code)">画像</t-link>
                 <t-link 
                   theme="primary" 
                   :loading="portfolioStore.loading"
@@ -361,6 +430,14 @@ onMounted(() => {
       v-model:visible="showDetailDialog"
       :stock-code="selectedStockCode"
       @close="handleDetailDialogClose"
+    />
+    
+    <!-- Profile Drawer -->
+    <ProfileCard
+      :ts-code="profileStockCode"
+      :visible="showProfileDrawer"
+      @update:visible="showProfileDrawer = $event"
+      @close="handleProfileDrawerClose"
     />
   </div>
 </template>
@@ -416,6 +493,16 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.condition-item :deep(.t-input-number) {
+  min-width: 100px;
+}
+
+.condition-item :deep(.t-input-number__decrease),
+.condition-item :deep(.t-input-number__increase) {
+  display: none;
 }
 
 .preset-list {
