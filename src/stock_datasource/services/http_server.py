@@ -44,6 +44,14 @@ def create_app() -> FastAPI:
         """Initialize database tables and other startup tasks."""
         logger.info("Starting application initialization...")
         
+        # Clear proxy env on startup (safety)
+        try:
+            from stock_datasource.core.proxy import clear_proxy_settings
+            clear_proxy_settings()
+            logger.info("Proxy environment cleared on startup")
+        except Exception as e:
+            logger.warning(f"Proxy cleanup failed: {e}")
+
         # Initialize portfolio tables
         try:
             from stock_datasource.modules.portfolio.init import ensure_portfolio_tables

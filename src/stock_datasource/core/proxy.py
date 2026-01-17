@@ -2,11 +2,38 @@
 
 import os
 import logging
+from contextlib import contextmanager
 from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
 _proxy_applied = False
+
+
+def _snapshot_proxy_env() -> Dict[str, Optional[str]]:
+    keys = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+    return {key: os.environ.get(key) for key in keys}
+
+
+def _restore_proxy_env(snapshot: Dict[str, Optional[str]]) -> None:
+    keys = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+    for key in keys:
+        value = snapshot.get(key)
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+@contextmanager
+def proxy_context():
+    """Enable proxy only within this context."""
+    snapshot = _snapshot_proxy_env()
+    try:
+        apply_proxy_settings()
+        yield
+    finally:
+        _restore_proxy_env(snapshot)
 
 
 def apply_proxy_settings() -> bool:

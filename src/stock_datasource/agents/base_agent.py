@@ -12,6 +12,7 @@ import os
 import time
 import hashlib
 import logging
+from urllib.parse import urlparse
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, AsyncGenerator, Optional, Callable
 from collections import defaultdict
@@ -78,6 +79,16 @@ _langfuse_handler = None
 _memory_saver = None
 
 
+def _append_no_proxy(host: Optional[str]) -> None:
+    if not host:
+        return
+    existing = os.getenv("NO_PROXY", "")
+    parts = [p.strip() for p in existing.split(",") if p.strip()]
+    if host not in parts:
+        parts.append(host)
+        os.environ["NO_PROXY"] = ",".join(parts)
+
+
 def get_langchain_model():
     """Get shared LangChain model instance."""
     global _langchain_model
@@ -91,6 +102,9 @@ def get_langchain_model():
             
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable not set")
+            
+            host = urlparse(base_url).hostname
+            _append_no_proxy(host)
             
             _langchain_model = ChatOpenAI(
                 model=model_name,
@@ -697,12 +711,28 @@ class LangGraphAgent(ABC):
                             if msgs:
                                 last_msg = msgs[-1]
                                 if hasattr(last_msg, "content") and last_msg.content:
+                                    final_content = last_msg.content
                                     if not full_response:
-                                        full_response = last_msg.content
+                                        full_response = final_content
                                         yield {
                                             "type": "content",
-                                            "content": last_msg.content,
+                                            "content": final_content,
                                         }
+                                    elif final_content != full_response:
+                                        if final_content.startswith(full_response):
+                                            delta = final_content[len(full_response):]
+                                            if delta:
+                                                full_response += delta
+                                                yield {
+                                                    "type": "content",
+                                                    "content": delta,
+                                                }
+                                        else:
+                                            full_response += final_content
+                                            yield {
+                                                "type": "content",
+                                                "content": final_content,
+                                            }
                 except Exception as e:
                     logger.debug(f"Error processing event {event_type}: {e}")
             

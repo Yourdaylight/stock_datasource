@@ -67,26 +67,17 @@ async def stream_message_post(request: SendMessageRequest):
 
 
 async def _stream_response(session_id: str, content: str):
-    """Internal function to handle streaming response using DeepAgent."""
+    """Internal function to handle streaming response using OrchestratorAgent."""
     import json
-    from stock_datasource.agents.deep_agent import get_stock_agent
-    from stock_datasource.agents.orchestrator import OrchestratorAgent
+    from stock_datasource.agents.orchestrator import get_orchestrator
     
     service = get_chat_service()
     service.add_message(session_id, "user", content)
     
-    # Use orchestrator for intent classification
-    orchestrator = OrchestratorAgent()
-    intent = orchestrator._classify_intent(content)
-    stock_codes = orchestrator._extract_stock_codes(content)
-    
-    # Use DeepAgent for execution
-    deep_agent = get_stock_agent()
+    orchestrator = get_orchestrator()
     context = {
         "session_id": session_id,
         "history": service.get_session_history(session_id),
-        "intent": intent,
-        "stock_codes": stock_codes,
     }
     
     async def generate():
@@ -94,23 +85,39 @@ async def _stream_response(session_id: str, content: str):
         tool_calls = []
         
         try:
-            # Stream events from DeepAgent
-            async for event in deep_agent.execute_stream(content, context):
+            async for event in orchestrator.execute_stream(content, context):
                 event_type = event.get("type", "")
                 
                 if event_type == "thinking":
-                    # Send thinking status with agent and tool info
+                    if event.get("tool"):
+                        tool_data = json.dumps({
+                            "type": "tool",
+                            "tool": event.get("tool"),
+                            "args": event.get("args"),
+                            "agent": event.get("agent"),
+                            "status": event.get("status"),
+                        }, ensure_ascii=False)
+                        yield f"data: {tool_data}\n\n"
+                        tool_calls.append(event.get("tool"))
                     thinking_data = json.dumps({
                         "type": "thinking",
-                        "intent": intent,
-                        "agent": event.get("agent", "StockDeepAgent"),
+                        "intent": event.get("intent", ""),
+                        "agent": event.get("agent", "OrchestratorAgent"),
                         "status": event.get("status", "分析中..."),
                         "tool": event.get("tool"),
-                        "stock_codes": stock_codes
+                        "stock_codes": event.get("stock_codes", [])
                     }, ensure_ascii=False)
                     yield f"data: {thinking_data}\n\n"
-                    
-                    # Track tool calls
+                
+                elif event_type == "tool":
+                    tool_data = json.dumps({
+                        "type": "tool",
+                        "tool": event.get("tool"),
+                        "args": event.get("args"),
+                        "agent": event.get("agent"),
+                        "status": event.get("status"),
+                    }, ensure_ascii=False)
+                    yield f"data: {tool_data}\n\n"
                     if event.get("tool"):
                         tool_calls.append(event.get("tool"))
                 
@@ -125,14 +132,10 @@ async def _stream_response(session_id: str, content: str):
                         yield f"data: {data}\n\n"
                 
                 elif event_type == "done":
-                    # Save the complete response
-                    service.add_message(session_id, "assistant", full_response)
-                    
-                    # Send done with metadata
+                    if full_response:
+                        service.add_message(session_id, "assistant", full_response)
                     metadata = event.get("metadata", {})
-                    metadata["intent"] = intent
-                    metadata["stock_codes"] = stock_codes
-                    metadata["tool_calls"] = tool_calls
+                    metadata.setdefault("tool_calls", tool_calls)
                     
                     done_data = json.dumps({
                         "type": "done",
@@ -149,7 +152,6 @@ async def _stream_response(session_id: str, content: str):
                     
         except Exception as e:
             logger.error(f"Streaming error: {e}")
-            # Save partial response if any
             if full_response:
                 service.add_message(session_id, "assistant", full_response)
             
