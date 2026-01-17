@@ -1,7 +1,7 @@
 """Portfolio module initialization."""
 
 import logging
-from stock_datasource.models.database import get_clickhouse_client
+from stock_datasource.models.database import db_client
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def ensure_portfolio_tables():
     """Ensure portfolio tables exist in ClickHouse."""
     try:
-        client = get_clickhouse_client()
+        client = db_client
         
         # Create user_positions table if not exists
         client.execute("""

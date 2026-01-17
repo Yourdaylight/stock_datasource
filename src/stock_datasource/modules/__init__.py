@@ -6,6 +6,13 @@ def get_all_routers() -> list:
     """Get all module routers."""
     routers = []
     
+    # Auth module (should be first)
+    try:
+        from .auth.router import router as auth_router
+        routers.append(("/auth", auth_router, ["用户认证"]))
+    except ImportError:
+        pass
+    
     try:
         from .chat.router import router as chat_router
         routers.append(("/chat", chat_router, ["对话交互"]))
