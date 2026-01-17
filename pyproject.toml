@@ -28,6 +28,9 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
     "fastmcp>=0.1.0",
+    "pyjwt>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt==4.0.1",
 ]
 
 [project.optional-dependencies]

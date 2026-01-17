@@ -8,6 +8,10 @@ Memory is now handled by base_agent.LangGraphAgent, which provides:
 
 from typing import List, Dict, Any, Optional
 import logging
+from datetime import date, datetime
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +22,26 @@ def _get_db():
     return db_client
 
 
+def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize dataframe values for JSON serialization and Pydantic validation."""
+    if df is None or df.empty:
+        return df
+    # Replace NaN/NaT with None
+    df = df.replace({np.nan: None})
+    # Convert datetime-like objects to ISO strings
+    df = df.applymap(
+        lambda x: x.isoformat() if isinstance(x, (datetime, date, pd.Timestamp)) else x
+    )
+    return df
+
+
 def _execute_query(query: str) -> List[Dict[str, Any]]:
     """Execute query and return results as list of dicts."""
     db = _get_db()
     df = db.execute_query(query)
     if df is None or df.empty:
         return []
+    df = _normalize_df(df)
     return df.to_dict('records')
 
 

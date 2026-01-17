@@ -1,10 +1,11 @@
 """Portfolio module router."""
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import List, Optional
 from pydantic import BaseModel
 import logging
 from .service import get_portfolio_service
+from ..auth.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,10 @@ class DailyAnalysis(BaseModel):
 
 
 @router.get("/positions", response_model=List[Position])
-async def get_positions():
+async def get_positions(current_user: dict = Depends(get_current_user)):
     """Get user positions."""
     service = get_portfolio_service()
-    positions = await service.get_positions()
+    positions = await service.get_positions(user_id=current_user["id"])
     
     # Convert to Pydantic models
     return [
@@ -91,7 +92,7 @@ async def get_positions():
 
 
 @router.post("/positions", response_model=Position)
-async def add_position(request: AddPositionRequest):
+async def add_position(request: AddPositionRequest, current_user: dict = Depends(get_current_user)):
     """Add a new position."""
     service = get_portfolio_service()
     
@@ -101,7 +102,8 @@ async def add_position(request: AddPositionRequest):
             quantity=request.quantity,
             cost_price=request.cost_price,
             buy_date=request.buy_date,
-            notes=request.notes
+            notes=request.notes,
+            user_id=current_user["id"]
         )
         
         return Position(
@@ -122,7 +124,7 @@ async def add_position(request: AddPositionRequest):
 
 
 @router.put("/positions/{position_id}", response_model=Position)
-async def update_position(position_id: str, request: AddPositionRequest):
+async def update_position(position_id: str, request: AddPositionRequest, current_user: dict = Depends(get_current_user)):
     """Update a position."""
     return Position(
         id=position_id,
@@ -135,12 +137,12 @@ async def update_position(position_id: str, request: AddPositionRequest):
 
 
 @router.delete("/positions/{position_id}")
-async def delete_position(position_id: str):
+async def delete_position(position_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a position."""
     service = get_portfolio_service()
     
     try:
-        success = await service.delete_position(position_id)
+        success = await service.delete_position(position_id, user_id=current_user["id"])
         if success:
             return {"success": True}
         else:
@@ -151,10 +153,10 @@ async def delete_position(position_id: str):
 
 
 @router.get("/summary", response_model=PortfolioSummary)
-async def get_summary():
+async def get_summary(current_user: dict = Depends(get_current_user)):
     """Get portfolio summary."""
     service = get_portfolio_service()
-    summary = await service.get_summary()
+    summary = await service.get_summary(user_id=current_user["id"])
     
     return PortfolioSummary(
         total_value=summary.total_value,
@@ -168,12 +170,12 @@ async def get_summary():
 
 
 @router.get("/profit-history")
-async def get_profit_history(days: int = Query(default=30)):
+async def get_profit_history(days: int = Query(default=30), current_user: dict = Depends(get_current_user)):
     """Get profit history."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            history = await enhanced_service.get_profit_history(days=days)
+            history = await enhanced_service.get_profit_history(days=days, user_id=current_user["id"])
             return {"data": history, "success": True}
         else:
             return {"data": [], "success": True, "message": "Enhanced service not available"}
@@ -183,12 +185,12 @@ async def get_profit_history(days: int = Query(default=30)):
 
 
 @router.post("/daily-analysis")
-async def trigger_daily_analysis():
+async def trigger_daily_analysis(current_user: dict = Depends(get_current_user)):
     """Trigger daily analysis."""
     try:
         analysis_service = get_daily_analysis_service()
         if analysis_service:
-            task_id = await analysis_service.trigger_analysis()
+            task_id = await analysis_service.trigger_analysis(user_id=current_user["id"])
             return {"task_id": task_id, "success": True}
         else:
             return {"task_id": "mock_001", "success": True, "message": "Analysis service not available"}
@@ -198,12 +200,12 @@ async def trigger_daily_analysis():
 
 
 @router.get("/analysis", response_model=DailyAnalysis)
-async def get_analysis(date: Optional[str] = None):
+async def get_analysis(date: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     """Get daily analysis."""
     try:
         analysis_service = get_daily_analysis_service()
         if analysis_service:
-            analysis = await analysis_service.get_analysis(date=date)
+            analysis = await analysis_service.get_analysis(date=date, user_id=current_user["id"])
             if analysis:
                 return DailyAnalysis(
                     analysis_date=analysis.get('analysis_date', ''),
@@ -253,7 +255,7 @@ async def get_analysis(date: Optional[str] = None):
 
 # Additional enhanced endpoints
 @router.get("/technical-indicators/{ts_code}")
-async def get_technical_indicators(ts_code: str, days: int = Query(default=30)):
+async def get_technical_indicators(ts_code: str, days: int = Query(default=30), current_user: dict = Depends(get_current_user)):
     """Get technical indicators for a stock."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
@@ -268,12 +270,12 @@ async def get_technical_indicators(ts_code: str, days: int = Query(default=30)):
 
 
 @router.get("/risk-metrics")
-async def get_risk_metrics():
+async def get_risk_metrics(current_user: dict = Depends(get_current_user)):
     """Get portfolio risk metrics."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            metrics = await enhanced_service.get_risk_metrics()
+            metrics = await enhanced_service.get_risk_metrics(user_id=current_user["id"])
             return {"data": metrics, "success": True}
         else:
             return {"data": {}, "success": True, "message": "Enhanced service not available"}
@@ -283,11 +285,12 @@ async def get_risk_metrics():
 
 
 @router.post("/alerts")
-async def create_alert(alert_data: dict):
+async def create_alert(alert_data: dict, current_user: dict = Depends(get_current_user)):
     """Create position alert."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
+            alert_data["user_id"] = current_user["id"]
             alert = await enhanced_service.create_alert(alert_data)
             return {"data": alert, "success": True}
         else:
@@ -298,12 +301,12 @@ async def create_alert(alert_data: dict):
 
 
 @router.get("/alerts")
-async def get_alerts():
+async def get_alerts(current_user: dict = Depends(get_current_user)):
     """Get position alerts."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            alerts = await enhanced_service.get_alerts()
+            alerts = await enhanced_service.get_alerts(user_id=current_user["id"])
             return {"data": alerts, "success": True}
         else:
             return {"data": [], "success": True, "message": "Enhanced service not available"}
