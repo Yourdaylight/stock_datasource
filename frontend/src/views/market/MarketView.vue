@@ -1,40 +1,57 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useMarketStore } from '@/stores/market'
+import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useOverviewStore } from '@/stores/overview'
-import StockSearch from '@/components/common/StockSearch.vue'
-import KLineChart from '@/components/charts/KLineChart.vue'
+import { overviewApi, type HotEtf } from '@/api/overview'
+import SectorHeatmap from '@/components/market/SectorHeatmap.vue'
+import SectorDetailDialog from '@/components/market/SectorDetailDialog.vue'
+import SectorRankingTable from '@/components/market/SectorRankingTable.vue'
+import IndexCompareChart from '@/components/market/IndexCompareChart.vue'
+import MarketAiFloatButton from '@/components/market/MarketAiFloatButton.vue'
+import MarketAiDialog from '@/components/market/MarketAiDialog.vue'
 
-const marketStore = useMarketStore()
 const overviewStore = useOverviewStore()
 
-const selectedStock = ref('')
-const dateRange = ref<[string, string]>(['', ''])
-const activeTab = ref('chart')
-const aiQuestion = ref('')
+const hotEtfList = ref<HotEtf[]>([])
+const hotEtfLoading = ref(false)
+let hotEtfTimer: number | undefined
 
-const handleStockSelect = (code: string) => {
-  selectedStock.value = code
-  if (dateRange.value[0] && dateRange.value[1]) {
-    marketStore.fetchKLine(code, dateRange.value[0], dateRange.value[1])
-    marketStore.fetchIndicators(code, ['macd', 'rsi', 'kdj'])
-  }
+const scheduleHotEtfRefresh = () => {
+  if (hotEtfTimer) window.clearTimeout(hotEtfTimer)
+  hotEtfTimer = window.setTimeout(async () => {
+    hotEtfLoading.value = true
+    try {
+      const result = await overviewApi.getHotEtfs({ sort_by: 'amount', limit: 10 })
+      hotEtfList.value = result.data
+    } catch (e) {
+      console.error('Failed to fetch hot ETFs:', e)
+      hotEtfList.value = []
+    } finally {
+      hotEtfLoading.value = false
+    }
+  }, 300)
 }
 
-const handleDateChange = (dates: [string, string]) => {
-  dateRange.value = dates
-  if (selectedStock.value && dates[0] && dates[1]) {
-    marketStore.fetchKLine(selectedStock.value, dates[0], dates[1])
-  }
-}
+// Sector detail dialog
+const sectorDialogVisible = ref(false)
+const selectedSectorCode = ref('')
+const selectedSectorName = ref('')
 
-const indicators = ['MACD', 'RSI', 'KDJ', 'BOLL', 'MA']
-const selectedIndicators = ref(['MACD'])
+// AI dialog
+const aiDialogVisible = ref(false)
 
 // Overview computed
 const majorIndices = computed(() => overviewStore.majorIndices)
-const hotEtfs = computed(() => overviewStore.hotEtfsByAmount.slice(0, 5))
+const hotEtfs = computed(() => hotEtfList.value)
 const quickAnalysis = computed(() => overviewStore.quickAnalysis)
+
+const sentimentLabel = computed(() => {
+  const label = quickAnalysis.value?.sentiment?.label
+  if (label) return label
+  const summary = quickAnalysis.value?.market_summary || ''
+  if (summary.includes('悲观') || summary.includes('偏空')) return '偏空'
+  if (summary.includes('乐观') || summary.includes('偏多')) return '偏多'
+  return '中性'
+})
 
 // Format helpers
 const formatNumber = (val?: number, decimals = 2) => {
@@ -42,122 +59,129 @@ const formatNumber = (val?: number, decimals = 2) => {
   return val.toFixed(decimals)
 }
 
-const formatAmount = (val?: number) => {
-  if (val === undefined || val === null) return '-'
-  if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿'
-  if (val >= 10000) return (val / 10000).toFixed(2) + '万'
-  return val.toFixed(2)
-}
-
 const getPctClass = (val?: number) => {
   if (val === undefined || val === null) return ''
   return val > 0 ? 'text-up' : val < 0 ? 'text-down' : ''
 }
 
-// AI analysis
-const handleAskAI = async () => {
-  if (!aiQuestion.value.trim()) return
-  await overviewStore.runAIAnalysis(aiQuestion.value)
-  aiQuestion.value = ''
+// Sector handlers
+const handleSectorSelect = (tsCode: string, name: string) => {
+  selectedSectorCode.value = tsCode
+  selectedSectorName.value = name
+  sectorDialogVisible.value = true
 }
 
-const handleClearHistory = async () => {
-  await overviewStore.clearConversation()
+// AI dialog handler
+const handleAiClick = () => {
+  aiDialogVisible.value = true
 }
 
 onMounted(async () => {
-  // Set default date range (last 3 months)
-  const end = new Date()
-  const start = new Date()
-  start.setMonth(start.getMonth() - 3)
-  dateRange.value = [
-    start.toISOString().split('T')[0],
-    end.toISOString().split('T')[0]
-  ]
-  
-  // Fetch market overview
-  await overviewStore.fetchDailyOverview()
+  // Fetch market overview & sentiment
+  await Promise.all([
+    overviewStore.fetchDailyOverview(),
+    overviewStore.fetchQuickAnalysis()
+  ])
+  scheduleHotEtfRefresh()
+})
+
+onUnmounted(() => {
+  if (hotEtfTimer) window.clearTimeout(hotEtfTimer)
 })
 </script>
 
 <template>
   <div class="market-view">
-    <!-- Market Overview Cards -->
+    <!-- Top Section: Major Indices (one row) -->
+    <div class="indices-section">
+      <div class="indices-row" :class="{ loading: overviewStore.loading }">
+        <div 
+          v-for="idx in majorIndices" 
+          :key="idx.ts_code" 
+          class="index-card"
+          :class="getPctClass(idx.pct_chg)"
+        >
+          <div class="index-name">{{ idx.name || idx.ts_code }}</div>
+          <div class="index-price">{{ formatNumber(idx.close) }}</div>
+          <div :class="['index-change', getPctClass(idx.pct_chg)]">
+            {{ idx.pct_chg !== undefined ? (idx.pct_chg > 0 ? '+' : '') + formatNumber(idx.pct_chg) + '%' : '-' }}
+          </div>
+        </div>
+        <t-loading v-if="overviewStore.loading && majorIndices.length === 0" size="small" />
+      </div>
+    </div>
+
+    <!-- Second Row: Three columns - 市场情绪 | 板块热力图 | 热门ETF -->
     <div class="overview-section">
       <t-row :gutter="16">
-        <!-- Major Indices -->
-        <t-col :span="8">
-          <t-card title="主要指数" size="small" :loading="overviewStore.loading">
-            <div class="indices-grid">
-              <div 
-                v-for="idx in majorIndices" 
-                :key="idx.ts_code" 
-                class="index-item"
-              >
-                <div class="index-name">{{ idx.name || idx.ts_code }}</div>
-                <div class="index-price">{{ formatNumber(idx.close) }}</div>
-                <div :class="['index-change', getPctClass(idx.pct_chg)]">
-                  {{ idx.pct_chg !== undefined ? (idx.pct_chg > 0 ? '+' : '') + formatNumber(idx.pct_chg) + '%' : '-' }}
+        <!-- Market Sentiment -->
+        <t-col :span="3">
+          <t-card title="市场情绪" size="small" :bordered="false" class="overview-card">
+            <div class="market-stats">
+              <div class="stat-item">
+                <div class="stat-main">
+                  <span class="text-up">{{ quickAnalysis?.market_breadth.up_count ?? '—' }}</span>
+                  <span class="stat-divider">/</span>
+                  <span class="text-down">{{ quickAnalysis?.market_breadth.down_count ?? '—' }}</span>
                 </div>
+                <div class="stat-label">涨跌家数</div>
               </div>
+              <div class="stat-item">
+                <div class="stat-main">
+                  <span class="text-up">{{ quickAnalysis?.market_breadth.limit_up_count ?? '—' }}</span>
+                  <span class="stat-divider">/</span>
+                  <span class="text-down">{{ quickAnalysis?.market_breadth.limit_down_count ?? '—' }}</span>
+                </div>
+                <div class="stat-label">涨停 / 跌停</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-main">{{ quickAnalysis?.market_breadth.total_amount_yi?.toFixed(0) ?? '—' }}亿</div>
+                <div class="stat-label">成交额</div>
+              </div>
+              <div class="stat-item">
+                <t-skeleton v-if="overviewStore.analysisLoading && !quickAnalysis" theme="text" row-col="[{ width: '80px' }]" />
+                <t-tag 
+                  v-else
+                  :theme="quickAnalysis?.sentiment.score && quickAnalysis?.sentiment.score > 50 ? 'success' : quickAnalysis?.sentiment.score && quickAnalysis?.sentiment.score < 40 ? 'danger' : 'warning'" 
+                  size="medium"
+                  variant="light"
+                >
+                  {{ sentimentLabel }}
+                </t-tag>
+                <div class="stat-label">市场情绪</div>
+              </div>
+            </div>
+            <div class="market-summary">
+              <t-skeleton v-if="overviewStore.analysisLoading && !quickAnalysis" theme="text" row-col="[{ width: '90%' }, { width: '80%' }]" />
+              <p v-else>{{ quickAnalysis?.market_summary || '暂无分析结论' }}</p>
             </div>
           </t-card>
         </t-col>
 
-        <!-- Market Stats -->
-        <t-col :span="8">
-          <t-card title="市场情绪" size="small" :loading="overviewStore.loading">
-            <template v-if="quickAnalysis">
-              <div class="market-stats">
-                <div class="stat-row">
-                  <span class="stat-label">涨跌比</span>
-                  <span class="stat-value">
-                    <span class="text-up">{{ quickAnalysis.market_breadth.up_count || 0 }}</span>
-                    /
-                    <span class="text-down">{{ quickAnalysis.market_breadth.down_count || 0 }}</span>
-                  </span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">涨停/跌停</span>
-                  <span class="stat-value">
-                    <span class="text-up">{{ quickAnalysis.market_breadth.limit_up_count || 0 }}</span>
-                    /
-                    <span class="text-down">{{ quickAnalysis.market_breadth.limit_down_count || 0 }}</span>
-                  </span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">成交额</span>
-                  <span class="stat-value">{{ quickAnalysis.market_breadth.total_amount_yi?.toFixed(0) || '-' }}亿</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">情绪</span>
-                  <t-tag :theme="quickAnalysis.sentiment.score && quickAnalysis.sentiment.score > 50 ? 'success' : 'warning'" size="small">
-                    {{ quickAnalysis.sentiment.label || '中性' }}
-                  </t-tag>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <t-button size="small" @click="overviewStore.fetchQuickAnalysis()">
-                加载市场分析
-              </t-button>
-            </template>
+        <!-- Sector Heatmap -->
+        <t-col :span="6">
+          <t-card title="板块热力图" size="small" :bordered="false" class="overview-card heatmap-card">
+            <SectorHeatmap :max-items="24" @select="handleSectorSelect" />
           </t-card>
         </t-col>
 
         <!-- Hot ETFs -->
-        <t-col :span="8">
-          <t-card title="热门ETF" size="small" :loading="overviewStore.loading">
+        <t-col :span="3">
+          <t-card title="热门ETF" size="small" :bordered="false" class="overview-card etf-card">
             <div class="hot-etf-list">
               <div 
-                v-for="etf in hotEtfs" 
+                v-for="(etf, index) in hotEtfs" 
                 :key="etf.ts_code" 
                 class="etf-item"
               >
+                <span class="etf-rank" :class="{ 'top-rank': index < 3 }">{{ index + 1 }}</span>
                 <span class="etf-name">{{ etf.name || etf.ts_code }}</span>
                 <span :class="['etf-change', getPctClass(etf.pct_chg)]">
                   {{ etf.pct_chg !== undefined ? (etf.pct_chg > 0 ? '+' : '') + formatNumber(etf.pct_chg) + '%' : '-' }}
                 </span>
+              </div>
+              <div v-if="hotEtfs.length === 0 && !hotEtfLoading" class="empty-list">
+                暂无数据
               </div>
             </div>
           </t-card>
@@ -165,110 +189,35 @@ onMounted(async () => {
       </t-row>
     </div>
 
-    <!-- Main Content -->
-    <t-card class="main-card">
-      <t-tabs v-model="activeTab">
-        <t-tab-panel value="chart" label="K线图表">
-          <div class="chart-toolbar">
-            <t-space>
-              <StockSearch @select="handleStockSelect" />
-              <t-date-range-picker
-                v-model="dateRange"
-                :enable-time-picker="false"
-                @change="handleDateChange"
-              />
-            </t-space>
-          </div>
+    <!-- Main Content: Two columns (板块排行 | 指数对比) -->
+    <div class="main-section">
+      <t-row :gutter="16">
+        <!-- Sector Ranking -->
+        <t-col :span="7">
+          <t-card title="板块涨跌排行" size="small" :bordered="false" class="main-card">
+            <SectorRankingTable @select="handleSectorSelect" />
+          </t-card>
+        </t-col>
 
-          <div v-if="!selectedStock" class="empty-state">
-            <t-icon name="chart-line" size="64px" style="color: #ddd" />
-            <p>请选择股票查看行情</p>
-          </div>
+        <!-- Index Compare -->
+        <t-col :span="5">
+          <t-card title="指数走势对比" size="small" :bordered="false" class="main-card">
+            <IndexCompareChart />
+          </t-card>
+        </t-col>
+      </t-row>
+    </div>
 
-          <div v-else class="chart-container">
-            <div class="chart-header">
-              <h3>{{ marketStore.currentCode }}</h3>
-              <t-checkbox-group v-model="selectedIndicators">
-                <t-checkbox v-for="ind in indicators" :key="ind" :value="ind">
-                  {{ ind }}
-                </t-checkbox>
-              </t-checkbox-group>
-            </div>
-            
-            <KLineChart
-              :data="marketStore.klineData"
-              :indicators="marketStore.indicators"
-              :loading="marketStore.loading"
-            />
+    <!-- Sector Detail Dialog -->
+    <SectorDetailDialog
+      v-model:visible="sectorDialogVisible"
+      :ts-code="selectedSectorCode"
+      :name="selectedSectorName"
+    />
 
-            <t-divider />
-
-            <div class="analysis-section">
-              <t-button theme="primary" @click="marketStore.analyzeStock(selectedStock)">
-                <template #icon><t-icon name="root-list" /></template>
-                AI 智能分析
-              </t-button>
-              
-              <div v-if="marketStore.analysis" class="analysis-result">
-                <t-alert theme="info" :message="marketStore.analysis" />
-              </div>
-            </div>
-          </div>
-        </t-tab-panel>
-
-        <t-tab-panel value="ai" label="AI问答">
-          <div class="ai-chat-section">
-            <div class="ai-input-area">
-              <t-textarea
-                v-model="aiQuestion"
-                placeholder="输入您的市场分析问题，例如：今天市场表现如何？有哪些热门板块？"
-                :autosize="{ minRows: 2, maxRows: 4 }"
-              />
-              <div class="ai-actions">
-                <t-space>
-                  <t-button 
-                    theme="primary" 
-                    :loading="overviewStore.analysisLoading"
-                    @click="handleAskAI"
-                  >
-                    <template #icon><t-icon name="chat" /></template>
-                    发送
-                  </t-button>
-                  <t-button 
-                    variant="outline"
-                    @click="handleClearHistory"
-                  >
-                    清空对话
-                  </t-button>
-                </t-space>
-                <span class="history-info" v-if="overviewStore.historyLength > 0">
-                  对话轮次: {{ overviewStore.historyLength }}
-                </span>
-              </div>
-            </div>
-
-            <div v-if="overviewStore.aiAnalysisResult" class="ai-response">
-              <t-card title="AI 分析结果" size="small">
-                <div class="markdown-content" v-html="overviewStore.aiAnalysisResult"></div>
-              </t-card>
-            </div>
-
-            <div v-if="quickAnalysis && quickAnalysis.signals.length > 0" class="signals-section">
-              <t-card title="市场信号" size="small">
-                <t-tag 
-                  v-for="(signal, idx) in quickAnalysis.signals" 
-                  :key="idx"
-                  theme="warning"
-                  style="margin-right: 8px; margin-bottom: 8px;"
-                >
-                  {{ signal }}
-                </t-tag>
-              </t-card>
-            </div>
-          </div>
-        </t-tab-panel>
-      </t-tabs>
-    </t-card>
+    <!-- AI Float Button & Dialog -->
+    <MarketAiFloatButton @click="handleAiClick" />
+    <MarketAiDialog v-model:visible="aiDialogVisible" />
   </div>
 </template>
 
@@ -278,83 +227,154 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 16px;
+  background: var(--td-bg-color-page);
 }
 
-.overview-section {
+/* Indices Section */
+.indices-section {
   flex-shrink: 0;
 }
 
-.main-card {
-  flex: 1;
-  min-height: 0;
-}
-
-.indices-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+.indices-row {
+  display: flex;
   gap: 12px;
+  overflow-x: auto;
+  padding: 4px;
 }
 
-.index-item {
-  padding: 8px;
-  background: var(--td-bg-color-container-hover);
-  border-radius: 4px;
+.indices-row.loading {
+  justify-content: center;
+  padding: 20px;
+}
+
+.index-card {
+  flex: 1;
+  min-width: 120px;
+  max-width: 160px;
+  padding: 16px;
+  background: var(--td-bg-color-container);
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.index-card:hover {
+  box-shadow: var(--td-shadow-2);
+  transform: translateY(-2px);
+}
+
+.index-card.text-up {
+  border-bottom: 3px solid var(--td-error-color);
+}
+
+.index-card.text-down {
+  border-bottom: 3px solid var(--td-success-color);
 }
 
 .index-name {
   font-size: 12px;
   color: var(--td-text-color-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .index-price {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  margin-bottom: 4px;
 }
 
 .index-change {
-  font-size: 12px;
-}
-
-.text-up {
-  color: var(--td-error-color);
-}
-
-.text-down {
-  color: var(--td-success-color);
-}
-
-.market-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.stat-label {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
-.stat-value {
+  font-size: 14px;
   font-weight: 500;
 }
 
+/* Overview Section */
+.overview-section {
+  flex-shrink: 0;
+}
+
+.overview-card {
+  min-height: 260px;
+  height: auto;
+}
+
+.overview-card :deep(.t-card__body) {
+  padding-top: 8px;
+}
+
+.heatmap-card :deep(.t-card__body) {
+  padding: 8px;
+}
+
+.etf-card :deep(.t-card__body) {
+  overflow-y: auto;
+}
+
+/* Market Stats */
+.market-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.market-summary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--td-component-stroke);
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.market-summary p {
+  margin: 0;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-main {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.stat-divider {
+  color: var(--td-text-color-placeholder);
+  margin: 0 4px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+  margin-top: 4px;
+}
+
+.empty-sentiment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+/* Hot ETF List */
 .hot-etf-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  height: 100%;
 }
 
 .etf-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
   padding: 4px 0;
   border-bottom: 1px solid var(--td-component-stroke);
 }
@@ -363,81 +383,69 @@ onMounted(async () => {
   border-bottom: none;
 }
 
+.etf-rank {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--td-bg-color-component);
+  color: var(--td-text-color-secondary);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.etf-rank.top-rank {
+  background: var(--td-brand-color);
+  color: white;
+}
+
 .etf-name {
-  font-size: 13px;
+  flex: 1;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 150px;
 }
 
 .etf-change {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
+  flex-shrink: 0;
 }
 
-.chart-toolbar {
-  margin-bottom: 16px;
-}
-
-.empty-state {
+.empty-list {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 400px;
-  color: #999;
-}
-
-.chart-container {
-  min-height: 500px;
-}
-
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.analysis-section {
-  margin-top: 16px;
-}
-
-.analysis-result {
-  margin-top: 16px;
-}
-
-.ai-chat-section {
-  padding: 16px 0;
-}
-
-.ai-input-area {
-  margin-bottom: 16px;
-}
-
-.ai-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 12px;
-}
-
-.history-info {
+  height: 100%;
+  color: var(--td-text-color-placeholder);
   font-size: 12px;
-  color: var(--td-text-color-secondary);
 }
 
-.ai-response {
-  margin-bottom: 16px;
+/* Main Section */
+.main-section {
+  flex: 1;
+  min-height: 0;
 }
 
-.markdown-content {
-  line-height: 1.6;
-  white-space: pre-wrap;
+.main-card {
+  height: 100%;
+  min-height: 360px;
 }
 
-.signals-section {
-  margin-top: 16px;
+.main-card :deep(.t-card__body) {
+  min-height: 320px;
+  overflow: auto;
+}
+
+/* Common */
+.text-up {
+  color: var(--td-error-color);
+}
+
+.text-down {
+  color: var(--td-success-color);
 }
 </style>
