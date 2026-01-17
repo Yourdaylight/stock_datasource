@@ -4,8 +4,9 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { marketApi } from '@/api/market'
 import { usePortfolioStore } from '@/stores/portfolio'
 import KLineChart from '@/components/charts/KLineChart.vue'
-import KDJChart from '@/components/charts/KDJChart.vue'
-import type { KLineData, IndicatorData } from '@/types/common'
+import IndicatorPanel from '@/views/market/components/IndicatorPanel.vue'
+import TrendAnalysis from '@/views/market/components/TrendAnalysis.vue'
+import type { KLineData, TechnicalSignal } from '@/types/common'
 
 interface Props {
   visible: boolean
@@ -23,14 +24,20 @@ const portfolioStore = usePortfolioStore()
 // Data
 const stockInfo = ref<{ code: string; name: string } | null>(null)
 const klineData = ref<KLineData[]>([])
-const kdjData = ref<IndicatorData[]>([])
+const indicators = ref<Record<string, number[]>>({})
+const indicatorDates = ref<string[]>([])
+const signals = ref<TechnicalSignal[]>([])
+const trendAnalysis = ref<any>(null)
 const loading = ref(false)
 const chartLoading = ref(false)
+const analysisLoading = ref(false)
 
 // Chart options
-const period = ref(60) // 默认60天
+const period = ref(90) // 默认90天
 const adjustType = ref<'qfq' | 'hfq' | 'none'>('qfq')
-const showIndicators = ref(['KDJ'])
+const selectedIndicators = ref<string[]>(['MACD', 'MA'])
+const showIndicatorPanel = ref(false)
+const activeTab = ref('chart')
 
 // Add to watchlist form
 const addToWatchlistForm = ref({
@@ -54,13 +61,6 @@ const adjustOptions = [
   { label: '不复权', value: 'none' }
 ]
 
-const indicatorOptions = [
-  { label: 'KDJ', value: 'KDJ' },
-  { label: 'MACD', value: 'MACD' },
-  { label: 'RSI', value: 'RSI' },
-  { label: 'BOLL', value: 'BOLL' }
-]
-
 // Computed
 const dialogVisible = computed({
   get: () => props.visible,
@@ -70,6 +70,20 @@ const dialogVisible = computed({
 const latestPrice = computed(() => {
   if (klineData.value.length === 0) return 0
   return klineData.value[klineData.value.length - 1]?.close || 0
+})
+
+const priceInfo = computed(() => {
+  if (klineData.value.length < 2) return null
+  const latest = klineData.value[klineData.value.length - 1]
+  const prev = klineData.value[klineData.value.length - 2]
+  const change = latest.close - prev.close
+  const changePct = (change / prev.close) * 100
+  return {
+    price: latest.close.toFixed(2),
+    change: change.toFixed(2),
+    changePct: changePct.toFixed(2),
+    isUp: change >= 0
+  }
 })
 
 // Methods
@@ -106,10 +120,8 @@ const fetchStockData = async () => {
     // Set default cost price to latest close price
     addToWatchlistForm.value.cost_price = latestPrice.value
     
-    // Fetch indicators if needed
-    if (showIndicators.value.includes('KDJ')) {
-      await fetchKDJData()
-    }
+    // Fetch indicators
+    await fetchIndicators()
     
   } catch (error) {
     console.error('Failed to fetch stock data:', error)
@@ -120,18 +132,20 @@ const fetchStockData = async () => {
   }
 }
 
-const fetchKDJData = async () => {
+const fetchIndicators = async () => {
   if (!props.stockCode) return
   
   try {
-    const response = await marketApi.getIndicators({
+    const response = await marketApi.getIndicatorsV2({
       code: props.stockCode,
-      indicators: ['KDJ'],
+      indicators: selectedIndicators.value,
       period: period.value
     })
-    kdjData.value = response.indicators
+    indicators.value = response.indicators
+    indicatorDates.value = response.dates
+    signals.value = response.signals || []
   } catch (error) {
-    console.error('Failed to fetch KDJ data:', error)
+    console.error('Failed to fetch indicators:', error)
   }
 }
 
@@ -143,11 +157,50 @@ const handleAdjustChange = () => {
   fetchStockData()
 }
 
-const handleIndicatorChange = () => {
-  if (showIndicators.value.includes('KDJ')) {
-    fetchKDJData()
-  } else {
-    kdjData.value = []
+const handleIndicatorChange = async (newIndicators: string[]) => {
+  selectedIndicators.value = newIndicators
+  await fetchIndicators()
+}
+
+const handleAnalyze = async () => {
+  if (!props.stockCode) return
+  
+  analysisLoading.value = true
+  try {
+    const response = await marketApi.analyzeTrend({ 
+      code: props.stockCode, 
+      period: period.value 
+    })
+    trendAnalysis.value = response
+  } catch (error) {
+    console.error('Failed to analyze stock:', error)
+    MessagePlugin.error('分析失败，请稍后重试')
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+const handleAIAnalyze = async () => {
+  if (!props.stockCode) return
+  
+  analysisLoading.value = true
+  try {
+    const response = await marketApi.aiAnalyze({ 
+      code: props.stockCode, 
+      period: period.value 
+    })
+    trendAnalysis.value = {
+      summary: response.analysis,
+      signals: response.signals || []
+    }
+    if (response.signals) {
+      signals.value = response.signals
+    }
+  } catch (error) {
+    console.error('Failed to AI analyze stock:', error)
+    MessagePlugin.error('AI分析失败，请稍后重试')
+  } finally {
+    analysisLoading.value = false
   }
 }
 
@@ -178,6 +231,12 @@ const handleClose = () => {
 // Watch for stock code changes
 watch(() => props.stockCode, (newCode) => {
   if (newCode && props.visible) {
+    // Reset state
+    indicators.value = {}
+    indicatorDates.value = []
+    signals.value = []
+    trendAnalysis.value = null
+    activeTab.value = 'chart'
     fetchStockData()
   }
 })
@@ -207,11 +266,11 @@ watch(() => props.visible, (visible) => {
         <div class="stock-header">
           <div class="stock-basic">
             <h3>{{ stockInfo.name }} ({{ stockInfo.code }})</h3>
-            <div class="price-info">
-              <span class="latest-price">{{ latestPrice.toFixed(2) }}</span>
-              <span v-if="klineData.length >= 2" class="price-change">
-                {{ (latestPrice - klineData[klineData.length - 2]?.close || 0).toFixed(2) }}
-                ({{ (((latestPrice - (klineData[klineData.length - 2]?.close || 0)) / (klineData[klineData.length - 2]?.close || 1)) * 100).toFixed(2) }}%)
+            <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
+              <span class="latest-price">{{ priceInfo.price }}</span>
+              <span class="price-change">
+                {{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.change }} 
+                ({{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.changePct }}%)
               </span>
             </div>
           </div>
@@ -230,85 +289,130 @@ watch(() => props.visible, (visible) => {
                 style="width: 100px"
                 @change="handleAdjustChange"
               />
-              <t-checkbox-group
-                v-model="showIndicators"
-                :options="indicatorOptions"
-                @change="handleIndicatorChange"
-              />
+              <t-button 
+                variant="outline" 
+                size="small"
+                @click="showIndicatorPanel = !showIndicatorPanel"
+              >
+                <template #icon><t-icon name="setting" /></template>
+                指标设置
+              </t-button>
             </t-space>
           </div>
         </div>
       </t-card>
       
-      <!-- Charts -->
-      <t-row :gutter="16" style="margin-top: 16px">
-        <t-col :span="8">
-          <t-card title="K线图" :bordered="false">
-            <KLineChart
-              :data="klineData"
-              :loading="chartLoading"
-            />
-          </t-card>
-        </t-col>
-        
-        <t-col :span="4" v-if="showIndicators.includes('KDJ')">
-          <t-card title="KDJ指标" :bordered="false">
-            <KDJChart
-              :data="kdjData"
-              :loading="chartLoading"
-            />
-          </t-card>
-        </t-col>
-      </t-row>
+      <!-- Indicator Panel -->
+      <div v-if="showIndicatorPanel" class="indicator-collapse">
+        <IndicatorPanel 
+          :selected-indicators="selectedIndicators"
+          @change="handleIndicatorChange"
+        />
+      </div>
       
-      <!-- Add to Watchlist Form -->
-      <t-card title="添加到自选股" style="margin-top: 16px" :bordered="false">
-        <t-form :data="addToWatchlistForm" layout="inline">
-          <t-form-item label="股数" name="quantity">
-            <t-input-number
-              v-model="addToWatchlistForm.quantity"
-              :min="1"
-              :step="100"
-              style="width: 120px"
-            />
-          </t-form-item>
+      <!-- Tabs: Chart / Analysis / Add to Watchlist -->
+      <t-tabs v-model="activeTab" style="margin-top: 16px">
+        <t-tab-panel value="chart" label="K线图表">
+          <KLineChart
+            :data="klineData"
+            :indicators="indicators"
+            :indicator-dates="indicatorDates"
+            :loading="chartLoading"
+            :height="450"
+          />
           
-          <t-form-item label="成本价" name="cost_price">
-            <t-input-number
-              v-model="addToWatchlistForm.cost_price"
-              :min="0"
-              :step="0.01"
-              :decimal-places="2"
-              style="width: 120px"
-            />
-          </t-form-item>
-          
-          <t-form-item label="买入日期" name="buy_date">
-            <t-date-picker
-              v-model="addToWatchlistForm.buy_date"
-              style="width: 140px"
-            />
-          </t-form-item>
-          
-          <t-form-item label="备注" name="notes">
-            <t-input
-              v-model="addToWatchlistForm.notes"
-              placeholder="可选"
-              style="width: 200px"
-            />
-          </t-form-item>
-          
-          <t-form-item>
-            <t-button
-              theme="primary"
-              :loading="portfolioStore.loading"
-              @click="handleAddToWatchlist"
+          <!-- Signals Display -->
+          <div v-if="signals.length > 0" class="signals-bar">
+            <span class="signals-label">技术信号：</span>
+            <t-tag
+              v-for="signal in signals"
+              :key="signal.signal"
+              :theme="signal.type === 'bullish' ? 'success' : signal.type === 'bearish' ? 'danger' : 'default'"
+              variant="light"
+              size="small"
             >
-              加入自选
-            </t-button>
-          </t-form-item>
-        </t-form>
-      </t-card>
+              {{ signal.signal }}
+            </t-tag>
+          </div>
+        </t-tab-panel>
+        
+        <t-tab-panel value="analysis" label="AI 分析">
+          <div class="analysis-section">
+            <div class="analysis-actions">
+              <t-button theme="primary" @click="handleAnalyze" :loading="analysisLoading">
+                <template #icon><t-icon name="chart-analytics" /></template>
+                技术分析
+              </t-button>
+              <t-button variant="outline" @click="handleAIAnalyze" :loading="analysisLoading">
+                <template #icon><t-icon name="lightbulb" /></template>
+                AI 智能分析
+              </t-button>
+            </div>
+            
+            <TrendAnalysis
+              :trend="trendAnalysis?.trend"
+              :support="trendAnalysis?.support"
+              :resistance="trendAnalysis?.resistance"
+              :signals="trendAnalysis?.signals"
+              :summary="trendAnalysis?.summary"
+              :disclaimer="trendAnalysis?.disclaimer"
+              :loading="analysisLoading"
+              class="trend-analysis-panel"
+            />
+          </div>
+        </t-tab-panel>
+        
+        <t-tab-panel value="watchlist" label="加入自选">
+          <!-- Add to Watchlist Form -->
+          <t-card :bordered="false">
+            <t-form :data="addToWatchlistForm" layout="inline">
+              <t-form-item label="股数" name="quantity">
+                <t-input-number
+                  v-model="addToWatchlistForm.quantity"
+                  :min="1"
+                  :step="100"
+                  style="width: 120px"
+                />
+              </t-form-item>
+              
+              <t-form-item label="成本价" name="cost_price">
+                <t-input-number
+                  v-model="addToWatchlistForm.cost_price"
+                  :min="0"
+                  :step="0.01"
+                  :decimal-places="2"
+                  style="width: 120px"
+                />
+              </t-form-item>
+              
+              <t-form-item label="买入日期" name="buy_date">
+                <t-date-picker
+                  v-model="addToWatchlistForm.buy_date"
+                  style="width: 140px"
+                />
+              </t-form-item>
+              
+              <t-form-item label="备注" name="notes">
+                <t-input
+                  v-model="addToWatchlistForm.notes"
+                  placeholder="可选"
+                  style="width: 200px"
+                />
+              </t-form-item>
+              
+              <t-form-item>
+                <t-button
+                  theme="primary"
+                  :loading="portfolioStore.loading"
+                  @click="handleAddToWatchlist"
+                >
+                  加入自选
+                </t-button>
+              </t-form-item>
+            </t-form>
+          </t-card>
+        </t-tab-panel>
+      </t-tabs>
     </div>
     
     <template #footer>
@@ -340,11 +444,13 @@ watch(() => props.visible, (visible) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .stock-basic h3 {
   margin: 0 0 8px 0;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
 }
 
@@ -355,13 +461,23 @@ watch(() => props.visible, (visible) => {
 }
 
 .latest-price {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: bold;
 }
 
 .price-change {
-  font-size: 16px;
+  font-size: 14px;
   opacity: 0.9;
+}
+
+.price-info.up .latest-price,
+.price-info.up .price-change {
+  color: #ff6b6b;
+}
+
+.price-info.down .latest-price,
+.price-info.down .price-change {
+  color: #51cf66;
 }
 
 .chart-controls {
@@ -370,7 +486,7 @@ watch(() => props.visible, (visible) => {
 }
 
 .chart-controls :deep(.t-select),
-.chart-controls :deep(.t-checkbox-group) {
+.chart-controls :deep(.t-button) {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
@@ -381,7 +497,44 @@ watch(() => props.visible, (visible) => {
   color: white;
 }
 
-.chart-controls :deep(.t-checkbox-group .t-checkbox) {
+.chart-controls :deep(.t-button) {
   color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.indicator-collapse {
+  margin-top: 12px;
+}
+
+.signals-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.signals-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.analysis-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.analysis-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.trend-analysis-panel {
+  min-height: 250px;
 }
 </style>

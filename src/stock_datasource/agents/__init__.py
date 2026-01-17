@@ -31,8 +31,8 @@ from .base_agent import (
 from .orchestrator import OrchestratorAgent, get_orchestrator
 from .tools import STOCK_TOOLS
 from .chat_agent import ChatAgent
-from .market_agent import MarketAgent
-from .screener_agent import ScreenerAgent
+from .market_agent import MarketAgent, get_market_agent
+from .screener_agent import ScreenerAgent, get_screener_agent
 from .report_agent import ReportAgent
 from .memory_agent import MemoryAgent
 from .datamanage_agent import DataManageAgent
@@ -67,7 +67,9 @@ __all__ = [
     # Specialized agents (all based on LangGraph)
     "ChatAgent",
     "MarketAgent",
+    "get_market_agent",
     "ScreenerAgent",
+    "get_screener_agent",
     "ReportAgent",
     "MemoryAgent",
     "DataManageAgent",

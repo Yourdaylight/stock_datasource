@@ -4,33 +4,67 @@ import { useMarketStore } from '@/stores/market'
 import { useOverviewStore } from '@/stores/overview'
 import StockSearch from '@/components/common/StockSearch.vue'
 import KLineChart from '@/components/charts/KLineChart.vue'
+import IndicatorPanel from './components/IndicatorPanel.vue'
+import MarketOverview from './components/MarketOverview.vue'
+import TrendAnalysis from './components/TrendAnalysis.vue'
 
 const marketStore = useMarketStore()
 const overviewStore = useOverviewStore()
 
 const selectedStock = ref('')
 const dateRange = ref<[string, string]>(['', ''])
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
 const activeTab = ref('chart')
 const aiQuestion = ref('')
+=======
+const selectedIndicators = ref<string[]>(['MACD', 'MA'])
+const showIndicatorPanel = ref(false)
+const activeTab = ref('chart')
+>>>>>>> Stashed changes
+=======
+const selectedIndicators = ref<string[]>(['MACD', 'MA'])
+const showIndicatorPanel = ref(false)
+const activeTab = ref('chart')
+>>>>>>> Stashed changes
 
-const handleStockSelect = (code: string) => {
+const handleStockSelect = async (code: string) => {
   selectedStock.value = code
   if (dateRange.value[0] && dateRange.value[1]) {
-    marketStore.fetchKLine(code, dateRange.value[0], dateRange.value[1])
-    marketStore.fetchIndicators(code, ['macd', 'rsi', 'kdj'])
+    await marketStore.fetchKLine(code, dateRange.value[0], dateRange.value[1])
+    await marketStore.fetchIndicators(code, selectedIndicators.value)
   }
 }
 
-const handleDateChange = (dates: [string, string]) => {
+const handleDateChange = async (dates: [string, string]) => {
   dateRange.value = dates
   if (selectedStock.value && dates[0] && dates[1]) {
-    marketStore.fetchKLine(selectedStock.value, dates[0], dates[1])
+    await marketStore.fetchKLine(selectedStock.value, dates[0], dates[1])
+    await marketStore.fetchIndicators(selectedStock.value, selectedIndicators.value)
   }
 }
 
-const indicators = ['MACD', 'RSI', 'KDJ', 'BOLL', 'MA']
-const selectedIndicators = ref(['MACD'])
+const handleIndicatorChange = async (indicators: string[]) => {
+  selectedIndicators.value = indicators
+  if (selectedStock.value) {
+    await marketStore.fetchIndicators(selectedStock.value, indicators)
+  }
+}
 
+const handleAnalyze = () => {
+  if (selectedStock.value) {
+    marketStore.analyzeStock(selectedStock.value)
+  }
+}
+
+const handleAIAnalyze = () => {
+  if (selectedStock.value) {
+    marketStore.aiAnalyzeStock(selectedStock.value)
+  }
+}
+
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
 // Overview computed
 const majorIndices = computed(() => overviewStore.majorIndices)
 const hotEtfs = computed(() => overviewStore.hotEtfsByAmount.slice(0, 5))
@@ -64,6 +98,27 @@ const handleAskAI = async () => {
 const handleClearHistory = async () => {
   await overviewStore.clearConversation()
 }
+=======
+=======
+>>>>>>> Stashed changes
+// Price display
+const priceInfo = computed(() => {
+  if (!marketStore.klineData.length) return null
+  const latest = marketStore.klineData[marketStore.klineData.length - 1]
+  const prev = marketStore.klineData.length > 1 ? marketStore.klineData[marketStore.klineData.length - 2] : latest
+  const change = latest.close - prev.close
+  const changePct = (change / prev.close) * 100
+  return {
+    price: latest.close.toFixed(2),
+    change: change.toFixed(2),
+    changePct: changePct.toFixed(2),
+    isUp: change >= 0
+  }
+})
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 
 onMounted(async () => {
   // Set default date range (last 3 months)
@@ -76,12 +131,22 @@ onMounted(async () => {
   ]
   
   // Fetch market overview
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
   await overviewStore.fetchDailyOverview()
+=======
+  await marketStore.fetchMarketOverview()
+>>>>>>> Stashed changes
+=======
+  await marketStore.fetchMarketOverview()
+>>>>>>> Stashed changes
 })
 </script>
 
 <template>
   <div class="market-view">
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
     <!-- Market Overview Cards -->
     <div class="overview-section">
       <t-row :gutter="16">
@@ -103,6 +168,43 @@ onMounted(async () => {
             </div>
           </t-card>
         </t-col>
+=======
+=======
+>>>>>>> Stashed changes
+    <!-- Market Overview Section -->
+    <MarketOverview
+      :indices="marketStore.marketOverview?.indices || []"
+      :stats="marketStore.marketOverview?.stats || null"
+      :loading="marketStore.overviewLoading"
+      class="overview-section"
+    />
+    
+    <!-- Main Analysis Card -->
+    <t-card class="main-card">
+      <template #header>
+        <div class="card-header">
+          <div class="header-left">
+            <StockSearch @select="handleStockSelect" style="width: 240px" />
+            <t-date-range-picker
+              v-model="dateRange"
+              :enable-time-picker="false"
+              @change="handleDateChange"
+              style="width: 280px"
+            />
+          </div>
+          <div class="header-right">
+            <t-button 
+              variant="outline" 
+              @click="showIndicatorPanel = !showIndicatorPanel"
+            >
+              <template #icon><t-icon name="setting" /></template>
+              指标设置
+            </t-button>
+<<<<<<< Updated upstream
+          </div>
+        </div>
+      </template>
+>>>>>>> Stashed changes
 
         <!-- Market Stats -->
         <t-col :span="8">
@@ -145,6 +247,7 @@ onMounted(async () => {
           </t-card>
         </t-col>
 
+<<<<<<< Updated upstream
         <!-- Hot ETFs -->
         <t-col :span="8">
           <t-card title="热门ETF" size="small" :loading="overviewStore.loading">
@@ -268,13 +371,126 @@ onMounted(async () => {
           </div>
         </t-tab-panel>
       </t-tabs>
+=======
+      <div v-else class="content-container">
+        <!-- Stock Header -->
+        <div class="stock-header">
+          <div class="stock-info">
+            <span class="stock-name">{{ marketStore.currentName }}</span>
+            <span class="stock-code">{{ marketStore.currentCode }}</span>
+          </div>
+          <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
+            <span class="current-price">{{ priceInfo.price }}</span>
+            <span class="price-change">
+              {{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.change }} 
+              ({{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.changePct }}%)
+            </span>
+          </div>
+        </div>
+=======
+          </div>
+        </div>
+      </template>
+
+      <div v-if="!selectedStock" class="empty-state">
+        <t-icon name="chart-line" size="64px" style="color: #ddd" />
+        <p>请选择股票查看行情</p>
+      </div>
+
+      <div v-else class="content-container">
+        <!-- Stock Header -->
+        <div class="stock-header">
+          <div class="stock-info">
+            <span class="stock-name">{{ marketStore.currentName }}</span>
+            <span class="stock-code">{{ marketStore.currentCode }}</span>
+          </div>
+          <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
+            <span class="current-price">{{ priceInfo.price }}</span>
+            <span class="price-change">
+              {{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.change }} 
+              ({{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.changePct }}%)
+            </span>
+          </div>
+        </div>
+>>>>>>> Stashed changes
+        
+        <!-- Indicator Panel -->
+        <div v-if="showIndicatorPanel" class="indicator-collapse">
+          <IndicatorPanel 
+            :selected-indicators="selectedIndicators"
+            @change="handleIndicatorChange"
+          />
+        </div>
+        
+        <!-- Tabs: Chart / Analysis -->
+        <t-tabs v-model="activeTab">
+          <t-tab-panel value="chart" label="K线图表">
+            <KLineChart
+              :data="marketStore.klineData"
+              :indicators="marketStore.indicators"
+              :indicator-dates="marketStore.indicatorDates"
+              :loading="marketStore.loading"
+              :height="550"
+            />
+            
+            <!-- Signals Display -->
+            <div v-if="marketStore.signals.length > 0" class="signals-bar">
+              <span class="signals-label">技术信号：</span>
+              <t-tag
+                v-for="signal in marketStore.signals"
+                :key="signal.signal"
+                :theme="signal.type === 'bullish' ? 'success' : signal.type === 'bearish' ? 'danger' : 'default'"
+                variant="light"
+                size="small"
+              >
+                {{ signal.signal }}
+              </t-tag>
+            </div>
+          </t-tab-panel>
+          
+          <t-tab-panel value="analysis" label="AI 分析">
+            <div class="analysis-section">
+              <div class="analysis-actions">
+                <t-button theme="primary" @click="handleAnalyze" :loading="marketStore.loading">
+                  <template #icon><t-icon name="chart-analytics" /></template>
+                  技术分析
+                </t-button>
+                <t-button variant="outline" @click="handleAIAnalyze" :loading="marketStore.loading">
+                  <template #icon><t-icon name="lightbulb" /></template>
+                  AI 智能分析
+                </t-button>
+              </div>
+              
+              <TrendAnalysis
+                :trend="marketStore.trendAnalysis?.trend"
+                :support="marketStore.trendAnalysis?.support"
+                :resistance="marketStore.trendAnalysis?.resistance"
+                :signals="marketStore.trendAnalysis?.signals"
+                :summary="marketStore.trendAnalysis?.summary"
+                :disclaimer="marketStore.trendAnalysis?.disclaimer"
+                :loading="marketStore.loading"
+                class="trend-analysis-panel"
+              />
+            </div>
+          </t-tab-panel>
+        </t-tabs>
+      </div>
+>>>>>>> Stashed changes
     </t-card>
   </div>
 </template>
 
 <style scoped>
 .market-view {
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
   height: 100%;
+=======
+  padding: 16px;
+>>>>>>> Stashed changes
+=======
+  padding: 16px;
+>>>>>>> Stashed changes
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -286,6 +502,8 @@ onMounted(async () => {
 
 .main-card {
   flex: 1;
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
   min-height: 0;
 }
 
@@ -378,6 +596,27 @@ onMounted(async () => {
 
 .chart-toolbar {
   margin-bottom: 16px;
+=======
+=======
+>>>>>>> Stashed changes
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header-left {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 }
 
 .empty-state {
@@ -389,23 +628,97 @@ onMounted(async () => {
   color: #999;
 }
 
-.chart-container {
-  min-height: 500px;
+.content-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.chart-header {
+.stock-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f9f9f9;
+  border-radius: 8px;
+}
+
+.stock-info {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.stock-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stock-code {
+  font-size: 14px;
+  color: #666;
+}
+
+.price-info {
+  text-align: right;
+}
+
+.current-price {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.price-change {
+  display: block;
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.price-info.up .current-price,
+.price-info.up .price-change {
+  color: #ec0000;
+}
+
+.price-info.down .current-price,
+.price-info.down .price-change {
+  color: #00da3c;
+}
+
+.indicator-collapse {
+  margin-bottom: 12px;
+}
+
+.signals-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.signals-label {
+  font-size: 13px;
+  color: #666;
 }
 
 .analysis-section {
-  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.analysis-result {
-  margin-top: 16px;
+.analysis-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.trend-analysis-panel {
+  min-height: 300px;
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
 }
 
 .ai-chat-section {
@@ -439,5 +752,9 @@ onMounted(async () => {
 
 .signals-section {
   margin-top: 16px;
+=======
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 }
 </style>
