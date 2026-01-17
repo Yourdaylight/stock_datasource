@@ -1,5 +1,6 @@
 """HTTP server for stock data service."""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,12 +22,77 @@ logger = logging.getLogger(__name__)
 _services_cache = {}
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup and shutdown events."""
+    # Startup
+    logger.info("Starting application initialization...")
+    
+    # Initialize auth tables and import whitelist
+    try:
+        from stock_datasource.modules.auth.service import get_auth_service
+        auth_service = get_auth_service()
+        # Import whitelist from email.txt if exists
+        email_file = Path(__file__).parent.parent.parent.parent / "email.txt"
+        if email_file.exists():
+            imported, skipped = auth_service.import_whitelist_from_file(str(email_file))
+            logger.info(f"Email whitelist imported: {imported} new, {skipped} existing")
+    except Exception as e:
+        logger.warning(f"Auth initialization failed: {e}")
+    
+    # Initialize portfolio tables
+    try:
+        from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
+        ensure_portfolio_tables()
+    except Exception as e:
+        logger.warning(f"Portfolio table initialization failed: {e}")
+    
+    # Initialize plugin manager
+    try:
+        from stock_datasource.core.plugin_manager import plugin_manager
+        plugin_manager.discover_plugins()
+        logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
+    except Exception as e:
+        logger.warning(f"Plugin discovery failed: {e}")
+    
+    # Start sync task manager（延迟启动，避免与初始化建表并发造成断连）
+    try:
+        from stock_datasource.modules.datamanage.service import sync_task_manager
+        import threading, time
+        def _delayed_start():
+            try:
+                time.sleep(8)
+                sync_task_manager.start()
+                logger.info("SyncTaskManager started (delayed)")
+            except Exception as inner_e:
+                logger.warning(f"SyncTaskManager delayed start failed: {inner_e}")
+        threading.Thread(target=_delayed_start, daemon=True).start()
+    except Exception as e:
+        logger.warning(f"SyncTaskManager start failed: {e}")
+    
+    logger.info("Application initialization completed")
+    
+    yield  # Application runs here
+    
+    # Shutdown
+    logger.info("Shutting down application...")
+    
+    # Stop sync task manager
+    try:
+        from stock_datasource.modules.datamanage.service import sync_task_manager
+        sync_task_manager.stop()
+        logger.info("SyncTaskManager stopped")
+    except Exception as e:
+        logger.warning(f"SyncTaskManager stop failed: {e}")
+
+
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
     app = FastAPI(
         title="AI Stock Platform",
         description="AI智能股票分析平台 - HTTP API",
         version="2.0.0",
+        lifespan=lifespan,
     )
     
     # Add CORS middleware
@@ -37,50 +103,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
-    # Initialize database tables on startup
-    @app.on_event("startup")
-    async def startup_event():
-        """Initialize database tables and other startup tasks."""
-        logger.info("Starting application initialization...")
-        
-        # Initialize portfolio tables
-        try:
-            from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
-            ensure_portfolio_tables()
-        except Exception as e:
-            logger.warning(f"Portfolio table initialization failed: {e}")
-        
-        # Initialize plugin manager
-        try:
-            from stock_datasource.core.plugin_manager import plugin_manager
-            plugin_manager.discover_plugins()
-            logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
-        except Exception as e:
-            logger.warning(f"Plugin discovery failed: {e}")
-        
-        # Start sync task manager
-        try:
-            from stock_datasource.modules.datamanage.service import sync_task_manager
-            sync_task_manager.start()
-            logger.info("SyncTaskManager started")
-        except Exception as e:
-            logger.warning(f"SyncTaskManager start failed: {e}")
-        
-        logger.info("Application initialization completed")
-    
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        """Cleanup on shutdown."""
-        logger.info("Shutting down application...")
-        
-        # Stop sync task manager
-        try:
-            from stock_datasource.modules.datamanage.service import sync_task_manager
-            sync_task_manager.stop()
-            logger.info("SyncTaskManager stopped")
-        except Exception as e:
-            logger.warning(f"SyncTaskManager stop failed: {e}")
     
     # Register plugin service routes
     _register_services(app)

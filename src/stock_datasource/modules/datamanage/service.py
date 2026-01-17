@@ -769,6 +769,9 @@ class SyncTaskManager:
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')
+                ORDER BY created_at DESC
+                LIMIT 500
+                SETTINGS max_threads = 2, max_memory_usage = 1000000000, max_bytes_before_external_group_by = 500000000
             )
             ORDER BY created_at DESC
             """

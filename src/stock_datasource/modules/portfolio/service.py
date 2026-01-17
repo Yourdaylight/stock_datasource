@@ -73,8 +73,8 @@ class PortfolioService:
                 logger.warning(f"Failed to get DB client: {e}")
         return self._db
     
-    async def get_positions(self) -> List[Position]:
-        """Get all positions."""
+    async def get_positions(self, user_id: str = "default_user") -> List[Position]:
+        """Get all positions for a user."""
         try:
             if self.db is not None:
                 # Try to get from database first
@@ -84,9 +84,10 @@ class PortfolioService:
                         buy_date, current_price, market_value, profit_loss, 
                         profit_rate, notes
                     FROM user_positions 
+                    WHERE user_id = %(user_id)s
                     ORDER BY buy_date DESC
                 """
-                df = self.db.execute_query(query)
+                df = self.db.execute_query(query, {'user_id': user_id})
                 
                 if not df.empty:
                     positions = []
@@ -127,7 +128,7 @@ class PortfolioService:
         return positions
     
     async def add_position(self, ts_code: str, quantity: int, cost_price: float, 
-                          buy_date: str, notes: Optional[str] = None) -> Position:
+                          buy_date: str, notes: Optional[str] = None, user_id: str = "default_user") -> Position:
         """Add a new position."""
         position_id = str(uuid.uuid4())
         
@@ -152,14 +153,15 @@ class PortfolioService:
                 # Try to save to database
                 query = """
                     INSERT INTO user_positions 
-                    (id, ts_code, stock_name, quantity, cost_price, buy_date, 
+                    (id, user_id, ts_code, stock_name, quantity, cost_price, buy_date, 
                      current_price, market_value, profit_loss, profit_rate, notes)
-                    VALUES (%(id)s, %(ts_code)s, %(stock_name)s, %(quantity)s, %(cost_price)s, 
+                    VALUES (%(id)s, %(user_id)s, %(ts_code)s, %(stock_name)s, %(quantity)s, %(cost_price)s, 
                             %(buy_date)s, %(current_price)s, %(market_value)s, 
                             %(profit_loss)s, %(profit_rate)s, %(notes)s)
                 """
                 params = {
                     'id': position.id,
+                    'user_id': user_id,
                     'ts_code': position.ts_code,
                     'stock_name': position.stock_name,
                     'quantity': position.quantity,
@@ -172,7 +174,7 @@ class PortfolioService:
                     'notes': position.notes
                 }
                 self.db.execute(query, params)
-                logger.info(f"Position {position_id} saved to database")
+                logger.info(f"Position {position_id} saved to database for user {user_id}")
         except Exception as e:
             logger.warning(f"Failed to save position to database: {e}")
         
@@ -182,14 +184,14 @@ class PortfolioService:
         
         return position
     
-    async def delete_position(self, position_id: str) -> bool:
+    async def delete_position(self, position_id: str, user_id: str = "default_user") -> bool:
         """Delete a position."""
         try:
             if self.db is not None:
-                # Try to delete from database
-                query = "DELETE FROM user_positions WHERE id = %(id)s"
-                self.db.execute(query, {'id': position_id})
-                logger.info(f"Position {position_id} deleted from database")
+                # Try to delete from database (only if belongs to user)
+                query = "DELETE FROM user_positions WHERE id = %(id)s AND user_id = %(user_id)s"
+                self.db.execute(query, {'id': position_id, 'user_id': user_id})
+                logger.info(f"Position {position_id} deleted from database for user {user_id}")
         except Exception as e:
             logger.warning(f"Failed to delete position from database: {e}")
         
@@ -201,9 +203,9 @@ class PortfolioService:
         
         return False
     
-    async def get_summary(self) -> PortfolioSummary:
-        """Get portfolio summary."""
-        positions = await self.get_positions()
+    async def get_summary(self, user_id: str = "default_user") -> PortfolioSummary:
+        """Get portfolio summary for a user."""
+        positions = await self.get_positions(user_id=user_id)
         
         if not positions:
             return PortfolioSummary(

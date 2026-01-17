@@ -49,7 +49,28 @@ instance.interceptors.response.use(
     console.error('响应拦截器错误:', error)
     console.error('错误响应:', error.response)
     
-    const message = error.response?.data?.message || error.message || '网络错误'
+    const status = error.response?.status
+    const detail = error.response?.data?.detail
+    
+    // Handle 401 Unauthorized
+    if (status === 401) {
+      // Clear auth state
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      
+      // Show message
+      MessagePlugin.warning(detail || '登录已过期，请重新登录')
+      
+      // Redirect to login page if not already there
+      const currentPath = window.location.pathname
+      if (currentPath !== '/login') {
+        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+      }
+      
+      return Promise.reject(error)
+    }
+    
+    const message = detail || error.response?.data?.message || error.message || '网络错误'
     MessagePlugin.error(message)
     return Promise.reject(error)
   }
