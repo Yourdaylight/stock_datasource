@@ -134,6 +134,22 @@ async def delete_sync_task(task_id: str):
     return {"success": True, "message": "Task deleted"}
 
 
+@router.post("/sync/retry/{task_id}", response_model=SyncTask)
+async def retry_sync_task(task_id: str):
+    """Retry a failed or cancelled sync task.
+    
+    Creates a new task with the same parameters as the original task.
+    Only works for tasks with status 'failed' or 'cancelled'.
+    """
+    new_task = sync_task_manager.retry_task(task_id)
+    if not new_task:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot retry task (not found or not in failed/cancelled status)"
+        )
+    return new_task
+
+
 @router.get("/sync/config", response_model=SyncConfig)
 async def get_sync_config():
     """Get current sync configuration (parallelism settings)."""
@@ -495,7 +511,6 @@ async def get_proxy_config():
 async def update_proxy_config(request: ProxyConfigRequest):
     """Update HTTP proxy configuration (runtime + persisted)."""
     from ...config.settings import settings
-    import os
     
     # Update runtime settings
     settings.HTTP_PROXY_ENABLED = request.enabled
@@ -503,21 +518,6 @@ async def update_proxy_config(request: ProxyConfigRequest):
     settings.HTTP_PROXY_PORT = request.port
     settings.HTTP_PROXY_USERNAME = request.username
     settings.HTTP_PROXY_PASSWORD = request.password
-    
-    # Apply proxy to environment for tushare and other libraries
-    if request.enabled and request.host and request.port:
-        proxy_url = settings.http_proxy_url
-        if proxy_url:
-            os.environ['HTTP_PROXY'] = proxy_url
-            os.environ['HTTPS_PROXY'] = proxy_url
-            os.environ['http_proxy'] = proxy_url
-            os.environ['https_proxy'] = proxy_url
-            logger.info(f"Proxy enabled: {request.host}:{request.port}")
-    else:
-        # Clear proxy environment variables
-        for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-            os.environ.pop(key, None)
-        logger.info("Proxy disabled")
     
     # Persist to runtime config file
     try:

@@ -31,7 +31,7 @@ from .base_agent import (
 from .orchestrator import OrchestratorAgent, get_orchestrator
 from .tools import STOCK_TOOLS
 from .chat_agent import ChatAgent
-from .market_agent import MarketAgent
+from .market_agent import MarketAgent, get_market_agent
 from .screener_agent import ScreenerAgent, get_screener_agent
 from .report_agent import ReportAgent
 from .memory_agent import MemoryAgent
@@ -39,6 +39,8 @@ from .datamanage_agent import DataManageAgent
 from .portfolio_agent import PortfolioAgent
 from .backtest_agent import BacktestAgent
 from .index_agent import IndexAgent, get_index_agent
+from .etf_agent import EtfAgent, get_etf_agent
+from .overview_agent import OverviewAgent, get_overview_agent
 from .toplist_agent import TopListAgent
 
 # For backward compatibility with deep_agent imports
@@ -65,6 +67,7 @@ __all__ = [
     # Specialized agents (all based on LangGraph)
     "ChatAgent",
     "MarketAgent",
+    "get_market_agent",
     "ScreenerAgent",
     "get_screener_agent",
     "ReportAgent",
@@ -74,6 +77,10 @@ __all__ = [
     "BacktestAgent",
     "IndexAgent",
     "get_index_agent",
+    "EtfAgent",
+    "get_etf_agent",
+    "OverviewAgent",
+    "get_overview_agent",
     # DeepAgent (for backward compatibility)
     "StockDeepAgent",
     "get_stock_agent",

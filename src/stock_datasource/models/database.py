@@ -1,6 +1,7 @@
 """Database connection and operations for ClickHouse."""
 
 import logging
+import threading
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import pandas as pd
@@ -34,6 +35,7 @@ class ClickHouseClient:
         self.database = database or settings.CLICKHOUSE_DATABASE
         self.name = name
         self.client = None
+        self._lock = threading.Lock()
         self._connect()
     
     def _connect(self):
@@ -48,10 +50,16 @@ class ClickHouseClient:
                 user=self.user,
                 password=self.password,
                 database=self.database,
+                connect_timeout=10,
+                send_receive_timeout=60,  # Increased from 15 to 60 seconds
+                sync_request_timeout=60,  # Increased from 30 to 60 seconds
                 settings={
                     'use_numpy': True,
                     'enable_http_compression': 1,
                     'session_timezone': 'Asia/Shanghai',  # Use standard timezone
+                    'max_memory_usage': 2000000000,  # 2GB per query limit
+                    'max_bytes_before_external_group_by': 1000000000,  # 1GB before spill to disk
+                    'max_threads': 4,
                 }
             )
             logger.info(f"Connected to ClickHouse [{self.name}]: {self.host}:{self.port}")
@@ -70,24 +78,72 @@ class ClickHouseClient:
                 pytz._tzinfo_cache['Asia/Beijing'] = pytz.timezone('Asia/Shanghai')
         except Exception:
             pass  # Ignore if registration fails
+
+    @staticmethod
+    def _should_reconnect(exc: Exception) -> bool:
+        """Check whether we should reconnect for the given exception."""
+        msg = str(exc)
+        return (
+            isinstance(exc, EOFError)
+            or isinstance(exc, OSError)
+            or "Unexpected EOF while reading bytes" in msg
+            or "Bad file descriptor" in msg
+            or "Simultaneous queries on single connection detected" in msg
+        )
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _reconnect(self):
+        """Force reconnect to ClickHouse."""
+        try:
+            # Close existing connection first
+            if self.client:
+                try:
+                    self.client.disconnect()
+                except Exception:
+                    pass
+            self._connect()
+        except Exception as reconnect_err:
+            logger.error(f"Reconnect to ClickHouse failed [{self.name}]: {reconnect_err}")
+            raise
+    
+    def _ensure_connected(self):
+        """Ensure we have a valid connection before executing query.
+        
+        Note: This just checks if client exists. Actual connection issues
+        will be handled by _should_reconnect in execute methods.
+        """
+        if self.client is None:
+            self._connect()
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
-        """Execute a query with retry logic."""
-        try:
-            return self.client.execute(query, params)
-        except Exception as e:
-            logger.error(f"Query execution failed [{self.name}]: {e}")
-            raise
+        """Execute a query with retry logic and auto-reconnect on transport errors."""
+        with self._lock:
+            try:
+                self._ensure_connected()
+                return self.client.execute(query, params)
+            except Exception as e:
+                if self._should_reconnect(e):
+                    logger.warning(f"Reconnect ClickHouse [{self.name}] due to: {e}")
+                    self._reconnect()
+                    return self.client.execute(query, params)
+                logger.error(f"Query execution failed [{self.name}]: {e}")
+                raise
     
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
-        """Execute query and return results as DataFrame."""
-        try:
-            result = self.client.query_dataframe(query, params)
-            return result
-        except Exception as e:
-            logger.error(f"Query execution failed [{self.name}]: {e}")
-            raise
+        """Execute query and return results as DataFrame with auto-reconnect on transport errors."""
+        with self._lock:
+            try:
+                self._ensure_connected()
+                result = self.client.query_dataframe(query, params)
+                return result
+            except Exception as e:
+                if self._should_reconnect(e):
+                    logger.warning(f"Reconnect ClickHouse during query_dataframe [{self.name}] due to: {e}")
+                    self._reconnect()
+                    return self.client.query_dataframe(query, params)
+                logger.error(f"Query execution failed [{self.name}]: {e}")
+                raise
     
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
@@ -217,6 +273,7 @@ class DualWriteClient:
         """Execute query on primary (read operations use primary only)."""
         return self.primary.execute(query, params)
     
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
         """Execute query on primary and return DataFrame."""
         return self.primary.execute_query(query, params)

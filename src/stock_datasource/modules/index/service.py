@@ -8,6 +8,10 @@ Memory is now handled by base_agent.LangGraphAgent, which provides:
 
 from typing import List, Dict, Any, Optional
 import logging
+from datetime import date, datetime
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +22,26 @@ def _get_db():
     return db_client
 
 
+def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize dataframe values for JSON serialization and Pydantic validation."""
+    if df is None or df.empty:
+        return df
+    # Replace NaN/NaT with None
+    df = df.replace({np.nan: None})
+    # Convert datetime-like objects to ISO strings
+    df = df.applymap(
+        lambda x: x.isoformat() if isinstance(x, (datetime, date, pd.Timestamp)) else x
+    )
+    return df
+
+
 def _execute_query(query: str) -> List[Dict[str, Any]]:
     """Execute query and return results as list of dicts."""
     db = _get_db()
     df = db.execute_query(query)
     if df is None or df.empty:
         return []
+    df = _normalize_df(df)
     return df.to_dict('records')
 
 
@@ -273,6 +291,105 @@ class IndexService:
         ORDER BY count DESC
         """
         return _execute_query(query)
+    
+    def get_daily(
+        self,
+        ts_code: str,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """Get index daily data.
+        
+        Args:
+            ts_code: Index code
+            days: Number of days
+            
+        Returns:
+            Dict with ts_code, days, data
+        """
+        ts_code_escaped = ts_code.replace("'", "''")
+        query = f"""
+        SELECT 
+            ts_code,
+            trade_date,
+            open,
+            high,
+            low,
+            close,
+            pre_close,
+            ROUND((close - pre_close) / pre_close * 100, 2) as pct_chg,
+            vol,
+            amount
+        FROM ods_idx_factor_pro
+        WHERE ts_code = '{ts_code_escaped}'
+        ORDER BY trade_date DESC
+        LIMIT {days}
+        """
+        
+        data = _execute_query(query)
+        data.reverse()  # Chronological order
+        
+        return {
+            "ts_code": ts_code,
+            "days": len(data),
+            "data": data
+        }
+    
+    def get_kline(
+        self,
+        ts_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get index K-line data.
+        
+        Args:
+            ts_code: Index code
+            start_date: Start date (YYYYMMDD)
+            end_date: End date (YYYYMMDD)
+            
+        Returns:
+            Dict with ts_code, name, data
+        """
+        ts_code_escaped = ts_code.replace("'", "''")
+        
+        # Get index name
+        name_query = f"SELECT name FROM dim_index_basic WHERE ts_code = '{ts_code_escaped}'"
+        name_result = _execute_query(name_query)
+        name = name_result[0].get("name") if name_result else None
+        
+        # Build date filter
+        date_conditions = []
+        if start_date:
+            date_conditions.append(f"trade_date >= '{start_date}'")
+        if end_date:
+            date_conditions.append(f"trade_date <= '{end_date}'")
+        
+        date_filter = " AND ".join(date_conditions) if date_conditions else "1=1"
+        
+        query = f"""
+        SELECT 
+            ts_code,
+            trade_date,
+            open,
+            high,
+            low,
+            close,
+            vol,
+            amount,
+            ROUND((close - pre_close) / pre_close * 100, 2) as pct_chg
+        FROM ods_idx_factor_pro
+        WHERE ts_code = '{ts_code_escaped}'
+        AND {date_filter}
+        ORDER BY trade_date ASC
+        """
+        
+        data = _execute_query(query)
+        
+        return {
+            "ts_code": ts_code,
+            "name": name,
+            "data": data
+        }
     
     async def analyze_index(
         self,

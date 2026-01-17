@@ -9,7 +9,7 @@ from pathlib import Path
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
-from stock_datasource.core.proxy import apply_proxy_settings
+from stock_datasource.core.proxy import proxy_context
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,6 @@ class ETFFundAdjExtractor:
     
     def __init__(self):
         self.token = settings.TUSHARE_TOKEN
-        
-        # Apply proxy settings
-        apply_proxy_settings()
         
         # Load rate_limit from config.json
         config_file = Path(__file__).parent / "config.json"
@@ -56,7 +53,8 @@ class ETFFundAdjExtractor:
         self._rate_limit()
         
         try:
-            result = api_func(**kwargs)
+            with proxy_context():
+                result = api_func(**kwargs)
             if result is None or result.empty:
                 logger.warning("API returned empty data")
                 return pd.DataFrame()

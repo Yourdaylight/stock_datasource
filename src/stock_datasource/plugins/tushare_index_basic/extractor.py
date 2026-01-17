@@ -102,6 +102,9 @@ class IndexBasicExtractor:
         if category:
             kwargs['category'] = category
         
+        # 必须明确指定 fields 参数，否则 TuShare 只返回部分字段
+        kwargs['fields'] = 'ts_code,name,fullname,market,publisher,index_type,category,base_date,base_point,list_date,weight_rule,desc,exp_date'
+        
         return self._call_api(self.pro.index_basic, **kwargs)
 
 

@@ -10,6 +10,8 @@ import PluginDataDialog from './components/PluginDataDialog.vue'
 import DiagnosisPanel from './components/DiagnosisPanel.vue'
 import SyncDialog from './components/SyncDialog.vue'
 import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
+import TaskDetailDialog from './components/TaskDetailDialog.vue'
+import type { SyncTask } from '@/api/datamanage'
 
 const dataStore = useDataManageStore()
 const activeTab = ref('plugins')
@@ -71,7 +73,9 @@ const handleResetFilters = () => {
 const detailDialogVisible = ref(false)
 const dataDialogVisible = ref(false)
 const syncDialogVisible = ref(false)
+const taskDetailDialogVisible = ref(false)
 const selectedPluginName = ref('')
+const selectedTask = ref<SyncTask | null>(null)
 
 const pluginColumns = [
   { colKey: 'name', title: '插件名称', width: 180 },
@@ -206,6 +210,21 @@ const handleCancelTask = async (taskId: string) => {
   } catch (e) {
     MessagePlugin.error('取消任务失败')
   }
+}
+
+const handleRetryTask = async (taskId: string) => {
+  try {
+    await dataStore.retryTask(taskId)
+    MessagePlugin.success('已创建重试任务')
+    dataStore.startTaskPolling()
+  } catch (e) {
+    MessagePlugin.error('重试任务失败')
+  }
+}
+
+const handleViewTaskDetail = (task: SyncTask) => {
+  selectedTask.value = task
+  taskDetailDialogVisible.value = true
 }
 
 const getFrequencyText = (freq?: string) => {
@@ -386,9 +405,10 @@ onMounted(() => {
             </template>
             <template #progress="{ row }">
               <t-progress 
-                :percentage="row.progress" 
+                :percentage="Number(row.progress.toFixed(1))" 
                 :status="row.status === 'running' ? 'active' : 'default'"
-                size="small" 
+                size="small"
+                :label="row.progress.toFixed(1) + '%'"
               />
             </template>
             <template #records_processed="{ row }">
@@ -398,13 +418,28 @@ onMounted(() => {
               {{ formatTime(row.started_at) }}
             </template>
             <template #operation="{ row }">
-              <t-link 
-                v-if="row.status === 'pending'" 
-                theme="danger" 
-                @click="handleCancelTask(row.task_id)"
-              >
-                取消
-              </t-link>
+              <t-space>
+                <t-link 
+                  theme="primary" 
+                  @click="handleViewTaskDetail(row)"
+                >
+                  详情
+                </t-link>
+                <t-link 
+                  v-if="row.status === 'pending'" 
+                  theme="danger" 
+                  @click="handleCancelTask(row.task_id)"
+                >
+                  取消
+                </t-link>
+                <t-link 
+                  v-if="row.status === 'failed' || row.status === 'cancelled'" 
+                  theme="primary" 
+                  @click="handleRetryTask(row.task_id)"
+                >
+                  重试
+                </t-link>
+              </t-space>
             </template>
           </t-table>
         </t-tab-panel>
@@ -458,6 +493,10 @@ onMounted(() => {
       v-model:visible="syncDialogVisible"
       :plugin-name="selectedPluginName"
       @confirm="handleSyncConfirm"
+    />
+    <TaskDetailDialog
+      v-model:visible="taskDetailDialogVisible"
+      :task="selectedTask"
     />
   </div>
 </template>

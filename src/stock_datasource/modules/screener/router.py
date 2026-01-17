@@ -11,6 +11,7 @@
 from fastapi import APIRouter, Query, HTTPException
 from typing import List, Any, Optional, Dict
 import logging
+import pandas as pd
 
 from .schemas import (
     ScreenerCondition, ScreenerRequest, NLScreenerRequest, BatchProfileRequest,
@@ -25,6 +26,16 @@ from .service import get_screener_service
 from .profile import get_profile_service
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(value) -> Optional[float]:
+    """Convert value to float, return None if NaN or invalid."""
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
 
 router = APIRouter()
 

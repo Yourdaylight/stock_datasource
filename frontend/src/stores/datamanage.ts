@@ -86,6 +86,17 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
+  const retryTask = async (taskId: string) => {
+    try {
+      const task = await datamanageApi.retrySyncTask(taskId)
+      syncTasks.value.unshift(task)
+      return task
+    } catch (e) {
+      console.error('Failed to retry task:', e)
+      throw e
+    }
+  }
+
   const fetchSyncHistory = async (limit: number = 20, pluginName?: string) => {
     try {
       return await datamanageApi.getSyncHistory(limit, pluginName)
@@ -268,6 +279,7 @@ export const useDataManageStore = defineStore('datamanage', () => {
     triggerSync,
     cancelTask,
     deleteTask,
+    retryTask,
     fetchSyncHistory,
     fetchMissingData,
     triggerMissingDataDetection,

@@ -769,6 +769,9 @@ class SyncTaskManager:
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')
+                ORDER BY created_at DESC
+                LIMIT 500
+                SETTINGS max_threads = 2, max_memory_usage = 1000000000, max_bytes_before_external_group_by = 500000000
             )
             ORDER BY created_at DESC
             """
@@ -933,13 +936,21 @@ class SyncTaskManager:
                 # Backfill specific dates with parallel processing
                 self._execute_backfill_parallel(task, plugin)
             else:
-                # Incremental or full sync (use today's date)
-                today = date.today().strftime('%Y%m%d')
-                result = plugin.run(trade_date=today)
+                # Incremental or full sync - use latest valid trading day from calendar
+                target_date = self._get_latest_trading_date()
+                if not target_date:
+                    raise ValueError("无法获取有效交易日，请检查交易日历数据")
+                
+                self.logger.info(f"Incremental sync using trading date: {target_date}")
+                result = plugin.run(trade_date=target_date)
                 
                 if result.get("status") == "success":
                     task.records_processed = result.get("steps", {}).get("load", {}).get("total_records", 0)
                     task.progress = 100
+                else:
+                    # Pipeline failed
+                    error_msg = result.get("error", "插件执行失败")
+                    raise ValueError(f"插件执行失败: {error_msg}")
             
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
@@ -953,6 +964,51 @@ class SyncTaskManager:
             self._save_task_to_db(task)
             self.logger.error(f"Task {task_id} failed: {e}")
     
+    def _get_latest_trading_date(self) -> Optional[str]:
+        """Get the latest valid trading date from calendar.
+        
+        Returns the most recent trading day that has data available.
+        Since today's data may not be published yet (especially before market close),
+        we return the previous trading day to ensure data availability.
+        
+        Returns:
+            Trading date in YYYYMMDD format, or None if calendar is unavailable
+        """
+        try:
+            # Get recent trading days (get a few to ensure we have valid ones)
+            trading_days = trade_calendar_service.get_trading_days(n=10)
+            if not trading_days:
+                self.logger.error("交易日历为空，无法获取有效交易日")
+                return None
+            
+            today = date.today()
+            
+            # Find trading days that are strictly before today (data should be available)
+            # Today's data may not be published yet, so we use previous trading day
+            valid_dates = []
+            for day_str in trading_days:
+                try:
+                    trading_date = datetime.strptime(day_str, '%Y-%m-%d').date()
+                    if trading_date < today:
+                        valid_dates.append(trading_date)
+                except ValueError:
+                    continue
+            
+            if valid_dates:
+                # Return the most recent past trading day
+                latest = max(valid_dates)
+                self.logger.info(f"使用最近的有效交易日: {latest} (今天: {today})")
+                return latest.strftime('%Y%m%d')
+            
+            # If no past trading days found, this is unusual
+            # Maybe it's the first trading day of the year or calendar issue
+            self.logger.warning(f"没有找到过去的交易日，交易日列表: {trading_days}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"获取最新交易日失败: {e}")
+            return None
+
     def _execute_backfill_parallel(self, task: SyncTask, plugin):
         """Execute backfill task with multi-date parallelism.
         
@@ -1139,6 +1195,41 @@ class SyncTaskManager:
             self.logger.error(f"Failed to delete task {task_id} from database: {e}")
         
         return True
+    
+    def retry_task(self, task_id: str) -> Optional[SyncTask]:
+        """Retry a failed or cancelled task by creating a new task with same parameters.
+        
+        Args:
+            task_id: Task ID of the failed/cancelled task
+        
+        Returns:
+            New SyncTask if retry created, None if task not found or not retryable
+        """
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                self.logger.warning(f"Task {task_id} not found for retry")
+                return None
+            
+            # Only allow retry for failed or cancelled tasks
+            if task.status not in [TaskStatus.FAILED, TaskStatus.CANCELLED]:
+                self.logger.warning(f"Task {task_id} is not retryable (status: {task.status})")
+                return None
+            
+            # Get task parameters
+            plugin_name = task.plugin_name
+            task_type = task.task_type
+            trade_dates = task.trade_dates
+        
+        # Create new task with same parameters
+        self.logger.info(f"Retrying task {task_id} for plugin {plugin_name}")
+        new_task = self.create_task(
+            plugin_name=plugin_name,
+            task_type=TaskType(task_type),
+            trade_dates=trade_dates if trade_dates else None
+        )
+        
+        return new_task
     
     def cleanup_old_tasks(self, days: int = 30):
         """Clean up tasks older than specified days.

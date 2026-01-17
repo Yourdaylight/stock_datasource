@@ -6,6 +6,13 @@ def get_all_routers() -> list:
     """Get all module routers."""
     routers = []
     
+    # Auth module (should be first)
+    try:
+        from .auth.router import router as auth_router
+        routers.append(("/auth", auth_router, ["用户认证"]))
+    except ImportError:
+        pass
+    
     try:
         from .chat.router import router as chat_router
         routers.append(("/chat", chat_router, ["对话交互"]))
@@ -59,5 +66,20 @@ def get_all_routers() -> list:
         routers.append(("/index", index_router, ["指数选股"]))
     except ImportError:
         pass
+    
+    try:
+        from .etf.router import router as etf_router
+        routers.append(("/etf", etf_router, ["ETF基金"]))
+    except ImportError:
+        pass
+    
+    try:
+        from .overview.router import router as overview_router
+        routers.append(("/overview", overview_router, ["市场概览"]))
+    except ImportError:
+        pass
+    
+    # Note: toplist routes are registered separately in http_server.py
+    # from stock_datasource.api.toplist_routes
     
     return routers
