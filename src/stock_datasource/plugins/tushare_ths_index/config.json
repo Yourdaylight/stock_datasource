@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare THS sector index metadata plugin (ths_index API)",
+  "schedule": {
+    "frequency": "weekly",
+    "day": "monday",
+    "time": "08:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "THS index code, e.g., 885001.TI"
+    },
+    "exchange": {
+      "type": "string",
+      "required": false,
+      "description": "Market type: A-股票, HK-港股, US-美股"
+    },
+    "type": {
+      "type": "string",
+      "required": false,
+      "description": "Index type: N-概念, I-行业, R-地域, S-特色, ST-风格, TH-主题, BB-宽基"
+    }
+  }
+}

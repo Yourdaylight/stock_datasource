@@ -1,0 +1,27 @@
+{
+  "table_name": "ods_ths_daily",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS指数代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "open", "data_type": "Nullable(Float64)", "nullable": true, "comment": "开盘点位"},
+    {"name": "high", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最高点位"},
+    {"name": "low", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最低点位"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收盘点位"},
+    {"name": "pre_close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "昨日收盘点"},
+    {"name": "avg_price", "data_type": "Nullable(Float64)", "nullable": true, "comment": "平均价"},
+    {"name": "change", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌点位"},
+    {"name": "pct_change", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌幅"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交量"},
+    {"name": "turnover_rate", "data_type": "Nullable(Float64)", "nullable": true, "comment": "换手率"},
+    {"name": "total_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总市值"},
+    {"name": "float_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "流通市值"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "THS sector index daily data from TuShare API"
+}

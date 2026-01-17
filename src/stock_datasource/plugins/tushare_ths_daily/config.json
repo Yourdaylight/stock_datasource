@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare THS sector index daily data plugin",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Trade date in YYYYMMDD format"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "THS index code, e.g., 865001.TI"
+    },
+    "fields": {
+      "type": "string",
+      "required": false,
+      "description": "Optional fields list"
+    }
+  }
+}

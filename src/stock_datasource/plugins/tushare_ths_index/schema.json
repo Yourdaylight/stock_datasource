@@ -1,0 +1,19 @@
+{
+  "table_name": "ods_ths_index",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "name", "data_type": "String", "nullable": false, "comment": "指数名称"},
+    {"name": "count", "data_type": "Nullable(Int32)", "nullable": true, "comment": "成分个数"},
+    {"name": "exchange", "data_type": "LowCardinality(String)", "nullable": true, "comment": "交易所(A-股票,HK-港股,US-美股)"},
+    {"name": "list_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "上市日期"},
+    {"name": "type", "data_type": "LowCardinality(String)", "nullable": true, "comment": "指数类型(N-概念,I-行业,R-地域,S-特色,ST-风格,TH-主题,BB-宽基)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "tuple()",
+  "order_by": ["ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "THS sector index metadata from TuShare API (ths_index)"
+}

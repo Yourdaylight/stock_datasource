@@ -93,6 +93,31 @@
 - [x] 在 `src/stock_datasource/modules/__init__.py` 注册 `/api/overview` 路由
 - [ ] 验证：所有概览接口可访问
 
+## Phase 4B: 同花顺板块指数后端 (P1) - 新增
+
+### 4B.1 创建THS Index模块
+- [x] 数据插件 `tushare_ths_index` 已创建
+- [x] 数据插件 `tushare_ths_daily` 已创建
+- [x] 数据已入库（1,724条板块元数据）
+- [x] 创建 `src/stock_datasource/modules/ths_index/__init__.py`
+- [x] 创建 `src/stock_datasource/modules/ths_index/schemas.py`
+- [x] 创建 `src/stock_datasource/modules/ths_index/service.py`
+- [x] 创建 `src/stock_datasource/modules/ths_index/router.py`
+
+### 4B.2 实现THS Index API
+- [x] 实现 `GET /api/ths-index/list` - 板块指数列表
+  - 支持 exchange 筛选（A/HK/US）
+  - 支持 type 筛选（N-概念/I-行业/R-地域）
+- [x] 实现 `GET /api/ths-index/{ts_code}/daily` - 板块日线数据
+- [x] 实现 `GET /api/ths-index/ranking` - 板块涨跌排行
+  - 支持 sort_by（pct_change/vol/turnover_rate）
+  - 支持 order（desc/asc）
+- [x] 实现 `GET /api/ths-index/search` - 板块搜索
+- [ ] 验证：所有THS Index接口可访问
+
+### 4B.3 注册THS Index路由
+- [x] 在 `src/stock_datasource/modules/__init__.py` 注册 `/api/ths-index` 路由
+
 ## Phase 5: 前端通用组件 (P0)
 
 ### 5.1 创建通用列表组件
@@ -152,9 +177,9 @@
 - [x] 创建 `frontend/src/stores/overview.ts`
 - [ ] 验证：API调用正常
 
-### 7.2 增强MarketView
+### 7.2 增强MarketView布局
 - [x] 添加每日概览卡片区域
-- [x] 展示主要指数涨跌
+- [x] 展示主要指数涨跌（一排横向展示）
 - [x] 展示热门ETF列表
 - [ ] 支持切换股票/ETF/指数行情
 - [ ] 验证：概览数据正确展示
@@ -164,27 +189,72 @@
 - [ ] 添加热门ETF快捷入口
 - [ ] 验证：点击快捷入口跳转正确
 
-### 7.4 创建市场AI问答面板
-- [x] AI问答功能集成在MarketView的Tab中
-- [x] 实现基于当日概览数据的智能问答
-- [x] 支持多轮对话
-- [ ] 支持预设问题快捷入口
+### 7.4 创建AI问答悬浮窗
+- [x] 创建 `frontend/src/components/market/MarketAiFloatButton.vue` - 悬浮按钮
+- [x] 创建 `frontend/src/components/market/MarketAiDialog.vue` - 悬浮窗组件
+- [x] 复用智能对话组件界面
+- [x] 实现行情分析预设问题：
   - "今日市场整体表现如何？"
-  - "哪些板块表现最好？"
-  - "有哪些值得关注的ETF？"
-  - "市场情绪如何？"
-- [ ] 验证：AI问答正常工作
+  - "哪些板块表现最强？"
+  - "今日热门ETF有哪些？"
+  - "当前市场情绪如何？"
+  - "今日涨停板有多少家？"
+  - "哪些行业板块领涨？"
+- [x] 支持悬浮窗拖拽、最小化、关闭
+- [ ] 验证：AI问答悬浮窗正常工作
+
+## Phase 7B: 板块热力图与排行榜前端 (P1) - 新增
+
+### 7B.1 创建THS Index API和Store
+- [x] 创建 `frontend/src/api/thsIndex.ts`
+- [x] 创建 `frontend/src/stores/thsIndex.ts`
+- [ ] 验证：API调用正常
+
+### 7B.2 创建板块热力图组件
+- [x] 创建 `frontend/src/components/market/SectorHeatmap.vue`
+- [x] 实现行业/概念/地域板块切换
+- [x] 实现热力图颜色映射（涨跌幅→红绿色深浅）
+- [x] 支持点击板块查看详情
+- [ ] 验证：热力图正确渲染
+
+### 7B.3 创建板块详情弹窗
+- [x] 创建 `frontend/src/components/market/SectorDetailDialog.vue`
+- [x] 展示板块K线走势（近30日）
+- [x] 展示板块基本信息
+- [ ] 验证：详情弹窗正确展示
+
+### 7B.4 创建板块涨跌排行组件
+- [x] 创建 `frontend/src/components/market/SectorRankingTable.vue`
+- [x] 实现涨幅榜/跌幅榜/换手率榜切换
+- [x] 实现板块类型筛选
+- [ ] 验证：排行榜正确展示
+
+### 7B.5 创建指数走势对比图
+- [x] 创建 `frontend/src/components/market/IndexCompareChart.vue`
+- [x] 实现多指数叠加走势（归一化百分比）
+- [x] 支持添加/移除对比指数
+- [x] 支持时间范围切换（7日/30日/90日）
+- [ ] 验证：对比图正确渲染
+
+### 7B.6 整合到MarketView
+- [x] 在MarketView第二行添加板块热力图区域
+- [x] 主内容区改为左右两栏布局（板块排行 + 指数对比）
+- [x] 移除 Tab 导航和 K线图表（K线在详情弹窗中展示）
+- [x] 美化整体布局样式
+- [ ] 验证：所有组件正确集成
 
 ## Phase 8: 测试与优化 (P2)
 
 ### 8.1 后端测试
 - [ ] 添加ETF模块单元测试
 - [ ] 添加Overview模块单元测试
+- [ ] 添加THS Index模块单元测试
 - [ ] 添加集成测试
 
 ### 8.2 前端测试
 - [ ] 添加ETF视图组件测试
 - [ ] 添加通用组件测试
+- [ ] 添加板块热力图组件测试
 
 ### 8.3 性能优化
 - [ ] 添加概览数据缓存
@@ -200,9 +270,13 @@ Phase 1 (基础设施)
     │
     ├──▶ Phase 3 (Index扩展)
     │
-    └──▶ Phase 4 (概览后端) ──▶ Phase 7 (行情增强)
+    ├──▶ Phase 4 (概览后端) ──▶ Phase 7 (行情增强)
+    │                              │
+    │                              └──▶ Phase 7.4 (AI悬浮窗)
+    │
+    └──▶ Phase 4B (THS Index后端) ──▶ Phase 7B (板块热力图/排行榜)
 
-Phase 5 (通用组件) ──▶ Phase 6, Phase 7
+Phase 5 (通用组件) ──▶ Phase 6, Phase 7, Phase 7B
 
 Phase 8 (测试优化) 依赖所有其他Phase
 ```
@@ -210,8 +284,10 @@ Phase 8 (测试优化) 依赖所有其他Phase
 ## 可并行任务
 
 - Phase 2 和 Phase 3 可并行
-- Phase 5 和 Phase 2/3/4 可并行
+- Phase 4 和 Phase 4B 可并行（数据插件已就绪）
+- Phase 5 和 Phase 2/3/4/4B 可并行
 - Phase 6 和 Phase 7 可并行（在各自后端完成后）
+- Phase 7.4 (AI悬浮窗) 和 Phase 7B 可并行
 
 ## 实施总结
 
@@ -219,9 +295,12 @@ Phase 8 (测试优化) 依赖所有其他Phase
 - Phase 1-7 核心功能已实现
 - 后端：ETF模块、Overview模块、Index扩展
 - 前端：ETF视图、MarketView增强、API和Store
+- **新增：同花顺板块指数数据插件（tushare_ths_index, tushare_ths_daily）已创建并入库**
 
 ### 待完成
+- ~~Phase 4B：THS Index 后端 API 模块~~ ✅
+- ~~Phase 7.4：AI问答悬浮窗（复用智能对话组件，内置预设问题）~~ ✅
+- ~~Phase 7B：板块热力图、涨跌排行榜、指数走势对比图~~ ✅
 - 验证测试（需要运行环境）
 - Phase 8 测试与优化
 - 侧边栏菜单入口
-- 预设问题快捷入口
