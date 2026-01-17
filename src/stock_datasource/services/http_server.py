@@ -104,6 +104,58 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
+    # Initialize database tables on startup
+    @app.on_event("startup")
+    async def startup_event():
+        """Initialize database tables and other startup tasks."""
+        logger.info("Starting application initialization...")
+        
+        # Clear proxy env on startup (safety)
+        try:
+            from stock_datasource.core.proxy import clear_proxy_settings
+            clear_proxy_settings()
+            logger.info("Proxy environment cleared on startup")
+        except Exception as e:
+            logger.warning(f"Proxy cleanup failed: {e}")
+
+        # Initialize portfolio tables
+        try:
+            from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
+            ensure_portfolio_tables()
+        except Exception as e:
+            logger.warning(f"Portfolio table initialization failed: {e}")
+        
+        # Initialize plugin manager
+        try:
+            from stock_datasource.core.plugin_manager import plugin_manager
+            plugin_manager.discover_plugins()
+            logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
+        except Exception as e:
+            logger.warning(f"Plugin discovery failed: {e}")
+        
+        # Start sync task manager
+        try:
+            from stock_datasource.modules.datamanage.service import sync_task_manager
+            sync_task_manager.start()
+            logger.info("SyncTaskManager started")
+        except Exception as e:
+            logger.warning(f"SyncTaskManager start failed: {e}")
+        
+        logger.info("Application initialization completed")
+    
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        """Cleanup on shutdown."""
+        logger.info("Shutting down application...")
+        
+        # Stop sync task manager
+        try:
+            from stock_datasource.modules.datamanage.service import sync_task_manager
+            sync_task_manager.stop()
+            logger.info("SyncTaskManager stopped")
+        except Exception as e:
+            logger.warning(f"SyncTaskManager stop failed: {e}")
+    
     # Register plugin service routes
     _register_services(app)
     

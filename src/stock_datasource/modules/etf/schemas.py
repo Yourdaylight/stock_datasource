@@ -25,12 +25,37 @@ class EtfInfo(BaseModel):
         from_attributes = True
 
 
+class EtfQuoteItem(BaseModel):
+    """ETF item with latest daily quote and basic info."""
+    ts_code: str
+    trade_date: Optional[str] = None
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None
+    pct_chg: Optional[float] = None
+    vol: Optional[float] = None
+    amount: Optional[float] = None
+    csname: Optional[str] = None
+    cname: Optional[str] = None
+    index_code: Optional[str] = None
+    index_name: Optional[str] = None
+    exchange: Optional[str] = None
+    mgr_name: Optional[str] = None
+    custod_name: Optional[str] = None
+    list_date: Optional[date] = None
+    list_status: Optional[str] = None
+    etf_type: Optional[str] = None
+    mgt_fee: Optional[float] = None
+
+
 class EtfListResponse(BaseModel):
-    """Response for ETF list query."""
-    total: int = Field(..., description="Total count")
-    page: int = Field(..., description="Current page")
-    page_size: int = Field(..., description="Page size")
-    data: List[EtfInfo] = Field(..., description="ETF list")
+    """Paginated ETF list response with latest quotes."""
+    items: List[EtfQuoteItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class EtfDailyData(BaseModel):

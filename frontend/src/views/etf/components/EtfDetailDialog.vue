@@ -55,6 +55,8 @@ const getMarketLabel = (market?: string) => {
   const map: Record<string, string> = {
     'E': '上交所',
     'Z': '深交所',
+    'SH': '上交所',
+    'SZ': '深交所',
   }
   return market ? map[market] || market : '-'
 }
@@ -63,6 +65,7 @@ const getStatusLabel = (status?: string) => {
   const map: Record<string, string> = {
     'L': '上市',
     'D': '退市',
+    'P': '待上市',
     'I': '发行',
   }
   return status ? map[status] || status : '-'
@@ -72,7 +75,7 @@ const getStatusLabel = (status?: string) => {
 <template>
   <t-dialog
     :visible="visible"
-    :header="etfInfo?.name || 'ETF详情'"
+    :header="etfInfo?.csname || 'ETF详情'"
     width="700px"
     :footer="false"
     @close="handleClose"
@@ -82,42 +85,28 @@ const getStatusLabel = (status?: string) => {
         <!-- Basic Info -->
         <t-descriptions title="基本信息" :column="2" bordered>
           <t-descriptions-item label="ETF代码">{{ etfInfo.ts_code }}</t-descriptions-item>
-          <t-descriptions-item label="ETF名称">{{ etfInfo.name || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="交易所">{{ getMarketLabel(etfInfo.market) }}</t-descriptions-item>
-          <t-descriptions-item label="状态">{{ getStatusLabel(etfInfo.status) }}</t-descriptions-item>
-          <t-descriptions-item label="基金类型">{{ etfInfo.fund_type || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="投资类型">{{ etfInfo.invest_type || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="ETF简称">{{ etfInfo.csname || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="ETF全称">{{ etfInfo.cname || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="交易所">{{ getMarketLabel(etfInfo.exchange) }}</t-descriptions-item>
+          <t-descriptions-item label="状态">{{ getStatusLabel(etfInfo.list_status) }}</t-descriptions-item>
+          <t-descriptions-item label="基金类型">{{ etfInfo.etf_type || '-' }}</t-descriptions-item>
           <t-descriptions-item label="上市日期">{{ etfInfo.list_date || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="成立日期">{{ etfInfo.found_date || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="设立日期">{{ etfInfo.setup_date || '-' }}</t-descriptions-item>
         </t-descriptions>
 
         <!-- Management Info -->
         <t-descriptions title="管理信息" :column="2" bordered style="margin-top: 16px">
-          <t-descriptions-item label="管理人">{{ etfInfo.management || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="托管人">{{ etfInfo.custodian || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="管理人">{{ etfInfo.mgr_name || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="托管人">{{ etfInfo.custod_name || '-' }}</t-descriptions-item>
           <t-descriptions-item label="管理费率">
-            {{ etfInfo.m_fee ? (etfInfo.m_fee * 100).toFixed(2) + '%' : '-' }}
-          </t-descriptions-item>
-          <t-descriptions-item label="托管费率">
-            {{ etfInfo.c_fee ? (etfInfo.c_fee * 100).toFixed(2) + '%' : '-' }}
+            {{ etfInfo.mgt_fee ? (etfInfo.mgt_fee * 100).toFixed(2) + '%' : '-' }}
           </t-descriptions-item>
         </t-descriptions>
 
         <!-- Tracking Info -->
-        <t-descriptions title="跟踪信息" :column="1" bordered style="margin-top: 16px">
-          <t-descriptions-item label="业绩基准">
-            {{ etfInfo.benchmark || '-' }}
-          </t-descriptions-item>
-        </t-descriptions>
-
-        <!-- Issue Info -->
-        <t-descriptions title="发行信息" :column="2" bordered style="margin-top: 16px">
-          <t-descriptions-item label="发行日期">{{ etfInfo.issue_date || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="发行规模">
-            {{ etfInfo.issue_amount ? (etfInfo.issue_amount / 100000000).toFixed(2) + '亿' : '-' }}
-          </t-descriptions-item>
-          <t-descriptions-item label="面值">{{ etfInfo.p_value || '-' }}</t-descriptions-item>
-          <t-descriptions-item label="最小申购">{{ etfInfo.min_amount || '-' }}</t-descriptions-item>
+        <t-descriptions title="跟踪信息" :column="2" bordered style="margin-top: 16px">
+          <t-descriptions-item label="指数代码">{{ etfInfo.index_code || '-' }}</t-descriptions-item>
+          <t-descriptions-item label="指数名称">{{ etfInfo.index_name || '-' }}</t-descriptions-item>
         </t-descriptions>
 
         <!-- Actions -->

@@ -144,6 +144,24 @@ export const useChatStore = defineStore('chat', () => {
               }
               break
               
+            case 'tool':
+              thinking.value = true
+              if (event.agent) {
+                currentAgent.value = event.agent
+              }
+              currentTool.value = event.tool
+              currentStatus.value = event.status || `正在调用: ${getToolDisplayName(event.tool)}`
+              const toolMsg = messages.value.find(m => m.id === assistantMessageId)
+              if (toolMsg) {
+                toolMsg.metadata = {
+                  ...(toolMsg.metadata || {}),
+                  agent: event.agent || toolMsg.metadata?.agent,
+                  tool: event.tool,
+                  status: currentStatus.value
+                }
+              }
+              break
+
             case 'content':
               thinking.value = false
               streamingContent.value += event.content

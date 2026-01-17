@@ -9,6 +9,7 @@ import logging
 from stock_datasource.core.base_list_service import (
     BaseListService, FilterConfig, ListQueryParams, ListResponse, SortConfig
 )
+from stock_datasource.agents.tools import _format_date
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,18 @@ def _execute_query(query: str) -> List[Dict[str, Any]]:
     if df is None or df.empty:
         return []
     return df.to_dict('records')
+
+
+def _safe_float(value) -> Optional[float]:
+    """Convert value to float, return None if NaN or invalid."""
+    if value is None:
+        return None
+    try:
+        if value != value:  # NaN check
+            return None
+        return float(value)
+    except (ValueError, TypeError):
+        return None
 
 
 class EtfService(BaseListService):
@@ -94,37 +107,140 @@ class EtfService(BaseListService):
         keyword: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> Dict[str, Any]:
-        """Get ETF list with pagination and filters.
+        """Get ETF list with latest daily quotes and basic info.
         
-        Args:
-            exchange: Filter by exchange (SH/SZ)
-            etf_type: Filter by ETF type
-            list_status: Filter by status (L=listed, D=delisted, P=pending)
-            keyword: Search keyword
-            page: Page number
-            page_size: Page size
-            
-        Returns:
-            Dict with total, page, page_size, data
+        Returns paginated items similar to screener data structure.
         """
-        filters = {}
+        db = _get_db()
+        
+        # Get latest trade date from ETF daily table
+        date_query = "SELECT max(trade_date) as max_date FROM ods_etf_fund_daily"
+        date_df = db.execute_query(date_query)
+        if date_df.empty or date_df.iloc[0]["max_date"] is None:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+        
+        latest_date = _format_date(date_df.iloc[0]["max_date"])
+        
+        # Build WHERE clause
+        where_parts = [f"d.trade_date = '{latest_date}'"]
         if exchange:
-            filters["exchange"] = exchange
+            exchange_escaped = exchange.replace("'", "''")
+            where_parts.append(f"b.exchange = '{exchange_escaped}'")
         if etf_type:
-            filters["etf_type"] = etf_type
+            etf_type_escaped = etf_type.replace("'", "''")
+            where_parts.append(f"b.etf_type = '{etf_type_escaped}'")
         if list_status:
-            filters["list_status"] = list_status
+            list_status_escaped = list_status.replace("'", "''")
+            where_parts.append(f"b.list_status = '{list_status_escaped}'")
+        if keyword:
+            keyword_clean = keyword.strip()
+            if keyword_clean:
+                keyword_escaped = keyword_clean.replace("'", "''")
+                where_parts.append(
+                    "(" +
+                    f"d.ts_code LIKE '%{keyword_escaped}%' OR "
+                    f"b.csname LIKE '%{keyword_escaped}%' OR "
+                    f"b.cname LIKE '%{keyword_escaped}%' OR "
+                    f"b.index_name LIKE '%{keyword_escaped}%'" +
+                    ")"
+                )
         
-        params = ListQueryParams(
-            page=page,
-            page_size=page_size,
-            keyword=keyword,
-            filters=filters,
-        )
+        where_clause = " AND ".join(where_parts)
         
-        result = self.get_list(params)
-        return result.to_dict()
+        # Validate sort field to prevent SQL injection
+        allowed_sort_fields = {
+            "ts_code": "d.ts_code",
+            "trade_date": "d.trade_date",
+            "close": "d.close",
+            "pct_chg": "d.pct_chg",
+            "vol": "d.vol",
+            "amount": "d.amount",
+            "list_date": "b.list_date",
+        }
+        sort_field = allowed_sort_fields.get(sort_by or "pct_chg", "d.pct_chg")
+        sort_direction = "DESC" if (sort_order or "desc").lower() == "desc" else "ASC"
+        
+        # Get total count
+        count_query = f"""
+            SELECT count(*) as cnt
+            FROM ods_etf_fund_daily d
+            LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
+            WHERE {where_clause}
+        """
+        count_df = db.execute_query(count_query)
+        total = int(count_df.iloc[0]["cnt"]) if not count_df.empty else 0
+        if total == 0:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+        
+        # Pagination
+        total_pages = (total + page_size - 1) // page_size
+        offset = (page - 1) * page_size
+        
+        data_query = f"""
+            SELECT
+                d.ts_code,
+                d.trade_date,
+                d.open,
+                d.high,
+                d.low,
+                d.close,
+                d.pct_chg,
+                d.vol,
+                d.amount,
+                b.csname,
+                b.cname,
+                b.index_code,
+                b.index_name,
+                b.exchange,
+                b.mgr_name,
+                b.custod_name,
+                b.list_date,
+                b.list_status,
+                b.etf_type,
+                b.mgt_fee
+            FROM ods_etf_fund_daily d
+            LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
+            WHERE {where_clause}
+            ORDER BY {sort_field} {sort_direction}
+            LIMIT {page_size} OFFSET {offset}
+        """
+        
+        df = db.execute_query(data_query)
+        items = []
+        for _, row in df.iterrows():
+            items.append({
+                "ts_code": row.get("ts_code"),
+                "trade_date": _format_date(row.get("trade_date")),
+                "open": _safe_float(row.get("open")),
+                "high": _safe_float(row.get("high")),
+                "low": _safe_float(row.get("low")),
+                "close": _safe_float(row.get("close")),
+                "pct_chg": _safe_float(row.get("pct_chg")),
+                "vol": _safe_float(row.get("vol")),
+                "amount": _safe_float(row.get("amount")),
+                "csname": row.get("csname"),
+                "cname": row.get("cname"),
+                "index_code": row.get("index_code"),
+                "index_name": row.get("index_name"),
+                "exchange": row.get("exchange"),
+                "mgr_name": row.get("mgr_name"),
+                "custod_name": row.get("custod_name"),
+                "list_date": row.get("list_date"),
+                "list_status": row.get("list_status"),
+                "etf_type": row.get("etf_type"),
+                "mgt_fee": _safe_float(row.get("mgt_fee")),
+            })
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
     
     def get_etf_detail(self, ts_code: str) -> Optional[Dict[str, Any]]:
         """Get ETF detail by code.

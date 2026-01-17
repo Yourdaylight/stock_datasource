@@ -33,6 +33,14 @@ export interface ThinkingEvent {
   status?: string
 }
 
+export interface ToolEvent {
+  type: 'tool'
+  tool: string
+  args?: any
+  agent?: string
+  status?: string
+}
+
 export interface ContentEvent {
   type: 'content'
   content: string
@@ -53,7 +61,7 @@ export interface ErrorEvent {
   error: string
 }
 
-export type StreamEvent = ThinkingEvent | ContentEvent | DoneEvent | ErrorEvent
+export type StreamEvent = ThinkingEvent | ToolEvent | ContentEvent | DoneEvent | ErrorEvent
 
 export const chatApi = {
   sendMessage(data: SendMessageRequest): Promise<ChatMessage> {
@@ -81,6 +89,7 @@ export const chatApi = {
     onEvent: (event: StreamEvent) => void,
     onError?: (error: Error) => void
   ): Promise<void> {
+    let terminalReceived = false
     try {
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
@@ -121,12 +130,23 @@ export const chatApi = {
             if (data && data !== '[DONE]') {
               try {
                 const event = JSON.parse(data) as StreamEvent
+                if (event.type === 'done' || event.type === 'error') {
+                  terminalReceived = true
+                }
                 onEvent(event)
               } catch (e) {
                 console.warn('Failed to parse SSE data:', data)
               }
             }
           }
+        }
+      }
+      if (!terminalReceived) {
+        const err = new Error('SSE stream closed without terminal event')
+        if (onError) {
+          onError(err)
+        } else {
+          throw err
         }
       }
     } catch (error) {
