@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, List, Callable
 import logging
+import json
 
 from .base_agent import LangGraphAgent, AgentConfig
 from .tools import get_market_overview, get_stock_info
@@ -70,8 +71,171 @@ def get_platform_help() -> str:
 📉 **策略回测**
 - 在"策略回测"页面测试各种交易策略
 
+🔄 **AI工作流**
+- 输入"执行工作流 + 工作流名称"运行自定义工作流
+- 输入"查看我的工作流"列出可用工作流
+
 如需更多帮助，请随时提问！
 """
+
+
+def list_user_workflows() -> str:
+    """列出用户可用的AI工作流。
+    
+    Returns:
+        用户创建的工作流列表和预置模板列表。
+    """
+    try:
+        from stock_datasource.services.workflow_service import get_workflow_service
+        
+        service = get_workflow_service()
+        workflows = service.list_workflows(include_templates=True)
+        
+        if not workflows:
+            return "暂无可用的工作流。您可以在【AI工作流】页面创建新的工作流。"
+        
+        # 分类显示
+        templates = [w for w in workflows if w.is_template]
+        user_workflows = [w for w in workflows if not w.is_template]
+        
+        result = "## 可用的AI工作流\n\n"
+        
+        if user_workflows:
+            result += "### 我的工作流\n"
+            for w in user_workflows:
+                vars_str = ", ".join([f"{v.label}" for v in w.variables]) if w.variables else "无"
+                result += f"- **{w.name}**（ID: {w.id}）\n"
+                result += f"  - 描述: {w.description or '无'}\n"
+                result += f"  - 变量: {vars_str}\n"
+            result += "\n"
+        
+        if templates:
+            result += "### 预置模板\n"
+            for w in templates:
+                vars_str = ", ".join([f"{v.label}" for v in w.variables]) if w.variables else "无"
+                result += f"- **{w.name}**（ID: {w.id}）\n"
+                result += f"  - 描述: {w.description or '无'}\n"
+                result += f"  - 变量: {vars_str}\n"
+        
+        result += "\n💡 使用方法：调用 execute_workflow 工具，传入工作流ID和变量值即可执行。"
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to list workflows: {e}")
+        return f"获取工作流列表失败: {str(e)}"
+
+
+def execute_workflow(workflow_id: str, variables: str = "{}") -> str:
+    """执行指定的AI工作流。
+    
+    Args:
+        workflow_id: 工作流ID，如 template_single_stock 或自定义工作流ID
+        variables: JSON格式的变量值，如 {"stock_code": "600519.SH"}
+    
+    Returns:
+        工作流执行结果
+    """
+    try:
+        from stock_datasource.services.workflow_service import get_workflow_service
+        from stock_datasource.agents.workflow_agent import create_workflow_agent
+        import asyncio
+        
+        # 解析变量
+        try:
+            vars_dict = json.loads(variables) if isinstance(variables, str) else variables
+        except json.JSONDecodeError:
+            return f"变量格式错误，请使用JSON格式，如: {{\"stock_code\": \"600519.SH\"}}"
+        
+        # 获取工作流
+        service = get_workflow_service()
+        workflow = service.get_workflow(workflow_id)
+        
+        if not workflow:
+            return f"未找到工作流: {workflow_id}。请使用 list_user_workflows 查看可用工作流。"
+        
+        # 验证必填变量
+        for var in workflow.variables:
+            if var.required and var.name not in vars_dict:
+                if var.default:
+                    vars_dict[var.name] = var.default
+                else:
+                    return f"缺少必填变量: {var.label} ({var.name})"
+        
+        # 创建工作流Agent并执行
+        agent = create_workflow_agent(workflow)
+        
+        # 同步执行（收集所有结果）
+        async def run_workflow():
+            content_parts = []
+            async for event in agent.execute_workflow(vars_dict):
+                event_type = event.get("type")
+                if event_type == "content":
+                    content_parts.append(event.get("content", ""))
+                elif event_type == "error":
+                    return f"执行错误: {event.get('error', '未知错误')}"
+            return "".join(content_parts)
+        
+        # 运行异步任务
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        result = loop.run_until_complete(run_workflow())
+        
+        if not result:
+            return f"工作流 {workflow.name} 执行完成，但未返回结果。"
+        
+        return f"## {workflow.name} 执行结果\n\n{result}"
+        
+    except Exception as e:
+        logger.error(f"Failed to execute workflow {workflow_id}: {e}")
+        return f"执行工作流失败: {str(e)}"
+
+
+def find_workflow_by_name(name: str) -> str:
+    """根据名称查找工作流。
+    
+    Args:
+        name: 工作流名称（支持模糊匹配）
+    
+    Returns:
+        匹配的工作流信息
+    """
+    try:
+        from stock_datasource.services.workflow_service import get_workflow_service
+        
+        service = get_workflow_service()
+        workflows = service.list_workflows(include_templates=True)
+        
+        # 模糊匹配
+        matches = []
+        name_lower = name.lower()
+        for w in workflows:
+            if name_lower in w.name.lower() or (w.description and name_lower in w.description.lower()):
+                matches.append(w)
+        
+        if not matches:
+            return f"未找到包含 '{name}' 的工作流。请使用 list_user_workflows 查看所有可用工作流。"
+        
+        result = f"## 找到 {len(matches)} 个匹配的工作流\n\n"
+        for w in matches:
+            vars_info = []
+            for v in w.variables:
+                req = "必填" if v.required else "选填"
+                vars_info.append(f"{v.label}({v.name}, {req})")
+            
+            result += f"### {w.name}\n"
+            result += f"- **ID**: `{w.id}`\n"
+            result += f"- **描述**: {w.description or '无'}\n"
+            result += f"- **变量**: {', '.join(vars_info) if vars_info else '无'}\n"
+            result += f"- **类型**: {'预置模板' if w.is_template else '自定义工作流'}\n\n"
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to find workflow: {e}")
+        return f"查找工作流失败: {str(e)}"
 
 
 class ChatAgent(LangGraphAgent):
@@ -81,13 +245,14 @@ class ChatAgent(LangGraphAgent):
     - General greetings and small talk
     - Questions about the platform
     - A-share market general questions
+    - AI Workflow execution and management
     - Fallback for unrecognized intents
     """
     
     def __init__(self):
         config = AgentConfig(
             name="ChatAgent",
-            description="负责处理A股相关的一般性对话和问答"
+            description="负责处理A股相关的一般性对话和问答，以及AI工作流的调用"
         )
         super().__init__(config)
     
@@ -98,6 +263,10 @@ class ChatAgent(LangGraphAgent):
             get_platform_help,
             get_market_overview,
             get_stock_info,
+            # 工作流相关工具
+            list_user_workflows,
+            execute_workflow,
+            find_workflow_by_name,
         ]
     
     def get_system_prompt(self) -> str:
@@ -110,11 +279,28 @@ class ChatAgent(LangGraphAgent):
 - get_market_overview: 获取市场整体情况
 - get_stock_info: 获取股票信息
 
+### AI工作流工具（重要！）
+- list_user_workflows: 列出用户的所有工作流和预置模板
+- find_workflow_by_name: 根据名称查找工作流
+- execute_workflow: 执行指定的AI工作流
+
 ## 你的职责
 1. 回答用户关于A股市场的各种问题
 2. 提供平台使用帮助
 3. 解答股票投资基础知识
-4. 引导用户使用合适的功能
+4. **管理和执行AI工作流**
+5. 引导用户使用合适的功能
+
+## AI工作流调用指南
+当用户提到以下内容时，应该使用工作流功能：
+- "执行工作流"、"运行工作流" → 调用 execute_workflow
+- "查看工作流"、"我的工作流"、"工作流列表" → 调用 list_user_workflows
+- "单股分析"、"股票对比"、"价值投资" → 查找并执行相应模板
+- "分析XXX股票用YYY工作流" → 找到工作流并执行
+
+执行工作流示例：
+1. 用户说"用单股分析工作流分析茅台"
+2. 调用 execute_workflow(workflow_id="template_single_stock", variables='{"stock_code": "600519.SH"}')
 
 ## 回答原则
 1. 专注于A股市场，不涉及其他市场
@@ -126,6 +312,7 @@ class ChatAgent(LangGraphAgent):
 - 问候语：友好回应并介绍功能
 - 帮助：调用 get_platform_help
 - A股规则：调用 get_astock_knowledge
+- 工作流相关：调用相应的工作流工具
 
 ## 免责声明
 分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。

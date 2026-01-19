@@ -168,6 +168,9 @@ def create_app() -> FastAPI:
     # Register top list routes
     _register_toplist_routes(app)
     
+    # Register workflow routes
+    _register_workflow_routes(app)
+    
     # Health check endpoint
     @app.get("/health")
     async def health_check():
@@ -219,6 +222,16 @@ def _register_toplist_routes(app: FastAPI) -> None:
         logger.info("Registered top list routes")
     except Exception as e:
         logger.warning(f"Failed to register top list routes: {e}")
+
+
+def _register_workflow_routes(app: FastAPI) -> None:
+    """Register workflow management routes."""
+    try:
+        from stock_datasource.api.workflow_routes import router as workflow_router
+        app.include_router(workflow_router)
+        logger.info("Registered workflow routes")
+    except Exception as e:
+        logger.warning(f"Failed to register workflow routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):

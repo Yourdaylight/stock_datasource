@@ -23,28 +23,6 @@ else
     echo "No existing processes found"
 fi
 
-# Start the server
-echo "Starting backend server..."
-nohup uv run python -m stock_datasource.services.http_server > /tmp/http_server.log 2>&1 &
-
-# Wait for server to start
-echo "Waiting for server to start..."
-sleep 3
-
-# Check if server is running
-if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-    echo "✓ Backend server started successfully"
-    echo "  Health check: curl http://localhost:8000/health"
-    echo "  API docs: http://localhost:8000/docs"
-    echo "  Log file: /tmp/http_server.log"
-else
-    echo "✗ Backend server failed to start"
-    echo "Check log file: tail -f /tmp/http_server.log"
-    exit 1
-else
-    echo -e "  ${GREEN}✓ 前端端口已释放${NC}"
-fi
-echo ""
 
 # 3. 启动后端
 echo -e "${YELLOW}[3/4]${NC} 启动后端服务..."
