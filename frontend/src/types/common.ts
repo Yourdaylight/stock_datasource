@@ -103,3 +103,24 @@ export interface TrendAnalysis {
   summary: string
   disclaimer: string
 }
+
+// Chip Distribution Types (筹码分布)
+export interface ChipData {
+  ts_code: string
+  trade_date: string
+  price: number
+  percent: number
+}
+
+export interface ChipStats {
+  ts_code: string
+  trade_date: string
+  price_levels: number
+  min_price: number
+  max_price: number
+  weighted_avg_price: number
+  max_percent: number
+  profit_ratio?: number
+  loss_ratio?: number
+  current_price?: number
+}

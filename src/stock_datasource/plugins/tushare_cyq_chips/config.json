@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare A股筹码分布数据插件",
+  "schedule": {
+    "frequency": "daily",
+    "time": "19:00"
+  },
+  "parameters": {
+    "max_records_per_request": 2000,
+    "data_start_date": "20180101"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "股票代码 (e.g., 600000.SH)"
+    },
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期 YYYYMMDD 格式"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期 YYYYMMDD 格式"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期 YYYYMMDD 格式"
+    }
+  }
+}
