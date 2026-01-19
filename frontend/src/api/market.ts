@@ -6,7 +6,9 @@ import type {
   MarketOverview, 
   HotSector,
   TrendAnalysis,
-  TechnicalSignal
+  TechnicalSignal,
+  ChipData,
+  ChipStats
 } from '@/types/common'
 
 // Request Types
@@ -136,5 +138,33 @@ export const marketApi = {
   analyzeStream(code: string, period: number = 60): EventSource {
     const queryParams = new URLSearchParams({ code, period: String(period) })
     return new EventSource(`/api/market/analysis/stream?${queryParams}`)
+  },
+
+  // Chip Distribution (筹码分布)
+  async getChipDistribution(params: { ts_code: string; trade_date?: string }): Promise<ChipData[]> {
+    const endpoint = params.trade_date 
+      ? '/api/tushare_cyq_chips/get_by_date'
+      : '/api/tushare_cyq_chips/get_latest'
+    const response = await request.post<{ status: string; data: ChipData[] }>(endpoint, params)
+    return response.data || []
+  },
+
+  async getChipStats(params: { ts_code: string; trade_date: string }): Promise<ChipStats> {
+    const response = await request.post<{ status: string; data: ChipStats }>('/api/tushare_cyq_chips/get_distribution_stats', params)
+    return response.data
+  },
+
+  async getChipProfitRatio(params: { ts_code: string; trade_date: string; current_price: number }): Promise<{
+    ts_code: string
+    trade_date: string
+    current_price: number
+    profit_ratio: number
+    loss_ratio: number
+    price_levels: number
+    min_price: number
+    max_price: number
+  }> {
+    const response = await request.post<{ status: string; data: any }>('/api/tushare_cyq_chips/get_profit_ratio', params)
+    return response.data
   }
 }

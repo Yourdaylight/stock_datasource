@@ -4,9 +4,10 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { marketApi } from '@/api/market'
 import { usePortfolioStore } from '@/stores/portfolio'
 import KLineChart from '@/components/charts/KLineChart.vue'
+import ChipDistributionChart from '@/components/charts/ChipDistributionChart.vue'
 import IndicatorPanel from '@/views/market/components/IndicatorPanel.vue'
 import TrendAnalysis from '@/views/market/components/TrendAnalysis.vue'
-import type { KLineData, TechnicalSignal } from '@/types/common'
+import type { KLineData, TechnicalSignal, ChipData, ChipStats } from '@/types/common'
 
 interface Props {
   visible: boolean
@@ -31,6 +32,12 @@ const trendAnalysis = ref<any>(null)
 const loading = ref(false)
 const chartLoading = ref(false)
 const analysisLoading = ref(false)
+
+// Chip distribution data (筹码峰)
+const chipData = ref<ChipData[]>([])
+const chipStats = ref<ChipStats | null>(null)
+const chipLoading = ref(false)
+const chipDate = ref<string>('')
 
 // Chart options
 const period = ref(90) // 默认90天
@@ -224,6 +231,49 @@ const handleAddToWatchlist = async () => {
   }
 }
 
+// Fetch chip distribution data (筹码峰)
+const fetchChipData = async () => {
+  if (!props.stockCode) return
+  
+  chipLoading.value = true
+  try {
+    const formatDate = (date: Date) => {
+      return date.toISOString().split('T')[0].replace(/-/g, '')
+    }
+    
+    // 获取筹码分布数据
+    const params: { ts_code: string; trade_date?: string } = { ts_code: props.stockCode }
+    if (chipDate.value) {
+      params.trade_date = chipDate.value.replace(/-/g, '')
+    }
+    
+    const data = await marketApi.getChipDistribution(params)
+    chipData.value = data
+    
+    // 获取筹码统计信息
+    if (data.length > 0) {
+      const tradeDate = data[0].trade_date
+      chipDate.value = tradeDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
+      
+      const stats = await marketApi.getChipStats({
+        ts_code: props.stockCode,
+        trade_date: tradeDate
+      })
+      chipStats.value = stats
+    }
+  } catch (error) {
+    console.error('Failed to fetch chip data:', error)
+    chipData.value = []
+    chipStats.value = null
+  } finally {
+    chipLoading.value = false
+  }
+}
+
+const handleChipDateChange = () => {
+  fetchChipData()
+}
+
 const handleClose = () => {
   emit('close')
 }
@@ -236,6 +286,9 @@ watch(() => props.stockCode, (newCode) => {
     indicatorDates.value = []
     signals.value = []
     trendAnalysis.value = null
+    chipData.value = []
+    chipStats.value = null
+    chipDate.value = ''
     activeTab.value = 'chart'
     fetchStockData()
   }
@@ -244,6 +297,13 @@ watch(() => props.stockCode, (newCode) => {
 watch(() => props.visible, (visible) => {
   if (visible && props.stockCode) {
     fetchStockData()
+  }
+})
+
+// Watch for tab change to load chip data lazily
+watch(() => activeTab.value, (tab) => {
+  if (tab === 'chip' && chipData.value.length === 0 && !chipLoading.value) {
+    fetchChipData()
   }
 })
 </script>
@@ -358,6 +418,36 @@ watch(() => props.visible, (visible) => {
               :disclaimer="trendAnalysis?.disclaimer"
               :loading="analysisLoading"
               class="trend-analysis-panel"
+            />
+          </div>
+        </t-tab-panel>
+        
+        <t-tab-panel value="chip" label="筹码峰">
+          <div class="chip-section">
+            <div class="chip-controls">
+              <t-date-picker
+                v-model="chipDate"
+                placeholder="选择交易日"
+                style="width: 160px"
+                :disabled-date="(date: Date) => date > new Date()"
+                @change="handleChipDateChange"
+              />
+              <t-button variant="outline" size="small" @click="fetchChipData" :loading="chipLoading">
+                刷新
+              </t-button>
+            </div>
+            
+            <div v-if="chipLoading" class="chip-loading">
+              <t-loading size="medium" text="加载筹码数据..." />
+            </div>
+            
+            <ChipDistributionChart
+              v-else
+              :data="chipData"
+              :stats="chipStats"
+              :current-price="latestPrice"
+              :loading="chipLoading"
+              :height="400"
             />
           </div>
         </t-tab-panel>
@@ -536,5 +626,22 @@ watch(() => props.visible, (visible) => {
 
 .trend-analysis-panel {
   min-height: 250px;
+}
+
+.chip-section {
+  padding: 16px 0;
+}
+
+.chip-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.chip-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
 }
 </style>

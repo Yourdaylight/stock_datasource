@@ -1,0 +1,17 @@
+{
+  "table_name": "ods_cyq_chips",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "股票代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "price", "data_type": "Float64", "nullable": false, "comment": "成本价格"},
+    {"name": "percent", "data_type": "Float64", "nullable": false, "comment": "价格占比(%)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date", "price"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "A股筹码分布数据 (每日各价位占比)"
+}
