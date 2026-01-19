@@ -65,6 +65,24 @@ const getDuration = (task: SyncTask | null) => {
   if (duration < 3600) return `${Math.floor(duration / 60)}分${duration % 60}秒`
   return `${Math.floor(duration / 3600)}小时${Math.floor((duration % 3600) / 60)}分`
 }
+
+// Error stack trace parsing
+const STACK_SEPARATOR = '\n\n--- 堆栈跟踪 ---\n'
+
+const hasStackTrace = computed(() => {
+  if (!props.task?.error_message) return false
+  return props.task.error_message.includes(STACK_SEPARATOR)
+})
+
+const getErrorSummary = (errorMessage: string) => {
+  const idx = errorMessage.indexOf(STACK_SEPARATOR)
+  return idx > 0 ? errorMessage.substring(0, idx) : errorMessage
+}
+
+const getStackTrace = (errorMessage: string) => {
+  const idx = errorMessage.indexOf(STACK_SEPARATOR)
+  return idx > 0 ? errorMessage.substring(idx + STACK_SEPARATOR.length) : ''
+}
 </script>
 
 <template>
@@ -156,8 +174,21 @@ const getDuration = (task: SyncTask | null) => {
 
       <!-- 错误信息 -->
       <div v-if="task.error_message" class="error-section">
-        <h4>错误信息</h4>
-        <t-alert theme="error" :message="task.error_message" />
+        <h4>
+          <t-icon name="error-circle" style="margin-right: 4px" />
+          错误信息
+        </h4>
+        <div class="error-content">
+          <div v-if="hasStackTrace" class="error-summary">
+            {{ getErrorSummary(task.error_message) }}
+          </div>
+          <t-collapse v-if="hasStackTrace" :default-expand-all="false">
+            <t-collapse-panel header="查看完整堆栈" value="stack">
+              <pre class="stack-trace">{{ getStackTrace(task.error_message) }}</pre>
+            </t-collapse-panel>
+          </t-collapse>
+          <pre v-else class="error-message">{{ task.error_message }}</pre>
+        </div>
       </div>
     </div>
     <t-empty v-else description="无任务信息" />
@@ -204,6 +235,46 @@ const getDuration = (task: SyncTask | null) => {
   margin: 0 0 8px 0;
   font-size: 14px;
   color: var(--td-error-color);
+  display: flex;
+  align-items: center;
+}
+
+.error-content {
+  background: var(--td-error-color-1);
+  border: 1px solid var(--td-error-color-3);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.error-summary {
+  font-size: 14px;
+  color: var(--td-error-color);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.error-message {
+  margin: 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--td-text-color-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.stack-trace {
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+  background: var(--td-bg-color-container);
+  padding: 12px;
+  border-radius: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
 }
 
 code {

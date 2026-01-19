@@ -22,7 +22,7 @@ from .schemas import (
     PluginInfo, PluginDetail, PluginConfig, PluginSchema, PluginColumn,
     PluginStatus, PluginSchedule, ScheduleFrequency,
     PluginDataPreview, MissingDataInfo, MissingDataSummary,
-    SyncHistory
+    SyncHistory, SyncTaskListResponse
 )
 
 
@@ -949,6 +949,8 @@ class SyncTaskManager:
     
     def _execute_task(self, task_id: str):
         """Execute a single task with optional multi-date parallelism."""
+        import traceback
+        
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -982,9 +984,13 @@ class SyncTaskManager:
                     task.records_processed = result.get("steps", {}).get("load", {}).get("total_records", 0)
                     task.progress = 100
                 else:
-                    # Pipeline failed
+                    # Pipeline failed - get detailed error info
                     error_msg = result.get("error", "插件执行失败")
-                    raise ValueError(f"插件执行失败: {error_msg}")
+                    error_detail = result.get("error_detail", "")
+                    full_error = f"{error_msg}"
+                    if error_detail:
+                        full_error += f"\n\n详细信息:\n{error_detail}"
+                    raise ValueError(full_error)
             
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
@@ -992,11 +998,20 @@ class SyncTaskManager:
             self.logger.info(f"Task {task_id} completed successfully")
             
         except Exception as e:
+            # Capture full traceback for debugging
+            error_tb = traceback.format_exc()
+            error_msg = str(e)
+            
+            # Limit error message length but keep useful info
+            if len(error_msg) > 2000:
+                error_msg = error_msg[:2000] + "... (truncated)"
+            
+            # Store both short message and full traceback
             task.status = TaskStatus.FAILED
-            task.error_message = str(e)
+            task.error_message = f"{error_msg}\n\n--- 堆栈跟踪 ---\n{error_tb}"
             task.completed_at = datetime.now()
             self._save_task_to_db(task)
-            self.logger.error(f"Task {task_id} failed: {e}")
+            self.logger.error(f"Task {task_id} failed: {error_msg}\n{error_tb}")
     
     def _get_latest_trading_date(self) -> Optional[str]:
         """Get the latest valid trading date from calendar.
@@ -1162,6 +1177,68 @@ class SyncTaskManager:
     def get_all_tasks(self) -> List[SyncTask]:
         """Get all tasks."""
         return list(self._tasks.values())
+    
+    def get_tasks_paginated(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+        plugin_name: Optional[str] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ) -> SyncTaskListResponse:
+        """Get paginated tasks with filtering and sorting.
+        
+        Args:
+            page: Page number (1-based)
+            page_size: Items per page
+            status: Filter by status
+            plugin_name: Filter by plugin name (partial match)
+            sort_by: Sort field (created_at, started_at, completed_at)
+            sort_order: Sort order (asc, desc)
+        
+        Returns:
+            Paginated task list response
+        """
+        # Get all tasks
+        tasks = list(self._tasks.values())
+        
+        # Filter by status
+        if status:
+            try:
+                status_enum = TaskStatus(status)
+                tasks = [t for t in tasks if t.status == status_enum]
+            except ValueError:
+                pass
+        
+        # Filter by plugin name (partial match)
+        if plugin_name:
+            plugin_name_lower = plugin_name.lower()
+            tasks = [t for t in tasks if plugin_name_lower in t.plugin_name.lower()]
+        
+        # Sort
+        reverse = sort_order.lower() == "desc"
+        if sort_by == "started_at":
+            tasks.sort(key=lambda t: t.started_at or datetime.min, reverse=reverse)
+        elif sort_by == "completed_at":
+            tasks.sort(key=lambda t: t.completed_at or datetime.min, reverse=reverse)
+        else:  # created_at
+            tasks.sort(key=lambda t: t.created_at or datetime.min, reverse=reverse)
+        
+        # Paginate
+        total = len(tasks)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = tasks[start:end]
+        
+        return SyncTaskListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages
+        )
     
     def get_running_tasks(self) -> List[SyncTask]:
         """Get running tasks."""

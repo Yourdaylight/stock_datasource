@@ -13,7 +13,8 @@ from .schemas import (
     SyncConfig, SyncConfigRequest,
     ProxyConfig, ProxyConfigRequest, ProxyTestResult,
     DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
-    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum
+    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum,
+    SyncTaskListResponse, TaskStatus
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
@@ -61,10 +62,24 @@ async def trigger_missing_data_detection(request: ManualDetectRequest):
 
 # ============ Sync Tasks ============
 
-@router.get("/sync/tasks", response_model=List[SyncTask])
-async def get_sync_tasks():
-    """Get all sync tasks."""
-    return sync_task_manager.get_all_tasks()
+@router.get("/sync/tasks", response_model=SyncTaskListResponse)
+async def get_sync_tasks(
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Page size"),
+    status: Optional[str] = Query(default=None, description="Filter by status: pending, running, completed, failed, cancelled"),
+    plugin_name: Optional[str] = Query(default=None, description="Filter by plugin name (partial match)"),
+    sort_by: str = Query(default="created_at", description="Sort field: created_at, started_at, completed_at"),
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+):
+    """Get paginated sync tasks with filtering and sorting."""
+    return sync_task_manager.get_tasks_paginated(
+        page=page,
+        page_size=page_size,
+        status=status,
+        plugin_name=plugin_name,
+        sort_by=sort_by,
+        sort_order=sort_order
+    )
 
 
 @router.post("/sync/trigger", response_model=SyncTask)

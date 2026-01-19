@@ -233,9 +233,19 @@ class SyncHistory(BaseModel):
     status: str
     records_processed: int
     error_message: Optional[str] = None
+    error_traceback: Optional[str] = None  # 完整错误堆栈
     started_at: datetime
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
+
+
+class SyncTaskListResponse(BaseModel):
+    """Paginated sync task list response."""
+    items: List[SyncTask]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 # AI Diagnosis Models

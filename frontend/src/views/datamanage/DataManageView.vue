@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useDataManageStore } from '@/stores/datamanage'
-import type { PluginCategory, PluginRole } from '@/api/datamanage'
+import type { PluginCategory, PluginRole, SyncTaskQueryParams } from '@/api/datamanage'
 import MissingDataPanel from './components/MissingDataPanel.vue'
 import SyncTaskPanel from './components/SyncTaskPanel.vue'
 import PluginDetailDialog from './components/PluginDetailDialog.vue'
@@ -20,6 +20,27 @@ const activeTab = ref('plugins')
 const searchKeyword = ref('')
 const selectedCategory = ref<PluginCategory | ''>('')
 const selectedRole = ref<PluginRole | ''>('')
+
+// Task filter states
+const taskSearchKeyword = ref('')
+const taskStatusFilter = ref<string>('')
+const taskSortBy = ref<'created_at' | 'started_at' | 'completed_at'>('created_at')
+const taskSortOrder = ref<'asc' | 'desc'>('desc')
+
+const taskStatusOptions = [
+  { label: '全部状态', value: '' },
+  { label: '等待中', value: 'pending' },
+  { label: '运行中', value: 'running' },
+  { label: '已完成', value: 'completed' },
+  { label: '失败', value: 'failed' },
+  { label: '已取消', value: 'cancelled' }
+]
+
+const taskSortOptions = [
+  { label: '创建时间', value: 'created_at' },
+  { label: '开始时间', value: 'started_at' },
+  { label: '完成时间', value: 'completed_at' }
+]
 
 const categoryOptions = [
   { label: '全部类别', value: '' },
@@ -67,6 +88,36 @@ const handleResetFilters = () => {
   searchKeyword.value = ''
   selectedCategory.value = ''
   selectedRole.value = ''
+}
+
+// Task filtering and pagination handlers
+const handleTaskSearch = () => {
+  dataStore.fetchSyncTasks({
+    page: 1,
+    plugin_name: taskSearchKeyword.value || undefined,
+    status: taskStatusFilter.value as any || undefined,
+    sort_by: taskSortBy.value,
+    sort_order: taskSortOrder.value
+  })
+}
+
+const handleTaskPageChange = (pageInfo: { current: number; pageSize: number }) => {
+  dataStore.fetchSyncTasks({
+    page: pageInfo.current,
+    page_size: pageInfo.pageSize,
+    plugin_name: taskSearchKeyword.value || undefined,
+    status: taskStatusFilter.value as any || undefined,
+    sort_by: taskSortBy.value,
+    sort_order: taskSortOrder.value
+  })
+}
+
+const handleResetTaskFilters = () => {
+  taskSearchKeyword.value = ''
+  taskStatusFilter.value = ''
+  taskSortBy.value = 'created_at'
+  taskSortOrder.value = 'desc'
+  dataStore.fetchSyncTasks({ page: 1 })
 }
 
 // Dialog states
@@ -135,8 +186,8 @@ const taskColumns = [
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'progress', title: '进度', width: 150 },
   { colKey: 'records_processed', title: '处理记录', width: 100 },
-  { colKey: 'started_at', title: '开始时间', width: 150 },
-  { colKey: 'operation', title: '操作', width: 100 }
+  { colKey: 'created_at', title: '创建时间', width: 150 },
+  { colKey: 'operation', title: '操作', width: 120 }
 ]
 
 const qualityColumns = [
@@ -389,11 +440,66 @@ onMounted(() => {
 
         <!-- Tasks Tab -->
         <t-tab-panel value="tasks" label="同步任务">
+          <!-- Task Filter Bar -->
+          <div class="filter-bar">
+            <t-input
+              v-model="taskSearchKeyword"
+              placeholder="搜索插件名称"
+              clearable
+              style="width: 200px"
+              @enter="handleTaskSearch"
+              @clear="handleTaskSearch"
+            >
+              <template #prefix-icon>
+                <t-icon name="search" />
+              </template>
+            </t-input>
+            <t-select
+              v-model="taskStatusFilter"
+              :options="taskStatusOptions"
+              placeholder="状态筛选"
+              clearable
+              style="width: 120px"
+              @change="handleTaskSearch"
+            />
+            <t-select
+              v-model="taskSortBy"
+              :options="taskSortOptions"
+              placeholder="排序字段"
+              style="width: 120px"
+              @change="handleTaskSearch"
+            />
+            <t-radio-group v-model="taskSortOrder" variant="default-filled" size="small" @change="handleTaskSearch">
+              <t-radio-button value="desc">
+                <t-icon name="arrow-down" />
+              </t-radio-button>
+              <t-radio-button value="asc">
+                <t-icon name="arrow-up" />
+              </t-radio-button>
+            </t-radio-group>
+            <t-button theme="default" variant="outline" @click="handleResetTaskFilters">
+              <t-icon name="refresh" style="margin-right: 4px" />
+              重置
+            </t-button>
+            <div class="filter-result">
+              共 <span class="count">{{ dataStore.syncTasksTotal }}</span> 个任务
+            </div>
+          </div>
+
           <t-table
             :data="dataStore.syncTasks"
             :columns="taskColumns"
-            :loading="dataStore.loading"
+            :loading="dataStore.tasksLoading"
             row-key="task_id"
+            :pagination="{
+              current: dataStore.syncTasksPage,
+              pageSize: dataStore.syncTasksPageSize,
+              total: dataStore.syncTasksTotal,
+              showPageSize: true,
+              pageSizeOptions: [10, 20, 50],
+              showJumper: true
+            }"
+            @page-change="handleTaskPageChange"
           >
             <template #task_type="{ row }">
               {{ row.task_type === 'incremental' ? '增量' : row.task_type === 'full' ? '全量' : '补录' }}
@@ -414,8 +520,8 @@ onMounted(() => {
             <template #records_processed="{ row }">
               {{ row.records_processed.toLocaleString() }}
             </template>
-            <template #started_at="{ row }">
-              {{ formatTime(row.started_at) }}
+            <template #created_at="{ row }">
+              {{ formatTime(row.created_at) }}
             </template>
             <template #operation="{ row }">
               <t-space>
