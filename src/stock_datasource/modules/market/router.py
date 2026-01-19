@@ -207,41 +207,153 @@ async def analyze_stock_stream(
 async def ai_analyze_stock(request: AnalysisRequest):
     """AI-powered stock analysis using MarketAgent.
     
-    This endpoint uses the MarketAgent with LLM to provide deeper analysis.
+    This endpoint:
+    1. Fetches actual stock data and technical indicators
+    2. Passes the data as context to LLM for deeper analysis
     """
+    service = get_market_service()
+    
+    # Step 1: Get actual technical analysis data
+    try:
+        trend_data = await service.analyze_trend(request.code, request.period)
+    except Exception as e:
+        logger.error(f"Failed to get trend data: {e}")
+        raise HTTPException(status_code=500, detail=f"获取股票数据失败: {str(e)}")
+    
+    # Step 2: Get additional indicator details
+    try:
+        indicator_data = await service.get_indicators(
+            request.code, 
+            ["MACD", "RSI", "KDJ", "BOLL", "MA"], 
+            period=request.period
+        )
+    except Exception as e:
+        logger.warning(f"Failed to get indicators: {e}")
+        indicator_data = {}
+    
+    # Step 3: Format data for LLM context
+    stock_name = trend_data.get("name", request.code)
+    trend = trend_data.get("trend", "未知")
+    support = trend_data.get("support", 0)
+    resistance = trend_data.get("resistance", 0)
+    signals = trend_data.get("signals", [])
+    
+    # Extract latest indicator values
+    indicators = indicator_data.get("indicators", {})
+    latest_indicators = {}
+    for key, values in indicators.items():
+        if values and len(values) > 0:
+            # Get last non-null value
+            for v in reversed(values):
+                if v is not None:
+                    latest_indicators[key] = round(v, 2) if isinstance(v, float) else v
+                    break
+    
+    # Format signals for prompt
+    signal_text = ""
+    if signals:
+        bullish = [s for s in signals if s.get("type") == "bullish"]
+        bearish = [s for s in signals if s.get("type") == "bearish"]
+        if bullish:
+            signal_text += f"\n看多信号: {', '.join(s.get('signal', '') for s in bullish)}"
+        if bearish:
+            signal_text += f"\n看空信号: {', '.join(s.get('signal', '') for s in bearish)}"
+    
+    # Build detailed prompt with actual data
+    data_context = f"""
+## 股票基础信息
+- 股票代码: {request.code}
+- 股票名称: {stock_name}
+- 分析周期: {request.period}天
+
+## 趋势判断
+- 当前趋势: {trend}
+- 支撑位: {support:.2f}
+- 压力位: {resistance:.2f}
+
+## 技术指标最新值
+"""
+    
+    # Add indicator values
+    indicator_names = {
+        "MACD_DIF": "MACD DIF",
+        "MACD_DEA": "MACD DEA", 
+        "MACD_HIST": "MACD 柱状",
+        "RSI": "RSI",
+        "KDJ_K": "KDJ K值",
+        "KDJ_D": "KDJ D值",
+        "KDJ_J": "KDJ J值",
+        "BOLL_UPPER": "布林上轨",
+        "BOLL_MID": "布林中轨",
+        "BOLL_LOWER": "布林下轨",
+        "MA5": "5日均线",
+        "MA10": "10日均线",
+        "MA20": "20日均线",
+        "MA60": "60日均线",
+    }
+    
+    for key, display_name in indicator_names.items():
+        if key in latest_indicators:
+            data_context += f"- {display_name}: {latest_indicators[key]}\n"
+    
+    # Add signals
+    if signal_text:
+        data_context += f"\n## 技术信号{signal_text}\n"
+    
+    # Final prompt
+    query = f"""请基于以下股票数据进行专业的技术分析，给出详细的分析报告和操作建议：
+
+{data_context}
+
+请从以下几个方面进行分析：
+1. **趋势分析**: 结合均线系统和当前趋势判断后市走向
+2. **动量分析**: 结合MACD、RSI、KDJ指标判断多空力量
+3. **波动分析**: 结合布林带判断股价所处位置和波动空间
+4. **综合建议**: 给出具体的操作建议和风险提示
+
+注意：请引用具体的指标数值来支持你的分析结论。"""
+    
+    # Step 4: Call LLM with data context
     try:
         from stock_datasource.agents import get_market_agent
         
         agent = get_market_agent()
-        query = f"请分析股票{request.code}的走势，给出技术分析建议"
-        
         result = await agent.execute(query, {"period": request.period})
         
         if result.success:
             return {
                 "code": request.code,
                 "analysis": result.response,
+                "trend": trend,
+                "signals": signals,
                 "metadata": result.metadata
             }
         else:
             return {
                 "code": request.code,
                 "analysis": result.response,
+                "trend": trend,
+                "signals": signals,
                 "error": True
             }
     except ImportError:
-        # MarketAgent not available, fallback to basic analysis
-        service = get_market_service()
-        result = await service.analyze_trend(request.code, request.period)
+        # MarketAgent not available, return basic analysis summary
+        logger.warning("MarketAgent not available, using basic analysis")
         return {
             "code": request.code,
-            "analysis": result.get("summary", ""),
-            "trend": result.get("trend", ""),
-            "signals": result.get("signals", [])
+            "analysis": trend_data.get("summary", ""),
+            "trend": trend,
+            "signals": signals
         }
     except Exception as e:
         logger.error(f"AI analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Fallback: return basic analysis instead of error
+        return {
+            "code": request.code,
+            "analysis": trend_data.get("summary", f"AI分析暂时不可用: {str(e)}"),
+            "trend": trend,
+            "signals": signals
+        }
 
 
 # =============================================================================
