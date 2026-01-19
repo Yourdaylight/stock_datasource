@@ -190,8 +190,10 @@ const handleAIAnalyze = async () => {
       period: period.value 
     })
     trendAnalysis.value = {
+      trend: response.trend || 'AI 智能分析',  // 确保 trend 有值，否则组件不显示
       summary: response.analysis,
-      signals: response.signals || []
+      signals: response.signals || [],
+      disclaimer: '以上分析由 AI 生成，仅供参考，不构成投资建议。'
     }
     if (response.signals) {
       signals.value = response.signals
