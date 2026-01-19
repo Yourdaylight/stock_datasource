@@ -82,22 +82,22 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据管理', icon: 'server', requiresAuth: true }
   },
   {
-    path: '/index',
-    name: 'Index',
-    component: () => import('@/views/index/IndexScreenerView.vue'),
-    meta: { title: '指数选股', icon: 'chart-pie', requiresAuth: true }
+    path: '/workflow',
+    name: 'Workflow',
+    component: () => import('@/views/workflow/WorkflowList.vue'),
+    meta: { title: 'AI工作流', icon: 'cpu', requiresAuth: true }
   },
   {
-    path: '/etf',
-    name: 'Etf',
-    component: () => import('@/views/etf/EtfScreenerView.vue'),
-    meta: { title: 'ETF基金', icon: 'coin' }
+    path: '/workflow/create',
+    name: 'WorkflowCreate',
+    component: () => import('@/views/workflow/WorkflowEditor.vue'),
+    meta: { title: '创建工作流', requiresAuth: true }
   },
   {
-    path: '/strategy',
-    name: 'Strategy',
-    component: () => import('@/views/StrategyWorkbench.vue'),
-    meta: { title: '策略工作台', icon: 'tools' }
+    path: '/workflow/:id/edit',
+    name: 'WorkflowEdit',
+    component: () => import('@/views/workflow/WorkflowEditor.vue'),
+    meta: { title: '编辑工作流', requiresAuth: true }
   }
 ]
 

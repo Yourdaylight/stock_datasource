@@ -10,6 +10,7 @@ export default defineConfig({
     }
   },
   server: {
+    host: '0.0.0.0', // 允许外部IP访问
     port: 3000,
     strictPort: false, // 允许使用其他端口
     proxy: {
