@@ -4,6 +4,7 @@ Provides daily market overview and AI analysis services.
 """
 
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,10 +16,21 @@ def _get_db():
     return db_client
 
 
-def _execute_query(query: str) -> List[Dict[str, Any]]:
-    """Execute query and return results as list of dicts."""
+def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Execute query and return results as list of dicts.
+
+    This helper should be resilient: if ClickHouse is initializing or a table is missing,
+    return an empty list instead of raising and breaking the frontend.
+
+    IMPORTANT: Use parameterized queries for user-controlled inputs.
+    """
     db = _get_db()
-    df = db.execute_query(query)
+    try:
+        df = db.execute_query(query, params or {})
+    except Exception as e:
+        logger.warning(f"ClickHouse query failed: {e}")
+        return []
+
     if df is None or df.empty:
         return []
     return df.to_dict('records')
@@ -53,8 +65,15 @@ class OverviewService:
         if result and result[0].get('latest_date'):
             latest = result[0]['latest_date']
             if hasattr(latest, 'strftime'):
-                return latest.strftime('%Y%m%d')
-            return str(latest).replace('-', '')
+                date_str = latest.strftime('%Y%m%d')
+            else:
+                date_str = str(latest).replace('-', '')
+
+            # ClickHouse max(Date) on empty table returns 1970-01-01
+            if date_str in {"19700101", "1970-01-01"}:
+                return None
+
+            return date_str
         return None
     
     def get_daily_overview(self, date: Optional[str] = None) -> Dict[str, Any]:
@@ -71,17 +90,25 @@ class OverviewService:
             date = self._get_latest_trade_date()
         
         if not date:
-            return {"error": "No data available"}
+            return {
+                "trade_date": None,
+                "major_indices": [],
+                "market_stats": None,
+                "hot_etfs_by_amount": [],
+                "hot_etfs_by_change": [],
+            }
         
+        trade_date = datetime.strptime(date, "%Y%m%d").date()
+
         # Get major indices
-        major_indices = self._get_major_indices(date)
-        
+        major_indices = self._get_major_indices(trade_date)
+
         # Get market stats
-        market_stats = self._get_market_stats(date)
-        
+        market_stats = self._get_market_stats(trade_date, date_str=date)
+
         # Get hot ETFs
-        hot_etfs_by_amount = self._get_hot_etfs(date, sort_by="amount", limit=10)
-        hot_etfs_by_change = self._get_hot_etfs(date, sort_by="pct_chg", limit=10)
+        hot_etfs_by_amount = self._get_hot_etfs(trade_date, sort_by="amount", limit=10)
+        hot_etfs_by_change = self._get_hot_etfs(trade_date, sort_by="pct_chg", limit=10)
         
         return {
             "trade_date": date,
@@ -91,13 +118,13 @@ class OverviewService:
             "hot_etfs_by_change": hot_etfs_by_change,
         }
     
-    def _get_major_indices(self, date: str) -> List[Dict[str, Any]]:
+    def _get_major_indices(self, trade_date) -> List[Dict[str, Any]]:
         """Get major indices status for a date."""
         indices_codes = [f"'{code}'" for code, _ in MAJOR_INDICES]
         indices_str = ", ".join(indices_codes)
-        
+
         query = f"""
-        SELECT 
+        SELECT
             f.ts_code,
             b.name,
             f.close,
@@ -107,10 +134,10 @@ class OverviewService:
         FROM ods_idx_factor_pro f
         LEFT JOIN dim_index_basic b ON f.ts_code = b.ts_code
         WHERE f.ts_code IN ({indices_str})
-        AND f.trade_date = '{date}'
+        AND f.trade_date = %(trade_date)s
         """
-        
-        result = _execute_query(query)
+
+        result = _execute_query(query, {"trade_date": trade_date})
         
         # Sort by predefined order
         code_order = {code: i for i, (code, _) in enumerate(MAJOR_INDICES)}
@@ -118,11 +145,11 @@ class OverviewService:
         
         return result
     
-    def _get_market_stats(self, date: str) -> Optional[Dict[str, Any]]:
+    def _get_market_stats(self, trade_date, date_str: str) -> Optional[Dict[str, Any]]:
         """Get market statistics for a date."""
         # Use fact_daily_bar which has pct_chg field
-        query = f"""
-        SELECT 
+        query = """
+        SELECT
             trade_date,
             SUM(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
             SUM(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
@@ -132,15 +159,15 @@ class OverviewService:
             SUM(amount) as total_amount,
             SUM(vol) as total_vol
         FROM fact_daily_bar
-        WHERE trade_date = '{date}'
+        WHERE trade_date = %(trade_date)s
         GROUP BY trade_date
         """
-        
-        result = _execute_query(query)
+
+        result = _execute_query(query, {"trade_date": trade_date})
         if result:
             stats = result[0]
             return {
-                "trade_date": date,
+                "trade_date": date_str,
                 "up_count": int(stats.get('up_count', 0) or 0),
                 "down_count": int(stats.get('down_count', 0) or 0),
                 "flat_count": int(stats.get('flat_count', 0) or 0),
@@ -149,21 +176,22 @@ class OverviewService:
                 "total_amount": stats.get('total_amount'),
                 "total_vol": stats.get('total_vol'),
             }
-        
+
         return None
     
     def _get_hot_etfs(
-        self, 
-        date: str, 
-        sort_by: str = "amount", 
-        limit: int = 10
+        self,
+        trade_date,
+        sort_by: str = "amount",
+        limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """Get hot ETFs for a date."""
         order_field = "amount" if sort_by == "amount" else "pct_chg"
         order_dir = "DESC"
-        
+        limit = int(limit)
+
         query = f"""
-        SELECT 
+        SELECT
             d.ts_code,
             b.csname as name,
             d.close,
@@ -172,13 +200,13 @@ class OverviewService:
             d.vol
         FROM ods_etf_fund_daily d
         LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
-        WHERE d.trade_date = '{date}'
+        WHERE d.trade_date = %(trade_date)s
         AND d.{order_field} IS NOT NULL
         ORDER BY d.{order_field} {order_dir}
         LIMIT {limit}
         """
-        
-        return _execute_query(query)
+
+        return _execute_query(query, {"trade_date": trade_date})
     
     def get_hot_etfs(
         self,
@@ -200,9 +228,14 @@ class OverviewService:
             date = self._get_latest_trade_date("ods_etf_fund_daily")
         
         if not date:
-            return {"error": "No data available"}
+            return {
+                "trade_date": None,
+                "sort_by": sort_by,
+                "data": [],
+            }
         
-        data = self._get_hot_etfs(date, sort_by, limit)
+        trade_date = datetime.strptime(date, "%Y%m%d").date()
+        data = self._get_hot_etfs(trade_date, sort_by, limit)
         
         return {
             "trade_date": date,
@@ -223,10 +256,14 @@ class OverviewService:
             date = self._get_latest_trade_date()
         
         if not date:
-            return {"error": "No data available"}
+            return {
+                "trade_date": None,
+                "data": [],
+            }
         
-        indices = self._get_major_indices(date)
-        
+        trade_date = datetime.strptime(date, "%Y%m%d").date()
+        indices = self._get_major_indices(trade_date)
+
         return {
             "trade_date": date,
             "data": indices
@@ -292,8 +329,10 @@ class OverviewService:
         
         if not date:
             date = self._get_latest_trade_date()
-        
+
+        # Delegate entirely to the helper which already has stable empty defaults
         return get_market_daily_summary(date)
+
 
 
 # Singleton instance

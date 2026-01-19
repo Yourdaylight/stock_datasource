@@ -48,19 +48,23 @@ class DataManageService:
         # Use global TradeCalendarService
         return trade_calendar_service.get_trading_days(n=days)
     
-    def check_data_exists(self, table_name: str, date_column: str, trade_date: str) -> bool:
+    def check_data_exists(self, table_name: str, date_column: Optional[str], trade_date: str) -> bool:
         """Check if data exists for a specific date in a table.
         
         Uses LIMIT 1 for efficiency instead of count() to avoid memory issues on large tables.
         
         Args:
             table_name: Name of the ODS table
-            date_column: Name of the date column
+            date_column: Name of the date column (None for dimension tables)
             trade_date: Date to check (YYYY-MM-DD format)
         
         Returns:
-            True if data exists, False otherwise
+            True if data exists, False otherwise (always True for dimension tables)
         """
+        # Dimension tables without date column - skip date-based check
+        if not date_column:
+            return True
+        
         try:
             # Use LIMIT 1 instead of count() for memory efficiency
             query = f"""
@@ -77,16 +81,20 @@ class DataManageService:
             self.logger.warning(f"Failed to check data in {table_name} for {trade_date}: {e}")
             return False
     
-    def get_table_latest_date(self, table_name: str, date_column: str) -> Optional[str]:
+    def get_table_latest_date(self, table_name: str, date_column: Optional[str]) -> Optional[str]:
         """Get the latest date in a table.
         
         Args:
             table_name: Name of the ODS table
-            date_column: Name of the date column
+            date_column: Name of the date column (None for dimension tables)
         
         Returns:
             Latest date string or None
         """
+        # Return None for dimension tables without date column
+        if not date_column:
+            return None
+        
         try:
             # Use ORDER BY + LIMIT 1 for efficiency on large tables
             query = f"""
@@ -135,22 +143,31 @@ class DataManageService:
             self.logger.warning(f"Failed to get record count from {table_name}: {e}")
             return 0
     
-    def _get_plugin_date_column(self, plugin_name: str) -> str:
+    def _get_plugin_date_column(self, plugin_name: str) -> Optional[str]:
         """Get the date column name for a plugin's table.
         
         Args:
             plugin_name: Plugin name
         
         Returns:
-            Date column name
+            Date column name, or None if table has no date column (dimension tables)
         """
-        # Most plugins use trade_date, some use different date columns
+        # Dimension tables without date column - return None
+        dim_tables = {
+            "tushare_stock_basic",      # dim table - uses list_date but not for daily data
+            "tushare_index_basic",      # dim table - uses list_date
+            "tushare_ths_index",        # dim table - uses list_date
+            "tushare_etf_basic",        # dim table - uses list_date
+            "akshare_hk_stock_list",    # dim table - uses list_date
+        }
+        if plugin_name in dim_tables:
+            return None
+        
+        # Special date column mappings for non-standard tables
         date_column_map = {
             "tushare_trade_calendar": "cal_date",
-            "tushare_stock_basic": "list_date",
-            "tushare_index_basic": "list_date",  # dim table uses list_date
             "tushare_finace_indicator": "end_date",  # uses report end_date
-            "akshare_hk_stock_list": "list_date",
+            "tushare_etf_stk_mins": "trade_time",    # minute data uses trade_time
         }
         return date_column_map.get(plugin_name, "trade_date")
     
@@ -203,6 +220,10 @@ class DataManageService:
             schema = plugin.get_schema()
             table_name = schema.get("table_name", f"ods_{plugin_name}")
             date_column = self._get_plugin_date_column(plugin_name)
+            
+            # Skip dimension tables without date column
+            if not date_column:
+                continue
             
             # Check each trading day
             missing_dates = []
@@ -263,12 +284,15 @@ class DataManageService:
             table_name = schema.get("table_name", f"ods_{plugin_name}")
             date_column = self._get_plugin_date_column(plugin_name)
             
-            # Get status
-            latest_date = self.get_table_latest_date(table_name, date_column)
+            # Get status - skip date-based queries for dimension tables (no date column)
+            latest_date = None
+            if date_column:
+                latest_date = self.get_table_latest_date(table_name, date_column)
             
             # Calculate missing count (simple check against today)
+            # Skip for dimension tables (no date column)
             missing_count = 0
-            if frequency == "daily" and latest_date:
+            if date_column and frequency == "daily" and latest_date:
                 # Check if latest date is today
                 today = date.today().strftime('%Y-%m-%d')
                 if latest_date < today:
@@ -373,9 +397,9 @@ class DataManageService:
         latest_date = self.get_table_latest_date(table_name, date_column)
         total_records = self.get_table_record_count(table_name)
         
-        # Get missing dates for daily plugins
+        # Get missing dates for daily plugins (skip dimension tables without date column)
         missing_dates = []
-        if schedule.frequency == ScheduleFrequency.DAILY:
+        if date_column and schedule.frequency == ScheduleFrequency.DAILY:
             trading_days = self.get_trading_days(30)
             for trade_date in trading_days:
                 if not self.check_data_exists(table_name, date_column, trade_date):
@@ -426,7 +450,7 @@ class DataManageService:
         # Build query
         offset = (page - 1) * page_size
         
-        if trade_date:
+        if trade_date and date_column:
             query = f"""
             SELECT * FROM {table_name}
             WHERE {date_column} = %(trade_date)s
@@ -440,10 +464,20 @@ class DataManageService:
             WHERE {date_column} = %(trade_date)s
             """
             count_params = {"trade_date": trade_date}
-        else:
+        elif date_column:
             query = f"""
             SELECT * FROM {table_name}
             ORDER BY {date_column} DESC
+            LIMIT %(limit)s OFFSET %(offset)s
+            """
+            params = {"limit": page_size, "offset": offset}
+            
+            count_query = f"SELECT count() as cnt FROM {table_name}"
+            count_params = {}
+        else:
+            # Dimension tables without date column
+            query = f"""
+            SELECT * FROM {table_name}
             LIMIT %(limit)s OFFSET %(offset)s
             """
             params = {"limit": page_size, "offset": offset}
@@ -503,11 +537,11 @@ class DataManageService:
         latest_date = self.get_table_latest_date(table_name, date_column)
         total_records = self.get_table_record_count(table_name)
         
-        # Get missing dates for daily plugins
+        # Get missing dates for daily plugins (skip dimension tables without date column)
         schedule = plugin.get_schedule()
         missing_dates = []
         
-        if schedule.get("frequency") == "daily":
+        if date_column and schedule.get("frequency") == "daily":
             trading_days = self.get_trading_days(30)
             for trade_date in trading_days:
                 if not self.check_data_exists(table_name, date_column, trade_date):

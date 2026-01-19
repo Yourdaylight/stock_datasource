@@ -12,3 +12,6 @@ uv.lock
 node_modules
 runtime_config.json
 .idea
+
+# Docker
+docker-compose.override.yml

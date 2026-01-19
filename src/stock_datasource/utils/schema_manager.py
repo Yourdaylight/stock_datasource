@@ -297,5 +297,38 @@ class SchemaManager:
         }
 
 
+def dict_to_schema(schema_dict: Dict[str, Any]) -> TableSchema:
+    """Convert a plugin schema dict (schema.json) to a TableSchema object."""
+    columns: List[ColumnDefinition] = []
+    for col_dict in schema_dict.get("columns", []):
+        default_value = col_dict.get("default")
+        if default_value is None:
+            default_value = col_dict.get("default_value")
+
+        columns.append(
+            ColumnDefinition(
+                name=col_dict["name"],
+                data_type=col_dict["data_type"],
+                nullable=col_dict.get("nullable", True),
+                default_value=default_value,
+                comment=col_dict.get("comment"),
+            )
+        )
+
+    table_type_str = schema_dict.get("table_type", "ods")
+    table_type = TableType(table_type_str)
+
+    return TableSchema(
+        table_name=schema_dict["table_name"],
+        table_type=table_type,
+        columns=columns,
+        partition_by=schema_dict.get("partition_by"),
+        order_by=schema_dict.get("order_by", []),
+        engine=schema_dict.get("engine", "ReplacingMergeTree"),
+        engine_params=schema_dict.get("engine_params"),
+        comment=schema_dict.get("comment"),
+    )
+
+
 # Global schema manager instance
 schema_manager = SchemaManager()

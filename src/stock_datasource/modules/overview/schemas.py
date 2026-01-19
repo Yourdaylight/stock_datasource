@@ -16,7 +16,7 @@ class IndexStatus(BaseModel):
 
 class MarketStats(BaseModel):
     """Market statistics."""
-    trade_date: str = Field(..., description="Trade date")
+    trade_date: Optional[str] = Field(None, description="Trade date")
     up_count: int = Field(0, description="Number of stocks up")
     down_count: int = Field(0, description="Number of stocks down")
     flat_count: int = Field(0, description="Number of stocks flat")
@@ -38,7 +38,7 @@ class HotEtf(BaseModel):
 
 class DailyOverviewResponse(BaseModel):
     """Response for daily overview."""
-    trade_date: str = Field(..., description="Trade date")
+    trade_date: Optional[str] = Field(None, description="Trade date")
     major_indices: List[IndexStatus] = Field(default_factory=list, description="Major indices")
     market_stats: Optional[MarketStats] = Field(None, description="Market statistics")
     hot_etfs_by_amount: List[HotEtf] = Field(default_factory=list, description="Hot ETFs by amount")
@@ -47,7 +47,7 @@ class DailyOverviewResponse(BaseModel):
 
 class HotEtfResponse(BaseModel):
     """Response for hot ETFs."""
-    trade_date: str = Field(..., description="Trade date")
+    trade_date: Optional[str] = Field(None, description="Trade date")
     sort_by: str = Field(..., description="Sort field")
     data: List[HotEtf] = Field(default_factory=list, description="Hot ETF list")
 
@@ -73,7 +73,7 @@ class AnalyzeResponse(BaseModel):
 
 class QuickAnalysisResponse(BaseModel):
     """Response for quick market analysis."""
-    trade_date: str = Field(..., description="Trade date")
+    trade_date: Optional[str] = Field(None, description="Trade date")
     market_summary: str = Field(..., description="Market summary text")
     indices_summary: Dict[str, Any] = Field(default_factory=dict, description="Indices summary")
     market_breadth: Dict[str, Any] = Field(default_factory=dict, description="Market breadth")

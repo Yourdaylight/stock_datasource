@@ -19,9 +19,17 @@ def _get_db():
 
 
 def _execute_query(query: str, params: Optional[Dict] = None) -> List[Dict[str, Any]]:
-    """Execute query and return results as list of dicts."""
+    """Execute query and return results as list of dicts.
+
+    Be resilient to ClickHouse initialization / missing tables.
+    """
     db = _get_db()
-    df = db.execute_query(query, params or {})
+    try:
+        df = db.execute_query(query, params or {})
+    except Exception as e:
+        logger.warning(f"ClickHouse query failed: {e}")
+        return []
+
     if df is None or df.empty:
         return []
     return df.to_dict('records')
@@ -63,8 +71,15 @@ class THSIndexService:
         if result and result[0].get('latest_date'):
             latest = result[0]['latest_date']
             if hasattr(latest, 'strftime'):
-                return latest.strftime('%Y%m%d')
-            return str(latest).replace('-', '')
+                date_str = latest.strftime('%Y%m%d')
+            else:
+                date_str = str(latest).replace('-', '')
+
+            # ClickHouse max(Date) on empty table returns 1970-01-01
+            if date_str in {"19700101", "1970-01-01"}:
+                return None
+
+            return date_str
         return None
     
     def get_index_list(
@@ -262,7 +277,13 @@ class THSIndexService:
             date = self._get_latest_trade_date()
         
         if not date:
-            return {"error": "No data available"}
+            return {
+                "trade_date": None,
+                "sort_by": sort_by,
+                "order": order,
+                "index_type": index_type,
+                "data": [],
+            }
         
         # Convert date
         trade_date = datetime.strptime(date, "%Y%m%d").date()

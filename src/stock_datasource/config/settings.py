@@ -112,6 +112,25 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: Optional[str] = Field(default=None)
     LANGFUSE_HOST: str = Field(default="https://cloud.langfuse.com")
     LANGFUSE_ENABLED: bool = Field(default=True)
+    
+    # Redis settings (for caching)
+    REDIS_HOST: str = Field(default="localhost")
+    REDIS_PORT: int = Field(default=6379)
+    REDIS_PASSWORD: Optional[str] = Field(default=None)
+    REDIS_DB: int = Field(default=1)  # Use DB 1 to isolate from Langfuse (DB 0)
+    REDIS_ENABLED: bool = Field(default=True)
+    
+    # Cache TTL settings (seconds)
+    CACHE_TTL_QUOTE: int = Field(default=60)       # Real-time quotes
+    CACHE_TTL_DAILY: int = Field(default=86400)    # Daily K-line data
+    CACHE_TTL_BASIC: int = Field(default=3600)     # Stock basic info
+    CACHE_TTL_OVERVIEW: int = Field(default=300)   # Market overview
+
+    # Auth / Registration
+    # Default: no email whitelist check (open registration)
+    AUTH_EMAIL_WHITELIST_ENABLED: bool = Field(default=False)
+    # Whitelist file path. Recommended for docker: "data/email.txt" (data dir is mounted).
+    AUTH_EMAIL_WHITELIST_FILE: str = Field(default="data/email.txt")
 
 
 # Create settings instance
