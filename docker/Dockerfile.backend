@@ -1,0 +1,40 @@
+# docker/Dockerfile.backend
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for faster dependency management
+RUN pip install uv
+
+# Copy dependency files and README (required by pyproject.toml)
+COPY pyproject.toml uv.lock README.md ./
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy source code
+COPY src/ ./src/
+COPY cli.py ./
+
+# Expose port (default 6666)
+EXPOSE 6666
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+    CMD curl -f http://localhost:6666/health || exit 1
+
+# Development stage
+FROM base AS development
+RUN uv sync --frozen
+CMD ["uv", "run", "uvicorn", "stock_datasource.services.http_server:app", "--reload", "--host", "0.0.0.0", "--port", "6666"]
+
+# Production stage (default)
+FROM base AS production
+CMD ["uv", "run", "uvicorn", "stock_datasource.services.http_server:app", "--host", "0.0.0.0", "--port", "6666"]

@@ -1,0 +1,28 @@
+# docker-compose.dev.yml - Development mode overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.infra.yml -f docker-compose.dev.yml up
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+      target: development
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      # Enable debug mode
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+      target: development
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+    environment:
+      NODE_ENV: development

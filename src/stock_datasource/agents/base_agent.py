@@ -438,6 +438,16 @@ class LangGraphAgent(ABC):
             callbacks.append(handler)
         return callbacks
     
+    # Common output rules appended to all system prompts
+    COMMON_OUTPUT_RULES = """
+
+## 输出格式规则（必须遵守）
+- **禁止**直接输出工具返回的原始JSON或字典数据
+- 必须用自然语言解读、总结和分析工具返回的数据
+- 使用Markdown格式（标题、表格、列表）让输出更易读
+- 数值要有单位和解释，如"上证指数下跌0.64%"而非输出{"pct_chg": -0.64}
+"""
+    
     def _init_agent(self, checkpointer=None):
         """Initialize the DeepAgent with optional checkpointer."""
         # If checkpointer changed, recreate agent
@@ -447,7 +457,8 @@ class LangGraphAgent(ABC):
         try:
             model = self._get_model()
             tools = self.get_tools()
-            system_prompt = self.get_system_prompt()
+            # Append common output rules to system prompt
+            system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
             
             # Create agent with checkpointer if available
             create_kwargs = {

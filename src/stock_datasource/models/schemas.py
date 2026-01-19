@@ -132,10 +132,48 @@ META_SCHEMA_CATALOG_SCHEMA = TableSchema(
 )
 
 
-# Metadata schemas only (ODS/DIM/FACT schemas are loaded from plugins)
+# Predefined schemas created automatically on startup.
+#
+# NOTE:
+# - Most ODS/DIM schemas are loaded from plugins (schema.json) and created dynamically.
+# - A small set of core FACT tables are also defined here because business APIs depend on them.
+
+FACT_DAILY_BAR_SCHEMA = TableSchema(
+    table_name="fact_daily_bar",
+    table_type=TableType.FACT,
+    columns=[
+        ColumnDefinition(name="ts_code", data_type="LowCardinality(String)", nullable=False),
+        ColumnDefinition(name="trade_date", data_type="Date", nullable=False),
+
+        ColumnDefinition(name="open", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="high", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="low", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="close", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="pre_close", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="change", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="pct_chg", data_type="Nullable(Float64)", nullable=True),
+
+        ColumnDefinition(name="vol", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(name="amount", data_type="Nullable(Float64)", nullable=True),
+
+        ColumnDefinition(name="adj_factor", data_type="Nullable(Float64)", nullable=True),
+
+        ColumnDefinition(name="version", data_type="UInt32", nullable=False, default_value="toUInt32(toUnixTimestamp(now()))"),
+        ColumnDefinition(name="_ingested_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(name="updated_at", data_type="DateTime", nullable=False, default_value="now()"),
+    ],
+    partition_by="toYYYYMM(trade_date)",
+    order_by=["ts_code", "trade_date"],
+    engine="ReplacingMergeTree",
+    engine_params=["updated_at"],
+    comment="Daily OHLCV facts for market overview",
+)
+
 PREDEFINED_SCHEMAS = {
     "meta_ingestion_log": META_INGESTION_LOG_SCHEMA,
     "meta_failed_task": META_FAILED_TASK_SCHEMA,
     "meta_quality_check": META_QUALITY_CHECK_SCHEMA,
     "meta_schema_catalog": META_SCHEMA_CATALOG_SCHEMA,
+    "fact_daily_bar": FACT_DAILY_BAR_SCHEMA,
 }

@@ -1,0 +1,92 @@
+# docker-compose.infra.yml - Infrastructure services (ClickHouse, Redis, Postgres)
+# Can be shared with Langfuse
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24
+    container_name: stock-clickhouse
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./docker/init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${CLICKHOUSE_HTTP_EXPOSE_PORT:-8124}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9001}:9000"
+    networks:
+      - stock_network
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: stock-redis
+    restart: always
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-stockredis123}
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    ports:
+      - "${REDIS_EXPOSE_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - stock_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-stockredis123}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: stock-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    networks:
+      - stock_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Update backend to depend on infra services
+  backend:
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  clickhouse_data:
+  clickhouse_logs:
+  redis_data:
+  postgres_data:
+
+networks:
+  stock_network:
+    name: stock_network
+    driver: bridge

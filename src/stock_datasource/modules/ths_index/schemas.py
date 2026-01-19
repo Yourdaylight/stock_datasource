@@ -59,7 +59,7 @@ class THSRankingItem(BaseModel):
 
 class THSRankingResponse(BaseModel):
     """Response for THS ranking."""
-    trade_date: str = Field(..., description="Trade date")
+    trade_date: Optional[str] = Field(None, description="Trade date")
     sort_by: str = Field(..., description="Sort field")
     order: str = Field(..., description="Sort order")
     index_type: Optional[str] = Field(None, description="Filtered type")

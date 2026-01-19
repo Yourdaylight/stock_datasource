@@ -434,14 +434,44 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
     if not date:
         date = _get_latest_trade_date()
     
+    # Empty-data defaults (stable structure for frontend)
+    empty_sentiment = {"score": 50, "label": "中性", "description": "暂无数据"}
+    empty_breadth = {
+        "up_count": 0,
+        "down_count": 0,
+        "limit_up_count": 0,
+        "limit_down_count": 0,
+        "total_amount_yi": 0,
+        "up_down_ratio": None,
+    }
+
     if not date:
-        return {"error": "无法获取交易日期"}
+        return {
+            "trade_date": None,
+            "market_summary": "暂无数据",
+            "indices_summary": {},
+            "market_breadth": empty_breadth,
+            "sentiment": empty_sentiment,
+            "hot_etfs": [],
+            "signals": [],
+        }
     
-    # Collect all data
+    # Collect all data (resilient: if error dict, treat as empty)
     indices = get_major_indices_status(date)
+    if "error" in indices:
+        indices = {"indices": [], "summary": "", "up_count": 0, "down_count": 0}
+
     breadth = get_market_breadth(date)
+    if "error" in breadth:
+        breadth = empty_breadth.copy()
+
     sentiment = get_market_sentiment(date)
+    if "error" in sentiment:
+        sentiment = {"sentiment_score": 50, "sentiment_label": "中性", "sentiment_description": "暂无情绪数据"}
+
     hot_etfs = get_hot_etfs_analysis(date, sort_by="amount", limit=5)
+    if "error" in hot_etfs:
+        hot_etfs = {"etfs": []}
     
     # Generate signals
     signals = []
@@ -495,17 +525,17 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
             "down_count": indices.get("down_count"),
         },
         "market_breadth": {
-            "up_count": breadth.get("up_count"),
-            "down_count": breadth.get("down_count"),
-            "limit_up_count": breadth.get("limit_up_count"),
-            "limit_down_count": breadth.get("limit_down_count"),
-            "total_amount_yi": breadth.get("total_amount_yi"),
+            "up_count": breadth.get("up_count", 0),
+            "down_count": breadth.get("down_count", 0),
+            "limit_up_count": breadth.get("limit_up_count", 0),
+            "limit_down_count": breadth.get("limit_down_count", 0),
+            "total_amount_yi": breadth.get("total_amount_yi", 0),
             "up_down_ratio": breadth.get("up_down_ratio"),
         },
         "sentiment": {
-            "score": sentiment.get("sentiment_score"),
-            "label": sentiment.get("sentiment_label"),
-            "description": sentiment.get("sentiment_description"),
+            "score": sentiment.get("sentiment_score", 50),
+            "label": sentiment.get("sentiment_label", "中性"),
+            "description": sentiment.get("sentiment_description", "暂无数据"),
         },
         "hot_etfs": hot_etfs.get("etfs", [])[:5],
         "signals": signals,

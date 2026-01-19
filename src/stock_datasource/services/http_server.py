@@ -3,7 +3,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import logging
 import importlib
 import inspect
@@ -27,16 +26,44 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown events."""
     # Startup
     logger.info("Starting application initialization...")
-    
-    # Initialize auth tables and import whitelist
+
+    # Clear proxy env on startup (safety)
     try:
+        from stock_datasource.core.proxy import clear_proxy_settings
+        clear_proxy_settings()
+        logger.info("Proxy environment cleared on startup")
+    except Exception as e:
+        logger.warning(f"Proxy cleanup failed: {e}")
+
+    # Initialize auth tables and import whitelist (optional)
+    try:
+        from stock_datasource.config.settings import settings
         from stock_datasource.modules.auth.service import get_auth_service
+
         auth_service = get_auth_service()
-        # Import whitelist from email.txt if exists
-        email_file = Path(__file__).parent.parent.parent.parent / "email.txt"
-        if email_file.exists():
-            imported, skipped = auth_service.import_whitelist_from_file(str(email_file))
-            logger.info(f"Email whitelist imported: {imported} new, {skipped} existing")
+
+        # Only import seed file when whitelist is enabled (avoids surprises for default open registration)
+        if bool(getattr(settings, "AUTH_EMAIL_WHITELIST_ENABLED", False)):
+            email_file = Path(getattr(settings, "AUTH_EMAIL_WHITELIST_FILE", "data/email.txt"))
+            if not email_file.is_absolute():
+                # Resolve relative path from current working directory (docker: /app)
+                email_file = Path.cwd() / email_file
+
+            fallback_candidates = [
+                email_file,
+                Path.cwd() / "email.txt",
+                Path.cwd() / "data" / "email.txt",
+            ]
+            seed_file = next((p for p in fallback_candidates if p.exists()), None)
+
+            if seed_file:
+                imported, skipped = auth_service.import_whitelist_from_file(str(seed_file))
+                logger.info(f"Email whitelist imported: {imported} new, {skipped} existing")
+            else:
+                logger.warning(
+                    "Email whitelist enabled but no whitelist file found. "
+                    "Set AUTH_EMAIL_WHITELIST_FILE (recommended: data/email.txt)."
+                )
     except Exception as e:
         logger.warning(f"Auth initialization failed: {e}")
     
@@ -54,6 +81,56 @@ async def lifespan(app: FastAPI):
         logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
     except Exception as e:
         logger.warning(f"Plugin discovery failed: {e}")
+
+    # Ensure ClickHouse tables exist (predefined + essential plugin tables)
+    # Keep it lightweight and synchronous to avoid long lock contention at runtime.
+    try:
+        from stock_datasource.config.settings import settings
+        from stock_datasource.models.database import db_client
+        from stock_datasource.models.schemas import PREDEFINED_SCHEMAS
+        from stock_datasource.utils.schema_manager import schema_manager, dict_to_schema
+        from stock_datasource.core.plugin_manager import plugin_manager
+
+        # Ensure database exists
+        db_client.create_database(settings.CLICKHOUSE_DATABASE)
+
+        # Create predefined tables (meta + core facts) via DDL only (no extra exists checks / changelog writes)
+        for schema in PREDEFINED_SCHEMAS.values():
+            try:
+                db_client.create_table(schema_manager._build_create_table_sql(schema))
+            except Exception as inner_e:
+                logger.warning(f"Failed to ensure predefined table {schema.table_name}: {inner_e}")
+
+        # Create only the plugin tables required by the default frontend pages
+        required_plugins = [
+            "tushare_ths_daily",
+            "tushare_ths_index",
+            "tushare_idx_factor_pro",
+            "tushare_index_basic",
+            "tushare_etf_fund_daily",
+            "tushare_etf_basic",
+        ]
+
+        for plugin_name in required_plugins:
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if not plugin:
+                    logger.warning(f"Required plugin not found: {plugin_name}")
+                    continue
+
+                schema_dict = plugin.get_schema()
+                if not schema_dict or not schema_dict.get("table_name"):
+                    logger.warning(f"Plugin {plugin_name} schema is empty")
+                    continue
+
+                schema = dict_to_schema(schema_dict)
+                db_client.create_table(schema_manager._build_create_table_sql(schema))
+            except Exception as inner_e:
+                logger.warning(f"Failed to ensure table for plugin {plugin_name}: {inner_e}")
+
+        logger.info("ClickHouse table initialization completed")
+    except Exception as e:
+        logger.warning(f"ClickHouse table initialization failed: {e}")
     
     # Start sync task manager（延迟启动，避免与初始化建表并发造成断连）
     try:
@@ -104,58 +181,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Initialize database tables on startup
-    @app.on_event("startup")
-    async def startup_event():
-        """Initialize database tables and other startup tasks."""
-        logger.info("Starting application initialization...")
-        
-        # Clear proxy env on startup (safety)
-        try:
-            from stock_datasource.core.proxy import clear_proxy_settings
-            clear_proxy_settings()
-            logger.info("Proxy environment cleared on startup")
-        except Exception as e:
-            logger.warning(f"Proxy cleanup failed: {e}")
-
-        # Initialize portfolio tables
-        try:
-            from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
-            ensure_portfolio_tables()
-        except Exception as e:
-            logger.warning(f"Portfolio table initialization failed: {e}")
-        
-        # Initialize plugin manager
-        try:
-            from stock_datasource.core.plugin_manager import plugin_manager
-            plugin_manager.discover_plugins()
-            logger.info(f"Discovered {len(plugin_manager.list_plugins())} plugins")
-        except Exception as e:
-            logger.warning(f"Plugin discovery failed: {e}")
-        
-        # Start sync task manager
-        try:
-            from stock_datasource.modules.datamanage.service import sync_task_manager
-            sync_task_manager.start()
-            logger.info("SyncTaskManager started")
-        except Exception as e:
-            logger.warning(f"SyncTaskManager start failed: {e}")
-        
-        logger.info("Application initialization completed")
-    
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        """Cleanup on shutdown."""
-        logger.info("Shutting down application...")
-        
-        # Stop sync task manager
-        try:
-            from stock_datasource.modules.datamanage.service import sync_task_manager
-            sync_task_manager.stop()
-            logger.info("SyncTaskManager stopped")
-        except Exception as e:
-            logger.warning(f"SyncTaskManager stop failed: {e}")
-    
     # Register plugin service routes
     _register_services(app)
     
@@ -171,10 +196,34 @@ def create_app() -> FastAPI:
     # Register workflow routes
     _register_workflow_routes(app)
     
-    # Health check endpoint
+    # Register cache routes
+    _register_cache_routes(app)
+    
+    # Health check endpoint with cache stats
     @app.get("/health")
     async def health_check():
-        return {"status": "ok"}
+        """Health check endpoint with service status."""
+        response = {"status": "ok"}
+        
+        # Check cache service
+        try:
+            from stock_datasource.services.cache_service import get_cache_service
+            cache_service = get_cache_service()
+            cache_stats = cache_service.get_stats()
+            response["cache"] = cache_stats
+        except Exception as e:
+            response["cache"] = {"available": False, "error": str(e)}
+        
+        # Check ClickHouse
+        try:
+            from stock_datasource.models.database import ClickHouseClient
+            client = ClickHouseClient()
+            client.execute("SELECT 1")
+            response["clickhouse"] = "connected"
+        except Exception as e:
+            response["clickhouse"] = f"error: {str(e)}"
+        
+        return response
     
     # Root endpoint
     @app.get("/")
@@ -232,6 +281,16 @@ def _register_workflow_routes(app: FastAPI) -> None:
         logger.info("Registered workflow routes")
     except Exception as e:
         logger.warning(f"Failed to register workflow routes: {e}")
+
+
+def _register_cache_routes(app: FastAPI) -> None:
+    """Register cache management routes."""
+    try:
+        from stock_datasource.api.cache_routes import router as cache_router
+        app.include_router(cache_router)
+        logger.info("Registered cache routes")
+    except Exception as e:
+        logger.warning(f"Failed to register cache routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):

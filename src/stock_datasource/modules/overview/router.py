@@ -25,8 +25,6 @@ async def get_daily_overview(
     """获取每日市场概览，包括主要指数、市场统计、热门ETF。"""
     service = get_overview_service()
     result = service.get_daily_overview(date)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 
@@ -42,8 +40,6 @@ async def get_hot_etfs(
     
     service = get_overview_service()
     result = service.get_hot_etfs(date, sort_by, limit)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 
@@ -54,8 +50,6 @@ async def get_indices(
     """获取主要指数行情数据。"""
     service = get_overview_service()
     result = service.get_indices(date)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 
@@ -87,6 +81,4 @@ async def get_quick_analysis(
     """获取市场快速分析（不使用AI，直接数据分析）。"""
     service = get_overview_service()
     result = service.get_quick_analysis(date)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
     return result

@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.venv
+.env
+*.egg-info
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs and data
+logs/
+data/
+*.log
+
+# Docker
+docker-compose.override.yml
+
+# Tests
+tests/
+*.test.py
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Misc
+.DS_Store
+.codebuddy
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Spec files (not needed in container)
+openspec/

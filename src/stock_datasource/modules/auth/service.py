@@ -150,6 +150,95 @@ class AuthService:
             }
         return None
     
+    def _resolve_whitelist_file(self) -> Optional[Path]:
+        """Resolve whitelist file path from settings.
+
+        Compatibility notes:
+        - Some older deployments may not have whitelist fields in Settings.
+        - Relative paths are resolved from current working directory (docker: /app).
+        """
+        from stock_datasource.config.settings import settings
+
+        file_path = getattr(settings, "AUTH_EMAIL_WHITELIST_FILE", None)
+        if not file_path:
+            return None
+
+        path = Path(str(file_path))
+        if not path.is_absolute():
+            path = Path.cwd() / path
+
+        if path.exists():
+            return path
+
+        # Fallbacks for historical conventions
+        candidates = [
+            Path.cwd() / "email.txt",
+            Path.cwd() / "data" / "email.txt",
+        ]
+        for cand in candidates:
+            if cand.exists():
+                return cand
+
+        return None
+
+    def _is_email_in_whitelist_file(self, email: str) -> bool:
+        """Check whitelist file (email.txt) for an email address.
+
+        Supports both semicolon-separated and newline-separated formats.
+        """
+        path = self._resolve_whitelist_file()
+        if not path:
+            return False
+
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.warning(f"Failed to read whitelist file {path}: {e}")
+            return False
+
+        if not content:
+            return False
+
+        if ";" in content:
+            emails = {e.strip().lower() for e in content.split(";") if e.strip()}
+        else:
+            emails = {e.strip().lower() for e in content.split("\n") if e.strip()}
+
+        return email.lower() in emails
+
+    def is_email_allowed_for_registration(self, email: str) -> bool:
+        """Check if email is allowed for registration.
+
+        - If whitelist is disabled, allow all.
+        - If whitelist is enabled, allow if either:
+          1) present in DB whitelist, or
+          2) present in whitelist file (email.txt).
+
+        The file check makes whitelist effective immediately without requiring an import step.
+        """
+        from stock_datasource.config.settings import settings
+
+        whitelist_enabled = bool(getattr(settings, "AUTH_EMAIL_WHITELIST_ENABLED", False))
+        if not whitelist_enabled:
+            return True
+
+        # Prefer DB whitelist (supports UI management)
+        try:
+            if self.is_email_whitelisted(email):
+                return True
+        except Exception as e:
+            logger.warning(f"DB whitelist check failed, fallback to file: {e}")
+
+        if self._is_email_in_whitelist_file(email):
+            # Best-effort: sync into DB for future reads
+            try:
+                self.add_email_to_whitelist(email, added_by="file")
+            except Exception:
+                pass
+            return True
+
+        return False
+
     def register_user(self, email: str, password: str, username: Optional[str] = None) -> tuple[bool, str, Optional[dict]]:
         """Register a new user.
         
@@ -157,9 +246,9 @@ class AuthService:
             Tuple of (success, message, user_dict)
         """
         email = email.lower()
-        
-        # Check whitelist
-        if not self.is_email_whitelisted(email):
+
+        # Check whitelist (configurable)
+        if not self.is_email_allowed_for_registration(email):
             return False, "该邮箱不在允许注册的范围内", None
         
         # Check if email already registered
