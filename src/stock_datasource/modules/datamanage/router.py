@@ -307,18 +307,32 @@ async def get_plugin_dependencies(name: str):
     # Build dependency details
     dep_details = []
     for dep_name in dependencies:
-        dep_plugin = plugin_manager.get_plugin(dep_name)
-        if dep_plugin:
-            schema = dep_plugin.get_schema()
-            table_name = schema.get('table_name') if schema else None
-            has_data = dep_plugin.has_data()
-            dep_details.append(PluginDependency(
-                plugin_name=dep_name,
-                has_data=has_data,
-                table_name=table_name,
-                record_count=0  # Could be expensive to calculate
-            ))
-        else:
+        try:
+            dep_plugin = plugin_manager.get_plugin(dep_name)
+            if dep_plugin:
+                try:
+                    schema = dep_plugin.get_schema()
+                    table_name = schema.get('table_name') if schema else None
+                except Exception:
+                    table_name = None
+                try:
+                    has_data = dep_plugin.has_data()
+                except Exception:
+                    has_data = False
+                dep_details.append(PluginDependency(
+                    plugin_name=dep_name,
+                    has_data=has_data,
+                    table_name=table_name,
+                    record_count=0  # Could be expensive to calculate
+                ))
+            else:
+                dep_details.append(PluginDependency(
+                    plugin_name=dep_name,
+                    has_data=False
+                ))
+        except Exception as e:
+            # Log error but continue with other dependencies
+            logger.warning(f"Failed to get dependency info for {dep_name}: {e}")
             dep_details.append(PluginDependency(
                 plugin_name=dep_name,
                 has_data=False
