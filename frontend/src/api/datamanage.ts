@@ -260,6 +260,23 @@ export interface PluginFilterParams {
   role?: PluginRole
 }
 
+export interface SyncTaskListResponse {
+  items: SyncTask[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface SyncTaskQueryParams {
+  page?: number
+  page_size?: number
+  status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  plugin_name?: string
+  sort_by?: 'created_at' | 'started_at' | 'completed_at'
+  sort_order?: 'asc' | 'desc'
+}
+
 export const datamanageApi = {
   // Data Sources
   getDataSources(): Promise<DataSource[]> {
@@ -280,8 +297,16 @@ export const datamanageApi = {
   },
 
   // Sync Tasks
-  getSyncTasks(): Promise<SyncTask[]> {
-    return request.get('/api/datamanage/sync/tasks')
+  getSyncTasks(params?: SyncTaskQueryParams): Promise<SyncTaskListResponse> {
+    const searchParams = new URLSearchParams()
+    if (params?.page) searchParams.append('page', params.page.toString())
+    if (params?.page_size) searchParams.append('page_size', params.page_size.toString())
+    if (params?.status) searchParams.append('status', params.status)
+    if (params?.plugin_name) searchParams.append('plugin_name', params.plugin_name)
+    if (params?.sort_by) searchParams.append('sort_by', params.sort_by)
+    if (params?.sort_order) searchParams.append('sort_order', params.sort_order)
+    const queryString = searchParams.toString()
+    return request.get(`/api/datamanage/sync/tasks${queryString ? '?' + queryString : ''}`)
   },
 
   triggerSync(req: TriggerSyncRequest): Promise<SyncTask> {

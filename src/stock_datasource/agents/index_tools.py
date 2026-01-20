@@ -845,6 +845,59 @@ def analyze_concentration(ts_code: str) -> Dict[str, Any]:
     }
 
 
+def _get_simple_analysis(ts_code: str, index_info: Dict[str, Any]) -> Dict[str, Any]:
+    """返回简化版分析（当技术指标数据不可用时）。"""
+    # 获取最近行情
+    query = f"""
+    SELECT ts_code, trade_date, close, pct_chg, vol, amount
+    FROM ods_idx_factor_pro
+    WHERE ts_code = '{ts_code}'
+    ORDER BY trade_date DESC
+    LIMIT 20
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到指数 {ts_code} 的行情数据"}
+    
+    latest = result[0]
+    
+    # 计算简单统计
+    closes = [r.get('close', 0) for r in result if r.get('close')]
+    pct_chgs = [r.get('pct_chg', 0) for r in result if r.get('pct_chg') is not None]
+    
+    avg_return = sum(pct_chgs) / len(pct_chgs) if pct_chgs else 0
+    period_return = ((closes[0] / closes[-1]) - 1) * 100 if closes and closes[-1] else 0
+    
+    # 简单评分：基于近期涨跌
+    if avg_return > 0.5:
+        score = 70
+        suggestion = "偏多"
+    elif avg_return > 0:
+        score = 55
+        suggestion = "中性偏多"
+    elif avg_return > -0.5:
+        score = 45
+        suggestion = "中性偏空"
+    else:
+        score = 30
+        suggestion = "偏空"
+    
+    return {
+        "ts_code": ts_code,
+        "index_name": index_info.get('name'),
+        "trade_date": latest.get('trade_date'),
+        "overall_score": score,
+        "suggestion": suggestion,
+        "suggestion_detail": f"基于近20日行情分析，平均日涨跌{avg_return:.2f}%，期间收益{period_return:.2f}%",
+        "latest_close": latest.get('close'),
+        "latest_pct_chg": latest.get('pct_chg'),
+        "period_return": round(period_return, 2),
+        "avg_daily_return": round(avg_return, 3),
+        "data_note": "技术指标数据暂不可用，仅基于基础行情分析",
+        "risks": []
+    }
+
+
 def get_comprehensive_analysis(ts_code: str) -> Dict[str, Any]:
     """生成指数综合量化分析报告。
 
@@ -859,18 +912,27 @@ def get_comprehensive_analysis(ts_code: str) -> Dict[str, Any]:
     if "error" in index_info:
         return index_info
     
-    # 获取各维度分析
-    trend = analyze_trend(ts_code)
-    momentum = analyze_momentum(ts_code)
-    volatility = analyze_volatility(ts_code)
-    volume = analyze_volume(ts_code)
-    sentiment = analyze_sentiment(ts_code)
-    concentration = analyze_concentration(ts_code)
+    # 安全调用分析函数
+    def safe_call(func, ts_code):
+        try:
+            return func(ts_code)
+        except Exception as e:
+            logger.warning(f"{func.__name__} failed for {ts_code}: {e}")
+            return {"error": str(e)}
     
-    # 检查错误
-    for analysis in [trend, momentum, volatility, volume, sentiment]:
-        if "error" in analysis:
-            return {"error": f"分析数据不完整: {analysis.get('error')}"}
+    # 获取各维度分析（允许部分失败）
+    trend = safe_call(analyze_trend, ts_code)
+    momentum = safe_call(analyze_momentum, ts_code)
+    volatility = safe_call(analyze_volatility, ts_code)
+    volume = safe_call(analyze_volume, ts_code)
+    sentiment = safe_call(analyze_sentiment, ts_code)
+    concentration = safe_call(analyze_concentration, ts_code)
+    
+    # 如果所有技术指标分析都失败，返回简化版分析
+    all_failed = all("error" in a for a in [trend, momentum, volatility, volume, sentiment])
+    if all_failed:
+        # 使用基础行情数据返回简化分析
+        return _get_simple_analysis(ts_code, index_info)
     
     # 计算综合评分（加权平均）
     # 趋势30% + 动量25% + 波动20% + 量能15% + 情绪10%

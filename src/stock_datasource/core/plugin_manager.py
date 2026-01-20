@@ -102,18 +102,34 @@ class PluginManager:
     def get_plugin_info(self) -> List[Dict[str, Any]]:
         """Get information about all registered plugins."""
         info = []
-        for plugin in self.plugins.values():
-            info.append({
-                "name": plugin.name,
-                "version": plugin.version,
-                "description": plugin.description,
-                "rate_limit": plugin.get_rate_limit(),
-                "dependencies": plugin.get_dependencies(),
-                "optional_dependencies": plugin.get_optional_dependencies(),
-                "category": plugin.get_category().value,
-                "role": plugin.get_role().value,
-                "enabled": plugin.is_enabled()
-            })
+        for plugin_name, plugin in self.plugins.items():
+            try:
+                info.append({
+                    "name": plugin.name,
+                    "version": plugin.version,
+                    "description": plugin.description,
+                    "rate_limit": plugin.get_rate_limit(),
+                    "dependencies": plugin.get_dependencies(),
+                    "optional_dependencies": plugin.get_optional_dependencies(),
+                    "category": plugin.get_category().value,
+                    "role": plugin.get_role().value,
+                    "enabled": plugin.is_enabled()
+                })
+            except Exception as e:
+                self.logger.warning(f"Failed to get info for plugin {plugin_name}: {e}")
+                # Add basic info even if some methods fail
+                info.append({
+                    "name": plugin_name,
+                    "version": getattr(plugin, 'version', '0.0.0'),
+                    "description": getattr(plugin, 'description', 'Error loading plugin info'),
+                    "rate_limit": 60,
+                    "dependencies": [],
+                    "optional_dependencies": [],
+                    "category": "unknown",
+                    "role": "unknown",
+                    "enabled": False,
+                    "error": str(e)[:200]
+                })
         return info
     
     def get_enabled_plugins(self) -> List[BasePlugin]:
@@ -213,9 +229,14 @@ class PluginManager:
                 missing_plugins.append(dep_name)
                 continue
             
-            # Check if dependency has data
-            if not dep_plugin.has_data():
-                missing_data[dep_name] = "No data in table"
+            # Check if dependency has data (with error isolation)
+            try:
+                if not dep_plugin.has_data():
+                    missing_data[dep_name] = "No data in table"
+            except Exception as e:
+                # Table might not exist or other DB error - treat as missing data
+                self.logger.warning(f"Failed to check data for dependency {dep_name}: {e}")
+                missing_data[dep_name] = f"Check failed: {str(e)[:100]}"
         
         satisfied = not missing_plugins and not missing_data
         
@@ -326,7 +347,11 @@ class PluginManager:
         """
         graph = {}
         for plugin_name, plugin in self.plugins.items():
-            graph[plugin_name] = plugin.get_dependencies()
+            try:
+                graph[plugin_name] = plugin.get_dependencies()
+            except Exception as e:
+                self.logger.warning(f"Failed to get dependencies for plugin {plugin_name}: {e}")
+                graph[plugin_name] = []
         return graph
     
     def get_reverse_dependencies(self, plugin_name: str) -> List[str]:
@@ -340,8 +365,11 @@ class PluginManager:
         """
         dependents = []
         for name, plugin in self.plugins.items():
-            if plugin_name in plugin.get_dependencies():
-                dependents.append(name)
+            try:
+                if plugin_name in plugin.get_dependencies():
+                    dependents.append(name)
+            except Exception as e:
+                self.logger.warning(f"Failed to check dependencies for plugin {name}: {e}")
         return dependents
     
     def get_plugins_by_category(self, category: PluginCategory) -> List[BasePlugin]:

@@ -82,108 +82,159 @@ steps:
 
 ## 🚀 快速开始
 
-### 方式一：Docker 部署（推荐）
+### 场景一：从 0 到 1 一键部署（新用户推荐）
 
-Docker 部署是最简单的方式，一键启动所有服务。
+适合**没有现成 ClickHouse/Redis** 的用户，所有基础设施由 docker-compose 一起启动。
 
-#### 1. 环境准备
+#### 1. 克隆项目 & 配置
 
 ```bash
-# 克隆项目
-git clone <repository-url>
+git clone https://github.com/Yourdaylight/stock_datasource.git
 cd stock_datasource
 
-# 创建环境配置文件
+# 复制配置模板
 cp .env.example .env.docker
 ```
 
-#### 2. 配置环境变量
-
-编辑 `.env.docker` 文件，填写必要配置：
+编辑 `.env.docker`，填写 **必填项**：
 
 ```env
-# ======== 必填配置 ========
-# TuShare API Token（获取地址：https://tushare.pro/register）
-TUSHARE_TOKEN=your_tushare_token
-
-# OpenAI API 配置（AI 功能必需）
+# ======== 必填 ========
+TUSHARE_TOKEN=your_tushare_token          # https://tushare.pro 获取
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4
 
-# ======== 可选配置 ========
-# ClickHouse（使用默认值即可）
+# ======== 使用默认值即可 ========
+CLICKHOUSE_HOST=clickhouse                # 容器名
 CLICKHOUSE_USER=clickhouse
 CLICKHOUSE_PASSWORD=clickhouse
-CLICKHOUSE_DATABASE=stock_datasource
-
-# Redis 缓存
+REDIS_HOST=redis
 REDIS_PASSWORD=stockredis123
-
-# 应用端口（默认 18080）
-APP_PORT=18080
-
-# Langfuse AI 可观测（可选）
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_SECRET_KEY=
-LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-#### 3. 启动服务
+#### 2. 一键启动
 
 ```bash
-# 完整部署（包含基础设施：ClickHouse + Redis + PostgreSQL）
+# 启动全部服务（ClickHouse + Redis + PostgreSQL + 后端 + 前端）
 docker-compose -f docker-compose.yml -f docker-compose.infra.yml --env-file .env.docker up -d
 
-# 查看服务状态
-docker-compose ps
-
-# 查看日志
-docker-compose logs -f backend
+# 查看状态
+docker-compose -f docker-compose.yml -f docker-compose.infra.yml ps
 ```
 
-#### 4. 初始化数据
+#### 3. 初始化数据
 
 ```bash
-# 进入后端容器
+docker-compose exec backend bash -c "
+  uv run python cli.py init-db &&
+  uv run python cli.py load-stock-basic &&
+  uv run python cli.py load-trade-calendar --start-date 20240101 --end-date 20261231
+"
+```
+
+#### 4. 访问
+
+- **前端**：http://localhost:18080
+- **API 文档**：http://localhost:18080/docs
+- **健康检查**：http://localhost:18080/health
+
+---
+
+### 场景二：已有基础设施（ClickHouse/Langfuse 等）
+
+适合**已有 ClickHouse、Langfuse 等服务**的用户，只需启动应用容器。
+
+#### 1. 配置指向已有服务
+
+```bash
+cp .env.example .env.docker
+```
+
+编辑 `.env.docker`，关键是让容器能访问你的服务：
+
+```env
+# ======== 必填 ========
+TUSHARE_TOKEN=your_tushare_token
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4
+
+# ======== ClickHouse 配置 ========
+# 如果你的 ClickHouse 也是 Docker 容器，填容器名（需在同一网络）
+CLICKHOUSE_HOST=langfuse-clickhouse-1     # 或 your-clickhouse-container-name
+CLICKHOUSE_PORT=9000
+CLICKHOUSE_USER=clickhouse                # 或 default
+CLICKHOUSE_PASSWORD=clickhouse            # 或留空
+CLICKHOUSE_DATABASE=stock_datasource
+
+# 如果 ClickHouse 是宿主机本地安装（监听 0.0.0.0）
+# CLICKHOUSE_HOST=host.docker.internal
+# CLICKHOUSE_PORT=9000
+# CLICKHOUSE_USER=default
+# CLICKHOUSE_PASSWORD=
+
+# ======== Redis 配置 ========
+REDIS_HOST=redis                          # 使用 docker-compose.infra.yml 的 Redis
+REDIS_PASSWORD=stockredis123
+
+# ======== Langfuse 配置（可选）========
+# 如果有已运行的 Langfuse
+LANGFUSE_HOST=http://host.docker.internal:3000
+LANGFUSE_PUBLIC_KEY=your_public_key
+LANGFUSE_SECRET_KEY=your_secret_key
+```
+
+#### 2. 确保网络互通
+
+如果你的 ClickHouse 是另一个 Docker 容器，需要加入同一网络：
+
+```bash
+# 创建网络（如果不存在）
+docker network create stock_network
+
+# 把已有的 ClickHouse 容器加入网络
+docker network connect stock_network your-clickhouse-container
+```
+
+#### 3. 只启动应用
+
+```bash
+# 只启动后端 + 前端 + Redis（不启动 ClickHouse）
+docker-compose -f docker-compose.yml -f docker-compose.infra.yml --env-file .env.docker up -d backend frontend redis
+
+# 或者如果 Redis 也已有
+docker-compose --env-file .env.docker up -d
+```
+
+#### 4. 验证连接
+
+```bash
+# 检查健康状态
+curl http://localhost:18080/health
+
+# 应返回：{"status":"ok","clickhouse":"connected","cache":...}
+```
+
+---
+
+### Docker 常用命令
+
+```bash
+# 代码更新后重建
+docker-compose up -d --build
+
+# 查看后端日志
+docker-compose logs -f backend
+
+# 进入容器调试
 docker-compose exec backend bash
 
-# 初始化数据库
-python cli.py init-db
+# 停止所有服务
+docker-compose down
 
-# 加载股票基础信息
-python cli.py load-stock-basic
-
-# 加载交易日历
-python cli.py load-trade-calendar --start-date 20240101 --end-date 20261231
-
-# 采集日线数据（可选，按需采集）
-python cli.py ingest-daily --date 20250119
-
-# 退出容器
-exit
-```
-
-#### 5. 访问应用
-
-- **前端界面**：http://localhost:18080
-- **API 文档**：http://localhost:18080/api/docs
-- **健康检查**：http://localhost:18080/api/health
-
-#### Docker 部署常用命令
-
-```bash
-# 停止服务
-docker-compose -f docker-compose.yml -f docker-compose.infra.yml down
-
-# 重启后端（代码更新后）
-docker-compose build backend && docker-compose up -d backend
-
-# 清理所有数据（危险！会删除数据库）
-docker-compose -f docker-compose.yml -f docker-compose.infra.yml down -v
-
-# 只启动应用（连接已有基础设施）
-docker-compose --env-file .env.docker up -d
+# 清理数据卷（危险！）
+docker-compose down -v
 ```
 
 ---

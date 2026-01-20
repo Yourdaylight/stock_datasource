@@ -22,10 +22,19 @@ def _get_db():
 
 def _execute_query(query: str) -> List[Dict[str, Any]]:
     """Execute query and return results as list of dicts."""
+    import pandas as pd
+    from datetime import date, datetime
+    
     db = _get_db()
     df = db.execute_query(query)
     if df is None or df.empty:
         return []
+    
+    # Convert datetime columns to string for JSON serialization
+    for col in df.columns:
+        if df[col].dtype == 'datetime64[ns]' or isinstance(df[col].iloc[0] if len(df) > 0 else None, (datetime, date, pd.Timestamp)):
+            df[col] = df[col].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else None)
+    
     return df.to_dict('records')
 
 

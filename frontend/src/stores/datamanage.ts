@@ -15,13 +15,19 @@ import {
   type DependencyGraphResult,
   type BatchSyncRequest,
   type BatchSyncResponse,
-  type PluginFilterParams
+  type PluginFilterParams,
+  type SyncTaskListResponse,
+  type SyncTaskQueryParams
 } from '@/api/datamanage'
 
 export const useDataManageStore = defineStore('datamanage', () => {
   // State
   const dataSources = ref<DataSource[]>([])
   const syncTasks = ref<SyncTask[]>([])
+  const syncTasksTotal = ref(0)
+  const syncTasksPage = ref(1)
+  const syncTasksPageSize = ref(20)
+  const syncTasksTotalPages = ref(1)
   const qualityMetrics = ref<QualityMetrics[]>([])
   const plugins = ref<PluginInfo[]>([])
   const missingData = ref<MissingDataSummary | null>(null)
@@ -33,6 +39,7 @@ export const useDataManageStore = defineStore('datamanage', () => {
   const detailLoading = ref(false)
   const dataLoading = ref(false)
   const dependencyLoading = ref(false)
+  const tasksLoading = ref(false)
 
   // Data Sources
   const fetchDataSources = async () => {
@@ -47,11 +54,26 @@ export const useDataManageStore = defineStore('datamanage', () => {
   }
 
   // Sync Tasks
-  const fetchSyncTasks = async () => {
+  const fetchSyncTasks = async (params?: SyncTaskQueryParams) => {
+    tasksLoading.value = true
     try {
-      syncTasks.value = await datamanageApi.getSyncTasks()
+      const response = await datamanageApi.getSyncTasks({
+        page: params?.page || syncTasksPage.value,
+        page_size: params?.page_size || syncTasksPageSize.value,
+        status: params?.status,
+        plugin_name: params?.plugin_name,
+        sort_by: params?.sort_by || 'created_at',
+        sort_order: params?.sort_order || 'desc'
+      })
+      syncTasks.value = response.items
+      syncTasksTotal.value = response.total
+      syncTasksPage.value = response.page
+      syncTasksPageSize.value = response.page_size
+      syncTasksTotalPages.value = response.total_pages
     } catch (e) {
       console.error('Failed to fetch sync tasks:', e)
+    } finally {
+      tasksLoading.value = false
     }
   }
 
@@ -261,6 +283,11 @@ export const useDataManageStore = defineStore('datamanage', () => {
     // State
     dataSources,
     syncTasks,
+    syncTasksTotal,
+    syncTasksPage,
+    syncTasksPageSize,
+    syncTasksTotalPages,
+    tasksLoading,
     qualityMetrics,
     plugins,
     missingData,

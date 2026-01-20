@@ -22,7 +22,7 @@ from .schemas import (
     PluginInfo, PluginDetail, PluginConfig, PluginSchema, PluginColumn,
     PluginStatus, PluginSchedule, ScheduleFrequency,
     PluginDataPreview, MissingDataInfo, MissingDataSummary,
-    SyncHistory
+    SyncHistory, SyncTaskListResponse
 )
 
 
@@ -66,6 +66,10 @@ class DataManageService:
             return True
         
         try:
+            # First check if table exists to avoid slow retry on non-existent tables
+            if not db_client.table_exists(table_name):
+                return False
+            
             # Use LIMIT 1 instead of count() for memory efficiency
             query = f"""
             SELECT 1
@@ -96,6 +100,10 @@ class DataManageService:
             return None
         
         try:
+            # First check if table exists to avoid slow retry on non-existent tables
+            if not db_client.table_exists(table_name):
+                return None
+            
             # Use ORDER BY + LIMIT 1 for efficiency on large tables
             query = f"""
             SELECT {date_column} as latest_date
@@ -204,48 +212,53 @@ class DataManageService:
         plugins_with_missing = 0
         
         for plugin_name in plugin_manager.list_plugins():
-            plugin = plugin_manager.get_plugin(plugin_name)
-            if not plugin:
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if not plugin:
+                    continue
+                
+                # Get schedule
+                schedule = plugin.get_schedule()
+                frequency = schedule.get("frequency", "daily")
+                
+                # Only check daily plugins for missing data
+                if frequency != "daily":
+                    continue
+                
+                # Get schema
+                schema = plugin.get_schema()
+                table_name = schema.get("table_name", f"ods_{plugin_name}")
+                date_column = self._get_plugin_date_column(plugin_name)
+                
+                # Skip dimension tables without date column
+                if not date_column:
+                    continue
+                
+                # Check each trading day
+                missing_dates = []
+                for trade_date in trading_days:
+                    if not self.check_data_exists(table_name, date_column, trade_date):
+                        missing_dates.append(trade_date)
+                
+                # Get latest date
+                latest_date = self.get_table_latest_date(table_name, date_column)
+                
+                info = MissingDataInfo(
+                    plugin_name=plugin_name,
+                    table_name=table_name,
+                    schedule_frequency=frequency,
+                    latest_date=latest_date,
+                    missing_dates=missing_dates,
+                    missing_count=len(missing_dates)
+                )
+                plugins_info.append(info)
+                
+                if missing_dates:
+                    plugins_with_missing += 1
+            except Exception as e:
+                # Log error but continue with other plugins - one plugin failure shouldn't break others
+                self.logger.error(f"Failed to check missing data for plugin {plugin_name}: {e}")
                 continue
-            
-            # Get schedule
-            schedule = plugin.get_schedule()
-            frequency = schedule.get("frequency", "daily")
-            
-            # Only check daily plugins for missing data
-            if frequency != "daily":
-                continue
-            
-            # Get schema
-            schema = plugin.get_schema()
-            table_name = schema.get("table_name", f"ods_{plugin_name}")
-            date_column = self._get_plugin_date_column(plugin_name)
-            
-            # Skip dimension tables without date column
-            if not date_column:
-                continue
-            
-            # Check each trading day
-            missing_dates = []
-            for trade_date in trading_days:
-                if not self.check_data_exists(table_name, date_column, trade_date):
-                    missing_dates.append(trade_date)
-            
-            # Get latest date
-            latest_date = self.get_table_latest_date(table_name, date_column)
-            
-            info = MissingDataInfo(
-                plugin_name=plugin_name,
-                table_name=table_name,
-                schedule_frequency=frequency,
-                latest_date=latest_date,
-                missing_dates=missing_dates,
-                missing_count=len(missing_dates)
-            )
-            plugins_info.append(info)
-            
-            if missing_dates:
-                plugins_with_missing += 1
         
         summary = MissingDataSummary(
             check_time=datetime.now(),
@@ -270,66 +283,77 @@ class DataManageService:
         plugins: List[PluginInfo] = []
         
         for plugin_name in plugin_manager.list_plugins():
-            plugin = plugin_manager.get_plugin(plugin_name)
-            if not plugin:
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if not plugin:
+                    continue
+                
+                # Get schedule
+                schedule = plugin.get_schedule()
+                frequency = schedule.get("frequency", "daily")
+                time = schedule.get("time", "18:00")
+                
+                # Get schema for table name
+                schema = plugin.get_schema()
+                table_name = schema.get("table_name", f"ods_{plugin_name}")
+                date_column = self._get_plugin_date_column(plugin_name)
+                
+                # Get status - skip date-based queries for dimension tables (no date column)
+                latest_date = None
+                if date_column:
+                    try:
+                        latest_date = self.get_table_latest_date(table_name, date_column)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to get latest date for plugin {plugin_name}: {e}")
+                
+                # Calculate missing count (simple check against today)
+                # Skip for dimension tables (no date column)
+                missing_count = 0
+                if date_column and frequency == "daily" and latest_date:
+                    try:
+                        # Check if latest date is today
+                        today = date.today().strftime('%Y-%m-%d')
+                        if latest_date < today:
+                            # Count trading days between latest and today
+                            trading_days = self.get_trading_days(30)
+                            for td in trading_days:
+                                if td > latest_date:
+                                    missing_count += 1
+                                else:
+                                    break
+                    except Exception as e:
+                        self.logger.warning(f"Failed to calculate missing count for plugin {plugin_name}: {e}")
+                
+                # Get category and role
+                category = plugin.get_category().value
+                role = plugin.get_role().value
+                
+                # Get dependencies
+                dependencies = plugin.get_dependencies()
+                optional_dependencies = plugin.get_optional_dependencies()
+                
+                info = PluginInfo(
+                    name=plugin_name,
+                    version=plugin.version,
+                    description=plugin.description,
+                    type="data_source",
+                    category=category,
+                    role=role,
+                    is_enabled=plugin.is_enabled(),
+                    schedule_frequency=frequency,
+                    schedule_time=time,
+                    latest_date=latest_date,
+                    missing_count=missing_count,
+                    last_run_at=None,  # TODO: Get from task history
+                    last_run_status=None,
+                    dependencies=dependencies,
+                    optional_dependencies=optional_dependencies
+                )
+                plugins.append(info)
+            except Exception as e:
+                # Log error but continue with other plugins - one plugin failure shouldn't break others
+                self.logger.error(f"Failed to get plugin info for {plugin_name}: {e}")
                 continue
-            
-            # Get schedule
-            schedule = plugin.get_schedule()
-            frequency = schedule.get("frequency", "daily")
-            time = schedule.get("time", "18:00")
-            
-            # Get schema for table name
-            schema = plugin.get_schema()
-            table_name = schema.get("table_name", f"ods_{plugin_name}")
-            date_column = self._get_plugin_date_column(plugin_name)
-            
-            # Get status - skip date-based queries for dimension tables (no date column)
-            latest_date = None
-            if date_column:
-                latest_date = self.get_table_latest_date(table_name, date_column)
-            
-            # Calculate missing count (simple check against today)
-            # Skip for dimension tables (no date column)
-            missing_count = 0
-            if date_column and frequency == "daily" and latest_date:
-                # Check if latest date is today
-                today = date.today().strftime('%Y-%m-%d')
-                if latest_date < today:
-                    # Count trading days between latest and today
-                    trading_days = self.get_trading_days(30)
-                    for td in trading_days:
-                        if td > latest_date:
-                            missing_count += 1
-                        else:
-                            break
-            
-            # Get category and role
-            category = plugin.get_category().value
-            role = plugin.get_role().value
-            
-            # Get dependencies
-            dependencies = plugin.get_dependencies()
-            optional_dependencies = plugin.get_optional_dependencies()
-            
-            info = PluginInfo(
-                name=plugin_name,
-                version=plugin.version,
-                description=plugin.description,
-                type="data_source",
-                category=category,
-                role=role,
-                is_enabled=plugin.is_enabled(),
-                schedule_frequency=frequency,
-                schedule_time=time,
-                latest_date=latest_date,
-                missing_count=missing_count,
-                last_run_at=None,  # TODO: Get from task history
-                last_run_status=None,
-                dependencies=dependencies,
-                optional_dependencies=optional_dependencies
-            )
-            plugins.append(info)
         
         return plugins
     
@@ -797,9 +821,9 @@ class SyncTaskManager:
                 task_id, plugin_name, task_type, status, progress,
                 records_processed, total_records, error_message,
                 trade_dates, 
-                formatDateTime(created_at, '%Y-%m-%d %H:%M:%S') as created_at_str,
-                formatDateTime(started_at, '%Y-%m-%d %H:%M:%S') as started_at_str,
-                formatDateTime(completed_at, '%Y-%m-%d %H:%M:%S') as completed_at_str
+                formatDateTime(created_at, '%Y-%m-%d %H:%i:%S') as created_at_str,
+                formatDateTime(started_at, '%Y-%m-%d %H:%i:%S') as started_at_str,
+                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')
@@ -949,6 +973,8 @@ class SyncTaskManager:
     
     def _execute_task(self, task_id: str):
         """Execute a single task with optional multi-date parallelism."""
+        import traceback
+        
         task = self._tasks.get(task_id)
         if not task:
             return
@@ -982,9 +1008,13 @@ class SyncTaskManager:
                     task.records_processed = result.get("steps", {}).get("load", {}).get("total_records", 0)
                     task.progress = 100
                 else:
-                    # Pipeline failed
+                    # Pipeline failed - get detailed error info
                     error_msg = result.get("error", "插件执行失败")
-                    raise ValueError(f"插件执行失败: {error_msg}")
+                    error_detail = result.get("error_detail", "")
+                    full_error = f"{error_msg}"
+                    if error_detail:
+                        full_error += f"\n\n详细信息:\n{error_detail}"
+                    raise ValueError(full_error)
             
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
@@ -992,11 +1022,20 @@ class SyncTaskManager:
             self.logger.info(f"Task {task_id} completed successfully")
             
         except Exception as e:
+            # Capture full traceback for debugging
+            error_tb = traceback.format_exc()
+            error_msg = str(e)
+            
+            # Limit error message length but keep useful info
+            if len(error_msg) > 2000:
+                error_msg = error_msg[:2000] + "... (truncated)"
+            
+            # Store both short message and full traceback
             task.status = TaskStatus.FAILED
-            task.error_message = str(e)
+            task.error_message = f"{error_msg}\n\n--- 堆栈跟踪 ---\n{error_tb}"
             task.completed_at = datetime.now()
             self._save_task_to_db(task)
-            self.logger.error(f"Task {task_id} failed: {e}")
+            self.logger.error(f"Task {task_id} failed: {error_msg}\n{error_tb}")
     
     def _get_latest_trading_date(self) -> Optional[str]:
         """Get the latest valid trading date from calendar.
@@ -1162,6 +1201,68 @@ class SyncTaskManager:
     def get_all_tasks(self) -> List[SyncTask]:
         """Get all tasks."""
         return list(self._tasks.values())
+    
+    def get_tasks_paginated(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+        plugin_name: Optional[str] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ) -> SyncTaskListResponse:
+        """Get paginated tasks with filtering and sorting.
+        
+        Args:
+            page: Page number (1-based)
+            page_size: Items per page
+            status: Filter by status
+            plugin_name: Filter by plugin name (partial match)
+            sort_by: Sort field (created_at, started_at, completed_at)
+            sort_order: Sort order (asc, desc)
+        
+        Returns:
+            Paginated task list response
+        """
+        # Get all tasks
+        tasks = list(self._tasks.values())
+        
+        # Filter by status
+        if status:
+            try:
+                status_enum = TaskStatus(status)
+                tasks = [t for t in tasks if t.status == status_enum]
+            except ValueError:
+                pass
+        
+        # Filter by plugin name (partial match)
+        if plugin_name:
+            plugin_name_lower = plugin_name.lower()
+            tasks = [t for t in tasks if plugin_name_lower in t.plugin_name.lower()]
+        
+        # Sort
+        reverse = sort_order.lower() == "desc"
+        if sort_by == "started_at":
+            tasks.sort(key=lambda t: t.started_at or datetime.min, reverse=reverse)
+        elif sort_by == "completed_at":
+            tasks.sort(key=lambda t: t.completed_at or datetime.min, reverse=reverse)
+        else:  # created_at
+            tasks.sort(key=lambda t: t.created_at or datetime.min, reverse=reverse)
+        
+        # Paginate
+        total = len(tasks)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = tasks[start:end]
+        
+        return SyncTaskListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages
+        )
     
     def get_running_tasks(self) -> List[SyncTask]:
         """Get running tasks."""
@@ -1337,8 +1438,8 @@ class SyncTaskManager:
             SELECT 
                 task_id, plugin_name, task_type, status,
                 records_processed, error_message,
-                formatDateTime(started_at, '%Y-%m-%d %H:%M:%S') as started_at_str,
-                formatDateTime(completed_at, '%Y-%m-%d %H:%M:%S') as completed_at_str
+                formatDateTime(started_at, '%Y-%m-%d %H:%i:%S') as started_at_str,
+                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')

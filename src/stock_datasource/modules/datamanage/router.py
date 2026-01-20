@@ -13,7 +13,8 @@ from .schemas import (
     SyncConfig, SyncConfigRequest,
     ProxyConfig, ProxyConfigRequest, ProxyTestResult,
     DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
-    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum
+    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum,
+    SyncTaskListResponse, TaskStatus
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
@@ -61,10 +62,24 @@ async def trigger_missing_data_detection(request: ManualDetectRequest):
 
 # ============ Sync Tasks ============
 
-@router.get("/sync/tasks", response_model=List[SyncTask])
-async def get_sync_tasks():
-    """Get all sync tasks."""
-    return sync_task_manager.get_all_tasks()
+@router.get("/sync/tasks", response_model=SyncTaskListResponse)
+async def get_sync_tasks(
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Page size"),
+    status: Optional[str] = Query(default=None, description="Filter by status: pending, running, completed, failed, cancelled"),
+    plugin_name: Optional[str] = Query(default=None, description="Filter by plugin name (partial match)"),
+    sort_by: str = Query(default="created_at", description="Sort field: created_at, started_at, completed_at"),
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+):
+    """Get paginated sync tasks with filtering and sorting."""
+    return sync_task_manager.get_tasks_paginated(
+        page=page,
+        page_size=page_size,
+        status=status,
+        plugin_name=plugin_name,
+        sort_by=sort_by,
+        sort_order=sort_order
+    )
 
 
 @router.post("/sync/trigger", response_model=SyncTask)
@@ -292,18 +307,32 @@ async def get_plugin_dependencies(name: str):
     # Build dependency details
     dep_details = []
     for dep_name in dependencies:
-        dep_plugin = plugin_manager.get_plugin(dep_name)
-        if dep_plugin:
-            schema = dep_plugin.get_schema()
-            table_name = schema.get('table_name') if schema else None
-            has_data = dep_plugin.has_data()
-            dep_details.append(PluginDependency(
-                plugin_name=dep_name,
-                has_data=has_data,
-                table_name=table_name,
-                record_count=0  # Could be expensive to calculate
-            ))
-        else:
+        try:
+            dep_plugin = plugin_manager.get_plugin(dep_name)
+            if dep_plugin:
+                try:
+                    schema = dep_plugin.get_schema()
+                    table_name = schema.get('table_name') if schema else None
+                except Exception:
+                    table_name = None
+                try:
+                    has_data = dep_plugin.has_data()
+                except Exception:
+                    has_data = False
+                dep_details.append(PluginDependency(
+                    plugin_name=dep_name,
+                    has_data=has_data,
+                    table_name=table_name,
+                    record_count=0  # Could be expensive to calculate
+                ))
+            else:
+                dep_details.append(PluginDependency(
+                    plugin_name=dep_name,
+                    has_data=False
+                ))
+        except Exception as e:
+            # Log error but continue with other dependencies
+            logger.warning(f"Failed to get dependency info for {dep_name}: {e}")
             dep_details.append(PluginDependency(
                 plugin_name=dep_name,
                 has_data=False
