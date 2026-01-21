@@ -1,6 +1,6 @@
 """Enhanced Portfolio Agent for comprehensive portfolio analysis using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, AsyncGenerator
 import logging
 from datetime import datetime, date
 import json
@@ -22,6 +22,8 @@ class EnhancedPortfolioAgent(LangGraphAgent):
         self._market_service = None
         self._toplist_service = None
         self._toplist_analysis_service = None
+        # Current user context (set during execute)
+        self._current_user_id: str = "default_user"
         
         # Add portfolio-specific tools
         self.tools.extend([
@@ -126,12 +128,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
                 logger.warning(f"Failed to get toplist analysis service: {e}")
         return self._toplist_analysis_service
     
-    async def analyze_portfolio_performance(self, user_id: str = "default_user", 
-                                          analysis_period: int = 30) -> Dict[str, Any]:
+    async def analyze_portfolio_performance(self, analysis_period: int = 30) -> Dict[str, Any]:
         """分析投资组合整体表现."""
         try:
             if not self.portfolio_service:
                 return {"error": "Portfolio service not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             # Get portfolio summary
             summary = await self.portfolio_service.get_summary(user_id)
@@ -197,11 +201,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             logger.error(f"Failed to analyze individual stock {ts_code}: {e}")
             return {"error": str(e), "ts_code": ts_code}
     
-    async def assess_portfolio_risk(self, user_id: str = "default_user") -> Dict[str, Any]:
+    async def assess_portfolio_risk(self) -> Dict[str, Any]:
         """评估投资组合风险."""
         try:
             if not self.portfolio_service:
                 return {"error": "Portfolio service not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             # Get positions
             positions = await self.portfolio_service.get_positions(user_id)
@@ -232,8 +239,7 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             logger.error(f"Failed to assess portfolio risk: {e}")
             return {"error": str(e)}
     
-    async def generate_investment_recommendations(self, user_id: str = "default_user", 
-                                               market_condition: str = "neutral") -> Dict[str, Any]:
+    async def generate_investment_recommendations(self, market_condition: str = "neutral") -> Dict[str, Any]:
         """生成投资建议."""
         try:
             recommendations = {
@@ -247,6 +253,9 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             
             if not self.portfolio_service:
                 return {"error": "Portfolio service not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             # Get portfolio data
             positions = await self.portfolio_service.get_positions(user_id)
@@ -434,12 +443,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             logger.error(f"Failed to detect market signals for {ts_code}: {e}")
             return {"error": str(e), "ts_code": ts_code}
     
-    async def optimize_portfolio_allocation(self, user_id: str = "default_user", 
-                                          target_risk: str = "moderate") -> Dict[str, Any]:
+    async def optimize_portfolio_allocation(self, target_risk: str = "moderate") -> Dict[str, Any]:
         """优化投资组合配置."""
         try:
             if not self.portfolio_service:
                 return {"error": "Portfolio service not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             # Get current portfolio
             positions = await self.portfolio_service.get_positions(user_id)
@@ -1118,11 +1129,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             "implementation_cost": "预计交易成本0.2-0.5%"
         }
     
-    async def analyze_portfolio_toplist(self, user_id: str = "default_user") -> Dict[str, Any]:
+    async def analyze_portfolio_toplist(self) -> Dict[str, Any]:
         """分析投资组合相关的龙虎榜情况"""
         try:
             if not self.portfolio_service or not self.toplist_service:
                 return {"error": "Required services not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             # 获取持仓股票
             positions = await self.portfolio_service.get_positions(user_id)
@@ -1208,11 +1222,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             logger.error(f"Failed to analyze portfolio toplist: {e}")
             return {"success": False, "error": str(e)}
     
-    async def check_position_toplist_status(self, user_id: str = "default_user") -> Dict[str, Any]:
+    async def check_position_toplist_status(self) -> Dict[str, Any]:
         """检查持仓股票的龙虎榜状态"""
         try:
             if not self.portfolio_service or not self.toplist_service:
                 return {"error": "Required services not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             positions = await self.portfolio_service.get_positions(user_id)
             if not positions:
@@ -1267,11 +1284,14 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             logger.error(f"Failed to check toplist status: {e}")
             return {"success": False, "error": str(e)}
     
-    async def analyze_position_capital_flow(self, user_id: str = "default_user", days: int = 5) -> Dict[str, Any]:
+    async def analyze_position_capital_flow(self, days: int = 5) -> Dict[str, Any]:
         """分析持仓股票的资金流向"""
         try:
             if not self.portfolio_service or not self.toplist_analysis_service:
                 return {"error": "Required services not available"}
+            
+            # Use current user_id from context
+            user_id = self._current_user_id
             
             positions = await self.portfolio_service.get_positions(user_id)
             if not positions:
@@ -1427,6 +1447,21 @@ class EnhancedPortfolioAgent(LangGraphAgent):
             suggestions.append("持仓股票龙虎榜表现相对稳定，建议继续观察")
         
         return suggestions
+    
+    async def execute(self, task: str, context: Dict[str, Any] = None) -> AgentResult:
+        """Execute with user context injection."""
+        context = context or {}
+        # Set current user_id from context
+        self._current_user_id = context.get("user_id", "default_user")
+        return await super().execute(task, context)
+    
+    async def execute_stream(self, task: str, context: Dict[str, Any] = None) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute stream with user context injection."""
+        context = context or {}
+        # Set current user_id from context
+        self._current_user_id = context.get("user_id", "default_user")
+        async for event in super().execute_stream(task, context):
+            yield event
 
 
 # Global agent instance

@@ -107,6 +107,9 @@ class SyncTask(BaseModel):
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    # User tracking fields
+    user_id: Optional[str] = None
+    username: Optional[str] = None
 
 
 class PluginSchedule(BaseModel):
@@ -237,6 +240,9 @@ class SyncHistory(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
+    # User tracking fields
+    user_id: Optional[str] = None
+    username: Optional[str] = None
 
 
 class SyncTaskListResponse(BaseModel):

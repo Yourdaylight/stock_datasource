@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     email: str = Field(..., description="用户邮箱")
     username: str = Field(..., description="用户名")
     is_active: bool = Field(..., description="是否激活")
+    is_admin: bool = Field(default=False, description="是否管理员")
     created_at: datetime = Field(..., description="创建时间")
 
 

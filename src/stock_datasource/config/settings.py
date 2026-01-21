@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     AUTH_EMAIL_WHITELIST_ENABLED: bool = Field(default=False)
     # Whitelist file path. Recommended for docker: "data/email.txt" (data dir is mounted).
     AUTH_EMAIL_WHITELIST_FILE: str = Field(default="data/email.txt")
+    # Admin email list (comma-separated), these users will have is_admin=True
+    AUTH_ADMIN_EMAILS: str = Field(default="")
 
 
 # Create settings instance

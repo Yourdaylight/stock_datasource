@@ -9,8 +9,20 @@ from .tools import get_stock_info
 
 logger = logging.getLogger(__name__)
 
-# 持仓存储（生产环境应使用数据库）
-_portfolio_store: Dict[str, Dict] = {}
+# 用户隔离的持仓存储（生产环境应使用数据库）
+# 格式: {user_id: {"positions": {...}}}
+_user_portfolio_store: Dict[str, Dict] = {}
+
+# 当前上下文中的 user_id (用于工具函数访问)
+_current_user_id: str = "default_user"
+
+
+def _get_user_portfolio() -> Dict:
+    """获取当前用户的持仓存储."""
+    global _user_portfolio_store, _current_user_id
+    if _current_user_id not in _user_portfolio_store:
+        _user_portfolio_store[_current_user_id] = {"positions": {}}
+    return _user_portfolio_store[_current_user_id]
 
 
 def add_position(
@@ -42,10 +54,11 @@ def add_position(
     if not buy_date:
         buy_date = datetime.now().strftime("%Y-%m-%d")
     
-    if "positions" not in _portfolio_store:
-        _portfolio_store["positions"] = {}
+    portfolio = _get_user_portfolio()
+    if "positions" not in portfolio:
+        portfolio["positions"] = {}
     
-    _portfolio_store["positions"][code] = {
+    portfolio["positions"][code] = {
         "quantity": quantity,
         "cost_price": cost_price,
         "buy_date": buy_date,
@@ -79,7 +92,8 @@ def update_position(
         elif code.startswith(('0', '3')):
             code = f"{code}.SZ"
     
-    positions = _portfolio_store.get("positions", {})
+    portfolio = _get_user_portfolio()
+    positions = portfolio.get("positions", {})
     
     if code not in positions:
         if action == "buy":
@@ -122,7 +136,8 @@ def get_positions() -> str:
     Returns:
         持仓列表，包含股票代码、数量、成本价等
     """
-    positions = _portfolio_store.get("positions", {})
+    portfolio = _get_user_portfolio()
+    positions = portfolio.get("positions", {})
     
     if not positions:
         return "当前没有持仓记录。\n\n💡 使用 add_position 添加持仓。"
@@ -150,7 +165,8 @@ def calculate_portfolio_pnl() -> str:
     Returns:
         盈亏统计（注：需要实时行情数据计算真实盈亏）
     """
-    positions = _portfolio_store.get("positions", {})
+    portfolio = _get_user_portfolio()
+    positions = portfolio.get("positions", {})
     
     if not positions:
         return "当前没有持仓，无法计算盈亏。"
@@ -184,6 +200,21 @@ class PortfolioAgent(LangGraphAgent):
             description="负责持仓管理，包括模拟持仓、盈亏计算、持仓分析等"
         )
         super().__init__(config)
+    
+    async def execute(self, task: str, context: Dict[str, Any] = None):
+        """Execute with user context injection."""
+        global _current_user_id
+        context = context or {}
+        _current_user_id = context.get("user_id", "default_user")
+        return await super().execute(task, context)
+    
+    async def execute_stream(self, task: str, context: Dict[str, Any] = None):
+        """Execute stream with user context injection."""
+        global _current_user_id
+        context = context or {}
+        _current_user_id = context.get("user_id", "default_user")
+        async for event in super().execute_stream(task, context):
+            yield event
     
     def get_tools(self) -> List[Callable]:
         """Return portfolio management tools."""

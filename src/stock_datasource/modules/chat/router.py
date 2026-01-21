@@ -1,6 +1,6 @@
-"""Chat module router."""
+"""Chat module router with user authentication."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import StreamingResponse
 import logging
 
@@ -8,10 +8,14 @@ from .schemas import (
     SendMessageRequest,
     SendMessageResponse,
     ChatHistoryResponse,
+    CreateSessionRequest,
     CreateSessionResponse,
-    ChatMessage
+    SessionListResponse,
+    ChatMessage,
+    ChatSessionSummary,
 )
 from .service import get_chat_service
+from ..auth.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -19,22 +23,104 @@ router = APIRouter()
 
 
 @router.post("/session", response_model=CreateSessionResponse)
-async def create_session():
-    """Create a new chat session."""
+async def create_session(
+    request: CreateSessionRequest = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new chat session for the authenticated user."""
     service = get_chat_service()
-    session_id = service.create_session()
+    title = request.title if request else None
+    session_id = service.create_session(user_id=current_user["id"], title=title)
     return CreateSessionResponse(session_id=session_id)
 
 
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get all chat sessions for the authenticated user."""
+    service = get_chat_service()
+    sessions = service.get_user_sessions(
+        user_id=current_user["id"],
+        limit=limit,
+        offset=offset,
+    )
+    total = service.count_user_sessions(current_user["id"])
+    
+    return SessionListResponse(
+        sessions=[
+            ChatSessionSummary(
+                session_id=s["session_id"],
+                title=s["title"],
+                created_at=s["created_at"],
+                last_message_at=s["last_message_at"],
+                message_count=s["message_count"],
+            )
+            for s in sessions
+        ],
+        total=total,
+    )
+
+
+@router.delete("/session/{session_id}")
+async def delete_session(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a chat session (only if owned by current user)."""
+    service = get_chat_service()
+    success = service.delete_session(session_id, user_id=current_user["id"])
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权删除此会话或会话不存在",
+        )
+    
+    return {"success": True, "message": "会话已删除"}
+
+
+@router.put("/session/{session_id}/title")
+async def update_session_title(
+    session_id: str,
+    title: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update session title."""
+    service = get_chat_service()
+    success = service.update_session_title(session_id, current_user["id"], title)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权修改此会话或会话不存在",
+        )
+    
+    return {"success": True, "message": "标题已更新"}
+
+
 @router.post("/message", response_model=SendMessageResponse)
-async def send_message(request: SendMessageRequest):
+async def send_message(
+    request: SendMessageRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Send a message and get response."""
     service = get_chat_service()
+    
+    # Verify session ownership
+    if not service.verify_session_ownership(request.session_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话",
+        )
     
     try:
         response = await service.process_message(
             session_id=request.session_id,
-            content=request.content
+            user_id=current_user["id"],
+            content=request.content,
         )
         return SendMessageResponse(**response)
     except Exception as e:
@@ -43,9 +129,20 @@ async def send_message(request: SendMessageRequest):
 
 
 @router.get("/history", response_model=ChatHistoryResponse)
-async def get_history(session_id: str):
-    """Get chat history for a session."""
+async def get_history(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get chat history for a session (only if owned by current user)."""
     service = get_chat_service()
+    
+    # Verify session ownership
+    if not service.verify_session_ownership(session_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话",
+        )
+    
     messages = service.get_session_history(session_id)
     
     return ChatHistoryResponse(
@@ -55,28 +152,53 @@ async def get_history(session_id: str):
 
 
 @router.get("/stream")
-async def stream_message(session_id: str, content: str):
+async def stream_message(
+    session_id: str, 
+    content: str,
+    current_user: dict = Depends(get_current_user),
+):
     """Stream a message response using SSE (GET method for simple queries)."""
-    return await _stream_response(session_id, content)
+    return await _stream_response(session_id, content, current_user)
 
 
 @router.post("/stream")
-async def stream_message_post(request: SendMessageRequest):
+async def stream_message_post(
+    request: SendMessageRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Stream a message response using SSE (POST method for longer messages)."""
-    return await _stream_response(request.session_id, request.content)
+    return await _stream_response(request.session_id, request.content, current_user)
 
 
-async def _stream_response(session_id: str, content: str):
+async def _stream_response(session_id: str, content: str, current_user: dict):
     """Internal function to handle streaming response using OrchestratorAgent."""
     import json
     from stock_datasource.agents.orchestrator import get_orchestrator
     
     service = get_chat_service()
-    service.add_message(session_id, "user", content)
+    
+    # Verify session ownership
+    if not service.verify_session_ownership(session_id, current_user["id"]):
+        async def error_gen():
+            error_data = json.dumps({
+                "type": "error",
+                "error": "无权访问此会话"
+            }, ensure_ascii=False)
+            yield f"data: {error_data}\n\n"
+        
+        return StreamingResponse(
+            error_gen(),
+            media_type="text/event-stream",
+            status_code=403,
+        )
+    
+    user_id = current_user["id"]
+    service.add_message(session_id, user_id, "user", content)
     
     orchestrator = get_orchestrator()
     context = {
         "session_id": session_id,
+        "user_id": user_id,
         "history": service.get_session_history(session_id),
     }
     
@@ -133,7 +255,7 @@ async def _stream_response(session_id: str, content: str):
                 
                 elif event_type == "done":
                     if full_response:
-                        service.add_message(session_id, "assistant", full_response)
+                        service.add_message(session_id, user_id, "assistant", full_response)
                     metadata = event.get("metadata", {})
                     metadata.setdefault("tool_calls", tool_calls)
                     
@@ -153,7 +275,7 @@ async def _stream_response(session_id: str, content: str):
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             if full_response:
-                service.add_message(session_id, "assistant", full_response)
+                service.add_message(session_id, user_id, "assistant", full_response)
             
             error_data = json.dumps({
                 "type": "error",
@@ -167,6 +289,6 @@ async def _stream_response(session_id: str, content: str):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
+            "X-Accel-Buffering": "no"
         }
     )

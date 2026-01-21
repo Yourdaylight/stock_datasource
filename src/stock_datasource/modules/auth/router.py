@@ -51,6 +51,7 @@ async def register(
             email=user["email"],
             username=user["username"],
             is_active=user["is_active"],
+            is_admin=user.get("is_admin", False),
             created_at=user["created_at"],
         ),
     )
@@ -99,6 +100,7 @@ async def get_me(
         email=current_user["email"],
         username=current_user["username"],
         is_active=current_user["is_active"],
+        is_admin=current_user.get("is_admin", False),
         created_at=current_user["created_at"],
     )
 

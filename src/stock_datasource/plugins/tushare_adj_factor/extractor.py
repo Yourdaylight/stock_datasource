@@ -9,6 +9,7 @@ from pathlib import Path
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
+from stock_datasource.core.proxy import proxy_context
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ class AdjFactorExtractor:
         self._rate_limit()
         
         try:
-            result = api_func(**kwargs)
+            with proxy_context():
+                result = api_func(**kwargs)
             if result is None or result.empty:
                 logger.warning(f"API returned empty data")
                 return pd.DataFrame()

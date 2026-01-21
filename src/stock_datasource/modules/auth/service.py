@@ -114,11 +114,20 @@ class AuthService:
         result = self.client.execute(query, {"email": email.lower()})
         return result[0][0] > 0 if result else False
     
+    def _is_admin_email(self, email: str) -> bool:
+        """Check if email is in the admin email list from config."""
+        from stock_datasource.config.settings import settings
+        admin_emails = getattr(settings, "AUTH_ADMIN_EMAILS", "")
+        if not admin_emails:
+            return False
+        admin_list = [e.strip().lower() for e in admin_emails.split(",") if e.strip()]
+        return email.lower() in admin_list
+    
     def get_user_by_email(self, email: str) -> Optional[dict]:
         """Get user by email."""
         self._ensure_tables()
         query = """
-            SELECT id, email, username, password_hash, is_active, created_at, updated_at
+            SELECT id, email, username, password_hash, is_active, is_admin, created_at, updated_at
             FROM users FINAL
             WHERE email = %(email)s AND is_active = 1
             LIMIT 1
@@ -126,14 +135,18 @@ class AuthService:
         result = self.client.execute(query, {"email": email.lower()})
         if result:
             row = result[0]
+            is_admin_db = bool(row[5]) if len(row) > 5 else False
+            # Also check config for admin emails
+            is_admin = is_admin_db or self._is_admin_email(email)
             return {
                 "id": row[0],
                 "email": row[1],
                 "username": row[2],
                 "password_hash": row[3],
                 "is_active": bool(row[4]),
-                "created_at": row[5],
-                "updated_at": row[6],
+                "is_admin": is_admin,
+                "created_at": row[6] if len(row) > 6 else row[5],
+                "updated_at": row[7] if len(row) > 7 else row[6],
             }
         return None
     
@@ -141,7 +154,7 @@ class AuthService:
         """Get user by ID."""
         self._ensure_tables()
         query = """
-            SELECT id, email, username, password_hash, is_active, created_at, updated_at
+            SELECT id, email, username, password_hash, is_active, is_admin, created_at, updated_at
             FROM users FINAL
             WHERE id = %(user_id)s AND is_active = 1
             LIMIT 1
@@ -149,14 +162,19 @@ class AuthService:
         result = self.client.execute(query, {"user_id": user_id})
         if result:
             row = result[0]
+            is_admin_db = bool(row[5]) if len(row) > 5 else False
+            email = row[1]
+            # Also check config for admin emails
+            is_admin = is_admin_db or self._is_admin_email(email)
             return {
                 "id": row[0],
-                "email": row[1],
+                "email": email,
                 "username": row[2],
                 "password_hash": row[3],
                 "is_active": bool(row[4]),
-                "created_at": row[5],
-                "updated_at": row[6],
+                "is_admin": is_admin,
+                "created_at": row[6] if len(row) > 6 else row[5],
+                "updated_at": row[7] if len(row) > 7 else row[6],
             }
         return None
     
@@ -274,9 +292,12 @@ class AuthService:
         password_hash = self.hash_password(password)
         now = datetime.now()
         
+        # Check if user should be admin
+        is_admin = 1 if self._is_admin_email(email) else 0
+        
         insert_query = """
-            INSERT INTO users (id, email, username, password_hash, is_active, created_at, updated_at)
-            VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, %(created_at)s, %(updated_at)s)
+            INSERT INTO users (id, email, username, password_hash, is_active, is_admin, created_at, updated_at)
+            VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, %(is_admin)s, %(created_at)s, %(updated_at)s)
         """
         
         try:
@@ -285,6 +306,7 @@ class AuthService:
                 "email": email,
                 "username": username,
                 "password_hash": password_hash,
+                "is_admin": is_admin,
                 "created_at": now,
                 "updated_at": now,
             })
@@ -294,6 +316,7 @@ class AuthService:
                 "email": email,
                 "username": username,
                 "is_active": True,
+                "is_admin": bool(is_admin),
                 "created_at": now,
             }
             
