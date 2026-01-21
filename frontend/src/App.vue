@@ -7,14 +7,13 @@ import {
   ChatIcon,
   ChartLineIcon,
   FilterIcon,
-  FileExcelIcon,
+  FileSearchIcon,
   UserIcon,
   ServerIcon,
   WalletIcon,
   ChartBubbleIcon,
   ToolsIcon,
   ControlPlatformIcon,
-  ChartBarIcon,
   LockOnIcon,
   LogoutIcon,
   QueueIcon
@@ -25,12 +24,11 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/market', '/toplist']
+const PUBLIC_ROUTES = ['/login', '/market', '/research']
 
 const menuItems = [
   { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
-  { path: '/toplist', title: '龙虎榜分析', icon: ChartBarIcon, public: true },
-  { path: '/report', title: '财报研读', icon: FileExcelIcon, requiresAuth: true },
+  { path: '/research', title: '研究数据', icon: FileSearchIcon, public: true },
   { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
   { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },

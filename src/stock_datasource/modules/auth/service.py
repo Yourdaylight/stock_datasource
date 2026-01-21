@@ -31,7 +31,10 @@ class AuthService:
         self._tables_initialized = False
     
     def _ensure_tables(self) -> None:
-        """Ensure auth tables exist (lazy initialization)."""
+        """Ensure auth tables exist (lazy initialization).
+        
+        Creates tables on both primary and backup databases (dual write).
+        """
         if self._tables_initialized:
             return
         
@@ -41,10 +44,17 @@ class AuthService:
             for statement in sql_content.split(";"):
                 statement = statement.strip()
                 if statement:
+                    # Execute on primary
                     try:
-                        self.client.execute(statement)
+                        self.client.primary.execute(statement)
                     except Exception as e:
-                        logger.warning(f"Failed to execute schema statement: {e}")
+                        logger.warning(f"Failed to execute schema statement on primary: {e}")
+                    # Execute on backup if available
+                    if self.client.backup:
+                        try:
+                            self.client.backup.execute(statement)
+                        except Exception as e:
+                            logger.warning(f"Failed to execute schema statement on backup: {e}")
         
         self._tables_initialized = True
     
@@ -318,6 +328,8 @@ class AuthService:
     def add_email_to_whitelist(self, email: str, added_by: str = "system") -> tuple[bool, str, Optional[dict]]:
         """Add an email to the whitelist.
         
+        Writes to both primary and backup databases (dual write).
+        
         Returns:
             Tuple of (success, message, whitelist_entry)
         """
@@ -335,13 +347,23 @@ class AuthService:
             VALUES (%(id)s, %(email)s, %(added_by)s, 1, %(created_at)s)
         """
         
+        params = {
+            "id": entry_id,
+            "email": email,
+            "added_by": added_by,
+            "created_at": now,
+        }
+        
         try:
-            self.client.execute(insert_query, {
-                "id": entry_id,
-                "email": email,
-                "added_by": added_by,
-                "created_at": now,
-            })
+            # Write to primary
+            self.client.primary.execute(insert_query, params)
+            
+            # Write to backup if available
+            if self.client.backup:
+                try:
+                    self.client.backup.execute(insert_query, params)
+                except Exception as e:
+                    logger.warning(f"Failed to add email to whitelist on backup: {e}")
             
             entry = {
                 "id": entry_id,
@@ -415,6 +437,134 @@ class AuthService:
         
         logger.info(f"Whitelist import complete: {imported} imported, {skipped} skipped")
         return imported, skipped
+    
+    def sync_whitelist_to_backup(self) -> tuple[int, int]:
+        """Sync all whitelist entries from primary to backup database.
+        
+        This is a one-time sync operation for existing data.
+        
+        Returns:
+            Tuple of (synced_count, skipped_count)
+        """
+        if not self.client.backup:
+            logger.warning("Backup database not configured, sync skipped")
+            return 0, 0
+        
+        self._ensure_tables()
+        
+        # Get all whitelist entries from primary
+        query = """
+            SELECT id, email, added_by, is_active, created_at
+            FROM email_whitelist FINAL
+            WHERE is_active = 1
+        """
+        primary_entries = self.client.primary.execute(query)
+        
+        if not primary_entries:
+            logger.info("No whitelist entries to sync")
+            return 0, 0
+        
+        synced = 0
+        skipped = 0
+        
+        insert_query = """
+            INSERT INTO email_whitelist (id, email, added_by, is_active, created_at)
+            VALUES (%(id)s, %(email)s, %(added_by)s, %(is_active)s, %(created_at)s)
+        """
+        
+        for row in primary_entries:
+            entry_id, email, added_by, is_active, created_at = row
+            
+            # Check if already exists in backup
+            check_query = """
+                SELECT count() FROM email_whitelist FINAL
+                WHERE email = %(email)s AND is_active = 1
+            """
+            try:
+                result = self.client.backup.execute(check_query, {"email": email})
+                if result and result[0][0] > 0:
+                    skipped += 1
+                    continue
+                
+                # Insert into backup
+                self.client.backup.execute(insert_query, {
+                    "id": entry_id,
+                    "email": email,
+                    "added_by": added_by,
+                    "is_active": is_active,
+                    "created_at": created_at,
+                })
+                synced += 1
+            except Exception as e:
+                logger.warning(f"Failed to sync email {email} to backup: {e}")
+                skipped += 1
+        
+        logger.info(f"Whitelist sync to backup complete: {synced} synced, {skipped} skipped")
+        return synced, skipped
+    
+    def sync_whitelist_from_backup(self) -> tuple[int, int]:
+        """Sync all whitelist entries from backup to primary database.
+        
+        Use this when primary database is missing data.
+        
+        Returns:
+            Tuple of (synced_count, skipped_count)
+        """
+        if not self.client.backup:
+            logger.warning("Backup database not configured, sync skipped")
+            return 0, 0
+        
+        self._ensure_tables()
+        
+        # Get all whitelist entries from backup
+        query = """
+            SELECT id, email, added_by, is_active, created_at
+            FROM email_whitelist FINAL
+            WHERE is_active = 1
+        """
+        backup_entries = self.client.backup.execute(query)
+        
+        if not backup_entries:
+            logger.info("No whitelist entries in backup to sync")
+            return 0, 0
+        
+        synced = 0
+        skipped = 0
+        
+        insert_query = """
+            INSERT INTO email_whitelist (id, email, added_by, is_active, created_at)
+            VALUES (%(id)s, %(email)s, %(added_by)s, %(is_active)s, %(created_at)s)
+        """
+        
+        for row in backup_entries:
+            entry_id, email, added_by, is_active, created_at = row
+            
+            # Check if already exists in primary
+            check_query = """
+                SELECT count() FROM email_whitelist FINAL
+                WHERE email = %(email)s AND is_active = 1
+            """
+            try:
+                result = self.client.primary.execute(check_query, {"email": email})
+                if result and result[0][0] > 0:
+                    skipped += 1
+                    continue
+                
+                # Insert into primary
+                self.client.primary.execute(insert_query, {
+                    "id": entry_id,
+                    "email": email,
+                    "added_by": added_by,
+                    "is_active": is_active,
+                    "created_at": created_at,
+                })
+                synced += 1
+            except Exception as e:
+                logger.warning(f"Failed to sync email {email} to primary: {e}")
+                skipped += 1
+        
+        logger.info(f"Whitelist sync from backup complete: {synced} synced, {skipped} skipped")
+        return synced, skipped
 
 
 # Singleton instance

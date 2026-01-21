@@ -45,7 +45,7 @@ class TuShareCyqChipsPlugin(BasePlugin):
     
     def get_role(self) -> PluginRole:
         """Get plugin role."""
-        return PluginRole.SECONDARY
+        return PluginRole.DERIVED
     
     def get_dependencies(self) -> List[str]:
         """Get plugin dependencies."""

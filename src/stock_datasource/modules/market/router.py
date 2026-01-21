@@ -139,6 +139,23 @@ async def get_hot_sectors():
     return HotSectorsResponse(**result)
 
 
+@router.get("/hot-stocks")
+async def get_hot_stocks(
+    sort_by: str = Query("amount", description="Sort by: amount or pct_chg"),
+    limit: int = Query(10, ge=1, le=50, description="Number of stocks to return"),
+    date: Optional[str] = Query(None, description="Trade date (YYYY-MM-DD)")
+):
+    """Get hot stocks by trading amount or price change.
+    
+    - **sort_by**: 'amount' for trading volume leaders, 'pct_chg' for top gainers
+    - **limit**: Number of stocks (1-50)
+    - **date**: Optional trade date, defaults to latest
+    """
+    service = get_market_service()
+    result = await service.get_hot_stocks(sort_by=sort_by, limit=limit, date=date)
+    return result
+
+
 # =============================================================================
 # Analysis Endpoints
 # =============================================================================

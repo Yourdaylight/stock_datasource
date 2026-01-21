@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { thsIndexApi, type THSDailyItem, type THSIndexItem } from '@/api/thsIndex'
 
@@ -122,21 +122,29 @@ const updateChart = () => {
   chartInstance.setOption(option, true)
 }
 
-const fetchIndexData = async (tsCode: string, name: string) => {
+const fetchIndexData = async (tsCode: string, name: string): Promise<IndexData | null> => {
   const days = parseInt(dateRange.value)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - days * 2) // Fetch more for trading days
 
-  const result = await thsIndexApi.getDailyData(tsCode, {
-    limit: days + 10
-  })
+  try {
+    const result = await thsIndexApi.getDailyData(tsCode, {
+      limit: days + 10
+    })
 
-  return {
-    ts_code: tsCode,
-    name: name || result.name || tsCode,
-    data: result.data.slice(-days),
-    color: colors[selectedIndices.value.length % colors.length]
+    // Skip if no data returned
+    if (!result.data || result.data.length === 0) {
+      console.warn(`No data for index ${tsCode}`)
+      return null
+    }
+
+    return {
+      ts_code: tsCode,
+      name: name || result.name || tsCode,
+      data: result.data.slice(-days),
+      color: colors[selectedIndices.value.length % colors.length]
+    }
+  } catch (e) {
+    console.error(`Failed to fetch data for ${tsCode}:`, e)
+    return null
   }
 }
 
@@ -149,8 +157,10 @@ const addIndex = async (item: THSIndexItem) => {
   loading.value = true
   try {
     const indexData = await fetchIndexData(item.ts_code, item.name)
-    selectedIndices.value.push(indexData)
-    updateChart()
+    if (indexData) {
+      selectedIndices.value.push(indexData)
+      updateChart()
+    }
   } catch (e) {
     console.error('Failed to fetch index data:', e)
   } finally {
@@ -206,18 +216,6 @@ const handleDateRangeChange = async () => {
   }
 }
 
-const loadDefaultRanking = async () => {
-  // pick top movers to avoid empty chart
-  try {
-    const ranking = await thsIndexApi.getRanking({ type: 'N', sort_by: 'pct_change', order: 'desc', limit: 3 })
-    for (const item of ranking.data.slice(0, 3)) {
-      await addIndex({ ts_code: item.ts_code, name: item.name })
-    }
-  } catch (e) {
-    console.error('Failed to load default ranking', e)
-  }
-}
-
 const handleResize = () => {
   chartInstance?.resize()
 }
@@ -232,17 +230,36 @@ watch(searchKeyword, () => {
 onMounted(async () => {
   loading.value = true
   try {
-    initChart()
-    // load predefined indices first
+    // Load data first before initializing chart
+    const loadedIndices: IndexData[] = []
     for (const idx of defaultIndices) {
       const data = await fetchIndexData(idx.ts_code, idx.name)
-      selectedIndices.value.push(data)
+      if (data) {
+        loadedIndices.push(data)
+      }
     }
-    // if still empty, fallback to ranking
-    if (selectedIndices.value.length === 0) {
-      await loadDefaultRanking()
+    
+    // If no data from defaults, try ranking
+    if (loadedIndices.length === 0) {
+      try {
+        const ranking = await thsIndexApi.getRanking({ type: 'N', sort_by: 'pct_change', order: 'desc', limit: 3 })
+        for (const item of ranking.data.slice(0, 3)) {
+          const data = await fetchIndexData(item.ts_code, item.name)
+          if (data) {
+            loadedIndices.push(data)
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load ranking fallback', e)
+      }
     }
-    updateChart()
+    
+    // Set data and then initialize chart
+    selectedIndices.value = loadedIndices
+    
+    // Initialize chart after data is ready
+    await nextTick()
+    initChart()
   } catch (e) {
     console.error('init chart failed', e)
   } finally {

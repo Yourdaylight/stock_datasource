@@ -72,16 +72,20 @@ class TopListService:
                     else:
                         item['trade_date'] = str(item['trade_date'])
                 
-                # 确保数值字段为float或None
+                # 确保数值字段为float或None，处理NaN
                 numeric_fields = ['close', 'pct_chg', 'turnover_rate', 'amount', 
                                 'l_sell', 'l_buy', 'l_amount', 'net_amount', 
                                 'net_rate', 'amount_rate', 'float_values']
                 for field in numeric_fields:
-                    if field in item and item[field] is not None:
-                        try:
-                            item[field] = float(item[field])
-                        except (ValueError, TypeError):
+                    if field in item:
+                        val = item[field]
+                        if val is None or (isinstance(val, float) and pd.isna(val)):
                             item[field] = None
+                        else:
+                            try:
+                                item[field] = float(val)
+                            except (ValueError, TypeError):
+                                item[field] = None
             
             self.logger.info(f"Retrieved {len(data_list)} top list records for {trade_date}")
             return data_list
@@ -281,19 +285,28 @@ class TopListService:
             
             inst_stats = self.db.query(inst_stats_query, {"trade_date": formatted_date})
             
+            # 辅助函数：安全转换为float，处理NaN
+            def safe_float(val, default=0.0):
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return default
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    return default
+            
             # 构建摘要
             summary = {
                 "trade_date": formatted_date,
                 "total_stocks": int(basic_stats.iloc[0]["total_stocks"]) if not basic_stats.empty else 0,
-                "total_amount": float(basic_stats.iloc[0]["total_amount"]) if not basic_stats.empty and basic_stats.iloc[0]["total_amount"] is not None else 0.0,
-                "avg_pct_chg": float(basic_stats.iloc[0]["avg_pct_chg"]) if not basic_stats.empty and basic_stats.iloc[0]["avg_pct_chg"] is not None else 0.0,
-                "avg_turnover_rate": float(basic_stats.iloc[0]["avg_turnover_rate"]) if not basic_stats.empty and basic_stats.iloc[0]["avg_turnover_rate"] is not None else 0.0,
-                "total_net_amount": float(basic_stats.iloc[0]["total_net_amount"]) if not basic_stats.empty and basic_stats.iloc[0]["total_net_amount"] is not None else 0.0,
+                "total_amount": safe_float(basic_stats.iloc[0]["total_amount"]) if not basic_stats.empty else 0.0,
+                "avg_pct_chg": safe_float(basic_stats.iloc[0]["avg_pct_chg"]) if not basic_stats.empty else 0.0,
+                "avg_turnover_rate": safe_float(basic_stats.iloc[0]["avg_turnover_rate"]) if not basic_stats.empty else 0.0,
+                "total_net_amount": safe_float(basic_stats.iloc[0]["total_net_amount"]) if not basic_stats.empty else 0.0,
                 "institution_count": 0,
                 "hot_money_count": 0,
                 "unknown_count": 0,
-                "net_institution_flow": 0,
-                "net_hot_money_flow": 0
+                "net_institution_flow": 0.0,
+                "net_hot_money_flow": 0.0
             }
             
             # 处理机构统计
@@ -301,16 +314,16 @@ class TopListService:
                 for _, stat in inst_stats.iterrows():
                     seat_type = stat["seat_type"]
                     count = stat["count"]
-                    net_buy = stat["total_net_buy"] or 0
+                    net_buy = safe_float(stat["total_net_buy"])
                     
                     if seat_type == "institution":
-                        summary["institution_count"] = count
+                        summary["institution_count"] = int(count)
                         summary["net_institution_flow"] = net_buy
                     elif seat_type == "hot_money":
-                        summary["hot_money_count"] = count
+                        summary["hot_money_count"] = int(count)
                         summary["net_hot_money_flow"] = net_buy
                     else:
-                        summary["unknown_count"] = count
+                        summary["unknown_count"] = int(count)
             
             self.logger.info(f"Generated summary for {trade_date}: {summary['total_stocks']} stocks")
             return summary

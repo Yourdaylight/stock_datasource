@@ -2,7 +2,7 @@ import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/market', '/toplist']
+const PUBLIC_ROUTES = ['/login', '/market', '/research']
 
 const routes: RouteRecordRaw[] = [
   {
@@ -22,16 +22,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '行情分析', icon: 'chart-line', public: true }
   },
   {
-    path: '/toplist',
-    name: 'TopList',
-    component: () => import('@/views/TopListView.vue'),
-    meta: { title: '龙虎榜分析', icon: 'chart-bar', public: true }
-  },
-  {
-    path: '/report',
-    name: 'Report',
-    component: () => import('@/views/report/ReportView.vue'),
-    meta: { title: '财报研读', icon: 'file-excel', requiresAuth: true }
+    path: '/research',
+    name: 'Research',
+    component: () => import('@/views/research/ResearchView.vue'),
+    meta: { title: '研究数据', icon: 'file-search', public: true }
   },
   {
     path: '/chat',
@@ -98,6 +92,15 @@ const routes: RouteRecordRaw[] = [
     name: 'WorkflowEdit',
     component: () => import('@/views/workflow/WorkflowEditor.vue'),
     meta: { title: '编辑工作流', requiresAuth: true }
+  },
+  // Legacy routes redirect
+  {
+    path: '/toplist',
+    redirect: '/market'
+  },
+  {
+    path: '/report',
+    redirect: '/research'
   }
 ]
 

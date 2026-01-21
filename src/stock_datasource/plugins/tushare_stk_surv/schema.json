@@ -1,0 +1,23 @@
+{
+  "table_name": "ods_stk_surv",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "股票代码"},
+    {"name": "name", "data_type": "String", "nullable": true, "comment": "股票名称"},
+    {"name": "surv_date", "data_type": "Date", "nullable": false, "comment": "调研日期"},
+    {"name": "fund_visitors", "data_type": "String", "nullable": true, "comment": "机构参与人员"},
+    {"name": "rece_place", "data_type": "String", "nullable": true, "comment": "接待地点"},
+    {"name": "rece_mode", "data_type": "String", "nullable": true, "comment": "接待方式"},
+    {"name": "rece_org", "data_type": "String", "nullable": true, "comment": "接待的公司/机构"},
+    {"name": "org_type", "data_type": "String", "nullable": true, "comment": "机构类型"},
+    {"name": "comp_rece", "data_type": "String", "nullable": true, "comment": "上市公司接待人员"},
+    {"name": "content", "data_type": "String", "nullable": true, "comment": "调研内容"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(surv_date)",
+  "order_by": ["surv_date", "ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Institutional survey (机构调研) data from TuShare API"
+}
