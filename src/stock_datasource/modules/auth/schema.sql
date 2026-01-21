@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     username String,
     password_hash String,
     is_active UInt8 DEFAULT 1,
+    is_admin UInt8 DEFAULT 0,
     created_at DateTime DEFAULT now(),
     updated_at DateTime DEFAULT now()
 ) ENGINE = ReplacingMergeTree(updated_at)

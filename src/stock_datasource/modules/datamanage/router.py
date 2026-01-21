@@ -1,6 +1,6 @@
-"""Data management module router."""
+"""Data management module router - Admin only access."""
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import List, Optional
 import logging
 
@@ -20,6 +20,7 @@ from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
 from ...core.base_plugin import PluginCategory, PluginRole
 from ...config.runtime_config import save_runtime_config
+from ..auth.dependencies import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ router = APIRouter()
 # ============ Data Sources ============
 
 @router.get("/datasources", response_model=List[DataSource])
-async def get_datasources():
+async def get_datasources(current_user: dict = Depends(require_admin)):
     """Get data source list."""
     return [
         DataSource(id="tushare", source_name="TuShare", source_type="api", provider="tushare", last_sync_at="2026-01-09 18:00:00"),
@@ -38,7 +39,7 @@ async def get_datasources():
 
 
 @router.post("/datasources/{source_id}/test")
-async def test_connection(source_id: str):
+async def test_connection(source_id: str, current_user: dict = Depends(require_admin)):
     """Test data source connection."""
     return {"success": True, "message": "连接成功"}
 
@@ -48,14 +49,18 @@ async def test_connection(source_id: str):
 @router.get("/missing-data", response_model=MissingDataSummary)
 async def get_missing_data(
     days: int = Query(default=30, ge=1, le=365, description="Number of trading days to check"),
-    force_refresh: bool = Query(default=False, description="Force refresh cache")
+    force_refresh: bool = Query(default=False, description="Force refresh cache"),
+    current_user: dict = Depends(require_admin),
 ):
     """Get missing data summary across all daily plugins."""
     return data_manage_service.detect_missing_data(days=days, force_refresh=force_refresh)
 
 
 @router.post("/missing-data/detect", response_model=MissingDataSummary)
-async def trigger_missing_data_detection(request: ManualDetectRequest):
+async def trigger_missing_data_detection(
+    request: ManualDetectRequest,
+    current_user: dict = Depends(require_admin),
+):
     """Manually trigger missing data detection."""
     return data_manage_service.detect_missing_data(days=request.days, force_refresh=True)
 
@@ -69,7 +74,8 @@ async def get_sync_tasks(
     status: Optional[str] = Query(default=None, description="Filter by status: pending, running, completed, failed, cancelled"),
     plugin_name: Optional[str] = Query(default=None, description="Filter by plugin name (partial match)"),
     sort_by: str = Query(default="created_at", description="Sort field: created_at, started_at, completed_at"),
-    sort_order: str = Query(default="desc", description="Sort order: asc, desc")
+    sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
+    current_user: dict = Depends(require_admin),
 ):
     """Get paginated sync tasks with filtering and sorting."""
     return sync_task_manager.get_tasks_paginated(
@@ -83,7 +89,10 @@ async def get_sync_tasks(
 
 
 @router.post("/sync/trigger", response_model=SyncTask)
-async def trigger_sync(request: TriggerSyncRequest):
+async def trigger_sync(
+    request: TriggerSyncRequest,
+    current_user: dict = Depends(require_admin),
+):
     """Trigger a sync task for a plugin.
     
     This endpoint checks plugin dependencies before creating the task.
@@ -117,13 +126,15 @@ async def trigger_sync(request: TriggerSyncRequest):
     task = sync_task_manager.create_task(
         plugin_name=request.plugin_name,
         task_type=request.task_type,
-        trade_dates=request.trade_dates
+        trade_dates=request.trade_dates,
+        user_id=current_user.get("id"),
+        username=current_user.get("username"),
     )
     return task
 
 
 @router.get("/sync/status/{task_id}", response_model=SyncTask)
-async def get_sync_status(task_id: str):
+async def get_sync_status(task_id: str, current_user: dict = Depends(require_admin)):
     """Get sync task status."""
     task = sync_task_manager.get_task(task_id)
     if not task:
@@ -132,7 +143,7 @@ async def get_sync_status(task_id: str):
 
 
 @router.post("/sync/cancel/{task_id}")
-async def cancel_sync_task(task_id: str):
+async def cancel_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Cancel a pending sync task."""
     success = sync_task_manager.cancel_task(task_id)
     if not success:
@@ -141,7 +152,7 @@ async def cancel_sync_task(task_id: str):
 
 
 @router.delete("/sync/tasks/{task_id}")
-async def delete_sync_task(task_id: str):
+async def delete_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Delete a sync task (any status except running)."""
     success = sync_task_manager.delete_task(task_id)
     if not success:
@@ -150,7 +161,7 @@ async def delete_sync_task(task_id: str):
 
 
 @router.post("/sync/retry/{task_id}", response_model=SyncTask)
-async def retry_sync_task(task_id: str):
+async def retry_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Retry a failed or cancelled sync task.
     
     Creates a new task with the same parameters as the original task.
@@ -166,14 +177,14 @@ async def retry_sync_task(task_id: str):
 
 
 @router.get("/sync/config", response_model=SyncConfig)
-async def get_sync_config():
+async def get_sync_config(current_user: dict = Depends(require_admin)):
     """Get current sync configuration (parallelism settings)."""
     config = sync_task_manager.get_config()
     return SyncConfig(**config)
 
 
 @router.put("/sync/config", response_model=SyncConfig)
-async def update_sync_config(request: SyncConfigRequest):
+async def update_sync_config(request: SyncConfigRequest, current_user: dict = Depends(require_admin)):
     """Update sync configuration (parallelism settings).
     
     - max_concurrent_tasks: Max parallel tasks (1-10), default 1 for TuShare IP limit
@@ -190,7 +201,8 @@ async def update_sync_config(request: SyncConfigRequest):
 async def get_sync_history(
     days: int = Query(default=7, ge=1, le=30, description="Number of days to look back"),
     limit: int = Query(default=50, ge=1, le=200),
-    plugin_name: Optional[str] = None
+    plugin_name: Optional[str] = None,
+    current_user: dict = Depends(require_admin),
 ):
     """Get sync task history from database."""
     history = sync_task_manager.get_task_history(days=days, limit=limit)
@@ -207,7 +219,8 @@ async def get_sync_history(
 @router.get("/plugins", response_model=List[PluginInfo])
 async def get_plugins(
     category: Optional[str] = Query(default=None, description="Filter by category: stock, index, etf_fund, system"),
-    role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary")
+    role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary"),
+    current_user: dict = Depends(require_admin),
 ):
     """Get plugin list with status info, optionally filtered by category and/or role."""
     plugins = data_manage_service.get_plugin_list()
@@ -231,7 +244,7 @@ async def get_plugins(
 
 
 @router.get("/plugins/{name}/detail", response_model=PluginDetail)
-async def get_plugin_detail(name: str):
+async def get_plugin_detail(name: str, current_user: dict = Depends(require_admin)):
     """Get detailed plugin information including config and schema."""
     detail = data_manage_service.get_plugin_detail(name)
     if not detail:
@@ -240,7 +253,7 @@ async def get_plugin_detail(name: str):
 
 
 @router.get("/plugins/{name}/status", response_model=PluginStatus)
-async def get_plugin_status(name: str):
+async def get_plugin_status(name: str, current_user: dict = Depends(require_admin)):
     """Get plugin data status."""
     status = data_manage_service.get_plugin_status(name)
     if not status:
@@ -253,7 +266,8 @@ async def get_plugin_data(
     name: str,
     trade_date: Optional[str] = Query(default=None, description="Filter by trade date (YYYY-MM-DD)"),
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=100, ge=1, le=1000)
+    page_size: int = Query(default=100, ge=1, le=1000),
+    current_user: dict = Depends(require_admin),
 ):
     """Get plugin data preview."""
     preview = data_manage_service.get_plugin_data_preview(
@@ -268,21 +282,21 @@ async def get_plugin_data(
 
 
 @router.post("/plugins/{name}/check-exists", response_model=DataExistsCheckResult)
-async def check_data_exists(name: str, request: CheckDataExistsRequest):
+async def check_data_exists(name: str, request: CheckDataExistsRequest, current_user: dict = Depends(require_admin)):
     """Check if data exists for specific dates in a plugin's table."""
     result = data_manage_service.check_dates_data_exists(name, request.dates)
     return result
 
 
 @router.post("/plugins/{name}/enable")
-async def enable_plugin(name: str):
+async def enable_plugin(name: str, current_user: dict = Depends(require_admin)):
     """Enable a plugin."""
     # TODO: Implement plugin enable/disable in config
     return {"success": True}
 
 
 @router.post("/plugins/{name}/disable")
-async def disable_plugin(name: str):
+async def disable_plugin(name: str, current_user: dict = Depends(require_admin)):
     """Disable a plugin."""
     # TODO: Implement plugin enable/disable in config
     return {"success": True}
@@ -291,7 +305,7 @@ async def disable_plugin(name: str):
 # ============ Plugin Dependencies ============
 
 @router.get("/plugins/{name}/dependencies", response_model=DependencyCheckResponse)
-async def get_plugin_dependencies(name: str):
+async def get_plugin_dependencies(name: str, current_user: dict = Depends(require_admin)):
     """Get plugin dependencies and their status.
     
     Returns the list of dependencies for a plugin and whether they are satisfied.
@@ -350,16 +364,16 @@ async def get_plugin_dependencies(name: str):
 
 
 @router.get("/plugins/{name}/check-dependencies", response_model=DependencyCheckResponse)
-async def check_plugin_dependencies(name: str):
+async def check_plugin_dependencies(name: str, current_user: dict = Depends(require_admin)):
     """Check if plugin dependencies are satisfied.
     
     This is an alias for GET /plugins/{name}/dependencies for backward compatibility.
     """
-    return await get_plugin_dependencies(name)
+    return await get_plugin_dependencies(name, current_user)
 
 
 @router.get("/plugins/dependency-graph", response_model=DependencyGraphResponse)
-async def get_dependency_graph():
+async def get_dependency_graph(current_user: dict = Depends(require_admin)):
     """Get the dependency graph for all plugins.
     
     Returns both the forward dependency graph (plugin -> dependencies)
@@ -379,7 +393,7 @@ async def get_dependency_graph():
 
 
 @router.post("/sync/batch", response_model=BatchSyncResponse)
-async def batch_trigger_sync(request: BatchSyncRequest):
+async def batch_trigger_sync(request: BatchSyncRequest, current_user: dict = Depends(require_admin)):
     """Trigger sync for multiple plugins in dependency order.
     
     This endpoint:
@@ -426,7 +440,9 @@ async def batch_trigger_sync(request: BatchSyncRequest):
         task = sync_task_manager.create_task(
             plugin_name=plugin_name,
             task_type=request.task_type,
-            trade_dates=request.trade_dates
+            trade_dates=request.trade_dates,
+            user_id=current_user.get("id"),
+            username=current_user.get("username"),
         )
         
         created_tasks.append({
@@ -448,7 +464,7 @@ async def batch_trigger_sync(request: BatchSyncRequest):
 # ============ Data Quality ============
 
 @router.get("/quality/metrics", response_model=List[QualityMetrics])
-async def get_quality_metrics():
+async def get_quality_metrics(current_user: dict = Depends(require_admin)):
     """Get data quality metrics."""
     # Get plugin list and calculate quality metrics
     plugins = data_manage_service.get_plugin_list()
@@ -473,7 +489,7 @@ async def get_quality_metrics():
 
 
 @router.get("/quality/report")
-async def get_quality_report(table: Optional[str] = None):
+async def get_quality_report(table: Optional[str] = None, current_user: dict = Depends(require_admin)):
     """Get data quality report."""
     return {"report": "Data quality is good"}
 
@@ -481,7 +497,7 @@ async def get_quality_report(table: Optional[str] = None):
 # ============ Metadata ============
 
 @router.get("/metadata/tables")
-async def get_table_metadata():
+async def get_table_metadata(current_user: dict = Depends(require_admin)):
     """Get table metadata."""
     plugins = data_manage_service.get_plugin_list()
     
@@ -505,14 +521,15 @@ async def get_table_metadata():
 @router.get("/diagnosis", response_model=DiagnosisResult)
 async def get_diagnosis(
     log_lines: int = Query(default=100, ge=10, le=500, description="Number of log lines to analyze"),
-    errors_only: bool = Query(default=False, description="Only analyze error logs")
+    errors_only: bool = Query(default=False, description="Only analyze error logs"),
+    current_user: dict = Depends(require_admin),
 ):
     """Get AI diagnosis of recent logs."""
     return diagnosis_service.diagnose(lines=log_lines, errors_only=errors_only)
 
 
 @router.post("/diagnosis", response_model=DiagnosisResult)
-async def trigger_diagnosis(request: DiagnosisRequest):
+async def trigger_diagnosis(request: DiagnosisRequest, current_user: dict = Depends(require_admin)):
     """Trigger AI diagnosis with custom parameters."""
     return diagnosis_service.diagnose(
         lines=request.log_lines,
@@ -524,7 +541,7 @@ async def trigger_diagnosis(request: DiagnosisRequest):
 # ============ Proxy Configuration ============
 
 @router.get("/proxy/config", response_model=ProxyConfig)
-async def get_proxy_config():
+async def get_proxy_config(current_user: dict = Depends(require_admin)):
     """Get current HTTP proxy configuration."""
     from ...config.settings import settings
     return ProxyConfig(
@@ -537,7 +554,7 @@ async def get_proxy_config():
 
 
 @router.put("/proxy/config", response_model=ProxyConfig)
-async def update_proxy_config(request: ProxyConfigRequest):
+async def update_proxy_config(request: ProxyConfigRequest, current_user: dict = Depends(require_admin)):
     """Update HTTP proxy configuration (runtime + persisted)."""
     from ...config.settings import settings
     
@@ -570,7 +587,7 @@ async def update_proxy_config(request: ProxyConfigRequest):
 
 
 @router.post("/proxy/test", response_model=ProxyTestResult)
-async def test_proxy_connection(request: ProxyConfigRequest):
+async def test_proxy_connection(request: ProxyConfigRequest, current_user: dict = Depends(require_admin)):
     """Test HTTP proxy connection."""
     import time
     import requests

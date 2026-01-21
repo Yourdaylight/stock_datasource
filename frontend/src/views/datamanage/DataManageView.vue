@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useDataManageStore } from '@/stores/datamanage'
+import { useAuthStore } from '@/stores/auth'
 import type { PluginCategory, PluginRole, SyncTaskQueryParams } from '@/api/datamanage'
 import MissingDataPanel from './components/MissingDataPanel.vue'
 import SyncTaskPanel from './components/SyncTaskPanel.vue'
@@ -14,7 +15,11 @@ import TaskDetailDialog from './components/TaskDetailDialog.vue'
 import type { SyncTask } from '@/api/datamanage'
 
 const dataStore = useDataManageStore()
+const authStore = useAuthStore()
 const activeTab = ref('plugins')
+
+// Check admin permission
+const isAdmin = computed(() => authStore.isAdmin)
 
 // Plugin filter states
 const searchKeyword = ref('')
@@ -321,8 +326,24 @@ onMounted(() => {
 
 <template>
   <div class="datamanage-view">
-    <!-- Stats Cards -->
-    <t-row :gutter="16" style="margin-bottom: 16px">
+    <!-- Permission Check -->
+    <template v-if="!isAdmin">
+      <t-card class="no-permission-card">
+        <t-result
+          theme="warning"
+          title="无访问权限"
+          description="数据管理功能仅限管理员使用。如需访问，请联系系统管理员。"
+        >
+          <template #extra>
+            <t-button theme="primary" @click="$router.push('/')">返回首页</t-button>
+          </template>
+        </t-result>
+      </t-card>
+    </template>
+
+    <template v-else>
+      <!-- Stats Cards -->
+      <t-row :gutter="16" style="margin-bottom: 16px">
       <t-col :span="3">
         <t-card title="已注册插件" :bordered="false">
           <div class="stat-value">{{ dataStore.plugins.length }}</div>
@@ -604,6 +625,7 @@ onMounted(() => {
       v-model:visible="taskDetailDialogVisible"
       :task="selectedTask"
     />
+    </template>
   </div>
 </template>
 
@@ -637,5 +659,12 @@ onMounted(() => {
 .filter-result .count {
   font-weight: 600;
   color: var(--td-brand-color);
+}
+
+.no-permission-card {
+  margin-top: 100px;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
 }
 </style>

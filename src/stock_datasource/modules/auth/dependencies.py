@@ -76,3 +76,18 @@ async def get_current_user_optional(
         return None
     
     return auth_service.get_user_by_id(user_id)
+
+
+async def require_admin(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Require the current user to be an admin.
+    
+    Raises HTTPException 403 if user is not an admin.
+    """
+    if not current_user.get("is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可访问此功能",
+        )
+    return current_user

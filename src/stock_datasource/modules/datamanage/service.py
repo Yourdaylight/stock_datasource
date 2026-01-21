@@ -766,7 +766,9 @@ class SyncTaskManager:
                 created_at DateTime DEFAULT now(),
                 started_at Nullable(DateTime),
                 completed_at Nullable(DateTime),
-                updated_at DateTime DEFAULT now()
+                updated_at DateTime DEFAULT now(),
+                user_id Nullable(String),
+                username Nullable(String)
             ) ENGINE = ReplacingMergeTree(updated_at)
             ORDER BY (task_id)
             """
@@ -791,18 +793,22 @@ class SyncTaskManager:
             started_at = f"'{task.started_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.started_at else 'NULL'
             completed_at = f"'{task.completed_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.completed_at else 'NULL'
             error_msg = f"'{task.error_message}'" if task.error_message else 'NULL'
+            user_id = f"'{task.user_id}'" if task.user_id else 'NULL'
+            username = f"'{task.username}'" if task.username else 'NULL'
             
             insert_sql = f"""
             INSERT INTO {self.TASK_TABLE} (
                 task_id, plugin_name, task_type, status, progress,
                 records_processed, total_records, error_message,
-                trade_dates, created_at, started_at, completed_at, updated_at
+                trade_dates, created_at, started_at, completed_at, updated_at,
+                user_id, username
             ) VALUES (
                 '{task.task_id}', '{task.plugin_name}', '{task.task_type}', 
                 '{task.status.value if isinstance(task.status, TaskStatus) else task.status}',
                 {task.progress}, {task.records_processed}, {task.total_records},
                 {error_msg}, {trade_dates_str},
-                '{created_at}', {started_at}, {completed_at}, now()
+                '{created_at}', {started_at}, {completed_at}, now(),
+                {user_id}, {username}
             )
             """
             db_client.execute_query(insert_sql)
@@ -823,7 +829,8 @@ class SyncTaskManager:
                 trade_dates, 
                 formatDateTime(created_at, '%Y-%m-%d %H:%i:%S') as created_at_str,
                 formatDateTime(started_at, '%Y-%m-%d %H:%i:%S') as started_at_str,
-                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str
+                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str,
+                user_id, username
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')
@@ -868,7 +875,9 @@ class SyncTaskManager:
                     trade_dates=list(row['trade_dates']) if row['trade_dates'] else [],
                     created_at=parse_dt(row['created_at_str']),
                     started_at=parse_dt(row['started_at_str']),
-                    completed_at=parse_dt(row['completed_at_str'])
+                    completed_at=parse_dt(row['completed_at_str']),
+                    user_id=row.get('user_id') if row.get('user_id') else None,
+                    username=row.get('username') if row.get('username') else None
                 )
                 
                 # Add to memory for display
@@ -1159,7 +1168,9 @@ class SyncTaskManager:
         self, 
         plugin_name: str, 
         task_type: TaskType = TaskType.INCREMENTAL,
-        trade_dates: Optional[List[str]] = None
+        trade_dates: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
+        username: Optional[str] = None
     ) -> SyncTask:
         """Create a new sync task.
         
@@ -1167,6 +1178,8 @@ class SyncTaskManager:
             plugin_name: Plugin name
             task_type: Task type
             trade_dates: List of dates for backfill
+            user_id: ID of the user who triggered the task
+            username: Username of the user who triggered the task
         
         Returns:
             Created task
@@ -1181,7 +1194,9 @@ class SyncTaskManager:
             progress=0,
             records_processed=0,
             trade_dates=trade_dates or [],
-            created_at=datetime.now()
+            created_at=datetime.now(),
+            user_id=user_id,
+            username=username
         )
         
         with self._lock:
@@ -1208,6 +1223,7 @@ class SyncTaskManager:
         page_size: int = 20,
         status: Optional[str] = None,
         plugin_name: Optional[str] = None,
+        user_id: Optional[str] = None,
         sort_by: str = "created_at",
         sort_order: str = "desc"
     ) -> SyncTaskListResponse:
@@ -1218,6 +1234,7 @@ class SyncTaskManager:
             page_size: Items per page
             status: Filter by status
             plugin_name: Filter by plugin name (partial match)
+            user_id: Filter by user ID (exact match)
             sort_by: Sort field (created_at, started_at, completed_at)
             sort_order: Sort order (asc, desc)
         
@@ -1239,6 +1256,10 @@ class SyncTaskManager:
         if plugin_name:
             plugin_name_lower = plugin_name.lower()
             tasks = [t for t in tasks if plugin_name_lower in t.plugin_name.lower()]
+        
+        # Filter by user_id (exact match)
+        if user_id:
+            tasks = [t for t in tasks if t.user_id == user_id]
         
         # Sort
         reverse = sort_order.lower() == "desc"
@@ -1439,7 +1460,8 @@ class SyncTaskManager:
                 task_id, plugin_name, task_type, status,
                 records_processed, error_message,
                 formatDateTime(started_at, '%Y-%m-%d %H:%i:%S') as started_at_str,
-                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str
+                formatDateTime(completed_at, '%Y-%m-%d %H:%i:%S') as completed_at_str,
+                user_id, username
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
                 WHERE created_at >= toDateTime('{cutoff_time}')
@@ -1479,7 +1501,9 @@ class SyncTaskManager:
                     error_message=row['error_message'] if row['error_message'] else None,
                     started_at=started_at if started_at else datetime.now(),
                     completed_at=completed_at,
-                    duration_seconds=duration
+                    duration_seconds=duration,
+                    user_id=row.get('user_id') if row.get('user_id') else None,
+                    username=row.get('username') if row.get('username') else None
                 ))
             
             return history
