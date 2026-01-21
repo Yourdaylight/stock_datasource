@@ -492,6 +492,118 @@ class MarketService:
         
         return stats
     
+    async def get_hot_stocks(
+        self, 
+        sort_by: str = "amount", 
+        limit: int = 10,
+        date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get hot stocks by amount or pct_chg.
+        
+        Args:
+            sort_by: 'amount' for trading volume, 'pct_chg' for price change
+            limit: Number of stocks to return
+            date: Trade date (optional, defaults to latest)
+            
+        Returns:
+            Hot stocks data
+        """
+        try:
+            if self.db is None:
+                return {"trade_date": None, "data": [], "sort_by": sort_by}
+            
+            # Get latest trade date if not specified
+            if not date:
+                result = self.db.execute_query(
+                    "SELECT max(trade_date) as latest FROM fact_daily_bar"
+                )
+                if result is not None and not result.empty:
+                    latest = result['latest'].iloc[0]
+                    if hasattr(latest, 'strftime'):
+                        date = latest.strftime('%Y-%m-%d')
+                    else:
+                        date = str(latest)
+            
+            if not date or date in ['1970-01-01', '19700101']:
+                return {"trade_date": None, "data": [], "sort_by": sort_by}
+            
+            # Determine sort order
+            order_field = "amount" if sort_by == "amount" else "pct_chg"
+            order_dir = "DESC"
+            
+            # Query hot stocks - use argMax to deduplicate and nested subquery to filter
+            query = f"""
+            SELECT 
+                d.ts_code AS ts_code,
+                s.name AS name,
+                d.close AS close,
+                d.pct_chg AS pct_chg,
+                d.amount AS amount,
+                d.vol AS vol,
+                b.turnover_rate AS turnover_rate,
+                b.circ_mv AS circ_mv
+            FROM (
+                SELECT ts_code, close, pct_chg, amount, vol
+                FROM (
+                    SELECT 
+                        ts_code, 
+                        argMax(close, _ingested_at) as close, 
+                        argMax(pct_chg, _ingested_at) as pct_chg, 
+                        argMax(amount, _ingested_at) as amount,
+                        argMax(vol, _ingested_at) as vol
+                    FROM fact_daily_bar
+                    WHERE trade_date = %(trade_date)s
+                    AND ts_code NOT LIKE '%%.BJ'
+                    GROUP BY ts_code
+                )
+                WHERE amount > 0
+                ORDER BY {order_field} {order_dir}
+                LIMIT %(limit)s
+            ) d
+            LEFT JOIN (
+                SELECT ts_code, any(name) as name 
+                FROM dim_security 
+                GROUP BY ts_code
+            ) s ON d.ts_code = s.ts_code
+            LEFT JOIN (
+                SELECT ts_code, argMax(turnover_rate, _ingested_at) as turnover_rate, argMax(circ_mv, _ingested_at) as circ_mv
+                FROM ods_daily_basic
+                WHERE trade_date = %(trade_date)s
+                GROUP BY ts_code
+            ) b ON d.ts_code = b.ts_code
+            ORDER BY d.{order_field} {order_dir}
+            """
+            
+            result = self.db.execute_query(query, {
+                "trade_date": date,
+                "limit": limit
+            })
+            
+            if result is None or result.empty:
+                return {"trade_date": date, "data": [], "sort_by": sort_by}
+            
+            data = []
+            for _, row in result.iterrows():
+                data.append({
+                    "ts_code": row.get("ts_code"),
+                    "name": row.get("name") or row.get("ts_code", "").split(".")[0],
+                    "close": float(row.get("close") or 0),
+                    "pct_chg": float(row.get("pct_chg") or 0),
+                    "amount": float(row.get("amount") or 0),
+                    "turnover_rate": float(row.get("turnover_rate") or 0) if row.get("turnover_rate") else None,
+                    "circ_mv": float(row.get("circ_mv") or 0) if row.get("circ_mv") else None,
+                })
+            
+            return {
+                "trade_date": date,
+                "data": data,
+                "sort_by": sort_by
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get hot stocks: {e}")
+            return {"trade_date": None, "data": [], "sort_by": sort_by}
+    
     async def get_hot_sectors(self) -> Dict[str, Any]:
         """Get hot sectors data."""
         # This would typically use industry index data

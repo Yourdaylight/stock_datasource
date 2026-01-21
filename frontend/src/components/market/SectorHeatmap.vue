@@ -13,6 +13,7 @@ const emit = defineEmits<{
 
 const chartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
+let isUnmounted = false
 
 const rankingList = ref<THSRankingItem[]>([])
 const tradeDate = ref('')
@@ -142,6 +143,7 @@ const handleResize = () => {
 }
 
 const fetchData = async () => {
+  if (isUnmounted) return
   loading.value = true
   try {
     const result = await thsIndexApi.getRanking({
@@ -150,21 +152,28 @@ const fetchData = async () => {
       order: 'desc',
       limit: props.maxItems || 50
     })
+    if (isUnmounted) return
     rankingList.value = result.data
     tradeDate.value = result.trade_date
   } catch (e) {
+    if (isUnmounted) return
     console.error('Failed to fetch heatmap data:', e)
     rankingList.value = []
   } finally {
-    loading.value = false
+    if (!isUnmounted) {
+      loading.value = false
+    }
   }
 }
 
 let fetchTimer: number | undefined
 const scheduleFetch = () => {
+  if (isUnmounted) return
   if (fetchTimer) window.clearTimeout(fetchTimer)
   fetchTimer = window.setTimeout(() => {
-    fetchData()
+    if (!isUnmounted) {
+      fetchData()
+    }
   }, 250)
 }
 
@@ -183,7 +192,9 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   chartInstance?.dispose()
+  chartInstance = null
   window.removeEventListener('resize', handleResize)
   if (fetchTimer) window.clearTimeout(fetchTimer)
 })

@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "description": "TuShare institutional survey (机构调研) data plugin",
+  "api_name": "stk_surv",
+  "rate_limit": 60,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "min_points": 5000,
+  "schedule": {
+    "frequency": "daily",
+    "time": "20:00"
+  },
+  "batch_size": 100
+}

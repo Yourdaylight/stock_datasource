@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "description": "TuShare research report earnings forecast (研报盈利预测) data plugin",
+  "api_name": "report_rc",
+  "rate_limit": 60,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "min_points": 8000,
+  "schedule": {
+    "frequency": "daily",
+    "time": "21:00"
+  },
+  "batch_size": 3000
+}
