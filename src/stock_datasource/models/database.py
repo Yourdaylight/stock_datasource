@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import io
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import pandas as pd
@@ -13,20 +14,152 @@ from stock_datasource.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+class ClickHouseHttpClient:
+    """ClickHouse client using HTTP interface as fallback when TCP fails."""
+    
+    def __init__(self, host: str, port: int = 8123, user: str = "default",
+                 password: str = "", database: str = "default", name: str = "http"):
+        """Initialize HTTP client.
+        
+        Args:
+            host: ClickHouse host
+            port: HTTP port (default: 8123)
+            user: ClickHouse user
+            password: ClickHouse password
+            database: ClickHouse database
+            name: Client name for logging
+        """
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.database = database
+        self.name = name
+        self._lock = threading.Lock()
+        self._base_url = f"http://{host}:{port}/"
+        self._auth = (user, password) if password else None
+        logger.info(f"Initialized ClickHouse HTTP client [{name}]: {host}:{port}")
+    
+    def _request(self, query: str, params: Optional[Dict] = None, data: str = None) -> str:
+        """Execute HTTP request to ClickHouse."""
+        import requests
+        
+        # Handle parameterized queries by substituting params
+        if params:
+            for key, value in params.items():
+                placeholder = f"%({key})s"
+                if isinstance(value, str):
+                    escaped = value.replace("'", "\\'")
+                    query = query.replace(placeholder, f"'{escaped}'")
+                elif isinstance(value, (int, float)):
+                    query = query.replace(placeholder, str(value))
+                elif isinstance(value, datetime):
+                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'")
+                else:
+                    query = query.replace(placeholder, str(value))
+        
+        req_params = {"database": self.database}
+        
+        if data:
+            req_params["query"] = query
+            resp = requests.post(self._base_url, params=req_params, data=data, auth=self._auth, timeout=60)
+        else:
+            req_params["query"] = query
+            resp = requests.get(self._base_url, params=req_params, auth=self._auth, timeout=60)
+        
+        resp.raise_for_status()
+        return resp.text.strip()
+    
+    def execute(self, query: str, params: Optional[Dict] = None) -> List[tuple]:
+        """Execute a query and return results as list of tuples."""
+        with self._lock:
+            try:
+                # Add FORMAT for SELECT queries
+                query_upper = query.strip().upper()
+                if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                    query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
+                
+                result = self._request(query, params)
+                
+                if not result:
+                    return []
+                
+                # Parse TabSeparated result
+                lines = result.split("\n")
+                if len(lines) <= 1:
+                    return []
+                
+                # Skip header line, parse data
+                rows = []
+                for line in lines[1:]:
+                    if line.strip():
+                        rows.append(tuple(line.split("\t")))
+                return rows
+            except Exception as e:
+                logger.error(f"HTTP query execution failed [{self.name}]: {e}")
+                raise
+    
+    def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
+        """Execute query and return results as DataFrame."""
+        with self._lock:
+            try:
+                query_upper = query.strip().upper()
+                if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                    query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
+                
+                result = self._request(query, params)
+                
+                if not result:
+                    return pd.DataFrame()
+                
+                return pd.read_csv(io.StringIO(result), sep="\t")
+            except Exception as e:
+                logger.error(f"HTTP query execution failed [{self.name}]: {e}")
+                raise
+    
+    def insert_dataframe(self, table_name: str, df: pd.DataFrame,
+                        settings: Optional[Dict] = None) -> None:
+        """Insert DataFrame into table via HTTP."""
+        with self._lock:
+            try:
+                # Convert DataFrame to TabSeparated format
+                data = df.to_csv(sep="\t", index=False, header=False)
+                columns = ", ".join(df.columns)
+                query = f"INSERT INTO {table_name} ({columns}) FORMAT TabSeparated"
+                self._request(query, data=data)
+                logger.info(f"Inserted {len(df)} rows into {table_name} [{self.name}]")
+            except Exception as e:
+                logger.error(f"Failed to insert data into {table_name} [{self.name}]: {e}")
+                raise
+    
+    def table_exists(self, table_name: str) -> bool:
+        """Check if table exists."""
+        query = f"SELECT count() FROM system.tables WHERE database = '{self.database}' AND name = '{table_name}'"
+        result = self._request(query)
+        return int(result.strip()) > 0 if result else False
+    
+    def close(self):
+        """Close connection (no-op for HTTP)."""
+        logger.info(f"ClickHouse HTTP connection closed [{self.name}]")
+
+
 class ClickHouseClient:
-    """ClickHouse database client."""
+    """ClickHouse database client with TCP/HTTP fallback support."""
     
     def __init__(self, host: str = None, port: int = None, user: str = None, 
-                 password: str = None, database: str = None, name: str = "primary"):
+                 password: str = None, database: str = None, name: str = "primary",
+                 http_port: int = 8123, prefer_http: bool = False):
         """Initialize ClickHouse client.
         
         Args:
             host: ClickHouse host (default: from settings)
-            port: ClickHouse port (default: from settings)
+            port: ClickHouse TCP port (default: from settings)
             user: ClickHouse user (default: from settings)
             password: ClickHouse password (default: from settings)
             database: ClickHouse database (default: from settings)
             name: Client name for logging (default: "primary")
+            http_port: HTTP port for fallback (default: 8123)
+            prefer_http: If True, use HTTP directly without trying TCP first
         """
         self.host = host or settings.CLICKHOUSE_HOST
         self.port = port or settings.CLICKHOUSE_PORT
@@ -34,12 +167,32 @@ class ClickHouseClient:
         self.password = password or settings.CLICKHOUSE_PASSWORD
         self.database = database or settings.CLICKHOUSE_DATABASE
         self.name = name
+        self.http_port = http_port
         self.client = None
+        self._http_client = None
+        self._use_http = prefer_http
         self._lock = threading.Lock()
-        self._connect()
+        
+        if prefer_http:
+            self._init_http_client()
+        else:
+            self._connect()
+    
+    def _init_http_client(self):
+        """Initialize HTTP client as fallback."""
+        self._http_client = ClickHouseHttpClient(
+            host=self.host,
+            port=self.http_port,
+            user=self.user,
+            password=self.password,
+            database=self.database,
+            name=f"{self.name}-http"
+        )
+        self._use_http = True
+        logger.info(f"Using HTTP fallback for ClickHouse [{self.name}]")
     
     def _connect(self):
-        """Establish connection to ClickHouse."""
+        """Establish connection to ClickHouse via TCP, fallback to HTTP on failure."""
         try:
             # Register Asia/Beijing as alias for Asia/Shanghai to handle non-standard timezone
             self._register_timezone_alias()
@@ -51,33 +204,34 @@ class ClickHouseClient:
                 password=self.password,
                 database=self.database,
                 connect_timeout=10,
-                send_receive_timeout=60,  # Increased from 15 to 60 seconds
-                sync_request_timeout=60,  # Increased from 30 to 60 seconds
+                send_receive_timeout=60,
+                sync_request_timeout=60,
                 settings={
                     'use_numpy': True,
                     'enable_http_compression': 1,
-                    'session_timezone': 'Asia/Shanghai',  # Use standard timezone
-                    'max_memory_usage': 2000000000,  # 2GB per query limit
-                    'max_bytes_before_external_group_by': 1000000000,  # 1GB before spill to disk
+                    'session_timezone': 'Asia/Shanghai',
+                    'max_memory_usage': 2000000000,
+                    'max_bytes_before_external_group_by': 1000000000,
                     'max_threads': 4,
                 }
             )
-            logger.info(f"Connected to ClickHouse [{self.name}]: {self.host}:{self.port}")
+            # Test connection
+            self.client.execute("SELECT 1")
+            logger.info(f"Connected to ClickHouse via TCP [{self.name}]: {self.host}:{self.port}")
+            self._use_http = False
         except Exception as e:
-            logger.error(f"Failed to connect to ClickHouse [{self.name}]: {e}")
-            raise
+            logger.warning(f"TCP connection failed [{self.name}]: {e}, falling back to HTTP")
+            self._init_http_client()
     
     @staticmethod
     def _register_timezone_alias():
         """Register Asia/Beijing as alias for Asia/Shanghai."""
         try:
             import pytz
-            # Check if already registered
             if 'Asia/Beijing' not in pytz.all_timezones_set:
-                # Add Beijing as alias to Shanghai
                 pytz._tzinfo_cache['Asia/Beijing'] = pytz.timezone('Asia/Shanghai')
         except Exception:
-            pass  # Ignore if registration fails
+            pass
 
     @staticmethod
     def _should_reconnect(exc: Exception) -> bool:
@@ -94,7 +248,6 @@ class ClickHouseClient:
     def _reconnect(self):
         """Force reconnect to ClickHouse."""
         try:
-            # Close existing connection first
             if self.client:
                 try:
                     self.client.disconnect()
@@ -106,25 +259,32 @@ class ClickHouseClient:
             raise
     
     def _ensure_connected(self):
-        """Ensure we have a valid connection before executing query.
-        
-        Note: This just checks if client exists. Actual connection issues
-        will be handled by _should_reconnect in execute methods.
-        """
-        if self.client is None:
+        """Ensure we have a valid connection before executing query."""
+        if self._use_http:
+            if self._http_client is None:
+                self._init_http_client()
+        elif self.client is None:
             self._connect()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
         """Execute a query with retry logic and auto-reconnect on transport errors."""
         with self._lock:
+            self._ensure_connected()
+            
+            # Use HTTP client if in HTTP mode
+            if self._use_http and self._http_client:
+                return self._http_client.execute(query, params)
+            
             try:
-                self._ensure_connected()
                 return self.client.execute(query, params)
             except Exception as e:
                 if self._should_reconnect(e):
                     logger.warning(f"Reconnect ClickHouse [{self.name}] due to: {e}")
                     self._reconnect()
+                    # After reconnect, check if we switched to HTTP
+                    if self._use_http and self._http_client:
+                        return self._http_client.execute(query, params)
                     return self.client.execute(query, params)
                 logger.error(f"Query execution failed [{self.name}]: {e}")
                 raise
@@ -133,14 +293,22 @@ class ClickHouseClient:
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
         """Execute query and return results as DataFrame with auto-reconnect on transport errors."""
         with self._lock:
+            self._ensure_connected()
+            
+            # Use HTTP client if in HTTP mode
+            if self._use_http and self._http_client:
+                return self._http_client.execute_query(query, params)
+            
             try:
-                self._ensure_connected()
                 result = self.client.query_dataframe(query, params)
                 return result
             except Exception as e:
                 if self._should_reconnect(e):
                     logger.warning(f"Reconnect ClickHouse during query_dataframe [{self.name}] due to: {e}")
                     self._reconnect()
+                    # After reconnect, check if we switched to HTTP
+                    if self._use_http and self._http_client:
+                        return self._http_client.execute_query(query, params)
                     return self.client.query_dataframe(query, params)
                 logger.error(f"Query execution failed [{self.name}]: {e}")
                 raise
@@ -148,6 +316,13 @@ class ClickHouseClient:
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
         """Insert DataFrame into table."""
+        self._ensure_connected()
+        
+        # Use HTTP client if in HTTP mode
+        if self._use_http and self._http_client:
+            self._http_client.insert_dataframe(table_name, df, settings)
+            return
+        
         try:
             self.client.insert_dataframe(
                 f"INSERT INTO {table_name} VALUES",
@@ -172,6 +347,9 @@ class ClickHouseClient:
     
     def table_exists(self, table_name: str) -> bool:
         """Check if table exists."""
+        if self._use_http and self._http_client:
+            return self._http_client.table_exists(table_name)
+        
         query = f"""
         SELECT count() 
         FROM system.tables 
@@ -235,9 +413,15 @@ class ClickHouseClient:
     
     def close(self):
         """Close database connection."""
+        if self._http_client:
+            self._http_client.close()
         if self.client:
             self.client.disconnect()
             logger.info(f"ClickHouse connection closed [{self.name}]")
+    
+    def is_using_http(self) -> bool:
+        """Check if currently using HTTP fallback."""
+        return self._use_http
 
 
 class DualWriteClient:
