@@ -266,7 +266,7 @@ class ClickHouseClient:
         elif self.client is None:
             self._connect()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=1, max=3))
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
         """Execute a query with retry logic and auto-reconnect on transport errors."""
         with self._lock:
@@ -289,7 +289,7 @@ class ClickHouseClient:
                 logger.error(f"Query execution failed [{self.name}]: {e}")
                 raise
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=1, max=3))
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
         """Execute query and return results as DataFrame with auto-reconnect on transport errors."""
         with self._lock:
@@ -454,17 +454,28 @@ class DualWriteClient:
         return self.primary.client
     
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
-        """Execute query on primary (read operations use primary only)."""
-        return self.primary.execute(query, params)
-    
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
+        """Execute query on primary, fallback to backup on failure."""
+        try:
+            return self.primary.execute(query, params)
+        except Exception as e:
+            if self.backup:
+                logger.warning(f"Primary execute failed, falling back to backup: {e}")
+                return self.backup.execute(query, params)
+            raise
+
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
-        """Execute query on primary and return DataFrame."""
-        return self.primary.execute_query(query, params)
-    
+        """Execute query on primary, fallback to backup on failure."""
+        try:
+            return self.primary.execute_query(query, params)
+        except Exception as e:
+            if self.backup:
+                logger.warning(f"Primary query failed, falling back to backup: {e}")
+                return self.backup.execute_query(query, params)
+            raise
+
     def query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
-        """Execute query on primary and return DataFrame (alias for execute_query)."""
-        return self.primary.execute_query(query, params)
+        """Execute query on primary, fallback to backup (alias for execute_query)."""
+        return self.execute_query(query, params)
     
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
