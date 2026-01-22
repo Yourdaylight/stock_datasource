@@ -1,14 +1,49 @@
 """Report Agent for financial report analysis using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Optional, Tuple
 import logging
 import json
+import re
 
 from .base_agent import LangGraphAgent, AgentConfig
 from .tools import get_stock_info, get_stock_valuation
 from ..services.financial_report_service import FinancialReportService
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_and_normalize_stock_code(ts_code: str) -> Tuple[bool, str, Optional[str]]:
+    """Validate and normalize stock code.
+    
+    Args:
+        ts_code: Raw stock code input
+        
+    Returns:
+        Tuple of (is_valid, normalized_code, error_message)
+    """
+    if not ts_code:
+        return False, "", "股票代码不能为空"
+    
+    # Strip whitespace
+    ts_code = ts_code.strip().upper()
+    
+    # Check if already in valid format (e.g., 600519.SH)
+    if re.match(r'^\d{6}\.(SH|SZ|BJ)$', ts_code):
+        return True, ts_code, None
+    
+    # Check if it's a 6-digit code without suffix
+    if len(ts_code) == 6 and ts_code.isdigit():
+        if ts_code.startswith('6'):
+            return True, f"{ts_code}.SH", None
+        elif ts_code.startswith(('0', '3')):
+            return True, f"{ts_code}.SZ", None
+        elif ts_code.startswith(('4', '8')):
+            return True, f"{ts_code}.BJ", None
+        else:
+            return False, ts_code, f"无法识别的股票代码前缀: {ts_code}"
+    
+    # Invalid format
+    return False, ts_code, f"无效的股票代码格式: {ts_code}。请使用6位数字代码(如600519)或完整代码(如600519.SH)"
 
 
 def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
@@ -21,12 +56,10 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
     Returns:
         全面的财务分析报告，包括财务健康度、同业对比、增长分析等。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    # Validate and normalize stock code
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
     
     try:
         service = FinancialReportService()
@@ -121,12 +154,10 @@ def get_peer_comparison_analysis(ts_code: str, end_date: str = None) -> str:
     Returns:
         同业对比分析报告。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    # Validate and normalize stock code
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
     
     try:
         service = FinancialReportService()
@@ -197,12 +228,10 @@ def get_investment_insights(ts_code: str) -> str:
     Returns:
         结构化的投资洞察报告。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    # Validate and normalize stock code
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
     
     try:
         service = FinancialReportService()
