@@ -27,13 +27,16 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting application initialization...")
 
-    # Clear proxy env on startup (safety)
+    # Note: Proxy is NOT applied globally on startup
+    # Proxy should only be used in data extraction contexts via proxy_context()
     try:
-        from stock_datasource.core.proxy import clear_proxy_settings
-        clear_proxy_settings()
-        logger.info("Proxy environment cleared on startup")
+        from stock_datasource.core.proxy import is_proxy_enabled
+        if is_proxy_enabled():
+            logger.info("Proxy configured (will be used only for data extraction)")
+        else:
+            logger.info("Proxy not configured or disabled")
     except Exception as e:
-        logger.warning(f"Proxy cleanup failed: {e}")
+        logger.warning(f"Proxy check failed: {e}")
 
     # Initialize auth tables and import whitelist (optional)
     try:

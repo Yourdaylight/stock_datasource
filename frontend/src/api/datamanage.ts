@@ -300,20 +300,91 @@ export interface PluginScheduleConfigRequest {
 
 export interface ScheduleExecutionRecord {
   execution_id: string
-  trigger_type: 'scheduled' | 'manual'
+  trigger_type: 'scheduled' | 'manual' | 'group' | 'retry'
   started_at: string
   completed_at?: string
-  status: 'running' | 'completed' | 'failed' | 'skipped'
+  status: 'running' | 'completed' | 'failed' | 'skipped' | 'interrupted'
   skip_reason?: string
   total_plugins: number
   completed_plugins: number
   failed_plugins: number
   task_ids: string[]
+  can_retry: boolean
+  group_name?: string  // Name of plugin group if triggered from group
 }
 
 export interface ScheduleHistoryResponse {
   items: ScheduleExecutionRecord[]
   total: number
+}
+
+// Batch Execution Detail Types
+export interface BatchTaskDetail {
+  task_id: string
+  plugin_name: string
+  status: string
+  progress: number
+  records_processed: number
+  error_message?: string
+  created_at?: string
+  completed_at?: string
+}
+
+export interface BatchExecutionDetail {
+  execution_id: string
+  trigger_type: 'scheduled' | 'manual' | 'group' | 'retry'
+  started_at: string
+  completed_at?: string
+  status: string
+  total_plugins: number
+  completed_plugins: number
+  failed_plugins: number
+  tasks: BatchTaskDetail[]
+  error_summary: string  // All error messages concatenated for easy copying
+  group_name?: string
+}
+
+// Partial Retry Request
+export interface PartialRetryRequest {
+  task_ids?: string[]  // Specific task IDs to retry, or null for all failed
+}
+
+// Plugin Group Types
+export type TaskType = 'incremental' | 'full' | 'backfill'
+
+export interface PluginGroup {
+  group_id: string
+  name: string
+  description: string
+  plugin_names: string[]
+  default_task_type: TaskType  // 默认同步类型
+  created_at: string
+  updated_at?: string
+  created_by: string
+}
+
+export interface PluginGroupCreateRequest {
+  name: string
+  description?: string
+  plugin_names: string[]
+  default_task_type?: TaskType  // 默认同步类型
+}
+
+export interface PluginGroupUpdateRequest {
+  name?: string
+  description?: string
+  plugin_names?: string[]
+  default_task_type?: TaskType  // 默认同步类型
+}
+
+export interface PluginGroupListResponse {
+  items: PluginGroup[]
+  total: number
+}
+
+export interface PluginGroupTriggerRequest {
+  task_type?: 'incremental' | 'full' | 'backfill'
+  trade_dates?: string[]
 }
 
 export interface SyncTaskListResponse {
@@ -515,7 +586,48 @@ export const datamanageApi = {
     return request.post('/api/datamanage/schedule/trigger')
   },
 
+  retryScheduleExecution(executionId: string): Promise<ScheduleExecutionRecord> {
+    return request.post(`/api/datamanage/schedule/retry/${executionId}`)
+  },
+
   getScheduleHistory(days: number = 7, limit: number = 50): Promise<ScheduleHistoryResponse> {
     return request.get(`/api/datamanage/schedule/history?days=${days}&limit=${limit}`)
+  },
+
+  getExecutionDetail(executionId: string): Promise<BatchExecutionDetail> {
+    return request.get(`/api/datamanage/schedule/execution/${executionId}`)
+  },
+
+  stopExecution(executionId: string): Promise<ScheduleExecutionRecord> {
+    return request.post(`/api/datamanage/schedule/stop/${executionId}`)
+  },
+
+  partialRetryExecution(executionId: string, taskIds?: string[]): Promise<ScheduleExecutionRecord> {
+    return request.post(`/api/datamanage/schedule/partial-retry/${executionId}`, { task_ids: taskIds })
+  },
+
+  // Plugin Groups
+  getPluginGroups(): Promise<PluginGroupListResponse> {
+    return request.get('/api/datamanage/groups')
+  },
+
+  createPluginGroup(data: PluginGroupCreateRequest): Promise<PluginGroup> {
+    return request.post('/api/datamanage/groups', data)
+  },
+
+  getPluginGroup(groupId: string): Promise<PluginGroup> {
+    return request.get(`/api/datamanage/groups/${groupId}`)
+  },
+
+  updatePluginGroup(groupId: string, data: PluginGroupUpdateRequest): Promise<PluginGroup> {
+    return request.put(`/api/datamanage/groups/${groupId}`, data)
+  },
+
+  deletePluginGroup(groupId: string): Promise<void> {
+    return request.delete(`/api/datamanage/groups/${groupId}`)
+  },
+
+  triggerPluginGroup(groupId: string, data?: PluginGroupTriggerRequest): Promise<ScheduleExecutionRecord> {
+    return request.post(`/api/datamanage/groups/${groupId}/trigger`, data || {})
   }
 }

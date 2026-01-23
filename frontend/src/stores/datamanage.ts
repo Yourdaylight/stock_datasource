@@ -24,7 +24,13 @@ import {
   type PluginScheduleConfigRequest,
   type ScheduleExecutionRecord,
   type ScheduleHistoryResponse,
-  type PluginCategory
+  type PluginCategory,
+  type BatchExecutionDetail,
+  type PluginGroup,
+  type PluginGroupCreateRequest,
+  type PluginGroupUpdateRequest,
+  type PluginGroupListResponse,
+  type PluginGroupTriggerRequest
 } from '@/api/datamanage'
 
 export const useDataManageStore = defineStore('datamanage', () => {
@@ -330,6 +336,19 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
+  const retryScheduleExecution = async (executionId: string) => {
+    try {
+      const record = await datamanageApi.retryScheduleExecution(executionId)
+      // Refresh history and tasks
+      await fetchScheduleHistory()
+      await fetchSyncTasks()
+      return record
+    } catch (e) {
+      console.error('Failed to retry schedule execution:', e)
+      throw e
+    }
+  }
+
   const fetchScheduleHistory = async (days: number = 7, limit: number = 50) => {
     try {
       const response = await datamanageApi.getScheduleHistory(days, limit)
@@ -338,6 +357,108 @@ export const useDataManageStore = defineStore('datamanage', () => {
     } catch (e) {
       console.error('Failed to fetch schedule history:', e)
       return { items: [], total: 0 }
+    }
+  }
+
+  const fetchExecutionDetail = async (executionId: string): Promise<BatchExecutionDetail | null> => {
+    try {
+      return await datamanageApi.getExecutionDetail(executionId)
+    } catch (e) {
+      console.error('Failed to fetch execution detail:', e)
+      return null
+    }
+  }
+
+  const partialRetryExecution = async (executionId: string, taskIds?: string[]) => {
+    try {
+      const record = await datamanageApi.partialRetryExecution(executionId, taskIds)
+      // Refresh history and tasks
+      await fetchScheduleHistory()
+      await fetchSyncTasks()
+      return record
+    } catch (e) {
+      console.error('Failed to partial retry execution:', e)
+      throw e
+    }
+  }
+
+  const stopExecution = async (executionId: string) => {
+    try {
+      const record = await datamanageApi.stopExecution(executionId)
+      // Refresh history and tasks
+      await fetchScheduleHistory()
+      await fetchSyncTasks()
+      return record
+    } catch (e) {
+      console.error('Failed to stop execution:', e)
+      throw e
+    }
+  }
+
+  // ============ Plugin Groups ============
+  
+  const pluginGroups = ref<PluginGroup[]>([])
+  const pluginGroupsLoading = ref(false)
+
+  const fetchPluginGroups = async () => {
+    pluginGroupsLoading.value = true
+    try {
+      const response = await datamanageApi.getPluginGroups()
+      pluginGroups.value = response.items
+      return response
+    } catch (e) {
+      console.error('Failed to fetch plugin groups:', e)
+      return { items: [], total: 0 }
+    } finally {
+      pluginGroupsLoading.value = false
+    }
+  }
+
+  const createPluginGroup = async (data: PluginGroupCreateRequest) => {
+    try {
+      const group = await datamanageApi.createPluginGroup(data)
+      pluginGroups.value.push(group)
+      return group
+    } catch (e) {
+      console.error('Failed to create plugin group:', e)
+      throw e
+    }
+  }
+
+  const updatePluginGroup = async (groupId: string, data: PluginGroupUpdateRequest) => {
+    try {
+      const updated = await datamanageApi.updatePluginGroup(groupId, data)
+      const index = pluginGroups.value.findIndex(g => g.group_id === groupId)
+      if (index >= 0) {
+        pluginGroups.value[index] = updated
+      }
+      return updated
+    } catch (e) {
+      console.error('Failed to update plugin group:', e)
+      throw e
+    }
+  }
+
+  const deletePluginGroup = async (groupId: string) => {
+    try {
+      await datamanageApi.deletePluginGroup(groupId)
+      pluginGroups.value = pluginGroups.value.filter(g => g.group_id !== groupId)
+    } catch (e) {
+      console.error('Failed to delete plugin group:', e)
+      throw e
+    }
+  }
+
+  const triggerPluginGroup = async (groupId: string, request?: PluginGroupTriggerRequest) => {
+    try {
+      const record = await datamanageApi.triggerPluginGroup(groupId, request)
+      // Refresh history and tasks
+      await fetchScheduleHistory()
+      await fetchSyncTasks()
+      return record
+    } catch (e) {
+      console.error('Failed to trigger plugin group:', e)
+      throw e
     }
   }
 
@@ -398,6 +519,10 @@ export const useDataManageStore = defineStore('datamanage', () => {
     scheduleHistory,
     scheduleLoading,
     
+    // Plugin groups state
+    pluginGroups,
+    pluginGroupsLoading,
+    
     // Actions
     fetchDataSources,
     fetchSyncTasks,
@@ -427,6 +552,17 @@ export const useDataManageStore = defineStore('datamanage', () => {
     fetchPluginScheduleConfigs,
     updatePluginScheduleConfig,
     triggerScheduleNow,
-    fetchScheduleHistory
+    retryScheduleExecution,
+    fetchScheduleHistory,
+    fetchExecutionDetail,
+    partialRetryExecution,
+    stopExecution,
+    
+    // Plugin groups actions
+    fetchPluginGroups,
+    createPluginGroup,
+    updatePluginGroup,
+    deletePluginGroup,
+    triggerPluginGroup
   }
 })

@@ -1,5 +1,7 @@
 """Data management module router - Admin only access."""
 
+import uuid
+from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import List, Optional
 import logging
@@ -19,7 +21,10 @@ from .schemas import (
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
 from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_ALIASES
-from ...config.runtime_config import save_runtime_config
+from ...config.runtime_config import (
+    save_runtime_config, 
+    get_plugin_groups, get_plugin_group, save_plugin_group, delete_plugin_group
+)
 from ..auth.dependencies import require_admin
 
 logger = logging.getLogger(__name__)
@@ -97,6 +102,7 @@ async def trigger_sync(
     
     This endpoint checks plugin dependencies before creating the task.
     If dependencies are not satisfied, returns a 400 error with details.
+    Creates an execution record so single plugin syncs appear in batch task list.
     """
     # Check if plugin exists
     plugin = plugin_manager.get_plugin(request.plugin_name)
@@ -130,6 +136,13 @@ async def trigger_sync(
         user_id=current_user.get("id"),
         username=current_user.get("username"),
     )
+    
+    # Create execution record for single plugin sync
+    schedule_service.create_manual_execution(
+        task_ids=[task.task_id],
+        trigger_type="manual"
+    )
+    
     return task
 
 
@@ -570,7 +583,11 @@ async def get_proxy_config(current_user: dict = Depends(require_admin)):
 
 @router.put("/proxy/config", response_model=ProxyConfig)
 async def update_proxy_config(request: ProxyConfigRequest, current_user: dict = Depends(require_admin)):
-    """Update HTTP proxy configuration (runtime + persisted)."""
+    """Update HTTP proxy configuration (runtime + persisted).
+    
+    Note: Proxy is NOT applied globally. It will only be used
+    within data extraction tasks via proxy_context().
+    """
     from ...config.settings import settings
     
     # Update runtime settings
@@ -591,6 +608,8 @@ async def update_proxy_config(request: ProxyConfigRequest, current_user: dict = 
         })
     except Exception as e:
         logger.warning(f"Failed to persist proxy config: {e}")
+    
+    logger.info(f"Proxy config updated: enabled={request.enabled}, host={request.host}:{request.port} (used only for data extraction)")
     
     return ProxyConfig(
         enabled=settings.HTTP_PROXY_ENABLED,
@@ -678,7 +697,10 @@ from .schedule_service import schedule_service
 from .schemas import (
     ScheduleConfig, ScheduleConfigRequest,
     PluginScheduleConfig, PluginScheduleConfigRequest,
-    ScheduleExecutionRecord, ScheduleHistoryResponse
+    ScheduleExecutionRecord, ScheduleHistoryResponse,
+    BatchExecutionDetail, BatchTaskDetail,
+    PartialRetryRequest, PluginGroup, PluginGroupCreateRequest,
+    PluginGroupUpdateRequest, PluginGroupListResponse, PluginGroupTriggerRequest
 )
 
 
@@ -779,3 +801,253 @@ async def get_schedule_history(
         items=[ScheduleExecutionRecord(**r) for r in history],
         total=len(history)
     )
+
+
+@router.post("/schedule/retry/{execution_id}", response_model=ScheduleExecutionRecord)
+async def retry_schedule_execution(
+    execution_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """重新执行一个中断或失败的调度.
+    
+    仅支持重试状态为 interrupted 或 failed 的执行记录。
+    会创建一个新的调度执行，按依赖顺序重新同步所有启用的插件。
+    """
+    try:
+        record = schedule_service.retry_execution(execution_id)
+        return ScheduleExecutionRecord(**record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/schedule/execution/{execution_id}", response_model=BatchExecutionDetail)
+async def get_execution_detail(
+    execution_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """获取批量任务执行详情.
+    
+    返回执行记录的详细信息，包括所有子任务的状态和错误信息汇总。
+    错误汇总可以一键复制用于问题排查。
+    """
+    # First update execution status based on task statuses
+    schedule_service.update_execution_status(execution_id)
+    
+    detail = schedule_service.get_execution_detail(execution_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+    
+    # Convert tasks to BatchTaskDetail
+    tasks = [BatchTaskDetail(**t) for t in detail.get("tasks", [])]
+    
+    return BatchExecutionDetail(
+        execution_id=detail["execution_id"],
+        trigger_type=detail["trigger_type"],
+        started_at=detail["started_at"],
+        completed_at=detail.get("completed_at"),
+        status=detail["status"],
+        total_plugins=detail.get("total_plugins", 0),
+        completed_plugins=detail.get("completed_plugins", 0),
+        failed_plugins=detail.get("failed_plugins", 0),
+        tasks=tasks,
+        error_summary=detail.get("error_summary", ""),
+        group_name=detail.get("group_name")
+    )
+
+
+@router.post("/schedule/stop/{execution_id}", response_model=ScheduleExecutionRecord)
+async def stop_execution(
+    execution_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """停止正在执行的批量任务.
+    
+    取消所有待执行的子任务，正在运行的任务会继续完成。
+    """
+    try:
+        record = schedule_service.stop_execution(execution_id)
+        return ScheduleExecutionRecord(**record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/schedule/partial-retry/{execution_id}", response_model=ScheduleExecutionRecord)
+async def partial_retry_execution(
+    execution_id: str,
+    request: PartialRetryRequest = PartialRetryRequest(),
+    current_user: dict = Depends(require_admin)
+):
+    """部分重试批量任务中失败的插件.
+    
+    仅重试失败的任务，不重新执行成功的任务。
+    可选指定要重试的 task_ids，否则重试所有失败的任务。
+    """
+    try:
+        record = schedule_service.partial_retry_execution(
+            execution_id=execution_id,
+            task_ids=request.task_ids
+        )
+        return ScheduleExecutionRecord(**record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============ Plugin Groups Management ============
+
+
+@router.get("/groups", response_model=PluginGroupListResponse)
+async def list_plugin_groups(current_user: dict = Depends(require_admin)):
+    """获取所有自定义插件组合."""
+    groups = get_plugin_groups()
+    return PluginGroupListResponse(
+        items=[PluginGroup(**g) for g in groups],
+        total=len(groups)
+    )
+
+
+@router.post("/groups", response_model=PluginGroup)
+async def create_plugin_group(
+    request: PluginGroupCreateRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """创建自定义插件组合.
+    
+    将多个插件组合在一起，方便批量触发同步。
+    """
+    # Validate plugin names
+    for name in request.plugin_names:
+        if not plugin_manager.get_plugin(name):
+            raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
+    
+    # Check for duplicate name
+    existing = get_plugin_groups()
+    for g in existing:
+        if g.get("name") == request.name:
+            raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
+    
+    group = {
+        "group_id": str(uuid.uuid4())[:8],
+        "name": request.name,
+        "description": request.description,
+        "plugin_names": request.plugin_names,
+        "default_task_type": request.default_task_type.value,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": None,
+        "created_by": current_user.get("username", "admin")
+    }
+    
+    save_plugin_group(group)
+    return PluginGroup(**group)
+
+
+@router.get("/groups/{group_id}", response_model=PluginGroup)
+async def get_plugin_group_detail(
+    group_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """获取插件组合详情."""
+    group = get_plugin_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+    return PluginGroup(**group)
+
+
+@router.put("/groups/{group_id}", response_model=PluginGroup)
+async def update_plugin_group(
+    group_id: str,
+    request: PluginGroupUpdateRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """更新插件组合."""
+    group = get_plugin_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+    
+    # Validate plugin names if provided
+    if request.plugin_names:
+        for name in request.plugin_names:
+            if not plugin_manager.get_plugin(name):
+                raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
+        group["plugin_names"] = request.plugin_names
+    
+    # Check for duplicate name (if changing)
+    if request.name and request.name != group.get("name"):
+        existing = get_plugin_groups()
+        for g in existing:
+            if g.get("name") == request.name and g.get("group_id") != group_id:
+                raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
+        group["name"] = request.name
+    
+    if request.description is not None:
+        group["description"] = request.description
+    
+    if request.default_task_type is not None:
+        group["default_task_type"] = request.default_task_type.value
+    
+    group["updated_at"] = datetime.now().isoformat()
+    
+    save_plugin_group(group)
+    return PluginGroup(**group)
+
+
+@router.delete("/groups/{group_id}")
+async def delete_plugin_group_endpoint(
+    group_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """删除插件组合."""
+    success = delete_plugin_group(group_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+    return {"success": True, "message": "Group deleted"}
+
+
+@router.post("/groups/{group_id}/trigger", response_model=ScheduleExecutionRecord)
+async def trigger_plugin_group(
+    group_id: str,
+    request: PluginGroupTriggerRequest = PluginGroupTriggerRequest(),
+    current_user: dict = Depends(require_admin)
+):
+    """触发插件组合同步.
+    
+    按依赖顺序执行组合中的所有插件。
+    """
+    group = get_plugin_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+    
+    plugin_names = group.get("plugin_names", [])
+    if not plugin_names:
+        raise HTTPException(status_code=400, detail="Group has no plugins")
+    
+    # Create tasks for each plugin
+    task_ids = []
+    for name in plugin_names:
+        plugin = plugin_manager.get_plugin(name)
+        if not plugin:
+            continue
+        
+        try:
+            task = sync_task_manager.create_task(
+                plugin_name=name,
+                task_type=request.task_type,
+                trade_dates=request.trade_dates,
+                user_id=current_user.get("id"),
+                username=current_user.get("username"),
+            )
+            task_ids.append(task.task_id)
+        except Exception as e:
+            # Log but continue
+            pass
+    
+    if not task_ids:
+        raise HTTPException(status_code=400, detail="Failed to create any tasks")
+    
+    # Create execution record
+    record = schedule_service.create_manual_execution(
+        task_ids=task_ids,
+        trigger_type="group",
+        group_name=group.get("name")
+    )
+    
+    return ScheduleExecutionRecord(**record)

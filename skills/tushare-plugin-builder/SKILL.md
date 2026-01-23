@@ -36,6 +36,57 @@ description: This skill should be used when the user provides a Tushare API docu
 - 插入前添加 `version` 和 `_ingested_at` 列。
 - 转换数值类型，`trade_date` 转为 `Date`。
 
+#### 插件分类与角色
+必须实现以下方法指定插件的分类和角色：
+
+```python
+from stock_datasource.core.base_plugin import PluginCategory, PluginRole
+
+def get_category(self) -> PluginCategory:
+    """插件分类 - 按市场划分"""
+    return PluginCategory.CN_STOCK  # 或 HK_STOCK, INDEX, ETF_FUND, SYSTEM
+
+def get_role(self) -> PluginRole:
+    """插件角色"""
+    return PluginRole.PRIMARY  # 或 BASIC, DERIVED, AUXILIARY
+```
+
+**分类说明**：
+- `CN_STOCK`: A股相关数据
+- `HK_STOCK`: 港股相关数据
+- `INDEX`: 指数相关数据
+- `ETF_FUND`: ETF/基金相关数据
+- `SYSTEM`: 系统数据（如交易日历）
+
+**角色说明**：
+- `PRIMARY`: 主数据（如 daily 行情）
+- `BASIC`: 基础数据（如 stock_basic）
+- `DERIVED`: 衍生数据（如复权因子）
+- `AUXILIARY`: 辅助数据（如指数权重）
+
+#### 依赖配置
+在 `plugin.py` 中实现依赖方法（**不是在 config.json 中配置**）：
+
+```python
+def get_dependencies(self) -> List[str]:
+    """必须依赖 - 这些插件的数据必须存在才能运行当前插件。
+    
+    例如：tushare_daily 依赖 tushare_stock_basic 提供股票代码列表。
+    """
+    return ["tushare_stock_basic"]
+
+def get_optional_dependencies(self) -> List[str]:
+    """可选依赖 - 同步主插件时默认会同步这些依赖，用户可选择禁用。
+    
+    例如：tushare_daily 可选同步 tushare_adj_factor 复权因子。
+    """
+    return ["tushare_adj_factor"]
+```
+
+**依赖规则**：
+- 必须依赖：在运行当前插件前，会检查依赖插件表中是否有数据
+- 可选依赖：前端展示时会显示可勾选的关联插件，默认勾选
+
 ### 6) 实现 service 查询
 - 至少提供一个日期范围查询和一个最新数据查询。
 - **必须使用参数化查询**（禁止字符串拼接）。
@@ -43,7 +94,52 @@ description: This skill should be used when the user provides a Tushare API docu
 
 ### 7) 定义 schema/config
 - `schema.json`：使用 `ReplacingMergeTree`，`partition_by` 为 `toYYYYMM(trade_date)`，`order_by` 为主键。
-- `config.json`：包含 `rate_limit`、`timeout`、`retry_attempts` 和 `parameters_schema`。
+- `config.json`：包含完整的插件配置。
+
+#### config.json 完整结构
+```json
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "插件描述",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00",
+    "day_of_week": "monday"
+  },
+  "parameters": {
+    "max_empty_days": 5,
+    "validate_prices": true
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": true,
+      "description": "Trade date in YYYYMMDD format"
+    }
+  }
+}
+```
+
+**字段说明**：
+| 字段 | 必需 | 说明 |
+|------|------|------|
+| `enabled` | 是 | 是否启用插件 |
+| `rate_limit` | 是 | API 调用频率限制（次/分钟） |
+| `timeout` | 是 | 请求超时时间（秒） |
+| `retry_attempts` | 是 | 重试次数 |
+| `description` | 是 | 插件描述 |
+| `schedule` | 否 | 调度配置 |
+| `schedule.frequency` | 否 | 调度频率：`daily` 或 `weekly`，默认 `daily` |
+| `schedule.time` | 否 | 执行时间，格式 `HH:MM`，默认 `18:00` |
+| `schedule.day_of_week` | 否 | 仅 `weekly` 时有效，如 `monday` |
+| `parameters` | 否 | 插件特定参数 |
+| `parameters_schema` | 是 | 参数 schema，用于验证和前端展示 |
+
+**注意**：依赖配置（`dependencies`、`optional_dependencies`）**不在 config.json 中定义**，而是通过 `plugin.py` 中的 `get_dependencies()` 和 `get_optional_dependencies()` 方法实现。
 
 ### 8) 创建 ClickHouse 表
 - 根据 `schema.json` 生成 `CREATE TABLE` SQL。
@@ -192,6 +288,10 @@ python .codebuddy/skills/tushare-plugin-builder/scripts/validate_plugin.py --all
 **代码规范检查：**
 - [ ] plugin.py 实现了 extract/validate/transform/load 方法
 - [ ] plugin.py 添加了 version 和 _ingested_at 系统列
+- [ ] plugin.py 实现了 get_category() 返回正确的 PluginCategory
+- [ ] plugin.py 实现了 get_role() 返回正确的 PluginRole
+- [ ] plugin.py 实现了 get_dependencies()（返回空列表或依赖插件名）
+- [ ] plugin.py 实现了 get_optional_dependencies()（如有可选依赖）
 - [ ] extractor.py 使用了重试逻辑（tenacity）
 - [ ] service.py 使用参数化 SQL（无 SQL 注入风险）
 - [ ] service.py 包含查询方法（get_*/query_*/fetch_*）
@@ -254,9 +354,11 @@ python .codebuddy/skills/tushare-plugin-builder/scripts/verify_mcp_tool.py \
 ## 输出检查清单
 - [ ] 插件目录已创建，包含所有必需文件。
 - [ ] Extractor 使用 `proxy_context()` 和 `tushare` SDK。
+- [ ] Plugin 实现了 `get_category()` 和 `get_role()` 方法。
+- [ ] Plugin 实现了 `get_dependencies()` 和 `get_optional_dependencies()` 方法。
 - [ ] Service 使用参数化 SQL。
 - [ ] Schema 匹配 Tushare 输出字段。
-- [ ] Config 包含频率限制和参数 schema。
+- [ ] Config 包含频率限制、schedule 和参数 schema。
 - [ ] ClickHouse 表已创建，数据已入库。
 - [ ] 通过 SQL 查询验证 ClickHouse 中有数据。
 - [ ] HTTP 服务端点已通过 curl 测试。

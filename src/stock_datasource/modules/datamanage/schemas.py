@@ -423,15 +423,88 @@ class ScheduleExecutionRecord(BaseModel):
     trigger_type: str = "scheduled"              # scheduled, manual
     started_at: datetime
     completed_at: Optional[datetime] = None
-    status: str = "running"                      # running, completed, failed, skipped
+    status: str = "running"                      # running, completed, failed, skipped, interrupted
     skip_reason: Optional[str] = None            # 跳过原因（非交易日等）
     total_plugins: int = 0
     completed_plugins: int = 0
     failed_plugins: int = 0
     task_ids: List[str] = []                     # 关联的同步任务ID
+    can_retry: bool = False                      # 是否可以重试
 
 
 class ScheduleHistoryResponse(BaseModel):
     """Response for schedule history endpoint."""
     items: List[ScheduleExecutionRecord]
     total: int
+
+
+class BatchTaskDetail(BaseModel):
+    """批量任务中单个插件任务的详情."""
+    task_id: str
+    plugin_name: str
+    status: str
+    progress: float = 0
+    records_processed: int = 0
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class BatchExecutionDetail(BaseModel):
+    """批量任务执行详情，包含所有子任务."""
+    execution_id: str
+    trigger_type: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    status: str
+    total_plugins: int = 0
+    completed_plugins: int = 0
+    failed_plugins: int = 0
+    tasks: List[BatchTaskDetail] = []            # 所有子任务详情
+    error_summary: str = ""                      # 所有失败任务的错误信息汇总（用于一键复制）
+    group_name: Optional[str] = None             # 自定义组合名称（如果是组合触发的）
+
+
+class PartialRetryRequest(BaseModel):
+    """Request model for partial retry (only failed tasks)."""
+    task_ids: Optional[List[str]] = None         # 指定要重试的task_id列表，为空则重试所有失败的
+
+
+class PluginGroup(BaseModel):
+    """自定义插件组合."""
+    group_id: str
+    name: str
+    description: str = ""
+    plugin_names: List[str]
+    default_task_type: TaskType = TaskType.INCREMENTAL  # 默认同步类型
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    created_by: str = ""
+
+
+class PluginGroupCreateRequest(BaseModel):
+    """Request model for creating a plugin group."""
+    name: str = Field(..., min_length=1, max_length=50, description="组合名称")
+    description: str = Field(default="", max_length=200, description="组合描述")
+    plugin_names: List[str] = Field(..., min_length=1, description="插件列表")
+    default_task_type: TaskType = Field(default=TaskType.INCREMENTAL, description="默认同步类型")
+
+
+class PluginGroupUpdateRequest(BaseModel):
+    """Request model for updating a plugin group."""
+    name: Optional[str] = Field(None, min_length=1, max_length=50, description="组合名称")
+    description: Optional[str] = Field(None, max_length=200, description="组合描述")
+    plugin_names: Optional[List[str]] = Field(None, min_length=1, description="插件列表")
+    default_task_type: Optional[TaskType] = Field(None, description="默认同步类型")
+
+
+class PluginGroupListResponse(BaseModel):
+    """Response for plugin group list."""
+    items: List[PluginGroup]
+    total: int
+
+
+class PluginGroupTriggerRequest(BaseModel):
+    """Request model for triggering a plugin group sync."""
+    task_type: TaskType = TaskType.INCREMENTAL
+    trade_dates: Optional[List[str]] = None
