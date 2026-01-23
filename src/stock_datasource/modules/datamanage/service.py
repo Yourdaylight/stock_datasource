@@ -973,9 +973,14 @@ class SyncTaskManager:
                 time.sleep(0.5)
     
     def _execute_task_wrapper(self, task_id: str):
-        """Wrapper for task execution with cleanup."""
+        """Wrapper for task execution with cleanup and scoped proxy."""
+        from stock_datasource.core.proxy import proxy_context
+        
         try:
-            self._execute_task(task_id)
+            # Use proxy_context to apply proxy only during data extraction
+            # This ensures proxy is isolated to this task and doesn't affect global settings
+            with proxy_context():
+                self._execute_task(task_id)
         finally:
             with self._lock:
                 self._running_tasks.pop(task_id, None)

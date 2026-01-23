@@ -506,6 +506,25 @@ class BasePlugin(ABC):
                 elif 'Float64' in target_type or 'Int64' in target_type:
                     if col_name in data.columns:
                         data[col_name] = pd.to_numeric(data[col_name], errors='coerce')
+                
+                # Handle Enum type - ensure values are plain strings without quotes
+                elif 'Enum' in target_type:
+                    if col_name in data.columns:
+                        # Extract valid enum values from type definition
+                        # e.g., "Enum8('institution' = 1, 'hot_money' = 2, 'unknown' = 3)"
+                        import re
+                        enum_values = re.findall(r"'(\w+)'", target_type)
+                        if enum_values:
+                            # Ensure all values are valid enum values
+                            data[col_name] = data[col_name].astype(str).str.strip()
+                            # Replace invalid values with default (first enum value or 'unknown')
+                            default_value = 'unknown' if 'unknown' in enum_values else enum_values[0]
+                            invalid_mask = ~data[col_name].isin(enum_values)
+                            if invalid_mask.any():
+                                self.logger.warning(
+                                    f"Replacing {invalid_mask.sum()} invalid {col_name} values with '{default_value}'"
+                                )
+                                data.loc[invalid_mask, col_name] = default_value
         
         except Exception as e:
             self.logger.warning(f"Failed to prepare data for {table_name}: {e}")

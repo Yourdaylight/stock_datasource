@@ -92,50 +92,54 @@
       width="800px"
       :footer="false"
     >
-      <t-table :data="history" :loading="historyLoading" row-key="execution_id">
-        <t-table-column label="执行时间" prop="started_at" width="180">
-          <template #cell="{ row }">
-            {{ formatDateTime(row.started_at) }}
-          </template>
-        </t-table-column>
-        <t-table-column label="触发方式" prop="trigger_type" width="100">
-          <template #cell="{ row }">
-            <t-tag :theme="row.trigger_type === 'manual' ? 'warning' : 'primary'" variant="light" size="small">
-              {{ row.trigger_type === 'manual' ? '手动' : '定时' }}
-            </t-tag>
-          </template>
-        </t-table-column>
-        <t-table-column label="状态" prop="status" width="100">
-          <template #cell="{ row }">
-            <t-tag :theme="getStatusTheme(row.status)" variant="light" size="small">
-              {{ getStatusLabel(row.status) }}
-            </t-tag>
-          </template>
-        </t-table-column>
-        <t-table-column label="插件数" width="120">
-          <template #cell="{ row }">
-            <span v-if="row.status === 'skipped'">-</span>
-            <span v-else>
-              {{ row.completed_plugins }}/{{ row.total_plugins }}
-              <span v-if="row.failed_plugins > 0" class="failed-count">
-                ({{ row.failed_plugins }}失败)
-              </span>
+      <t-table 
+        :data="history" 
+        :loading="historyLoading" 
+        :columns="historyColumns"
+        row-key="execution_id"
+      >
+        <template #started_at="{ row }">
+          {{ formatDateTime(row.started_at) }}
+        </template>
+        <template #trigger_type="{ row }">
+          <t-tag :theme="row.trigger_type === 'manual' ? 'warning' : 'primary'" variant="light" size="small">
+            {{ row.trigger_type === 'manual' ? '手动' : '定时' }}
+          </t-tag>
+        </template>
+        <template #status="{ row }">
+          <t-tag :theme="getStatusTheme(row.status)" variant="light" size="small">
+            {{ getStatusLabel(row.status) }}
+          </t-tag>
+        </template>
+        <template #plugins_count="{ row }">
+          <span v-if="row.status === 'skipped'">-</span>
+          <span v-else>
+            {{ row.completed_plugins }}/{{ row.total_plugins }}
+            <span v-if="row.failed_plugins > 0" class="failed-count">
+              ({{ row.failed_plugins }}失败)
             </span>
-          </template>
-        </t-table-column>
-        <t-table-column label="完成时间" prop="completed_at" width="180">
-          <template #cell="{ row }">
-            {{ row.completed_at ? formatDateTime(row.completed_at) : '-' }}
-          </template>
-        </t-table-column>
-        <t-table-column label="备注">
-          <template #cell="{ row }">
-            <span v-if="row.skip_reason" class="skip-reason">{{ row.skip_reason }}</span>
-            <span v-else-if="row.task_ids?.length" class="task-count">
-              {{ row.task_ids.length }} 个任务
-            </span>
-          </template>
-        </t-table-column>
+          </span>
+        </template>
+        <template #completed_at="{ row }">
+          {{ row.completed_at ? formatDateTime(row.completed_at) : '-' }}
+        </template>
+        <template #remark="{ row }">
+          <span v-if="row.skip_reason" class="skip-reason">{{ row.skip_reason }}</span>
+          <span v-else-if="row.task_ids?.length" class="task-count">
+            {{ row.task_ids.length }} 个任务
+          </span>
+        </template>
+        <template #operation="{ row }">
+          <t-link 
+            v-if="row.can_retry" 
+            theme="primary" 
+            @click="handleRetryExecution(row.execution_id)"
+            :disabled="retrying"
+          >
+            重新执行
+          </t-link>
+          <span v-else class="no-action">-</span>
+        </template>
       </t-table>
     </t-dialog>
   </t-card>
@@ -163,9 +167,21 @@ const config = reactive<ScheduleConfig>({
 const executeTime = ref('18:00')
 const saving = ref(false)
 const triggering = ref(false)
+const retrying = ref(false)
 const showHistoryDialog = ref(false)
 const historyLoading = ref(false)
 const history = ref<ScheduleExecutionRecord[]>([])
+
+// History table columns
+const historyColumns = [
+  { colKey: 'started_at', title: '执行时间', width: 160 },
+  { colKey: 'trigger_type', title: '触发方式', width: 80 },
+  { colKey: 'status', title: '状态', width: 80 },
+  { colKey: 'plugins_count', title: '插件数', width: 100 },
+  { colKey: 'completed_at', title: '完成时间', width: 160 },
+  { colKey: 'remark', title: '备注', width: 120 },
+  { colKey: 'operation', title: '操作', width: 80 }
+]
 
 onMounted(async () => {
   await loadConfig()
@@ -236,6 +252,25 @@ const handleTriggerNow = async () => {
   }
 }
 
+const handleRetryExecution = async (executionId: string) => {
+  retrying.value = true
+  try {
+    const record = await store.retryScheduleExecution(executionId)
+    if (record.status === 'skipped') {
+      MessagePlugin.warning(`调度已跳过：${record.skip_reason}`)
+    } else {
+      MessagePlugin.success(`已创建 ${record.task_ids?.length || 0} 个同步任务`)
+    }
+    // Refresh history
+    const response = await store.fetchScheduleHistory(7, 50)
+    history.value = response.items || []
+  } catch (e: any) {
+    MessagePlugin.error(e?.message || '重新执行失败')
+  } finally {
+    retrying.value = false
+  }
+}
+
 const formatDateTime = (dateStr?: string) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -253,6 +288,7 @@ const getStatusTheme = (status: string) => {
     case 'completed': return 'success'
     case 'failed': return 'danger'
     case 'running': return 'warning'
+    case 'interrupted': return 'danger'
     case 'skipped': return 'default'
     default: return 'default'
   }
@@ -263,6 +299,7 @@ const getStatusLabel = (status: string) => {
     case 'completed': return '完成'
     case 'failed': return '失败'
     case 'running': return '执行中'
+    case 'interrupted': return '中断'
     case 'skipped': return '跳过'
     default: return status
   }
@@ -338,5 +375,9 @@ const getStatusLabel = (status: string) => {
 
 .task-count {
   color: var(--td-brand-color);
+}
+
+.no-action {
+  color: var(--td-text-color-placeholder);
 }
 </style>

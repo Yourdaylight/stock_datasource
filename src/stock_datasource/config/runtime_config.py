@@ -35,6 +35,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "plugin_schedules": {},  # plugin_name -> {"schedule_enabled": bool, "full_scan_enabled": bool}
     "schedule_history": [],  # List of ScheduleExecutionRecord dicts
+    "plugin_groups": [],     # List of PluginGroup dicts
 }
 
 _lock = threading.Lock()
@@ -145,3 +146,63 @@ def update_schedule_execution(execution_id: str, updates: Dict[str, Any]) -> Non
             record.update(updates)
             break
     save_runtime_config(schedule_history=history)
+
+
+# ============ Plugin Groups Management ============
+
+def get_plugin_groups() -> list:
+    """Get all plugin groups."""
+    config = load_runtime_config()
+    return config.get("plugin_groups", [])
+
+
+def get_plugin_group(group_id: str) -> Optional[Dict[str, Any]]:
+    """Get a specific plugin group by ID."""
+    groups = get_plugin_groups()
+    for group in groups:
+        if group.get("group_id") == group_id:
+            return group
+    return None
+
+
+def save_plugin_group(group: Dict[str, Any]) -> None:
+    """Save or update a plugin group."""
+    config = load_runtime_config()
+    groups = config.get("plugin_groups", [])
+    
+    # Find and update existing or append new
+    found = False
+    for i, g in enumerate(groups):
+        if g.get("group_id") == group.get("group_id"):
+            groups[i] = group
+            found = True
+            break
+    
+    if not found:
+        groups.append(group)
+    
+    _save_config(config, plugin_groups=groups)
+
+
+def delete_plugin_group(group_id: str) -> bool:
+    """Delete a plugin group by ID. Returns True if deleted."""
+    config = load_runtime_config()
+    groups = config.get("plugin_groups", [])
+    
+    initial_len = len(groups)
+    groups = [g for g in groups if g.get("group_id") != group_id]
+    
+    if len(groups) < initial_len:
+        _save_config(config, plugin_groups=groups)
+        return True
+    return False
+
+
+def _save_config(config: Dict[str, Any], **updates) -> None:
+    """Internal helper to save config with updates."""
+    with _lock:
+        for key, value in updates.items():
+            config[key] = value
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with CONFIG_PATH.open("w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2, default=str)

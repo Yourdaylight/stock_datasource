@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "rate_limit": 60,
   "timeout": 30,
   "retry_attempts": 3,
