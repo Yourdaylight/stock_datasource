@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 
 from stock_datasource.plugins import BasePlugin
+from stock_datasource.core.base_plugin import PluginCategory, PluginRole
 from .extractor import extractor
 
 
@@ -31,6 +32,14 @@ class AKShareHKStockListPlugin(BasePlugin):
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
         return config.get("rate_limit", 60)
+    
+    def get_category(self) -> PluginCategory:
+        """Get plugin category - 港股."""
+        return PluginCategory.HK_STOCK
+    
+    def get_role(self) -> PluginRole:
+        """Get plugin role - 基础数据."""
+        return PluginRole.BASIC
     
     def get_schema(self) -> Dict[str, Any]:
         """Get table schema from separate JSON file."""

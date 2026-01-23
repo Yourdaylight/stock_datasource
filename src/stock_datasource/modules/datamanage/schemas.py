@@ -30,10 +30,12 @@ class ScheduleFrequency(str, Enum):
 
 class PluginCategoryEnum(str, Enum):
     """Plugin category enum."""
-    STOCK = "stock"
-    INDEX = "index"
-    ETF_FUND = "etf_fund"
-    SYSTEM = "system"
+    CN_STOCK = "cn_stock"  # A股相关
+    HK_STOCK = "hk_stock"  # 港股相关
+    INDEX = "index"        # 指数相关
+    ETF_FUND = "etf_fund"  # ETF/基金相关
+    SYSTEM = "system"      # 系统数据
+    STOCK = "stock"        # 兼容旧值
 
 
 class PluginRoleEnum(str, Enum):
@@ -59,7 +61,7 @@ class TriggerSyncRequest(BaseModel):
 
 class ManualDetectRequest(BaseModel):
     """Request model for manual missing data detection."""
-    days: int = Field(default=30, ge=1, le=365)
+    days: int = Field(default=1825, ge=1, le=3650)  # Default 5 years, max 10 years
 
 
 class CheckDataExistsRequest(BaseModel):
@@ -364,3 +366,72 @@ class BatchSyncResponse(BaseModel):
     tasks: List[Dict[str, Any]]
     total_plugins: int
     execution_order: List[str]
+
+
+# ============================================
+# Schedule Management Models
+# ============================================
+
+class ScheduleFrequencyType(str, Enum):
+    """Schedule frequency type."""
+    DAILY = "daily"      # 每天执行
+    WEEKDAY = "weekday"  # 仅工作日执行
+
+
+class ScheduleConfig(BaseModel):
+    """全局调度配置."""
+    enabled: bool = False                        # 是否启用定时调度
+    cron_expression: str = "0 18 * * 1-5"        # Cron表达式：工作日18:00
+    execute_time: str = "18:00"                  # 执行时间 HH:MM
+    frequency: ScheduleFrequencyType = ScheduleFrequencyType.WEEKDAY  # 频率
+    include_optional_deps: bool = True           # 是否包含可选依赖
+    skip_non_trading_days: bool = True           # 是否跳过非交易日
+    last_run_at: Optional[datetime] = None       # 上次执行时间
+    next_run_at: Optional[datetime] = None       # 下次执行时间
+
+
+class ScheduleConfigRequest(BaseModel):
+    """Request model for updating schedule config."""
+    enabled: Optional[bool] = None
+    execute_time: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$", description="执行时间 HH:MM")
+    frequency: Optional[ScheduleFrequencyType] = None
+    include_optional_deps: Optional[bool] = None
+    skip_non_trading_days: Optional[bool] = None
+
+
+class PluginScheduleConfig(BaseModel):
+    """单个插件的调度配置."""
+    plugin_name: str
+    schedule_enabled: bool = True                # 是否加入定时任务
+    full_scan_enabled: bool = False              # 是否启用全量扫描
+    category: str = "cn_stock"                   # 分类
+    category_label: str = "A股"                  # 分类显示标签
+    role: str = "primary"                        # 角色
+    dependencies: List[str] = []                 # 依赖列表
+    optional_dependencies: List[str] = []        # 可选依赖
+
+
+class PluginScheduleConfigRequest(BaseModel):
+    """Request model for updating plugin schedule config."""
+    schedule_enabled: Optional[bool] = None
+    full_scan_enabled: Optional[bool] = None
+
+
+class ScheduleExecutionRecord(BaseModel):
+    """调度执行记录."""
+    execution_id: str
+    trigger_type: str = "scheduled"              # scheduled, manual
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    status: str = "running"                      # running, completed, failed, skipped
+    skip_reason: Optional[str] = None            # 跳过原因（非交易日等）
+    total_plugins: int = 0
+    completed_plugins: int = 0
+    failed_plugins: int = 0
+    task_ids: List[str] = []                     # 关联的同步任务ID
+
+
+class ScheduleHistoryResponse(BaseModel):
+    """Response for schedule history endpoint."""
+    items: List[ScheduleExecutionRecord]
+    total: int

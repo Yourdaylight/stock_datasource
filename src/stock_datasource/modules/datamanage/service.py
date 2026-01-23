@@ -33,7 +33,8 @@ class DataManageService:
         self.logger = logger.bind(component="DataManageService")
         self._missing_data_cache: Optional[MissingDataSummary] = None
         self._cache_time: Optional[datetime] = None
-        self._cache_ttl = 3600  # 1 hour cache
+        self._cache_days: Optional[int] = None  # Track cached days range
+        self._cache_ttl = 86400  # 24 hour cache (one day)
     
     def get_trading_days(self, days: int = 30, exchange: str = "SSE") -> List[str]:
         """Get recent trading days from TradeCalendarService.
@@ -189,9 +190,15 @@ class DataManageService:
         Returns:
             Summary of missing data
         """
-        # Check cache
+        # Check cache - invalidate if days range changed or cache expired
         if not force_refresh and self._missing_data_cache:
-            if self._cache_time and (datetime.now() - self._cache_time).seconds < self._cache_ttl:
+            cache_valid = (
+                self._cache_time and 
+                self._cache_days == days and
+                (datetime.now() - self._cache_time).total_seconds() < self._cache_ttl
+            )
+            if cache_valid:
+                self.logger.debug(f"Returning cached missing data (days={days})")
                 return self._missing_data_cache
         
         self.logger.info(f"Detecting missing data for last {days} trading days")
@@ -270,6 +277,7 @@ class DataManageService:
         # Update cache
         self._missing_data_cache = summary
         self._cache_time = datetime.now()
+        self._cache_days = days
         
         self.logger.info(f"Missing data detection complete: {plugins_with_missing}/{len(plugins_info)} plugins have missing data")
         return summary
@@ -773,6 +781,18 @@ class SyncTaskManager:
             ORDER BY (task_id)
             """
             db_client.execute_query(create_table_sql)
+            
+            # Ensure user_id and username columns exist (for migration from older schema)
+            try:
+                db_client.execute_query(
+                    "ALTER TABLE sync_task_history ADD COLUMN IF NOT EXISTS user_id Nullable(String)"
+                )
+                db_client.execute_query(
+                    "ALTER TABLE sync_task_history ADD COLUMN IF NOT EXISTS username Nullable(String)"
+                )
+            except Exception as alter_err:
+                self.logger.debug(f"Column migration (may already exist): {alter_err}")
+            
             self._db_initialized = True
             self.logger.info("sync_task_history table ensured")
         except Exception as e:

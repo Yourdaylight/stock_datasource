@@ -8,16 +8,17 @@ const emit = defineEmits<{
   (e: 'sync', pluginName: string, dates: string[]): void
 }>()
 
-// 检测天数选项
-const checkDays = ref(30)
+// 检测天数选项 - 默认5年(1825天)
+const checkDays = ref(1825)
 const daysOptions = [
-  { label: '7天', value: 7 },
-  { label: '15天', value: 15 },
   { label: '30天', value: 30 },
-  { label: '60天', value: 60 },
   { label: '90天', value: 90 },
   { label: '180天', value: 180 },
-  { label: '365天', value: 365 }
+  { label: '1年', value: 365 },
+  { label: '2年', value: 730 },
+  { label: '3年', value: 1095 },
+  { label: '5年', value: 1825 },
+  { label: '10年', value: 3650 }
 ]
 
 const summary = computed(() => dataStore.missingData)
@@ -67,7 +68,7 @@ const formatTime = (timeStr: string) => {
         <t-button 
           theme="default" 
           size="small" 
-          :loading="dataStore.loading"
+          :loading="dataStore.missingDataLoading"
           @click="handleRefresh"
         >
           刷新检测
@@ -75,7 +76,7 @@ const formatTime = (timeStr: string) => {
       </div>
     </div>
 
-    <t-loading :loading="dataStore.loading">
+    <t-loading :loading="dataStore.missingDataLoading">
       <div v-if="summary" class="summary-stats">
         <t-row :gutter="16">
           <t-col :span="4">

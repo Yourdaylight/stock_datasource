@@ -443,11 +443,207 @@ class InvalidDateError(TradeCalendarError):
 2. **Phase 2**: 更新 `datamanage/service.py` 使用新服务 ✅
 3. **Phase 3**: 更新插件依赖声明 ✅
 4. **Phase 4**: 增强 `PluginManager` 依赖检查 ✅
-5. **Phase 5**: 添加插件分类和角色 (NEW)
-6. **Phase 6**: 添加可选依赖支持 (NEW)
-7. **Phase 7**: 添加批量同步 API (NEW)
-8. **Phase 8**: 前端筛选和批量操作 (NEW)
-9. **Phase 9**: 移除旧代码，完成文档
+5. **Phase 5**: 调整插件分类（增加 cn_stock/hk_stock）
+6. **Phase 6**: 添加定时调度服务后端
+7. **Phase 7**: 添加定时调度 API
+8. **Phase 8**: 前端调度管理和批量操作 UI
+9. **Phase 9**: 添加操作说明和帮助提示
+10. **Phase 10**: 清理和测试
+
+## 定时调度设计 🆕
+
+### 调度服务架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     ScheduleService                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ScheduleConfig (持久化到 runtime_config.json)           │   │
+│  │  - enabled: bool (是否启用定时调度)                       │   │
+│  │  - cron_expression: str (执行时间)                        │   │
+│  │  - include_optional_deps: bool (是否包含可选依赖)          │   │
+│  │  - skip_non_trading_days: bool (是否跳过非交易日)          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PluginScheduleConfig (每个插件独立配置)                   │   │
+│  │  - plugin_name: str                                      │   │
+│  │  - schedule_enabled: bool (是否加入定时任务)              │   │
+│  │  - full_scan_enabled: bool (是否全量扫描)                 │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ScheduleExecutor (后台线程)                              │   │
+│  │  - 解析 cron 表达式，等待执行时间                          │   │
+│  │  - 检查是否为交易日                                        │   │
+│  │  - 获取启用的插件列表                                      │   │
+│  │  - 按依赖排序，创建批量任务                                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 数据模型
+
+```python
+# schemas.py 新增
+
+class ScheduleConfig(BaseModel):
+    """全局调度配置"""
+    enabled: bool = False                     # 是否启用定时调度
+    cron_expression: str = "0 18 * * 1-5"     # Cron: 工作日18:00
+    include_optional_deps: bool = True        # 包含可选依赖
+    skip_non_trading_days: bool = True        # 跳过非交易日
+    last_run_at: Optional[datetime] = None    # 上次执行时间
+    next_run_at: Optional[datetime] = None    # 下次执行时间
+
+class PluginScheduleConfig(BaseModel):
+    """插件调度配置"""
+    plugin_name: str
+    schedule_enabled: bool = True             # 是否加入定时任务
+    full_scan_enabled: bool = False           # 是否全量扫描
+    category: str                             # 分类
+    role: str                                 # 角色
+    dependencies: List[str] = []              # 依赖列表
+
+class ScheduleExecutionRecord(BaseModel):
+    """调度执行记录"""
+    execution_id: str
+    started_at: datetime
+    completed_at: Optional[datetime]
+    status: str                               # running, completed, failed
+    total_plugins: int
+    completed_plugins: int
+    failed_plugins: int
+    task_ids: List[str]                       # 关联的同步任务ID
+```
+
+### API 设计
+
+```python
+# router.py 新增
+
+# ============ 定时调度 ============
+
+@router.get("/schedule/config", response_model=ScheduleConfig)
+async def get_schedule_config():
+    """获取全局调度配置"""
+
+@router.put("/schedule/config", response_model=ScheduleConfig)
+async def update_schedule_config(request: ScheduleConfigRequest):
+    """更新全局调度配置
+    
+    - enabled: 是否启用定时调度
+    - cron_expression: Cron 表达式（如 "0 18 * * 1-5"）
+    - include_optional_deps: 是否包含可选依赖
+    - skip_non_trading_days: 是否跳过非交易日
+    """
+
+@router.get("/schedule/plugins", response_model=List[PluginScheduleConfig])
+async def get_plugin_schedule_configs(
+    category: Optional[str] = None  # 按分类筛选
+):
+    """获取所有插件的调度配置"""
+
+@router.put("/schedule/plugins/{name}", response_model=PluginScheduleConfig)
+async def update_plugin_schedule_config(
+    name: str,
+    request: PluginScheduleConfigRequest
+):
+    """更新单个插件的调度配置
+    
+    - schedule_enabled: 是否加入定时任务
+    - full_scan_enabled: 是否全量扫描
+    """
+
+@router.post("/schedule/trigger", response_model=ScheduleExecutionRecord)
+async def trigger_schedule_now():
+    """立即触发一次调度执行（不等待 cron 时间）"""
+
+@router.get("/schedule/history", response_model=List[ScheduleExecutionRecord])
+async def get_schedule_history(days: int = 7, limit: int = 50):
+    """获取调度执行历史"""
+```
+
+### 前端界面设计
+
+```vue
+<!-- SchedulePanel.vue - 调度管理面板 -->
+<template>
+  <el-card>
+    <template #header>
+      <div class="flex justify-between items-center">
+        <span class="text-lg font-bold">定时调度配置</span>
+        <el-switch v-model="config.enabled" @change="updateConfig" />
+      </div>
+    </template>
+    
+    <!-- 配置项 -->
+    <el-form label-width="140px">
+      <el-form-item label="执行时间">
+        <el-time-picker v-model="executeTime" format="HH:mm" />
+        <el-select v-model="frequency" class="ml-2">
+          <el-option label="每天" value="daily" />
+          <el-option label="仅工作日" value="weekday" />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="包含可选依赖">
+        <el-switch v-model="config.include_optional_deps" />
+        <el-tooltip content="如复权因子等衍生数据">
+          <el-icon class="ml-2"><QuestionFilled /></el-icon>
+        </el-tooltip>
+      </el-form-item>
+      
+      <el-form-item label="跳过非交易日">
+        <el-switch v-model="config.skip_non_trading_days" />
+      </el-form-item>
+    </el-form>
+    
+    <!-- 操作按钮 -->
+    <div class="flex gap-2 mt-4">
+      <el-button type="primary" @click="triggerNow">立即执行一次</el-button>
+      <el-button @click="showHistory">查看执行历史</el-button>
+    </div>
+    
+    <!-- 操作说明 -->
+    <el-alert type="info" :closable="false" class="mt-4">
+      <template #title>操作说明</template>
+      <ul class="list-disc ml-4 text-sm">
+        <li>定时调度会在每个交易日自动执行增量同步</li>
+        <li>插件按依赖顺序执行：基础数据 → 主数据 → 衍生数据</li>
+        <li>开启"全量扫描"会重新获取全部历史数据（耗时较长）</li>
+        <li>建议仅在数据异常时开启全量扫描</li>
+      </ul>
+    </el-alert>
+  </el-card>
+</template>
+```
+
+### 插件分类调整
+
+```python
+class PluginCategory(str, Enum):
+    """插件分类 - 按市场划分"""
+    CN_STOCK = "cn_stock"    # A股相关（原 stock）
+    HK_STOCK = "hk_stock"    # 港股相关（新增）
+    INDEX = "index"          # 指数相关
+    ETF_FUND = "etf_fund"    # ETF/基金相关
+    SYSTEM = "system"        # 系统数据
+
+# 分类映射（兼容旧值）
+CATEGORY_ALIASES = {
+    "stock": "cn_stock",  # 兼容旧分类
+}
+
+# 前端显示名称
+CATEGORY_LABELS = {
+    "cn_stock": "A股",
+    "hk_stock": "港股",
+    "index": "指数",
+    "etf_fund": "ETF基金",
+    "system": "系统",
+}
+```
 
 ## Testing Strategy
 
@@ -457,6 +653,8 @@ class InvalidDateError(TradeCalendarError):
 - `test_plugin_dependencies.py`: 插件依赖检查测试
 - `test_plugin_category.py`: 插件分类筛选测试
 - `test_batch_sync.py`: 批量同步测试
+- `test_schedule_service.py`: 定时调度服务测试 🆕
+- `test_schedule_executor.py`: 调度执行器测试 🆕
 
 ### 集成测试
 
@@ -464,3 +662,5 @@ class InvalidDateError(TradeCalendarError):
 - 测试自动执行依赖功能
 - 测试可选依赖关联同步
 - 测试批量同步按依赖顺序执行
+- 测试定时调度配置持久化 🆕
+- 测试调度执行（模拟非交易日跳过）🆕

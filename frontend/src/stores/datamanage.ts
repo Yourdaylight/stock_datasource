@@ -17,7 +17,14 @@ import {
   type BatchSyncResponse,
   type PluginFilterParams,
   type SyncTaskListResponse,
-  type SyncTaskQueryParams
+  type SyncTaskQueryParams,
+  type ScheduleConfig,
+  type ScheduleConfigRequest,
+  type PluginScheduleConfig,
+  type PluginScheduleConfigRequest,
+  type ScheduleExecutionRecord,
+  type ScheduleHistoryResponse,
+  type PluginCategory
 } from '@/api/datamanage'
 
 export const useDataManageStore = defineStore('datamanage', () => {
@@ -40,6 +47,13 @@ export const useDataManageStore = defineStore('datamanage', () => {
   const dataLoading = ref(false)
   const dependencyLoading = ref(false)
   const tasksLoading = ref(false)
+  const missingDataLoading = ref(false)
+  
+  // Schedule state
+  const scheduleConfig = ref<ScheduleConfig | null>(null)
+  const pluginScheduleConfigs = ref<PluginScheduleConfig[]>([])
+  const scheduleHistory = ref<ScheduleExecutionRecord[]>([])
+  const scheduleLoading = ref(false)
 
   // Data Sources
   const fetchDataSources = async () => {
@@ -129,25 +143,25 @@ export const useDataManageStore = defineStore('datamanage', () => {
   }
 
   // Missing Data
-  const fetchMissingData = async (days: number = 30, forceRefresh: boolean = false) => {
-    loading.value = true
+  const fetchMissingData = async (days: number = 365, forceRefresh: boolean = false) => {
+    missingDataLoading.value = true
     try {
       missingData.value = await datamanageApi.getMissingData(days, forceRefresh)
     } catch (e) {
       console.error('Failed to fetch missing data:', e)
     } finally {
-      loading.value = false
+      missingDataLoading.value = false
     }
   }
 
-  const triggerMissingDataDetection = async (days: number = 30) => {
-    loading.value = true
+  const triggerMissingDataDetection = async (days: number = 365) => {
+    missingDataLoading.value = true
     try {
       missingData.value = await datamanageApi.triggerMissingDataDetection(days)
     } catch (e) {
       console.error('Failed to trigger detection:', e)
     } finally {
-      loading.value = false
+      missingDataLoading.value = false
     }
   }
 
@@ -250,6 +264,83 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
+  // ============ Schedule Management ============
+  
+  const fetchScheduleConfig = async () => {
+    scheduleLoading.value = true
+    try {
+      scheduleConfig.value = await datamanageApi.getScheduleConfig()
+      return scheduleConfig.value
+    } catch (e) {
+      console.error('Failed to fetch schedule config:', e)
+      return null
+    } finally {
+      scheduleLoading.value = false
+    }
+  }
+
+  const updateScheduleConfig = async (config: ScheduleConfigRequest) => {
+    try {
+      scheduleConfig.value = await datamanageApi.updateScheduleConfig(config)
+      return scheduleConfig.value
+    } catch (e) {
+      console.error('Failed to update schedule config:', e)
+      throw e
+    }
+  }
+
+  const fetchPluginScheduleConfigs = async (category?: PluginCategory) => {
+    scheduleLoading.value = true
+    try {
+      pluginScheduleConfigs.value = await datamanageApi.getPluginScheduleConfigs(category)
+      return pluginScheduleConfigs.value
+    } catch (e) {
+      console.error('Failed to fetch plugin schedule configs:', e)
+      return []
+    } finally {
+      scheduleLoading.value = false
+    }
+  }
+
+  const updatePluginScheduleConfig = async (name: string, config: PluginScheduleConfigRequest) => {
+    try {
+      const updated = await datamanageApi.updatePluginScheduleConfig(name, config)
+      // Update in local state
+      const index = pluginScheduleConfigs.value.findIndex(p => p.plugin_name === name)
+      if (index >= 0) {
+        pluginScheduleConfigs.value[index] = updated
+      }
+      return updated
+    } catch (e) {
+      console.error('Failed to update plugin schedule config:', e)
+      throw e
+    }
+  }
+
+  const triggerScheduleNow = async () => {
+    try {
+      const record = await datamanageApi.triggerScheduleNow()
+      // Refresh history and tasks
+      await fetchScheduleHistory()
+      await fetchSyncTasks()
+      return record
+    } catch (e) {
+      console.error('Failed to trigger schedule:', e)
+      throw e
+    }
+  }
+
+  const fetchScheduleHistory = async (days: number = 7, limit: number = 50) => {
+    try {
+      const response = await datamanageApi.getScheduleHistory(days, limit)
+      scheduleHistory.value = response.items
+      return response
+    } catch (e) {
+      console.error('Failed to fetch schedule history:', e)
+      return { items: [], total: 0 }
+    }
+  }
+
   // Quality
   const fetchQualityMetrics = async () => {
     try {
@@ -299,6 +390,13 @@ export const useDataManageStore = defineStore('datamanage', () => {
     detailLoading,
     dataLoading,
     dependencyLoading,
+    missingDataLoading,
+    
+    // Schedule state
+    scheduleConfig,
+    pluginScheduleConfigs,
+    scheduleHistory,
+    scheduleLoading,
     
     // Actions
     fetchDataSources,
@@ -321,6 +419,14 @@ export const useDataManageStore = defineStore('datamanage', () => {
     batchTriggerSync,
     fetchQualityMetrics,
     startTaskPolling,
-    stopTaskPolling
+    stopTaskPolling,
+    
+    // Schedule actions
+    fetchScheduleConfig,
+    updateScheduleConfig,
+    fetchPluginScheduleConfigs,
+    updatePluginScheduleConfig,
+    triggerScheduleNow,
+    fetchScheduleHistory
   }
 })

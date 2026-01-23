@@ -18,7 +18,7 @@ from .schemas import (
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
-from ...core.base_plugin import PluginCategory, PluginRole
+from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_ALIASES
 from ...config.runtime_config import save_runtime_config
 from ..auth.dependencies import require_admin
 
@@ -218,7 +218,7 @@ async def get_sync_history(
 
 @router.get("/plugins", response_model=List[PluginInfo])
 async def get_plugins(
-    category: Optional[str] = Query(default=None, description="Filter by category: stock, index, etf_fund, system"),
+    category: Optional[str] = Query(default=None, description="Filter by category: cn_stock, hk_stock, index, etf_fund, system (or 'stock' for backward compatibility)"),
     role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary"),
     current_user: dict = Depends(require_admin),
 ):
@@ -227,11 +227,14 @@ async def get_plugins(
     
     # Apply filters
     if category:
+        # Handle category aliases (stock -> cn_stock)
+        resolved_category = CATEGORY_ALIASES.get(category, category)
         try:
-            cat_enum = PluginCategory(category)
-            plugins = [p for p in plugins if p.category == category]
+            cat_enum = PluginCategory(resolved_category)
+            # Filter by resolved category or original (for backward compat)
+            plugins = [p for p in plugins if p.category == resolved_category or p.category == category]
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}. Valid values: cn_stock, hk_stock, index, etf_fund, system")
     
     if role:
         try:
@@ -291,15 +294,27 @@ async def check_data_exists(name: str, request: CheckDataExistsRequest, current_
 @router.post("/plugins/{name}/enable")
 async def enable_plugin(name: str, current_user: dict = Depends(require_admin)):
     """Enable a plugin."""
-    # TODO: Implement plugin enable/disable in config
-    return {"success": True}
+    plugin = plugin_manager.get_plugin(name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
+    
+    success = plugin.set_enabled(True)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to enable plugin")
+    return {"success": True, "is_enabled": True}
 
 
 @router.post("/plugins/{name}/disable")
 async def disable_plugin(name: str, current_user: dict = Depends(require_admin)):
     """Disable a plugin."""
-    # TODO: Implement plugin enable/disable in config
-    return {"success": True}
+    plugin = plugin_manager.get_plugin(name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
+    
+    success = plugin.set_enabled(False)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to disable plugin")
+    return {"success": True, "is_enabled": False}
 
 
 # ============ Plugin Dependencies ============
@@ -655,3 +670,112 @@ async def test_proxy_connection(request: ProxyConfigRequest, current_user: dict 
             success=False,
             message=f"测试失败: {str(e)}"
         )
+
+
+# ============ Schedule Management ============
+
+from .schedule_service import schedule_service
+from .schemas import (
+    ScheduleConfig, ScheduleConfigRequest,
+    PluginScheduleConfig, PluginScheduleConfigRequest,
+    ScheduleExecutionRecord, ScheduleHistoryResponse
+)
+
+
+@router.get("/schedule/config", response_model=ScheduleConfig)
+async def get_schedule_config(current_user: dict = Depends(require_admin)):
+    """获取全局定时调度配置.
+    
+    返回调度是否启用、执行时间、频率等配置。
+    """
+    config = schedule_service.get_config()
+    return ScheduleConfig(**config)
+
+
+@router.put("/schedule/config", response_model=ScheduleConfig)
+async def update_schedule_config(
+    request: ScheduleConfigRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """更新全局定时调度配置.
+    
+    可配置项：
+    - enabled: 是否启用定时调度
+    - execute_time: 执行时间（HH:MM格式）
+    - frequency: 频率（daily/weekday）
+    - include_optional_deps: 是否包含可选依赖（如复权因子）
+    - skip_non_trading_days: 是否跳过非交易日
+    """
+    config = schedule_service.update_config(
+        enabled=request.enabled,
+        execute_time=request.execute_time,
+        frequency=request.frequency.value if request.frequency else None,
+        include_optional_deps=request.include_optional_deps,
+        skip_non_trading_days=request.skip_non_trading_days,
+    )
+    return ScheduleConfig(**config)
+
+
+@router.get("/schedule/plugins", response_model=List[PluginScheduleConfig])
+async def get_plugin_schedule_configs(
+    category: Optional[str] = Query(default=None, description="按分类筛选: cn_stock, hk_stock, index, etf_fund"),
+    current_user: dict = Depends(require_admin)
+):
+    """获取所有插件的调度配置.
+    
+    返回每个插件是否加入定时任务、是否启用全量扫描等配置。
+    按依赖顺序排序（basic → primary → derived → auxiliary）。
+    """
+    configs = schedule_service.get_plugin_configs(category=category)
+    return [PluginScheduleConfig(**cfg) for cfg in configs]
+
+
+@router.put("/schedule/plugins/{name}", response_model=PluginScheduleConfig)
+async def update_plugin_schedule_config(
+    name: str,
+    request: PluginScheduleConfigRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """更新单个插件的调度配置.
+    
+    可配置项：
+    - schedule_enabled: 是否加入定时任务（启用后每日自动同步）
+    - full_scan_enabled: 是否启用全量扫描（启用后重新获取全部历史数据）
+    """
+    try:
+        config = schedule_service.update_plugin_config(
+            plugin_name=name,
+            schedule_enabled=request.schedule_enabled,
+            full_scan_enabled=request.full_scan_enabled,
+        )
+        return PluginScheduleConfig(**config)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/schedule/trigger", response_model=ScheduleExecutionRecord)
+async def trigger_schedule_now(current_user: dict = Depends(require_admin)):
+    """立即触发一次调度执行.
+    
+    不等待 cron 时间，立即按依赖顺序创建同步任务。
+    如果是非交易日且配置了跳过非交易日，会返回 skipped 状态。
+    """
+    record = schedule_service.trigger_now(is_manual=True)
+    return ScheduleExecutionRecord(**record)
+
+
+@router.get("/schedule/history", response_model=ScheduleHistoryResponse)
+async def get_schedule_history(
+    days: int = Query(default=7, ge=1, le=30, description="查询天数"),
+    limit: int = Query(default=50, ge=1, le=200, description="返回条数"),
+    current_user: dict = Depends(require_admin)
+):
+    """获取调度执行历史.
+    
+    返回最近的调度执行记录，包括执行时间、状态、涉及的插件数量等。
+    """
+    history = schedule_service.get_history(days=days, limit=limit)
+    return ScheduleHistoryResponse(
+        items=[ScheduleExecutionRecord(**r) for r in history],
+        total=len(history)
+    )
