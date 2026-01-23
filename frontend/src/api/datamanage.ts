@@ -47,7 +47,7 @@ export interface QualityMetrics {
   latest_update?: string
 }
 
-export type PluginCategory = 'stock' | 'index' | 'etf_fund' | 'system'
+export type PluginCategory = 'cn_stock' | 'hk_stock' | 'index' | 'etf_fund' | 'system' | 'stock'
 export type PluginRole = 'primary' | 'basic' | 'derived' | 'auxiliary'
 
 export interface PluginInfo {
@@ -260,6 +260,62 @@ export interface PluginFilterParams {
   role?: PluginRole
 }
 
+// Schedule Management Types
+export type ScheduleFrequency = 'daily' | 'weekday'
+
+export interface ScheduleConfig {
+  enabled: boolean
+  cron_expression: string
+  execute_time: string
+  frequency: ScheduleFrequency
+  include_optional_deps: boolean
+  skip_non_trading_days: boolean
+  last_run_at?: string
+  next_run_at?: string
+}
+
+export interface ScheduleConfigRequest {
+  enabled?: boolean
+  execute_time?: string
+  frequency?: ScheduleFrequency
+  include_optional_deps?: boolean
+  skip_non_trading_days?: boolean
+}
+
+export interface PluginScheduleConfig {
+  plugin_name: string
+  schedule_enabled: boolean
+  full_scan_enabled: boolean
+  category: string
+  category_label: string
+  role: string
+  dependencies: string[]
+  optional_dependencies: string[]
+}
+
+export interface PluginScheduleConfigRequest {
+  schedule_enabled?: boolean
+  full_scan_enabled?: boolean
+}
+
+export interface ScheduleExecutionRecord {
+  execution_id: string
+  trigger_type: 'scheduled' | 'manual'
+  started_at: string
+  completed_at?: string
+  status: 'running' | 'completed' | 'failed' | 'skipped'
+  skip_reason?: string
+  total_plugins: number
+  completed_plugins: number
+  failed_plugins: number
+  task_ids: string[]
+}
+
+export interface ScheduleHistoryResponse {
+  items: ScheduleExecutionRecord[]
+  total: number
+}
+
 export interface SyncTaskListResponse {
   items: SyncTask[]
   total: number
@@ -435,5 +491,31 @@ export const datamanageApi = {
 
   testProxyConnection(config: ProxyConfig): Promise<ProxyTestResult> {
     return request.post('/api/datamanage/proxy/test', config)
+  },
+
+  // Schedule Management
+  getScheduleConfig(): Promise<ScheduleConfig> {
+    return request.get('/api/datamanage/schedule/config')
+  },
+
+  updateScheduleConfig(config: ScheduleConfigRequest): Promise<ScheduleConfig> {
+    return request.put('/api/datamanage/schedule/config', config)
+  },
+
+  getPluginScheduleConfigs(category?: PluginCategory): Promise<PluginScheduleConfig[]> {
+    const params = category ? `?category=${category}` : ''
+    return request.get(`/api/datamanage/schedule/plugins${params}`)
+  },
+
+  updatePluginScheduleConfig(name: string, config: PluginScheduleConfigRequest): Promise<PluginScheduleConfig> {
+    return request.put(`/api/datamanage/schedule/plugins/${name}`, config)
+  },
+
+  triggerScheduleNow(): Promise<ScheduleExecutionRecord> {
+    return request.post('/api/datamanage/schedule/trigger')
+  },
+
+  getScheduleHistory(days: number = 7, limit: number = 50): Promise<ScheduleHistoryResponse> {
+    return request.get(`/api/datamanage/schedule/history?days=${days}&limit=${limit}`)
   }
 }

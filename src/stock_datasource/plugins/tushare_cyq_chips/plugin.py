@@ -41,7 +41,7 @@ class TuShareCyqChipsPlugin(BasePlugin):
     
     def get_category(self) -> PluginCategory:
         """Get plugin category."""
-        return PluginCategory.STOCK
+        return PluginCategory.CN_STOCK
     
     def get_role(self) -> PluginRole:
         """Get plugin role."""

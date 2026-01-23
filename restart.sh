@@ -20,23 +20,57 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 1. 停止现有进程
 echo -e "${YELLOW}[1/4]${NC} 停止现有进程..."
 
-# 停止后端 (8000端口)
-BACKEND_PIDS=$(lsof -t -i :8000 2>/dev/null || true)
-if [ -n "$BACKEND_PIDS" ]; then
-    echo -e "  ${YELLOW}停止后端进程 (PID: $BACKEND_PIDS)${NC}"
-    kill -9 $BACKEND_PIDS 2>/dev/null || true
-    sleep 1
-else
+# 函数：安全停止指定类型的进程
+stop_process_safely() {
+    local port=$1
+    local process_pattern=$2
+    local desc=$3
+    
+    # 获取监听该端口的所有 PID
+    local pids=$(lsof -t -i :$port 2>/dev/null || true)
+    if [ -z "$pids" ]; then
+        return 0
+    fi
+    
+    local killed_pids=""
+    for pid in $pids; do
+        # 获取进程名称
+        local cmd=$(ps -p $pid -o comm= 2>/dev/null || true)
+        if [ -z "$cmd" ]; then
+            continue
+        fi
+        
+        # 只杀死匹配的进程类型，排除 ssh/sshd
+        if echo "$cmd" | grep -qE "$process_pattern" && ! echo "$cmd" | grep -qE "ssh|sshd"; then
+            killed_pids="$killed_pids $pid"
+        fi
+    done
+    
+    if [ -n "$killed_pids" ]; then
+        echo -e "  ${YELLOW}停止${desc}进程 (PID:$killed_pids)${NC}"
+        # 先发送 SIGTERM 优雅关闭
+        for pid in $killed_pids; do
+            kill -15 $pid 2>/dev/null || true
+        done
+        sleep 2
+        # 检查是否还在运行，如果是则强制杀死
+        for pid in $killed_pids; do
+            if ps -p $pid > /dev/null 2>&1; then
+                kill -9 $pid 2>/dev/null || true
+            fi
+        done
+    fi
+}
+
+# 停止后端 - 只杀死 python/uvicorn 进程
+stop_process_safely 8000 "python|uvicorn" "后端"
+if ! lsof -t -i :8000 > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓ 后端端口已释放${NC}"
 fi
 
-# 停止前端 (常见端口)
+# 停止前端 - 只杀死 node 进程
 for port in 3000 3001 3002 3003 3004 3005 5173; do
-    FRONTEND_PIDS=$(lsof -t -i :$port 2>/dev/null || true)
-    if [ -n "$FRONTEND_PIDS" ]; then
-        echo -e "  ${YELLOW}停止前端进程 (端口: $port, PID: $FRONTEND_PIDS)${NC}"
-        kill -9 $FRONTEND_PIDS 2>/dev/null || true
-    fi
+    stop_process_safely $port "node|npm|vite" "前端"
 done
 sleep 1
 echo ""

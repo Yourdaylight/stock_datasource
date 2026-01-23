@@ -12,6 +12,7 @@ import DiagnosisPanel from './components/DiagnosisPanel.vue'
 import SyncDialog from './components/SyncDialog.vue'
 import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
 import TaskDetailDialog from './components/TaskDetailDialog.vue'
+import SchedulePanel from './components/SchedulePanel.vue'
 import type { SyncTask } from '@/api/datamanage'
 
 const dataStore = useDataManageStore()
@@ -49,7 +50,8 @@ const taskSortOptions = [
 
 const categoryOptions = [
   { label: '全部类别', value: '' },
-  { label: '股票', value: 'stock' },
+  { label: 'A股', value: 'cn_stock' },
+  { label: '港股', value: 'hk_stock' },
   { label: '指数', value: 'index' },
   { label: 'ETF基金', value: 'etf_fund' },
   { label: '系统', value: 'system' }
@@ -147,7 +149,9 @@ const pluginColumns = [
 
 const getCategoryText = (category?: string) => {
   const map: Record<string, string> = {
-    stock: '股票',
+    cn_stock: 'A股',
+    hk_stock: '港股',
+    stock: 'A股',  // backward compatibility
     index: '指数',
     etf_fund: 'ETF基金',
     system: '系统'
@@ -167,7 +171,9 @@ const getRoleText = (role?: string) => {
 
 const getCategoryTheme = (category?: string) => {
   const map: Record<string, string> = {
-    stock: 'primary',
+    cn_stock: 'primary',
+    hk_stock: 'danger',
+    stock: 'primary',  // backward compatibility
     index: 'success',
     etf_fund: 'warning',
     system: 'default'
@@ -315,12 +321,31 @@ const formatTime = (timeStr?: string) => {
   return date.toLocaleString('zh-CN')
 }
 
+// Handle tab change - lazy load missing data only when quality tab is selected
+const handleTabChange = (value: string) => {
+  if (value === 'quality') {
+    // Check if we need to refresh missing data (once per day)
+    const lastCheckTime = dataStore.missingData?.check_time
+    if (lastCheckTime) {
+      const lastCheck = new Date(lastCheckTime)
+      const now = new Date()
+      const hoursSinceLastCheck = (now.getTime() - lastCheck.getTime()) / (1000 * 60 * 60)
+      // Only auto-refresh if last check was more than 24 hours ago
+      if (hoursSinceLastCheck < 24) {
+        return
+      }
+    }
+    // Lazy load missing data with default 5 years (1825 days)
+    dataStore.fetchMissingData(1825, false)
+  }
+}
+
 onMounted(() => {
   dataStore.fetchDataSources()
   dataStore.fetchSyncTasks()
   dataStore.fetchPlugins()
   dataStore.fetchQualityMetrics()
-  dataStore.fetchMissingData()
+  // Don't fetch missing data on mount - it will be fetched when quality tab is selected
 })
 </script>
 
@@ -329,15 +354,14 @@ onMounted(() => {
     <!-- Permission Check -->
     <template v-if="!isAdmin">
       <t-card class="no-permission-card">
-        <t-result
-          theme="warning"
-          title="无访问权限"
-          description="数据管理功能仅限管理员使用。如需访问，请联系系统管理员。"
-        >
-          <template #extra>
-            <t-button theme="primary" @click="$router.push('/')">返回首页</t-button>
-          </template>
-        </t-result>
+        <div class="permission-denied">
+          <t-icon name="error-circle" size="64px" style="color: var(--td-warning-color); margin-bottom: 16px" />
+          <h3 style="margin: 0 0 8px 0; font-size: 20px">无访问权限</h3>
+          <p style="margin: 0 0 24px 0; color: var(--td-text-color-secondary)">
+            数据管理功能仅限管理员使用。如需访问，请联系系统管理员。
+          </p>
+          <t-button theme="primary" @click="$router.push('/')">返回首页</t-button>
+        </div>
       </t-card>
     </template>
 
@@ -375,7 +399,7 @@ onMounted(() => {
 
     <!-- Main Content -->
     <t-card>
-      <t-tabs v-model="activeTab">
+      <t-tabs v-model="activeTab" @change="handleTabChange">
         <!-- Plugins Tab -->
         <t-tab-panel value="plugins" label="插件管理">
           <!-- Filter Bar -->
@@ -573,37 +597,42 @@ onMounted(() => {
 
         <!-- Quality Tab -->
         <t-tab-panel value="quality" label="数据质量">
-          <t-table
-            :data="dataStore.qualityMetrics"
-            :columns="qualityColumns"
-            :loading="dataStore.loading"
-            row-key="table_name"
-          >
-            <template #overall_score="{ row }">
-              <t-tag :theme="row.overall_score >= 80 ? 'success' : row.overall_score >= 60 ? 'warning' : 'danger'">
-                {{ row.overall_score.toFixed(1) }}%
-              </t-tag>
-            </template>
-            <template #completeness_score="{ row }">
-              {{ row.completeness_score.toFixed(1) }}%
-            </template>
-            <template #timeliness_score="{ row }">
-              {{ row.timeliness_score.toFixed(1) }}%
-            </template>
-            <template #record_count="{ row }">
-              {{ row.record_count.toLocaleString() }}
-            </template>
-          </t-table>
+          <!-- Missing Data Panel - 数据缺失检测 -->
+          <MissingDataPanel @sync="handleBackfill" style="margin-bottom: 16px" />
+          
+          <!-- Quality Metrics Table -->
+          <t-card title="质量指标" :bordered="false">
+            <t-table
+              :data="dataStore.qualityMetrics"
+              :columns="qualityColumns"
+              :loading="dataStore.loading"
+              row-key="table_name"
+            >
+              <template #overall_score="{ row }">
+                <t-tag :theme="row.overall_score >= 80 ? 'success' : row.overall_score >= 60 ? 'warning' : 'danger'">
+                  {{ row.overall_score.toFixed(1) }}%
+                </t-tag>
+              </template>
+              <template #completeness_score="{ row }">
+                {{ row.completeness_score.toFixed(1) }}%
+              </template>
+              <template #timeliness_score="{ row }">
+                {{ row.timeliness_score.toFixed(1) }}%
+              </template>
+              <template #record_count="{ row }">
+                {{ row.record_count.toLocaleString() }}
+              </template>
+            </t-table>
+          </t-card>
         </t-tab-panel>
 
         <!-- Settings Tab -->
         <t-tab-panel value="settings" label="配置">
+          <SchedulePanel />
           <ProxyConfigPanel />
         </t-tab-panel>
       </t-tabs>
     </t-card>
-    <!-- Missing Data Panel -->
-    <MissingDataPanel @sync="handleBackfill" />
 
     <!-- AI Diagnosis Panel -->
     <DiagnosisPanel />
@@ -666,5 +695,10 @@ onMounted(() => {
   max-width: 500px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.permission-denied {
+  text-align: center;
+  padding: 40px 20px;
 }
 </style>

@@ -13,11 +13,30 @@ from stock_datasource.utils.logger import logger
 
 
 class PluginCategory(str, Enum):
-    """Plugin category enum."""
-    STOCK = "stock"        # 股票相关
+    """Plugin category enum - 按市场划分."""
+    CN_STOCK = "cn_stock"  # A股相关
+    HK_STOCK = "hk_stock"  # 港股相关
     INDEX = "index"        # 指数相关
     ETF_FUND = "etf_fund"  # ETF/基金相关（合并为一类）
     SYSTEM = "system"      # 系统数据（如交易日历）
+    # 兼容旧值
+    STOCK = "stock"        # 已废弃，请使用 CN_STOCK
+
+
+# 分类别名映射（兼容旧分类）
+CATEGORY_ALIASES = {
+    "stock": "cn_stock",
+}
+
+# 前端显示标签
+CATEGORY_LABELS = {
+    "cn_stock": "A股",
+    "hk_stock": "港股",
+    "index": "指数",
+    "etf_fund": "ETF基金",
+    "system": "系统",
+    "stock": "A股",  # 兼容
+}
 
 
 class PluginRole(str, Enum):
@@ -164,9 +183,9 @@ class BasePlugin(ABC):
         """Get plugin category.
         
         Subclasses should override this to specify their category.
-        Default: STOCK
+        Default: CN_STOCK (A股)
         """
-        return PluginCategory.STOCK
+        return PluginCategory.CN_STOCK
     
     def get_role(self) -> PluginRole:
         """Get plugin role.
@@ -212,6 +231,31 @@ class BasePlugin(ABC):
         """Check if plugin is enabled."""
         config = self.get_config()
         return config.get("enabled", True)
+    
+    def set_enabled(self, enabled: bool) -> bool:
+        """Set plugin enabled state.
+        
+        Args:
+            enabled: Whether to enable or disable the plugin
+            
+        Returns:
+            True if state was changed successfully
+        """
+        try:
+            config_file = self._get_plugin_dir() / "config.json"
+            config = self.get_config().copy()
+            config["enabled"] = enabled
+            
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            # Update cached config
+            self._config = config
+            self.logger.info(f"Plugin {self.name} {'enabled' if enabled else 'disabled'}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to set enabled state: {e}")
+            return False
     
     def get_rate_limit(self) -> int:
         """Get plugin-specific rate limit."""
