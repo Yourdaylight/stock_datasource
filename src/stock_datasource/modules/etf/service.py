@@ -222,7 +222,7 @@ class EtfService(BaseListService):
         count_query = f"""
             SELECT count(*) as cnt
             FROM ods_etf_fund_daily d
-            LEFT JOIN ods_etf_basic FINAL b ON d.ts_code = b.ts_code
+            LEFT JOIN (SELECT * FROM ods_etf_basic FINAL) b ON d.ts_code = b.ts_code
             WHERE {where_clause}
         """
         count_df = db.execute_query(count_query)
@@ -257,7 +257,7 @@ class EtfService(BaseListService):
                 b.etf_type,
                 b.mgt_fee
             FROM ods_etf_fund_daily d
-            LEFT JOIN ods_etf_basic FINAL b ON d.ts_code = b.ts_code
+            LEFT JOIN (SELECT * FROM ods_etf_basic FINAL) b ON d.ts_code = b.ts_code
             WHERE {where_clause}
             ORDER BY {sort_field} {sort_direction}
             LIMIT {page_size} OFFSET {offset}

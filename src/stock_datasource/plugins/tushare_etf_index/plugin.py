@@ -112,11 +112,14 @@ class TuShareETFIndexPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
-        # Convert date columns
+        # Convert date columns to YYYY-MM-DD string format
+        # (using String type to avoid ClickHouse Date type range limitation: 1970-2149)
         date_columns = ['pub_date', 'base_date']
         for col in date_columns:
             if col in data.columns:
-                data[col] = pd.to_datetime(data[col], format='%Y%m%d', errors='coerce').dt.date
+                # Convert YYYYMMDD to YYYY-MM-DD string
+                data[col] = pd.to_datetime(data[col], format='%Y%m%d', errors='coerce')
+                data[col] = data[col].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '')
         
         # Convert numeric columns
         if 'bp' in data.columns:

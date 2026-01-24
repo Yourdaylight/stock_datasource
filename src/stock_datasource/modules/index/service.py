@@ -126,7 +126,7 @@ class IndexService:
         count_query = f"""
         SELECT count() as total
         FROM ods_idx_factor_pro d
-        INNER JOIN dim_index_basic FINAL b ON d.ts_code = b.ts_code
+        INNER JOIN (SELECT * FROM dim_index_basic FINAL) b ON d.ts_code = b.ts_code
         WHERE {where_sql}
         """
         count_result = _execute_query(count_query)
@@ -161,7 +161,7 @@ class IndexService:
             d.vol AS vol,
             d.amount AS amount
         FROM ods_idx_factor_pro d
-        INNER JOIN dim_index_basic FINAL b ON d.ts_code = b.ts_code
+        INNER JOIN (SELECT * FROM dim_index_basic FINAL) b ON d.ts_code = b.ts_code
         WHERE {where_sql}
         ORDER BY d.amount DESC NULLS LAST, b.ts_code ASC
         LIMIT {page_size}

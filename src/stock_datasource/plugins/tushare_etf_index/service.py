@@ -177,12 +177,14 @@ class ETFIndexService:
         Returns:
             Statistics including total count, publisher count, etc.
         """
+        # pub_date and base_date are stored as String (YYYY-MM-DD format)
+        # Filter out empty strings for date aggregations
         query = f"""
             SELECT 
                 count() as total_count,
                 count(DISTINCT pub_party_name) as publisher_count,
-                min(pub_date) as earliest_pub_date,
-                max(pub_date) as latest_pub_date,
+                min(CASE WHEN pub_date != '' THEN pub_date ELSE NULL END) as earliest_pub_date,
+                max(CASE WHEN pub_date != '' THEN pub_date ELSE NULL END) as latest_pub_date,
                 avg(bp) as avg_base_point
             FROM {self.TABLE_NAME}
         """

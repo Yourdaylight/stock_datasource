@@ -1,6 +1,6 @@
 """FastAPI router for ETF module."""
 
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Query, HTTPException
 import logging
 
@@ -18,6 +18,96 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ============ ETF Index (基准指数) API ============
+
+def _get_etf_index_service():
+    """Get ETF Index service instance."""
+    from stock_datasource.plugins.tushare_etf_index.service import get_service
+    return get_service()
+
+
+@router.get("/benchmark-indices", summary="获取ETF基准指数列表")
+async def get_benchmark_indices(
+    keyword: Optional[str] = Query(None, description="名称搜索关键词"),
+    publisher: Optional[str] = Query(None, description="发布机构筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+) -> Dict[str, Any]:
+    """获取ETF基准指数列表，支持分页和筛选。"""
+    try:
+        service = _get_etf_index_service()
+        
+        # Get all data and apply filters
+        if keyword:
+            all_data = service.search_by_name(keyword, limit=1000)
+        elif publisher:
+            all_data = service.get_by_publisher(publisher, limit=1000)
+        else:
+            all_data = service.get_all(limit=2000)
+        
+        # Calculate pagination
+        total = len(all_data)
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = all_data[start:end]
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    except Exception as e:
+        logger.error(f"Failed to get benchmark indices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/publishers", summary="获取基准指数发布机构列表")
+async def get_benchmark_publishers() -> List[Dict[str, Any]]:
+    """获取所有基准指数发布机构。"""
+    try:
+        service = _get_etf_index_service()
+        publishers = service.get_publishers()
+        return [
+            {"value": p["pub_party_name"], "label": p["pub_party_name"], "count": p["index_count"]}
+            for p in publishers
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get publishers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/statistics", summary="获取基准指数统计信息")
+async def get_benchmark_statistics() -> Dict[str, Any]:
+    """获取ETF基准指数统计信息。"""
+    try:
+        service = _get_etf_index_service()
+        return service.get_statistics()
+    except Exception as e:
+        logger.error(f"Failed to get statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/{ts_code}", summary="获取基准指数详情")
+async def get_benchmark_index_detail(ts_code: str) -> Dict[str, Any]:
+    """获取指定基准指数的详细信息。"""
+    try:
+        service = _get_etf_index_service()
+        result = service.get_by_ts_code(ts_code)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Benchmark index {ts_code} not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get benchmark index detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ ETF Basic API ============
 
 
 @router.get("/etfs", response_model=EtfListResponse, summary="获取ETF列表")

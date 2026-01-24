@@ -278,5 +278,72 @@ export const etfApi = {
   // Quick analysis (without AI)
   getQuickAnalysis(tsCode: string): Promise<QuickAnalysisResult> {
     return request.get(`/api/etf/etfs/${tsCode}/quick-analysis`)
+  },
+
+  // ============ Benchmark Index API ============
+  
+  // Get benchmark indices list
+  getBenchmarkIndices(params: {
+    keyword?: string
+    publisher?: string
+    page?: number
+    page_size?: number
+  } = {}): Promise<BenchmarkIndexListResponse> {
+    const queryParams = new URLSearchParams()
+    if (params.keyword) queryParams.append('keyword', params.keyword)
+    if (params.publisher) queryParams.append('publisher', params.publisher)
+    if (params.page) queryParams.append('page', params.page.toString())
+    if (params.page_size) queryParams.append('page_size', params.page_size.toString())
+    const queryString = queryParams.toString()
+    return request.get(`/api/etf/benchmark-indices${queryString ? '?' + queryString : ''}`)
+  },
+
+  // Get benchmark index publishers
+  getBenchmarkPublishers(): Promise<PublisherOption[]> {
+    return request.get('/api/etf/benchmark-indices/publishers')
+  },
+
+  // Get benchmark index statistics
+  getBenchmarkStatistics(): Promise<BenchmarkStatistics> {
+    return request.get('/api/etf/benchmark-indices/statistics')
+  },
+
+  // Get benchmark index detail
+  getBenchmarkIndexDetail(tsCode: string): Promise<BenchmarkIndexInfo> {
+    return request.get(`/api/etf/benchmark-indices/${tsCode}`)
   }
+}
+
+// Benchmark Index types
+export interface BenchmarkIndexInfo {
+  ts_code: string
+  indx_name?: string
+  indx_csname?: string
+  pub_party_name?: string
+  pub_date?: string
+  base_date?: string
+  bp?: number
+  adj_circle?: string
+}
+
+export interface BenchmarkIndexListResponse {
+  items: BenchmarkIndexInfo[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface PublisherOption {
+  value: string
+  label: string
+  count: number
+}
+
+export interface BenchmarkStatistics {
+  total_count: number
+  publisher_count: number
+  earliest_pub_date?: string
+  latest_pub_date?: string
+  avg_base_point?: number
 }

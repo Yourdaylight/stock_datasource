@@ -48,7 +48,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/etf',
     name: 'ETF',
-    component: () => import('@/views/etf/EtfScreenerView.vue'),
+    component: () => import('@/views/etf/EtfView.vue'),
     meta: { title: '智能选ETF', icon: 'control-platform', requiresAuth: true }
   },
   {
