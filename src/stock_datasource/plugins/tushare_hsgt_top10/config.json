@@ -1,0 +1,23 @@
+{
+  "plugin_name": "tushare_hsgt_top10",
+  "display_name": "沪深股通十大成交股",
+  "description": "获取沪股通、深股通每日前十大成交详细数据",
+  "api_name": "hsgt_top10",
+  "category": "CN_STOCK",
+  "role": "AUXILIARY",
+  "update_frequency": "daily",
+  "update_time": "18:00-20:00",
+  "fields": [
+    "trade_date",
+    "ts_code",
+    "name",
+    "close",
+    "change",
+    "rank",
+    "market_type",
+    "amount",
+    "net_amount",
+    "buy",
+    "sell"
+  ]
+}

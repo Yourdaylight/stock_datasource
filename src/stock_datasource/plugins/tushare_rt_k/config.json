@@ -1,0 +1,15 @@
+{
+  "plugin_name": "tushare_rt_k",
+  "display_name": "沪深京实时日线",
+  "description": "获取沪深京市场的实时日K线行情，包含当日开盘以来的价格信息、成交数据及买卖盘口数据",
+  "api_name": "rt_k",
+  "rate_limit": 120,
+  "required_points": "单独开权限",
+  "max_records_per_call": 6000,
+  "update_schedule": "realtime",
+  "update_time": "交易时段",
+  "category": "CN_STOCK",
+  "role": "PRIMARY",
+  "tags": ["realtime", "kline", "daily", "quote"],
+  "dependencies": []
+}

@@ -1,0 +1,15 @@
+{
+  "plugin_name": "tushare_stk_mins",
+  "display_name": "A股历史分钟行情",
+  "description": "获取A股分钟级历史数据，支持1min/5min/15min/30min/60min多种频度，可提供超过10年历史数据",
+  "api_name": "stk_mins",
+  "rate_limit": 120,
+  "required_points": "单独开权限",
+  "max_records_per_call": 8000,
+  "update_schedule": "daily",
+  "update_time": "18:00",
+  "category": "CN_STOCK",
+  "role": "PRIMARY",
+  "tags": ["minute", "kline", "history", "quote"],
+  "dependencies": []
+}

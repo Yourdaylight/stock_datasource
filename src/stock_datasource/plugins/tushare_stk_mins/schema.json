@@ -1,0 +1,20 @@
+{
+  "table_name": "ods_stk_mins",
+  "engine": "ReplacingMergeTree(version)",
+  "partition_by": "toYYYYMM(trade_time)",
+  "order_by": ["ts_code", "freq", "trade_time"],
+  "comment": "A股历史分钟行情 from TuShare stk_mins API",
+  "columns": [
+    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "股票代码"},
+    {"name": "freq", "type": "LowCardinality(String)", "comment": "分钟频度(1min/5min/15min/30min/60min)"},
+    {"name": "trade_time", "type": "DateTime", "comment": "交易时间"},
+    {"name": "open", "type": "Nullable(Float64)", "comment": "开盘价"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价"},
+    {"name": "high", "type": "Nullable(Float64)", "comment": "最高价"},
+    {"name": "low", "type": "Nullable(Float64)", "comment": "最低价"},
+    {"name": "vol", "type": "Nullable(Int64)", "comment": "成交量(股)"},
+    {"name": "amount", "type": "Nullable(Float64)", "comment": "成交金额(元)"},
+    {"name": "version", "type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "type": "DateTime", "default": "now()", "comment": "数据入库时间"}
+  ]
+}

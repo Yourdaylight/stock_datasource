@@ -1,0 +1,26 @@
+{
+  "plugin_name": "tushare_weekly",
+  "display_name": "周线行情",
+  "description": "获取A股周线行情数据",
+  "api_name": "weekly",
+  "category": "CN_STOCK",
+  "role": "PRIMARY",
+  "min_points": 2000,
+  "rate_limit": {
+    "max_rows_per_call": 6000
+  },
+  "update_frequency": "weekly",
+  "fields": [
+    "ts_code",
+    "trade_date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "pre_close",
+    "change",
+    "pct_chg",
+    "vol",
+    "amount"
+  ]
+}

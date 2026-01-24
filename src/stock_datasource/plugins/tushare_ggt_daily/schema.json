@@ -1,0 +1,15 @@
+{
+  "table_name": "ods_ggt_daily",
+  "database": "stock_datasource",
+  "engine": "ReplacingMergeTree()",
+  "partition_by": "substring(trade_date, 1, 4)",
+  "order_by": ["trade_date"],
+  "comment": "港股通每日成交统计数据",
+  "columns": [
+    {"name": "trade_date", "type": "String", "comment": "交易日期"},
+    {"name": "buy_amount", "type": "Nullable(Float64)", "comment": "买入成交金额(亿元)"},
+    {"name": "buy_volume", "type": "Nullable(Float64)", "comment": "买入成交笔数(万笔)"},
+    {"name": "sell_amount", "type": "Nullable(Float64)", "comment": "卖出成交金额(亿元)"},
+    {"name": "sell_volume", "type": "Nullable(Float64)", "comment": "卖出成交笔数(万笔)"}
+  ]
+}

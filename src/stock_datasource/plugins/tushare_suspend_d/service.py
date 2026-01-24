@@ -1,128 +1,166 @@
-"""TuShare suspension information query service."""
+"""每日停复牌信息查询服务"""
 
-from typing import Any, Dict, List, Optional
-import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+from typing import Any
 
-
-def _convert_to_json_serializable(obj: Any) -> Any:
-    """Convert non-JSON-serializable objects to JSON-compatible types."""
-    if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
-    elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
-    elif isinstance(obj, list):
-        return [_convert_to_json_serializable(item) for item in obj]
-    elif pd.isna(obj):
-        return None
-    return obj
+from stock_datasource.models.database import db_client, ClickHouseClient
+from stock_datasource.config.settings import settings
 
 
-class TuShareSuspendDService(BaseService):
-    """Query service for TuShare suspension information."""
-    
-    def __init__(self):
-        super().__init__("tushare_suspend_d")
-    
-    @query_method(
-        description="Query suspension information by code and date range",
-        params=[
-            QueryParam(
-                name="code",
-                type="str",
-                description="Stock code, e.g., 000001.SZ",
-                required=True,
-            ),
-            QueryParam(
-                name="start_date",
-                type="str",
-                description="Start date in YYYYMMDD format",
-                required=True,
-            ),
-            QueryParam(
-                name="end_date",
-                type="str",
-                description="End date in YYYYMMDD format",
-                required=True,
-            ),
-        ]
-    )
-    def get_suspend_info(\
+class SuspendDService:
+    """每日停复牌信息查询服务"""
+
+    def __init__(self, use_backup: bool = False):
+        """初始化服务"""
+        if use_backup and settings.BACKUP_CLICKHOUSE_HOST:
+            self.client = ClickHouseClient(
+                host=settings.BACKUP_CLICKHOUSE_HOST,
+                port=settings.BACKUP_CLICKHOUSE_PORT,
+                user=settings.BACKUP_CLICKHOUSE_USER,
+                password=settings.BACKUP_CLICKHOUSE_PASSWORD,
+                database=settings.BACKUP_CLICKHOUSE_DATABASE,
+                name="backup"
+            )
+        else:
+            self.client = db_client.primary
+        self.table = "stock_datasource.ods_suspend_d"
+
+    def get_suspended_stocks(
         self,
-        code: str,
+        trade_date: str,
+    ) -> list[dict[str, Any]]:
+        """
+        获取指定日期停牌股票
+
+        Args:
+            trade_date: 交易日期
+
+        Returns:
+            停牌股票列表
+        """
+        query = f"""
+            SELECT *
+            FROM {self.table}
+            WHERE trade_date = %(trade_date)s
+              AND suspend_type = 'S'
+            ORDER BY ts_code
+        """
+
+        df = self.client.execute_query(query, {"trade_date": trade_date})
+        return df.to_dict(orient="records")
+
+    def get_resumed_stocks(
+        self,
+        trade_date: str,
+    ) -> list[dict[str, Any]]:
+        """
+        获取指定日期复牌股票
+
+        Args:
+            trade_date: 交易日期
+
+        Returns:
+            复牌股票列表
+        """
+        query = f"""
+            SELECT *
+            FROM {self.table}
+            WHERE trade_date = %(trade_date)s
+              AND suspend_type = 'R'
+            ORDER BY ts_code
+        """
+
+        df = self.client.execute_query(query, {"trade_date": trade_date})
+        return df.to_dict(orient="records")
+
+    def get_stock_suspend_history(
+        self,
+        ts_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        获取股票停复牌历史
+
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+
+        Returns:
+            停复牌历史列表
+        """
+        conditions = ["ts_code = %(ts_code)s"]
+        params: dict[str, Any] = {"ts_code": ts_code}
+
+        if start_date:
+            conditions.append("trade_date >= %(start_date)s")
+            params["start_date"] = start_date
+        if end_date:
+            conditions.append("trade_date <= %(end_date)s")
+            params["end_date"] = end_date
+
+        query = f"""
+            SELECT *
+            FROM {self.table}
+            WHERE {' AND '.join(conditions)}
+            ORDER BY trade_date DESC
+        """
+
+        df = self.client.execute_query(query, params)
+        return df.to_dict(orient="records")
+
+    def is_stock_suspended(
+        self,
+        ts_code: str,
+        trade_date: str,
+    ) -> bool:
+        """
+        检查股票在指定日期是否停牌
+
+        Args:
+            ts_code: 股票代码
+            trade_date: 交易日期
+
+        Returns:
+            是否停牌
+        """
+        query = f"""
+            SELECT count() AS cnt
+            FROM {self.table}
+            WHERE ts_code = %(ts_code)s
+              AND trade_date = %(trade_date)s
+              AND suspend_type = 'S'
+        """
+
+        df = self.client.execute_query(query, {"ts_code": ts_code, "trade_date": trade_date})
+        return df.iloc[0]["cnt"] > 0 if not df.empty else False
+
+    def get_suspend_statistics(
+        self,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
-        Query suspension information.
-        
+        获取停复牌统计信息
+
         Args:
-            code: Stock code (e.g., 000001.SZ)
-            start_date: Start date in YYYYMMDD format
-            end_date: End date in YYYYMMDD format
-        
+            start_date: 开始日期
+            end_date: 结束日期
+
         Returns:
-            List of suspension information records
+            按日期统计的停复牌数量
         """
         query = f"""
-        SELECT 
-            ts_code,
-            trade_date,
-            suspend_timing,
-            suspend_type
-        FROM ods_suspend_d
-        WHERE ts_code = '{code}'
-        AND trade_date >= '{start_date}'
-        AND trade_date <= '{end_date}'
-        ORDER BY trade_date ASC
+            SELECT
+                trade_date,
+                countIf(suspend_type = 'S') AS suspended_count,
+                countIf(suspend_type = 'R') AS resumed_count
+            FROM {self.table}
+            WHERE trade_date >= %(start_date)s
+              AND trade_date <= %(end_date)s
+            GROUP BY trade_date
+            ORDER BY trade_date DESC
         """
-        
-        df = self.db.execute_query(query)
-        records = df.to_dict('records')
-        return [_convert_to_json_serializable(record) for record in records]
-    
-    @query_method(
-        description="Query latest suspension information for multiple stocks",
-        params=[
-            QueryParam(
-                name="codes",
-                type="list",
-                description="List of stock codes",
-                required=True,
-            ),
-        ]
-    )
-    def get_latest_suspend_info(\
-        self,
-        codes: List[str],
-    ) -> List[Dict[str, Any]]:
-        """
-        Query latest suspension information for multiple stocks.
-        
-        Args:
-            codes: List of stock codes
-        
-        Returns:
-            List of latest suspension information records
-        """
-        codes_str = "','".join(codes)
-        query = f"""
-        SELECT 
-            ts_code,
-            trade_date,
-            suspend_timing,
-            suspend_type
-        FROM (
-            SELECT 
-                *,
-                ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY trade_date DESC) as rn
-            FROM ods_suspend_d
-            WHERE ts_code IN ('{codes_str}')
-        )
-        WHERE rn = 1
-        ORDER BY ts_code
-        """
-        
-        df = self.db.execute_query(query)
-        records = df.to_dict('records')
-        return [_convert_to_json_serializable(record) for record in records]
+
+        df = self.client.execute_query(query, {"start_date": start_date, "end_date": end_date})
+        return df.to_dict(orient="records")
