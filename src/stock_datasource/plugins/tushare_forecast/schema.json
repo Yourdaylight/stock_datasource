@@ -1,0 +1,25 @@
+{
+  "table_name": "ods_forecast",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "ann_date", "data_type": "Date", "nullable": false, "comment": "公告日期"},
+    {"name": "end_date", "data_type": "Date", "nullable": false, "comment": "报告期"},
+    {"name": "type", "data_type": "LowCardinality(String)", "nullable": true, "comment": "业绩预告类型(预增/预减/扭亏/首亏/续亏/续盈/略增/略减)"},
+    {"name": "p_change_min", "data_type": "Nullable(Float64)", "nullable": true, "comment": "预告净利润变动幅度下限(%)"},
+    {"name": "p_change_max", "data_type": "Nullable(Float64)", "nullable": true, "comment": "预告净利润变动幅度上限(%)"},
+    {"name": "net_profit_min", "data_type": "Nullable(Float64)", "nullable": true, "comment": "预告净利润下限(万元)"},
+    {"name": "net_profit_max", "data_type": "Nullable(Float64)", "nullable": true, "comment": "预告净利润上限(万元)"},
+    {"name": "last_parent_net", "data_type": "Nullable(Float64)", "nullable": true, "comment": "上年同期归属母公司净利润"},
+    {"name": "first_ann_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "首次公告日"},
+    {"name": "summary", "data_type": "Nullable(String)", "nullable": true, "comment": "业绩预告摘要"},
+    {"name": "change_reason", "data_type": "Nullable(String)", "nullable": true, "comment": "业绩变动原因"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(end_date)",
+  "order_by": ["ts_code", "end_date", "ann_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "业绩预告数据 from TuShare API"
+}

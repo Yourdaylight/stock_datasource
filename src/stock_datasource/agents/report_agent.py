@@ -297,6 +297,264 @@ def get_investment_insights(ts_code: str) -> str:
         return f"❌ 生成投资洞察 {ts_code} 时发生错误: {str(e)}"
 
 
+def get_income_statement(ts_code: str, periods: int = 4) -> str:
+    """获取利润表数据。
+
+    Args:
+        ts_code: 股票代码
+        periods: 期数，默认4期
+
+    Returns:
+        利润表数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_income_statement(ts_code, periods)
+
+        if result.get("status") == "error":
+            return f"❌ 获取利润表失败: {result.get('error', '未知错误')}"
+
+        data = result.get("data", [])
+        if not data:
+            return f"❌ 未找到 {ts_code} 的利润表数据"
+
+        report = f"## {ts_code} 利润表 (近{len(data)}期)\n\n"
+        report += "| 报告期 | 营业收入 | 营业利润 | 净利润 | 每股收益 |\n"
+        report += "|---------|----------|----------|--------|----------|\n"
+
+        for row in data[:periods]:
+            report += f"| {row.get('end_date', '')} | {row.get('revenue', 0):.2f} | {row.get('operate_profit', 0):.2f} | {row.get('n_income', 0):.2f} | {row.get('basic_eps', 0):.2f} |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting income statement for {ts_code}: {e}")
+        return f"❌ 获取利润表 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_balance_sheet(ts_code: str, periods: int = 4) -> str:
+    """获取资产负债表数据。
+
+    Args:
+        ts_code: 股票代码
+        periods: 期数，默认4期
+
+    Returns:
+        资产负债表数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_balance_sheet(ts_code, periods)
+
+        if result.get("status") == "error":
+            return f"❌ 获取资产负债表失败: {result.get('error', '未知错误')}"
+
+        data = result.get("data", [])
+        if not data:
+            return f"❌ 未找到 {ts_code} 的资产负债表数据"
+
+        report = f"## {ts_code} 资产负债表 (近{len(data)}期)\n\n"
+        report += "| 报告期 | 总资产 | 负债合计 | 股东权益 | 资产负债率 |\n"
+        report += "|---------|--------|--------|----------|------------|\n"
+
+        for row in data[:periods]:
+            total_assets = row.get('total_assets', 0)
+            total_liab = row.get('total_liab', 0)
+            equity = row.get('equity', 0)
+            debt_ratio = (total_liab / total_assets * 100) if total_assets else 0
+
+            report += f"| {row.get('end_date', '')} | {total_assets:.2f} | {total_liab:.2f} | {equity:.2f} | {debt_ratio:.2f}% |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting balance sheet for {ts_code}: {e}")
+        return f"❌ 获取资产负债表 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_cash_flow(ts_code: str, periods: int = 4) -> str:
+    """获取现金流量表数据。
+
+    Args:
+        ts_code: 股票代码
+        periods: 期数，默认4期
+
+    Returns:
+        现金流量表数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_cash_flow(ts_code, periods)
+
+        if result.get("status") == "error":
+            return f"❌ 获取现金流量表失败: {result.get('error', '未知错误')}"
+
+        data = result.get("data", [])
+        if not data:
+            return f"❌ 未找到 {ts_code} 的现金流量表数据"
+
+        report = f"## {ts_code} 现金流量表 (近{len(data)}期)\n\n"
+        report += "| 报告期 | 经营现金流 | 投资现金流 | 筹资现金流 | 净现金流 |\n"
+        report += "|---------|-----------|-----------|-----------|---------|\n"
+
+        for row in data[:periods]:
+            report += f"| {row.get('end_date', '')} | {row.get('n_cashflow_act', 0):.2f} | {row.get('n_cashflow_inv_act', 0):.2f} | {row.get('n_cashflow_fin_act', 0):.2f} | {row.get('n_cash_flows_fnc_act', 0):.2f} |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting cash flow for {ts_code}: {e}")
+        return f"❌ 获取现金流量表 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_forecast(ts_code: str, limit: int = 10) -> str:
+    """获取业绩预告数据。
+
+    Args:
+        ts_code: 股票代码
+        limit: 返回记录数，默认10条
+
+    Returns:
+        业绩预告数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_forecast(ts_code, limit)
+
+        if result.get("status") == "error":
+            return f"❌ 获取业绩预告失败: {result.get('error', '未知错误')}"
+
+        data = result.get("data", [])
+        if not data:
+            return f"ℹ️ 未找到 {ts_code} 的业绩预告数据"
+
+        report = f"## {ts_code} 业绩预告 (共{len(data)}条)\n\n"
+        report += "| 报告期 | 预告类型 | 预测净利润 | 同比增长 | 公告日期 |\n"
+        report += "|---------|---------|-----------|---------|---------|\n"
+
+        for row in data[:limit]:
+            p_change_min = row.get('p_change_min', 0)
+            p_change_max = row.get('p_change_max', 0)
+            change_range = f"{p_change_min:.1f}% ~ {p_change_max:.1f}%" if p_change_min != p_change_max else f"{p_change_min:.1f}%"
+
+            report += f"| {row.get('end_date', '')} | {row.get('type', '')} | {row.get('p_profit_min', 0):.2f} ~ {row.get('p_profit_max', 0):.2f} | {change_range} | {row.get('ann_date', '')} |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting forecast for {ts_code}: {e}")
+        return f"❌ 获取业绩预告 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_express(ts_code: str, limit: int = 10) -> str:
+    """获取业绩快报数据。
+
+    Args:
+        ts_code: 股票代码
+        limit: 返回记录数，默认10条
+
+    Returns:
+        业绩快报数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_express(ts_code, limit)
+
+        if result.get("status") == "error":
+            return f"❌ 获取业绩快报失败: {result.get('error', '未知错误')}"
+
+        data = result.get("data", [])
+        if not data:
+            return f"ℹ️ 未找到 {ts_code} 的业绩快报数据"
+
+        report = f"## {ts_code} 业绩快报 (共{len(data)}条)\n\n"
+        report += "| 报告期 | 营业收入 | 净利润 | 净利润增长率 | 公告日期 |\n"
+        report += "|---------|----------|--------|-------------|---------|\n"
+
+        for row in data[:limit]:
+            report += f"| {row.get('end_date', '')} | {row.get('revenue', 0):.2f} | {row.get('n_income', 0):.2f} | {row.get('yoy_net_profit', 0):.2f}% | {row.get('ann_date', '')} |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting express for {ts_code}: {e}")
+        return f"❌ 获取业绩快报 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_full_financial_statements(ts_code: str, periods: int = 4) -> str:
+    """获取完整的三大财务报表。
+
+    Args:
+        ts_code: 股票代码
+        periods: 期数，默认4期
+
+    Returns:
+        包含利润表、资产负债表、现金流量表的完整数据。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        service = FinancialReportService()
+        result = service.get_full_financial_statements(ts_code, periods)
+
+        if result.get("status") == "error":
+            return f"❌ 获取财务报表失败: {result.get('error', '未知错误')}"
+
+        income_data = result.get("income_statement", {}).get("data", [])[:periods]
+        balance_data = result.get("balance_sheet", {}).get("data", [])[:periods]
+        cashflow_data = result.get("cash_flow", {}).get("data", [])[:periods]
+
+        report = f"# {ts_code} 财务报表 (近{periods}期)\n\n"
+
+        if income_data:
+            report += "## 利润表\n"
+            report += "| 报告期 | 营业收入 | 净利润 | EPS |\n"
+            report += "|---------|----------|--------|-----|\n"
+            for row in income_data:
+                report += f"| {row.get('end_date', '')} | {row.get('revenue', 0):.2f} | {row.get('n_income', 0):.2f} | {row.get('basic_eps', 0):.2f} |\n"
+            report += "\n"
+
+        if balance_data:
+            report += "## 资产负债表\n"
+            report += "| 报告期 | 总资产 | 股东权益 | 资产负债率 |\n"
+            report += "|---------|--------|----------|------------|\n"
+            for row in balance_data:
+                total_assets = row.get('total_assets', 0)
+                total_liab = row.get('total_liab', 0)
+                debt_ratio = (total_liab / total_assets * 100) if total_assets else 0
+                report += f"| {row.get('end_date', '')} | {total_assets:.2f} | {row.get('equity', 0):.2f} | {debt_ratio:.2f}% |\n"
+            report += "\n"
+
+        if cashflow_data:
+            report += "## 现金流量表\n"
+            report += "| 报告期 | 经营现金流 | 净现金流 |\n"
+            report += "|---------|-----------|---------|\n"
+            for row in cashflow_data:
+                report += f"| {row.get('end_date', '')} | {row.get('n_cashflow_act', 0):.2f} | {row.get('n_cash_flows_fnc_act', 0):.2f} |\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting full statements for {ts_code}: {e}")
+        return f"❌ 获取财务报表 {ts_code} 时发生错误: {str(e)}"
+
+
 class ReportAgent(LangGraphAgent):
     """Report Agent for financial report analysis using DeepAgents.
     
@@ -322,6 +580,12 @@ class ReportAgent(LangGraphAgent):
             get_comprehensive_financial_analysis,
             get_peer_comparison_analysis,
             get_investment_insights,
+            get_income_statement,
+            get_balance_sheet,
+            get_cash_flow,
+            get_forecast,
+            get_express,
+            get_full_financial_statements,
         ]
     
     def get_system_prompt(self) -> str:
@@ -341,6 +605,12 @@ class ReportAgent(LangGraphAgent):
 - get_comprehensive_financial_analysis: 获取全面财务分析(健康度、盈利能力、偿债能力、成长性)
 - get_peer_comparison_analysis: 获取同业对比分析和行业排名
 - get_investment_insights: 获取AI投资洞察和结构化建议
+- get_income_statement: 获取利润表数据（营业收入、净利润、EPS等）
+- get_balance_sheet: 获取资产负债表数据（总资产、负债、股东权益等）
+- get_cash_flow: 获取现金流量表数据（经营现金流、投资现金流、筹资现金流等）
+- get_forecast: 获取业绩预告数据
+- get_express: 获取业绩快报数据
+- get_full_financial_statements: 获取完整的三大财务报表（利润表、资产负债表、现金流量表）
 
 ## 分析框架 (基于真实财务数据)
 1. **盈利能力**: ROE、ROA、毛利率、净利率、EPS

@@ -247,6 +247,125 @@ async def health_check():
     return {"status": "healthy", "service": "financial_report"}
 
 
+# ========== 新增：三大财务报表 API ==========
+
+class StatementRequest(BaseModel):
+    """Request model for financial statements."""
+    code: str = Field(..., description="Stock code (e.g., 600519.SH or 600519)")
+    periods: int = Field(default=4, ge=1, le=20, description="Number of periods")
+    report_type: int = Field(default=1, ge=1, le=6, description="Report type: 1=合并报表, 2=单季合并, 4=调整合并, 6=母公司")
+
+
+class ForecastRequest(BaseModel):
+    """Request model for forecast/express data."""
+    code: str = Field(..., description="Stock code")
+    limit: int = Field(default=10, ge=1, le=50, description="Number of records")
+
+
+@router.post("/income")
+async def get_income_statement(request: StatementRequest):
+    """获取利润表数据"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_income_statement(
+            normalized_code, request.periods, request.report_type
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting income statement for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/balance")
+async def get_balance_sheet(request: StatementRequest):
+    """获取资产负债表数据"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_balance_sheet(
+            normalized_code, request.periods, request.report_type
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting balance sheet for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cashflow")
+async def get_cash_flow(request: StatementRequest):
+    """获取现金流量表数据"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_cash_flow(
+            normalized_code, request.periods, request.report_type
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting cash flow for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/statements")
+async def get_full_statements(request: StatementRequest):
+    """获取完整三大财务报表（利润表+资产负债表+现金流量表）"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_full_financial_statements(
+            normalized_code, request.periods, request.report_type
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting full statements for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/forecast")
+async def get_forecast(request: ForecastRequest):
+    """获取业绩预告数据"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_forecast(normalized_code, request.limit)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting forecast for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/express")
+async def get_express(request: ForecastRequest):
+    """获取业绩快报数据"""
+    try:
+        normalized_code = _normalize_stock_code(request.code)
+        result = financial_service.get_express(normalized_code, request.limit)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting express for {request.code}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Legacy endpoint for backward compatibility
 @router.post("/financial_legacy")
 async def get_financial_legacy(request: FinancialRequest):

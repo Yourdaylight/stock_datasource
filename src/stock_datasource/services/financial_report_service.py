@@ -5,6 +5,11 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
 from stock_datasource.plugins.tushare_finace_indicator.service import TuShareFinaceIndicatorService
+from stock_datasource.plugins.tushare_income.service import TuShareIncomeService
+from stock_datasource.plugins.tushare_balancesheet.service import TuShareBalancesheetService
+from stock_datasource.plugins.tushare_cashflow.service import TuShareCashflowService
+from stock_datasource.plugins.tushare_forecast.service import TuShareForecastService
+from stock_datasource.plugins.tushare_express.service import TuShareExpressService
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +20,11 @@ class FinancialReportService:
     def __init__(self):
         """Initialize the financial report service."""
         self.finace_service = TuShareFinaceIndicatorService()
+        self.income_service = TuShareIncomeService()
+        self.balancesheet_service = TuShareBalancesheetService()
+        self.cashflow_service = TuShareCashflowService()
+        self.forecast_service = TuShareForecastService()
+        self.express_service = TuShareExpressService()
         self.logger = logger
     
     def get_comprehensive_analysis(self, code: str, periods: Optional[int] = 4) -> Dict[str, Any]:
@@ -367,3 +377,155 @@ class FinancialReportService:
             "profit_growth": profit_growth,
             "positive_trend_ratio": positive_trends / total_trends if total_trends > 0 else 0
         }
+    
+    # ========== 新增：三大财务报表查询方法 ==========
+    
+    def get_income_statement(self, code: str, periods: int = 4, report_type: int = 1) -> Dict[str, Any]:
+        """获取利润表数据
+        
+        Args:
+            code: 股票代码
+            periods: 期数
+            report_type: 报表类型 (1=合并报表, 2=单季合并, 4=调整合并, 6=母公司)
+            
+        Returns:
+            利润表数据
+        """
+        try:
+            data = self.income_service.get_income_statement(
+                ts_code=code, report_type=report_type, limit=periods
+            )
+            return {
+                "code": code,
+                "report_type": report_type,
+                "periods": len(data),
+                "data": data,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting income statement for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}
+    
+    def get_balance_sheet(self, code: str, periods: int = 4, report_type: int = 1) -> Dict[str, Any]:
+        """获取资产负债表数据
+        
+        Args:
+            code: 股票代码
+            periods: 期数
+            report_type: 报表类型
+            
+        Returns:
+            资产负债表数据
+        """
+        try:
+            data = self.balancesheet_service.get_balance_sheet(
+                ts_code=code, report_type=report_type, limit=periods
+            )
+            return {
+                "code": code,
+                "report_type": report_type,
+                "periods": len(data),
+                "data": data,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting balance sheet for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}
+    
+    def get_cash_flow(self, code: str, periods: int = 4, report_type: int = 1) -> Dict[str, Any]:
+        """获取现金流量表数据
+        
+        Args:
+            code: 股票代码
+            periods: 期数
+            report_type: 报表类型
+            
+        Returns:
+            现金流量表数据
+        """
+        try:
+            data = self.cashflow_service.get_cashflow(
+                ts_code=code, report_type=report_type, limit=periods
+            )
+            return {
+                "code": code,
+                "report_type": report_type,
+                "periods": len(data),
+                "data": data,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting cash flow for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}
+    
+    def get_forecast(self, code: str, limit: int = 10) -> Dict[str, Any]:
+        """获取业绩预告数据
+        
+        Args:
+            code: 股票代码
+            limit: 返回记录数
+            
+        Returns:
+            业绩预告数据
+        """
+        try:
+            data = self.forecast_service.get_forecast(ts_code=code, limit=limit)
+            return {
+                "code": code,
+                "count": len(data),
+                "data": data,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting forecast for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}
+    
+    def get_express(self, code: str, limit: int = 10) -> Dict[str, Any]:
+        """获取业绩快报数据
+        
+        Args:
+            code: 股票代码
+            limit: 返回记录数
+            
+        Returns:
+            业绩快报数据
+        """
+        try:
+            data = self.express_service.get_express(ts_code=code, limit=limit)
+            return {
+                "code": code,
+                "count": len(data),
+                "data": data,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting express for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}
+    
+    def get_full_financial_statements(self, code: str, periods: int = 4, report_type: int = 1) -> Dict[str, Any]:
+        """获取完整的三大财务报表
+        
+        Args:
+            code: 股票代码
+            periods: 期数
+            report_type: 报表类型
+            
+        Returns:
+            包含利润表、资产负债表、现金流量表的完整数据
+        """
+        try:
+            income = self.get_income_statement(code, periods, report_type)
+            balance = self.get_balance_sheet(code, periods, report_type)
+            cashflow = self.get_cash_flow(code, periods, report_type)
+            
+            return {
+                "code": code,
+                "report_type": report_type,
+                "income_statement": income,
+                "balance_sheet": balance,
+                "cash_flow": cashflow,
+                "status": "success"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting full statements for {code}: {e}")
+            return {"code": code, "status": "error", "error": str(e)}

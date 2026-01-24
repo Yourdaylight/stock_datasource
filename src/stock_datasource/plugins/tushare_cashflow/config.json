@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare cash flow statement data plugin",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "19:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "Stock code (e.g., 600000.SH)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement end date in YYYYMMDD format"
+    },
+    "period": {
+      "type": "string",
+      "required": false,
+      "description": "Report period (e.g., 20231231)"
+    },
+    "report_type": {
+      "type": "string",
+      "required": false,
+      "description": "Report type: 1=合并报表, 2=单季合并, 4=调整合并报表, 6=母公司报表"
+    }
+  }
+}

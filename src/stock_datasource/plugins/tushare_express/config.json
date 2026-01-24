@@ -1,0 +1,42 @@
+{
+  "name": "tushare_express",
+  "version": "1.0.0",
+  "description": "Tushare 业绩快报数据插件",
+  "api_name": "express",
+  "rate_limit": {
+    "calls_per_minute": 120,
+    "retry_count": 3,
+    "retry_delay": 1
+  },
+  "schedule": {
+    "cron": "0 6 * * *",
+    "timezone": "Asia/Shanghai"
+  },
+  "parameters": {
+    "ts_code": {
+      "type": "string",
+      "description": "股票代码",
+      "required": true
+    },
+    "ann_date": {
+      "type": "string",
+      "description": "公告日期",
+      "required": false
+    },
+    "start_date": {
+      "type": "string",
+      "description": "公告开始日期",
+      "required": false
+    },
+    "end_date": {
+      "type": "string",
+      "description": "公告结束日期",
+      "required": false
+    },
+    "period": {
+      "type": "string",
+      "description": "报告期",
+      "required": false
+    }
+  }
+}

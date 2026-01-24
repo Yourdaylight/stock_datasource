@@ -177,6 +177,13 @@ class DataManageService:
             "tushare_trade_calendar": "cal_date",
             "tushare_finace_indicator": "end_date",  # uses report end_date
             "tushare_etf_stk_mins": "trade_time",    # minute data uses trade_time
+            "tushare_express": "ann_date",  # financial reports use ann_date
+            "tushare_forecast": "ann_date",  # financial forecasts use ann_date
+            "tushare_income": "ann_date",  # income statement uses ann_date
+            "tushare_balancesheet": "ann_date",  # balance sheet uses ann_date
+            "tushare_cashflow": "ann_date",  # cash flow uses ann_date
+            "tushare_stk_surv": "surv_date",  # stock survey uses surv_date
+
         }
         return date_column_map.get(plugin_name, "trade_date")
     
