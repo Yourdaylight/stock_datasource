@@ -1,0 +1,7 @@
+{
+  "rate_limit": 500,
+  "timeout": 30,
+  "api_name": "index_member",
+  "description": "指数成分股数据",
+  "min_points": 500
+}

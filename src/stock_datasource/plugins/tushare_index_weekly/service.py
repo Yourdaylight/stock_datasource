@@ -266,3 +266,50 @@ class TuShareIndexWeeklyService(BaseService):
         df = self.db.execute_query(query, {"trade_date": trade_date, "limit": limit})
         records = df.to_dict('records')
         return [_convert_to_json_serializable(record) for record in records]
+    
+    @query_method(
+        description="获取多个指数的最新周线数据",
+        params=[
+            QueryParam(
+                name="ts_codes",
+                type="list",
+                description="指数代码列表",
+                required=True,
+            ),
+        ]
+    )
+    def get_latest_batch(
+        self,
+        ts_codes: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Query latest weekly data for multiple indices.
+        
+        Args:
+            ts_codes: List of index codes
+        
+        Returns:
+            List of latest index weekly records
+        """
+        if not ts_codes:
+            return []
+        
+        # Use parameterized query with tuple
+        placeholders = ', '.join(['%(code_{})s'.format(i) for i in range(len(ts_codes))])
+        params = {f'code_{i}': code for i, code in enumerate(ts_codes)}
+        
+        query = f"""
+            SELECT *
+            FROM (
+                SELECT 
+                    *,
+                    ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY trade_date DESC) as rn
+                FROM {self.table}
+                WHERE ts_code IN ({placeholders})
+            )
+            WHERE rn = 1
+            ORDER BY ts_code
+        """
+        
+        df = self.db.execute_query(query, params)
+        records = df.to_dict('records')
+        return [_convert_to_json_serializable(record) for record in records]

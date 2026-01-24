@@ -1,0 +1,18 @@
+{
+  "table_name": "ods_index_member",
+  "table_type": "ods",
+  "columns": [
+    {"name": "index_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "con_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "成分股代码"},
+    {"name": "in_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "纳入日期"},
+    {"name": "out_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "剔除日期"},
+    {"name": "is_new", "data_type": "Nullable(String)", "nullable": true, "comment": "是否最新(Y/N)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "入库时间"}
+  ],
+  "partition_by": "",
+  "order_by": ["index_code", "con_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "指数成分股表 from TuShare index_member API"
+}

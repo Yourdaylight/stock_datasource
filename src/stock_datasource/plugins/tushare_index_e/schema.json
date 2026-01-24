@@ -1,0 +1,23 @@
+{
+  "table_name": "ods_index_e",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "pe", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市盈率"},
+    {"name": "pe_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市盈率TTM"},
+    {"name": "pb", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市净率"},
+    {"name": "ps", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市销率"},
+    {"name": "ps_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "市销率TTM"},
+    {"name": "dv_ratio", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股息率(%)"},
+    {"name": "dv_ttm", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股息率TTM(%)"},
+    {"name": "total_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总市值(元)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "中证指数估值数据 from TuShare index_e API"
+}

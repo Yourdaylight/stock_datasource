@@ -231,7 +231,7 @@ async def get_sync_history(
 
 @router.get("/plugins", response_model=List[PluginInfo])
 async def get_plugins(
-    category: Optional[str] = Query(default=None, description="Filter by category: cn_stock, hk_stock, index, etf_fund, system (or 'stock' for backward compatibility)"),
+    category: Optional[str] = Query(default=None, description="Filter by category: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system (or 'stock' for backward compatibility)"),
     role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary"),
     current_user: dict = Depends(require_admin),
 ):
@@ -247,7 +247,7 @@ async def get_plugins(
             # Filter by resolved category or original (for backward compat)
             plugins = [p for p in plugins if p.category == resolved_category or p.category == category]
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid category: {category}. Valid values: cn_stock, hk_stock, index, etf_fund, system")
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}. Valid values: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system")
     
     if role:
         try:

@@ -19,6 +19,9 @@ class PluginCategory(str, Enum):
     INDEX = "index"        # 指数相关
     ETF_FUND = "etf_fund"  # ETF/基金相关（合并为一类）
     SYSTEM = "system"      # 系统数据（如交易日历）
+    MARKET = "market"      # 市场统计数据
+    REFERENCE = "reference"  # 参考数据（如行业分类、成分股）
+    FUNDAMENTAL = "fundamental"  # 基本面数据（如高管薪酬）
     # 兼容旧值
     STOCK = "stock"        # 已废弃，请使用 CN_STOCK
 
@@ -35,6 +38,9 @@ CATEGORY_LABELS = {
     "index": "指数",
     "etf_fund": "ETF基金",
     "system": "系统",
+    "market": "市场统计",
+    "reference": "参考数据",
+    "fundamental": "基本面",
     "stock": "A股",  # 兼容
 }
 

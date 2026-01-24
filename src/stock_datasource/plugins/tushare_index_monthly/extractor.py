@@ -130,6 +130,24 @@ class IndexMonthlyExtractor:
             return pd.DataFrame()
         
         return self._call_api(self.pro.index_monthly, **kwargs)
+    
+    def extract_by_date_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Extract index monthly data for a date range.
+        
+        Args:
+            ts_code: Index code
+            start_date: Start date in YYYYMMDD format
+            end_date: End date in YYYYMMDD format
+        
+        Returns:
+            DataFrame with index monthly data
+        """
+        return self._call_api(
+            self.pro.index_monthly,
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date
+        )
 
 
 # Global extractor instance

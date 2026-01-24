@@ -1,0 +1,7 @@
+{
+  "rate_limit": 200,
+  "timeout": 30,
+  "api_name": "sz_daily_info",
+  "description": "深圳市场每日交易概况",
+  "min_points": 2000
+}

@@ -64,12 +64,16 @@ class TuShareIndexMonthlyPlugin(BasePlugin):
         
         self.logger.info(f"Extracting index monthly data with params: {kwargs}")
         
-        data = extractor.extract(
-            ts_code=ts_code,
-            trade_date=trade_date,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        # Support date range extraction
+        if ts_code and start_date and end_date:
+            data = extractor.extract_by_date_range(ts_code, start_date, end_date)
+        else:
+            data = extractor.extract(
+                ts_code=ts_code,
+                trade_date=trade_date,
+                start_date=start_date,
+                end_date=end_date,
+            )
         
         if data.empty:
             self.logger.warning("No index monthly data found")
