@@ -19,6 +19,9 @@ class PluginCategory(str, Enum):
     INDEX = "index"        # 指数相关
     ETF_FUND = "etf_fund"  # ETF/基金相关（合并为一类）
     SYSTEM = "system"      # 系统数据（如交易日历）
+    MARKET = "market"      # 市场统计数据
+    REFERENCE = "reference"  # 参考数据（如行业分类、成分股）
+    FUNDAMENTAL = "fundamental"  # 基本面数据（如高管薪酬）
     # 兼容旧值
     STOCK = "stock"        # 已废弃，请使用 CN_STOCK
 
@@ -35,6 +38,9 @@ CATEGORY_LABELS = {
     "index": "指数",
     "etf_fund": "ETF基金",
     "system": "系统",
+    "market": "市场统计",
+    "reference": "参考数据",
+    "fundamental": "基本面",
     "stock": "A股",  # 兼容
 }
 
@@ -297,6 +303,43 @@ class BasePlugin(ABC):
                 schedule.setdefault("day_of_week", "monday")
         
         return schedule
+    
+    def get_sync_mode(self) -> str:
+        """Get plugin data sync mode.
+        
+        Returns:
+            Sync mode string:
+            - 'incremental': Append new data (default, for time-series data like daily bars)
+            - 'full_replace': Truncate table and reload all data (for dimension/basic tables)
+        
+        For dimension tables (stock_basic, etf_basic, index_basic), use 'full_replace'
+        because Tushare API returns complete dataset each time and we want to ensure
+        data consistency without duplicates.
+        """
+        config = self.get_config()
+        return config.get("sync_mode", "incremental")
+    
+    def _truncate_table(self, table_name: str) -> bool:
+        """Truncate table before full data reload.
+        
+        Args:
+            table_name: Name of table to truncate
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.db:
+            self.logger.error("Database not initialized")
+            return False
+        
+        try:
+            self.logger.info(f"Truncating table {table_name} for full_replace sync mode")
+            self.db.execute_query(f"TRUNCATE TABLE {table_name}")
+            self.logger.info(f"Table {table_name} truncated successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to truncate table {table_name}: {e}")
+            return False
     
     def should_run_today(self, current_date=None) -> bool:
         """Check if plugin should run on the given date.

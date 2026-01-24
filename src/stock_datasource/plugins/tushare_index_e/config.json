@@ -1,0 +1,7 @@
+{
+  "rate_limit": 200,
+  "timeout": 30,
+  "api_name": "index_e",
+  "description": "中证指数估值数据",
+  "min_points": 2000
+}

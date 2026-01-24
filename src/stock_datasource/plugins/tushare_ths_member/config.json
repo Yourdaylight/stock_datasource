@@ -1,0 +1,7 @@
+{
+  "rate_limit": 500,
+  "timeout": 30,
+  "api_name": "ths_member",
+  "description": "同花顺概念板块成分股",
+  "min_points": 2000
+}

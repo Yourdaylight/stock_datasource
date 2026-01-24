@@ -1,6 +1,6 @@
 """FastAPI router for ETF module."""
 
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Query, HTTPException
 import logging
 
@@ -20,6 +20,96 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ============ ETF Index (基准指数) API ============
+
+def _get_etf_index_service():
+    """Get ETF Index service instance."""
+    from stock_datasource.plugins.tushare_etf_index.service import get_service
+    return get_service()
+
+
+@router.get("/benchmark-indices", summary="获取ETF基准指数列表")
+async def get_benchmark_indices(
+    keyword: Optional[str] = Query(None, description="名称搜索关键词"),
+    publisher: Optional[str] = Query(None, description="发布机构筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+) -> Dict[str, Any]:
+    """获取ETF基准指数列表，支持分页和筛选。"""
+    try:
+        service = _get_etf_index_service()
+        
+        # Get all data and apply filters
+        if keyword:
+            all_data = service.search_by_name(keyword, limit=1000)
+        elif publisher:
+            all_data = service.get_by_publisher(publisher, limit=1000)
+        else:
+            all_data = service.get_all(limit=2000)
+        
+        # Calculate pagination
+        total = len(all_data)
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = all_data[start:end]
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    except Exception as e:
+        logger.error(f"Failed to get benchmark indices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/publishers", summary="获取基准指数发布机构列表")
+async def get_benchmark_publishers() -> List[Dict[str, Any]]:
+    """获取所有基准指数发布机构。"""
+    try:
+        service = _get_etf_index_service()
+        publishers = service.get_publishers()
+        return [
+            {"value": p["pub_party_name"], "label": p["pub_party_name"], "count": p["index_count"]}
+            for p in publishers
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get publishers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/statistics", summary="获取基准指数统计信息")
+async def get_benchmark_statistics() -> Dict[str, Any]:
+    """获取ETF基准指数统计信息。"""
+    try:
+        service = _get_etf_index_service()
+        return service.get_statistics()
+    except Exception as e:
+        logger.error(f"Failed to get statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/benchmark-indices/{ts_code}", summary="获取基准指数详情")
+async def get_benchmark_index_detail(ts_code: str) -> Dict[str, Any]:
+    """获取指定基准指数的详细信息。"""
+    try:
+        service = _get_etf_index_service()
+        result = service.get_by_ts_code(ts_code)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Benchmark index {ts_code} not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get benchmark index detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ ETF Basic API ============
+
+
 @router.get("/etfs", response_model=EtfListResponse, summary="获取ETF列表")
 async def get_etfs(
     market: Optional[str] = Query(None, description="交易所筛选 (E=上交所, Z=深交所)"),
@@ -27,12 +117,20 @@ async def get_etfs(
     status: Optional[str] = Query(None, description="状态筛选 (L=上市, D=退市, P=待上市)"),
     invest_type: Optional[str] = Query(None, description="投资类型筛选"),
     keyword: Optional[str] = Query(None, description="名称/代码搜索关键词"),
+    trade_date: Optional[str] = Query(None, description="交易日期筛选 (YYYYMMDD)"),
+    manager: Optional[str] = Query(None, description="基金管理人筛选"),
+    tracking_index: Optional[str] = Query(None, description="跟踪指数代码筛选"),
+    fee_min: Optional[float] = Query(None, ge=0, description="最小管理费率 (%)"),
+    fee_max: Optional[float] = Query(None, ge=0, description="最大管理费率 (%)"),
+    amount_min: Optional[float] = Query(None, ge=0, description="最小成交额 (万元)"),
+    pct_chg_min: Optional[float] = Query(None, description="最小涨跌幅 (%)"),
+    pct_chg_max: Optional[float] = Query(None, description="最大涨跌幅 (%)"),
     sort_by: Optional[str] = Query(None, description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 (asc/desc)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
 ):
-    """获取ETF列表（包含最新日行情），支持分页和筛选。"""
+    """获取ETF列表（包含指定日期行情），支持分页和筛选。"""
     service = get_etf_service()
     
     # Map frontend parameter names to backend field names
@@ -44,6 +142,14 @@ async def get_etfs(
         etf_type=fund_type,
         list_status=status,
         keyword=keyword,
+        trade_date=trade_date,
+        manager=manager,
+        tracking_index=tracking_index,
+        fee_min=fee_min,
+        fee_max=fee_max,
+        amount_min=amount_min,
+        pct_chg_min=pct_chg_min,
+        pct_chg_max=pct_chg_max,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
@@ -108,6 +214,29 @@ async def get_invest_types():
     """获取所有可用投资类型。"""
     service = get_etf_service()
     return service.get_invest_types()
+
+
+@router.get("/managers", summary="获取管理人列表")
+async def get_managers():
+    """获取所有可用基金管理人。"""
+    service = get_etf_service()
+    return service.get_managers()
+
+
+@router.get("/tracking-indices", summary="获取跟踪指数列表")
+async def get_tracking_indices():
+    """获取所有跟踪指数。"""
+    service = get_etf_service()
+    return service.get_tracking_indices()
+
+
+@router.get("/trade-dates", summary="获取可用交易日期")
+async def get_trade_dates(
+    limit: int = Query(30, ge=1, le=365, description="返回日期数量"),
+):
+    """获取可用交易日期列表。"""
+    service = get_etf_service()
+    return service.get_trade_dates(limit)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="ETF AI量化分析")

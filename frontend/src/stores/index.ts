@@ -7,6 +7,7 @@ import {
   type QuickAnalysisResult,
   type MarketOption,
   type CategoryOption,
+  type PublisherOption,
 } from '@/api/index'
 
 export const useIndexStore = defineStore('index', () => {
@@ -16,6 +17,7 @@ export const useIndexStore = defineStore('index', () => {
   const page = ref(1)
   const pageSize = ref(20)
   const loading = ref(false)
+  const tradeDate = ref<string>('')
   
   const currentIndex = ref<IndexInfo | null>(null)
   const constituents = ref<ConstituentResponse | null>(null)
@@ -26,6 +28,8 @@ export const useIndexStore = defineStore('index', () => {
   
   const markets = ref<MarketOption[]>([])
   const categories = ref<CategoryOption[]>([])
+  const publishers = ref<PublisherOption[]>([])
+  const tradeDates = ref<string[]>([])
   
   const detailLoading = ref(false)
   const analysisLoading = ref(false)
@@ -34,9 +38,24 @@ export const useIndexStore = defineStore('index', () => {
   const selectedMarket = ref<string>('')
   const selectedCategory = ref<string>('')
   const searchKeyword = ref<string>('')
+  const selectedDate = ref<string>('')
+  const selectedPublisher = ref<string>('')
+  const selectedPctChgRange = ref<string>('')
 
   // Computed
   const hasMore = computed(() => indices.value.length < total.value)
+
+  // Helper to parse pct_chg range
+  const parsePctChgRange = (range: string): { pct_chg_min?: number; pct_chg_max?: number } => {
+    if (!range) return {}
+    if (range === 'up') return { pct_chg_min: 0 }
+    if (range === 'down') return { pct_chg_max: 0 }
+    if (range === 'up1+') return { pct_chg_min: 1 }
+    if (range === 'up2+') return { pct_chg_min: 2 }
+    if (range === 'down1+') return { pct_chg_max: -1 }
+    if (range === 'down2+') return { pct_chg_max: -2 }
+    return {}
+  }
 
   // Actions
   const fetchIndices = async (resetPage = false) => {
@@ -46,15 +65,21 @@ export const useIndexStore = defineStore('index', () => {
     
     loading.value = true
     try {
+      const pctChgParams = parsePctChgRange(selectedPctChgRange.value)
+      
       const result = await indexApi.getIndices({
         market: selectedMarket.value || undefined,
         category: selectedCategory.value || undefined,
         keyword: searchKeyword.value || undefined,
+        trade_date: selectedDate.value || undefined,
+        publisher: selectedPublisher.value || undefined,
+        ...pctChgParams,
         page: page.value,
         page_size: pageSize.value,
       })
       indices.value = result.data
       total.value = result.total
+      tradeDate.value = result.trade_date || ''
     } catch (e) {
       console.error('Failed to fetch indices:', e)
     } finally {
@@ -148,6 +173,26 @@ export const useIndexStore = defineStore('index', () => {
     }
   }
 
+  const fetchPublishers = async () => {
+    try {
+      publishers.value = await indexApi.getPublishers()
+    } catch (e) {
+      console.error('Failed to fetch publishers:', e)
+    }
+  }
+
+  const fetchTradeDates = async () => {
+    try {
+      tradeDates.value = await indexApi.getTradeDates()
+      // Set default date if not set
+      if (!selectedDate.value && tradeDates.value.length > 0) {
+        selectedDate.value = tradeDates.value[0]
+      }
+    } catch (e) {
+      console.error('Failed to fetch trade dates:', e)
+    }
+  }
+
   const setMarket = (market: string) => {
     selectedMarket.value = market
     fetchIndices(true)
@@ -160,6 +205,21 @@ export const useIndexStore = defineStore('index', () => {
 
   const setKeyword = (keyword: string) => {
     searchKeyword.value = keyword
+    fetchIndices(true)
+  }
+
+  const setDate = (date: string) => {
+    selectedDate.value = date
+    fetchIndices(true)
+  }
+
+  const setPublisher = (publisher: string) => {
+    selectedPublisher.value = publisher
+    fetchIndices(true)
+  }
+
+  const setPctChgRange = (range: string) => {
+    selectedPctChgRange.value = range
     fetchIndices(true)
   }
 
@@ -178,6 +238,9 @@ export const useIndexStore = defineStore('index', () => {
     selectedMarket.value = ''
     selectedCategory.value = ''
     searchKeyword.value = ''
+    selectedDate.value = tradeDates.value.length > 0 ? tradeDates.value[0] : ''
+    selectedPublisher.value = ''
+    selectedPctChgRange.value = ''
     fetchIndices(true)
   }
 
@@ -195,6 +258,7 @@ export const useIndexStore = defineStore('index', () => {
     page,
     pageSize,
     loading,
+    tradeDate,
     currentIndex,
     constituents,
     quickAnalysis,
@@ -203,11 +267,16 @@ export const useIndexStore = defineStore('index', () => {
     historyLength,
     markets,
     categories,
+    publishers,
+    tradeDates,
     detailLoading,
     analysisLoading,
     selectedMarket,
     selectedCategory,
     searchKeyword,
+    selectedDate,
+    selectedPublisher,
+    selectedPctChgRange,
     
     // Computed
     hasMore,
@@ -221,9 +290,14 @@ export const useIndexStore = defineStore('index', () => {
     clearConversation,
     fetchMarkets,
     fetchCategories,
+    fetchPublishers,
+    fetchTradeDates,
     setMarket,
     setCategory,
     setKeyword,
+    setDate,
+    setPublisher,
+    setPctChgRange,
     changePage,
     changePageSize,
     clearFilters,

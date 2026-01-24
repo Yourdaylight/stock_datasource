@@ -1,0 +1,20 @@
+{
+  "table_name": "dim_index_classify",
+  "table_type": "dim",
+  "columns": [
+    {"name": "index_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "industry_name", "data_type": "String", "nullable": false, "comment": "行业名称"},
+    {"name": "level", "data_type": "LowCardinality(String)", "nullable": false, "comment": "行业层级(L1/L2/L3)"},
+    {"name": "industry_code", "data_type": "Nullable(String)", "nullable": true, "comment": "行业代码"},
+    {"name": "is_pub", "data_type": "Nullable(String)", "nullable": true, "comment": "是否发布指数"},
+    {"name": "parent_code", "data_type": "Nullable(String)", "nullable": true, "comment": "父级代码"},
+    {"name": "src", "data_type": "LowCardinality(String)", "nullable": false, "default": "'SW2021'", "comment": "数据来源(SW2021/SW/MSCI等)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "入库时间"}
+  ],
+  "partition_by": "",
+  "order_by": ["index_code", "level"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "申万行业分类维度表 from TuShare index_classify API"
+}

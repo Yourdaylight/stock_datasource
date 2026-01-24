@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare ETF基准指数列表 from etf_index API",
+  "sync_mode": "full_replace",
+  "schedule": {
+    "frequency": "weekly",
+    "day_of_week": "monday",
+    "time": "18:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "指数代码"
+    },
+    "pub_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "发布日期（格式：YYYYMMDD）"
+    },
+    "base_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "指数基期（格式：YYYYMMDD）"
+    }
+  }
+}

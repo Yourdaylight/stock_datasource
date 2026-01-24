@@ -141,6 +141,12 @@ class TuShareETFBasicPlugin(BasePlugin):
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Load ETF basic data into ODS table.
         
+        For basic/dimension tables, we use full_replace sync mode:
+        1. Truncate the table first
+        2. Insert all new data
+        
+        This ensures data consistency without duplicates.
+        
         Args:
             data: ETF basic data to load
         
@@ -162,26 +168,33 @@ class TuShareETFBasicPlugin(BasePlugin):
         }
         
         try:
+            table_name = 'ods_etf_basic'
+            
+            # For full_replace mode, truncate table first
+            if self.get_sync_mode() == 'full_replace':
+                if not self._truncate_table(table_name):
+                    return {"status": "failed", "error": f"Failed to truncate {table_name}"}
+            
             # Load into ODS table
-            self.logger.info(f"Loading {len(data)} records into ods_etf_basic")
+            self.logger.info(f"Loading {len(data)} records into {table_name}")
             ods_data = data.copy()
             ods_data['version'] = int(datetime.now().timestamp())
             ods_data['_ingested_at'] = datetime.now()
             
-            ods_data = self._prepare_data_for_insert('ods_etf_basic', ods_data)
+            ods_data = self._prepare_data_for_insert(table_name, ods_data)
             
             # Add ClickHouse settings for large inserts
             settings = {
                 'max_partitions_per_insert_block': 1000
             }
-            self.db.insert_dataframe('ods_etf_basic', ods_data, settings=settings)
+            self.db.insert_dataframe(table_name, ods_data, settings=settings)
             
             results['tables_loaded'].append({
-                'table': 'ods_etf_basic',
+                'table': table_name,
                 'records': len(ods_data)
             })
             results['total_records'] += len(ods_data)
-            self.logger.info(f"Loaded {len(ods_data)} records into ods_etf_basic")
+            self.logger.info(f"Loaded {len(ods_data)} records into {table_name}")
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")

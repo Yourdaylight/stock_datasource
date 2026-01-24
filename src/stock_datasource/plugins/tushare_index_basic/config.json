@@ -4,6 +4,7 @@
   "timeout": 90,
   "retry_attempts": 3,
   "description": "TuShare index basic information plugin",
+  "sync_mode": "full_replace",
   "schedule": {
     "frequency": "weekly",
     "day_of_week": "monday",

@@ -124,6 +124,12 @@ class TuShareIndexBasicPlugin(BasePlugin):
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Load index basic information into DIM table.
         
+        For basic/dimension tables, we use full_replace sync mode:
+        1. Truncate the table first
+        2. Insert all new data
+        
+        This ensures data consistency without duplicates.
+        
         Args:
             data: Index basic information data to load
         
@@ -145,21 +151,28 @@ class TuShareIndexBasicPlugin(BasePlugin):
         }
         
         try:
+            table_name = 'dim_index_basic'
+            
+            # For full_replace mode, truncate table first
+            if self.get_sync_mode() == 'full_replace':
+                if not self._truncate_table(table_name):
+                    return {"status": "failed", "error": f"Failed to truncate {table_name}"}
+            
             # Load into DIM table
-            self.logger.info(f"Loading {len(data)} records into dim_index_basic")
+            self.logger.info(f"Loading {len(data)} records into {table_name}")
             dim_data = data.copy()
             dim_data = self._add_system_columns(dim_data)
             
             # Prepare data types
-            dim_data = self._prepare_data_for_insert('dim_index_basic', dim_data)
-            self.db.insert_dataframe('dim_index_basic', dim_data)
+            dim_data = self._prepare_data_for_insert(table_name, dim_data)
+            self.db.insert_dataframe(table_name, dim_data)
             
             results['tables_loaded'].append({
-                'table': 'dim_index_basic',
+                'table': table_name,
                 'records': len(dim_data)
             })
             results['total_records'] += len(dim_data)
-            self.logger.info(f"Loaded {len(dim_data)} records into dim_index_basic")
+            self.logger.info(f"Loaded {len(dim_data)} records into {table_name}")
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")

@@ -28,10 +28,14 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
         return df
     # Replace NaN/NaT with None
     df = df.replace({np.nan: None})
-    # Convert datetime-like objects to ISO strings
-    df = df.applymap(
-        lambda x: x.isoformat() if isinstance(x, (datetime, date, pd.Timestamp)) else x
-    )
+    # Convert datetime-like objects to strings (YYYY-MM-DD format)
+    def convert_value(x):
+        if isinstance(x, (datetime, pd.Timestamp)):
+            return x.strftime('%Y-%m-%d')
+        elif isinstance(x, date):
+            return x.strftime('%Y-%m-%d')
+        return x
+    df = df.map(convert_value)
     return df
 
 
@@ -53,6 +57,10 @@ class IndexService:
         market: Optional[str] = None,
         category: Optional[str] = None,
         keyword: Optional[str] = None,
+        trade_date: Optional[str] = None,
+        publisher: Optional[str] = None,
+        pct_chg_min: Optional[float] = None,
+        pct_chg_max: Optional[float] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -62,51 +70,100 @@ class IndexService:
             market: Filter by market (SSE/SZSE/CSI)
             category: Filter by category
             keyword: Search keyword in name
+            trade_date: Trade date for daily data (YYYYMMDD), defaults to latest
+            publisher: Filter by publisher
+            pct_chg_min: Minimum price change percentage
+            pct_chg_max: Maximum price change percentage
             page: Page number
             page_size: Page size
             
         Returns:
-            Dict with total, page, page_size, data
+            Dict with total, page, page_size, data, trade_date
         """
-        where_clauses = ["1=1"]
+        # Determine target date
+        if trade_date:
+            target_date = trade_date
+        else:
+            date_query = "SELECT max(trade_date) as max_date FROM ods_idx_factor_pro"
+            date_result = _execute_query(date_query)
+            if date_result and date_result[0].get('max_date'):
+                td = date_result[0]['max_date']
+                if hasattr(td, 'strftime'):
+                    target_date = td.strftime('%Y%m%d')
+                elif isinstance(td, str):
+                    target_date = td.replace('-', '')
+                else:
+                    target_date = None
+            else:
+                target_date = None
+        
+        if not target_date:
+            return {"total": 0, "page": page, "page_size": page_size, "data": [], "trade_date": None}
+        
+        # Build WHERE clauses
+        where_clauses = [f"d.trade_date = '{target_date}'"]
         
         if market:
-            where_clauses.append(f"market = '{market}'")
+            market_escaped = market.replace("'", "''")
+            where_clauses.append(f"b.market = '{market_escaped}'")
         if category:
-            where_clauses.append(f"category = '{category}'")
+            category_escaped = category.replace("'", "''")
+            where_clauses.append(f"b.category = '{category_escaped}'")
         if keyword:
-            where_clauses.append(f"(name ILIKE '%{keyword}%' OR fullname ILIKE '%{keyword}%')")
+            keyword_escaped = keyword.replace("'", "''")
+            where_clauses.append(f"(b.name ILIKE '%{keyword_escaped}%' OR b.fullname ILIKE '%{keyword_escaped}%' OR b.ts_code LIKE '%{keyword_escaped}%')")
+        if publisher:
+            publisher_escaped = publisher.replace("'", "''")
+            where_clauses.append(f"b.publisher = '{publisher_escaped}'")
+        if pct_chg_min is not None:
+            where_clauses.append(f"ROUND((d.close - d.pre_close) / d.pre_close * 100, 2) >= {float(pct_chg_min)}")
+        if pct_chg_max is not None:
+            where_clauses.append(f"ROUND((d.close - d.pre_close) / d.pre_close * 100, 2) <= {float(pct_chg_max)}")
         
         where_sql = " AND ".join(where_clauses)
         
         # Count total
         count_query = f"""
         SELECT count() as total
-        FROM dim_index_basic
+        FROM ods_idx_factor_pro d
+        INNER JOIN (SELECT * FROM dim_index_basic FINAL) b ON d.ts_code = b.ts_code
         WHERE {where_sql}
         """
         count_result = _execute_query(count_query)
         total = count_result[0].get('total', 0) if count_result else 0
         
+        if total == 0:
+            return {"total": 0, "page": page, "page_size": page_size, "data": [], "trade_date": target_date}
+        
         # Get data with pagination
         offset = (page - 1) * page_size
         query = f"""
         SELECT 
-            ts_code,
-            name,
-            fullname,
-            market,
-            publisher,
-            index_type,
-            category,
-            base_date,
-            base_point,
-            list_date,
-            weight_rule,
-            desc
-        FROM dim_index_basic
+            b.ts_code AS ts_code,
+            b.name AS name,
+            b.fullname AS fullname,
+            b.market AS market,
+            b.publisher AS publisher,
+            b.index_type AS index_type,
+            b.category AS category,
+            b.base_date AS base_date,
+            b.base_point AS base_point,
+            b.list_date AS list_date,
+            b.weight_rule AS weight_rule,
+            b.desc AS desc,
+            d.trade_date AS trade_date,
+            d.open AS open,
+            d.high AS high,
+            d.low AS low,
+            d.close AS close,
+            d.pre_close AS pre_close,
+            ROUND((d.close - d.pre_close) / d.pre_close * 100, 2) AS pct_chg,
+            d.vol AS vol,
+            d.amount AS amount
+        FROM ods_idx_factor_pro d
+        INNER JOIN (SELECT * FROM dim_index_basic FINAL) b ON d.ts_code = b.ts_code
         WHERE {where_sql}
-        ORDER BY ts_code ASC
+        ORDER BY d.amount DESC NULLS LAST, b.ts_code ASC
         LIMIT {page_size}
         OFFSET {offset}
         """
@@ -117,7 +174,8 @@ class IndexService:
             "total": total,
             "page": page,
             "page_size": page_size,
-            "data": data
+            "data": data,
+            "trade_date": target_date
         }
     
     def get_index_detail(self, ts_code: str) -> Optional[Dict[str, Any]]:
@@ -144,7 +202,7 @@ class IndexService:
             weight_rule,
             desc,
             exp_date
-        FROM dim_index_basic
+        FROM dim_index_basic FINAL
         WHERE ts_code = '{ts_code}'
         """
         result = _execute_query(query)
@@ -274,7 +332,7 @@ class IndexService:
         """Get all available markets."""
         query = """
         SELECT DISTINCT market, count() as count
-        FROM dim_index_basic
+        FROM dim_index_basic FINAL
         WHERE market IS NOT NULL AND market != ''
         GROUP BY market
         ORDER BY count DESC
@@ -285,12 +343,53 @@ class IndexService:
         """Get all available categories."""
         query = """
         SELECT DISTINCT category, count() as count
-        FROM dim_index_basic
+        FROM dim_index_basic FINAL
         WHERE category IS NOT NULL AND category != ''
         GROUP BY category
         ORDER BY count DESC
         """
         return _execute_query(query)
+    
+    def get_publishers(self) -> List[Dict[str, Any]]:
+        """Get all available publishers."""
+        query = """
+        SELECT 
+            publisher as value,
+            publisher as label,
+            count() as count
+        FROM dim_index_basic FINAL
+        WHERE publisher IS NOT NULL AND publisher != ''
+        GROUP BY publisher
+        ORDER BY count DESC
+        """
+        return _execute_query(query)
+    
+    def get_trade_dates(self, limit: int = 30) -> List[str]:
+        """Get available trade dates from index daily data.
+        
+        Args:
+            limit: Maximum number of dates to return
+            
+        Returns:
+            List of trade dates in YYYYMMDD format, descending order
+        """
+        query = f"""
+        SELECT DISTINCT trade_date
+        FROM ods_idx_factor_pro
+        ORDER BY trade_date DESC
+        LIMIT {int(limit)}
+        """
+        result = _execute_query(query)
+        dates = []
+        for r in result:
+            td = r.get('trade_date')
+            if td:
+                # Handle different date formats
+                if hasattr(td, 'strftime'):
+                    dates.append(td.strftime('%Y%m%d'))
+                elif isinstance(td, str):
+                    dates.append(td.replace('-', ''))
+        return dates
     
     def get_daily(
         self,
@@ -339,6 +438,7 @@ class IndexService:
         ts_code: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        freq: str = "daily",
     ) -> Dict[str, Any]:
         """Get index K-line data.
         
@@ -346,16 +446,25 @@ class IndexService:
             ts_code: Index code
             start_date: Start date (YYYYMMDD)
             end_date: End date (YYYYMMDD)
+            freq: Data frequency ('daily', 'weekly', 'monthly')
             
         Returns:
-            Dict with ts_code, name, data
+            Dict with ts_code, name, freq, data
         """
         ts_code_escaped = ts_code.replace("'", "''")
         
         # Get index name
-        name_query = f"SELECT name FROM dim_index_basic WHERE ts_code = '{ts_code_escaped}'"
+        name_query = f"SELECT name FROM dim_index_basic FINAL WHERE ts_code = '{ts_code_escaped}'"
         name_result = _execute_query(name_query)
         name = name_result[0].get("name") if name_result else None
+        
+        # Determine table based on frequency
+        freq_table_map = {
+            "daily": "ods_idx_factor_pro",
+            "weekly": "ods_index_weekly",
+            "monthly": "ods_index_monthly",
+        }
+        table = freq_table_map.get(freq, "ods_idx_factor_pro")
         
         # Build date filter
         date_conditions = []
@@ -365,6 +474,12 @@ class IndexService:
             date_conditions.append(f"trade_date <= '{end_date}'")
         
         date_filter = " AND ".join(date_conditions) if date_conditions else "1=1"
+        
+        # Different columns for different tables
+        if freq == "daily":
+            pct_chg_col = "ROUND((close - pre_close) / pre_close * 100, 2) as pct_chg"
+        else:
+            pct_chg_col = "pct_chg"
         
         query = f"""
         SELECT 
@@ -376,8 +491,8 @@ class IndexService:
             close,
             vol,
             amount,
-            ROUND((close - pre_close) / pre_close * 100, 2) as pct_chg
-        FROM ods_idx_factor_pro
+            {pct_chg_col}
+        FROM {table}
         WHERE ts_code = '{ts_code_escaped}'
         AND {date_filter}
         ORDER BY trade_date ASC
@@ -388,6 +503,7 @@ class IndexService:
         return {
             "ts_code": ts_code,
             "name": name,
+            "freq": freq,
             "data": data
         }
     

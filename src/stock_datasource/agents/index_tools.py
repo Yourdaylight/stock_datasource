@@ -1002,3 +1002,590 @@ def get_comprehensive_analysis(ts_code: str) -> Dict[str, Any]:
         },
         "disclaimer": "以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。"
     }
+
+# ============================================================
+# 扩展指数数据工具 - 周线/月线/行业/概念/国际指数
+# ============================================================
+
+def get_index_weekly_data(ts_code: str, days: int = 52) -> Dict[str, Any]:
+    """获取指数周线数据（默认最近52周）。
+
+    Args:
+        ts_code: 指数代码，如 000300.SH
+        days: 获取最近多少周的数据，默认52周（约1年）
+
+    Returns:
+        包含周线行情数据的字典
+    """
+    query = f"""
+    SELECT 
+        ts_code, trade_date, open, high, low, close,
+        pre_close, change, pct_chg, vol, amount
+    FROM ods_index_weekly
+    WHERE ts_code = '{ts_code}'
+    ORDER BY trade_date DESC
+    LIMIT {days}
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到指数 {ts_code} 的周线数据"}
+    
+    result.reverse()
+    
+    # 计算周线统计
+    closes = [r.get('close', 0) for r in result if r.get('close')]
+    pct_chgs = [r.get('pct_chg', 0) for r in result if r.get('pct_chg') is not None]
+    
+    return {
+        "ts_code": ts_code,
+        "weeks": len(result),
+        "data": result[-10:],  # 返回最近10周
+        "stats": {
+            "latest_close": closes[-1] if closes else None,
+            "max_close": max(closes) if closes else None,
+            "min_close": min(closes) if closes else None,
+            "avg_weekly_return": round(sum(pct_chgs) / len(pct_chgs), 3) if pct_chgs else None,
+            "total_weeks": len(result)
+        }
+    }
+
+
+def get_index_monthly_data(ts_code: str, months: int = 24) -> Dict[str, Any]:
+    """获取指数月线数据（默认最近24个月）。
+
+    Args:
+        ts_code: 指数代码，如 000300.SH
+        months: 获取最近多少月的数据，默认24个月（2年）
+
+    Returns:
+        包含月线行情数据的字典
+    """
+    query = f"""
+    SELECT 
+        ts_code, trade_date, open, high, low, close,
+        pre_close, change, pct_chg, vol, amount
+    FROM ods_index_monthly
+    WHERE ts_code = '{ts_code}'
+    ORDER BY trade_date DESC
+    LIMIT {months}
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到指数 {ts_code} 的月线数据"}
+    
+    result.reverse()
+    
+    closes = [r.get('close', 0) for r in result if r.get('close')]
+    pct_chgs = [r.get('pct_chg', 0) for r in result if r.get('pct_chg') is not None]
+    
+    return {
+        "ts_code": ts_code,
+        "months": len(result),
+        "data": result[-12:],  # 返回最近12个月
+        "stats": {
+            "latest_close": closes[-1] if closes else None,
+            "max_close": max(closes) if closes else None,
+            "min_close": min(closes) if closes else None,
+            "avg_monthly_return": round(sum(pct_chgs) / len(pct_chgs), 3) if pct_chgs else None,
+            "ytd_return": round(sum(pct_chgs[-12:]), 2) if len(pct_chgs) >= 12 else None,
+            "total_months": len(result)
+        }
+    }
+
+
+def get_sw_industry_daily(trade_date: str = None, ts_code: str = None) -> Dict[str, Any]:
+    """获取申万行业指数日线数据。
+
+    Args:
+        trade_date: 交易日期（YYYYMMDD），不传则获取最新日期
+        ts_code: 行业指数代码（可选），不传则返回所有行业
+
+    Returns:
+        包含申万行业指数数据的字典
+    """
+    if not trade_date:
+        date_query = "SELECT max(trade_date) as latest FROM ods_sw_daily"
+        date_result = _execute_query(date_query)
+        if date_result and date_result[0].get('latest'):
+            latest = date_result[0]['latest']
+            if hasattr(latest, 'strftime'):
+                trade_date = latest.strftime('%Y%m%d')
+            else:
+                trade_date = str(latest).replace('-', '')
+        else:
+            return {"error": "未找到申万行业指数数据"}
+    
+    where_clause = f"trade_date = '{trade_date}'"
+    if ts_code:
+        where_clause += f" AND ts_code = '{ts_code}'"
+    
+    query = f"""
+    SELECT 
+        ts_code, trade_date, name, open, high, low, close,
+        change, pct_change, vol, amount, pe, pb, float_mv, total_mv
+    FROM ods_sw_daily
+    WHERE {where_clause}
+    ORDER BY pct_change DESC
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到申万行业指数数据"}
+    
+    # 计算涨跌统计
+    up_count = sum(1 for r in result if (r.get('pct_change') or 0) > 0)
+    down_count = sum(1 for r in result if (r.get('pct_change') or 0) < 0)
+    
+    return {
+        "trade_date": trade_date,
+        "total_count": len(result),
+        "up_count": up_count,
+        "down_count": down_count,
+        "flat_count": len(result) - up_count - down_count,
+        "top5_gainers": result[:5],
+        "top5_losers": result[-5:][::-1] if len(result) >= 5 else result[::-1],
+        "all_industries": result if ts_code else None
+    }
+
+
+def get_ci_industry_daily(trade_date: str = None, ts_code: str = None) -> Dict[str, Any]:
+    """获取中信行业指数日线数据。
+
+    Args:
+        trade_date: 交易日期（YYYYMMDD），不传则获取最新日期
+        ts_code: 行业指数代码（可选），不传则返回所有行业
+
+    Returns:
+        包含中信行业指数数据的字典
+    """
+    if not trade_date:
+        date_query = "SELECT max(trade_date) as latest FROM ods_ci_daily"
+        date_result = _execute_query(date_query)
+        if date_result and date_result[0].get('latest'):
+            latest = date_result[0]['latest']
+            if hasattr(latest, 'strftime'):
+                trade_date = latest.strftime('%Y%m%d')
+            else:
+                trade_date = str(latest).replace('-', '')
+        else:
+            return {"error": "未找到中信行业指数数据"}
+    
+    where_clause = f"trade_date = '{trade_date}'"
+    if ts_code:
+        where_clause += f" AND ts_code = '{ts_code}'"
+    
+    query = f"""
+    SELECT 
+        ts_code, trade_date, name, open, high, low, close,
+        change, pct_change, vol, amount
+    FROM ods_ci_daily
+    WHERE {where_clause}
+    ORDER BY pct_change DESC
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到中信行业指数数据"}
+    
+    up_count = sum(1 for r in result if (r.get('pct_change') or 0) > 0)
+    down_count = sum(1 for r in result if (r.get('pct_change') or 0) < 0)
+    
+    return {
+        "trade_date": trade_date,
+        "total_count": len(result),
+        "up_count": up_count,
+        "down_count": down_count,
+        "flat_count": len(result) - up_count - down_count,
+        "top5_gainers": result[:5],
+        "top5_losers": result[-5:][::-1] if len(result) >= 5 else result[::-1]
+    }
+
+
+def search_ths_index(keyword: str = None, index_type: str = None) -> Dict[str, Any]:
+    """搜索同花顺概念/行业指数。
+
+    Args:
+        keyword: 搜索关键词（模糊匹配名称）
+        index_type: 指数类型：N-概念, I-行业, R-地域, S-特色, ST-风格, TH-主题, BB-宽基
+
+    Returns:
+        匹配的同花顺指数列表
+    """
+    conditions = ["1=1"]
+    if keyword:
+        conditions.append(f"name LIKE '%{keyword}%'")
+    if index_type:
+        conditions.append(f"type = '{index_type}'")
+    
+    where_clause = " AND ".join(conditions)
+    
+    query = f"""
+    SELECT ts_code, name, count, exchange, list_date, type
+    FROM ods_ths_index
+    WHERE {where_clause}
+    ORDER BY count DESC NULLS LAST
+    LIMIT 50
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": "未找到匹配的同花顺指数"}
+    
+    # 按类型分组统计
+    type_stats = {}
+    for r in result:
+        t = r.get('type', 'unknown')
+        type_stats[t] = type_stats.get(t, 0) + 1
+    
+    return {
+        "total_count": len(result),
+        "type_stats": type_stats,
+        "indices": result
+    }
+
+
+def get_ths_daily(ts_code: str, days: int = 20) -> Dict[str, Any]:
+    """获取同花顺指数日线数据。
+
+    Args:
+        ts_code: 同花顺指数代码，如 885001.TI
+        days: 获取最近多少天数据，默认20天
+
+    Returns:
+        包含同花顺指数日线数据的字典
+    """
+    query = f"""
+    SELECT 
+        ts_code, trade_date, open, high, low, close,
+        pre_close, avg_price, change, pct_change,
+        vol, turnover_rate, total_mv, float_mv
+    FROM ods_ths_daily
+    WHERE ts_code = '{ts_code}'
+    ORDER BY trade_date DESC
+    LIMIT {days}
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到同花顺指数 {ts_code} 的日线数据"}
+    
+    result.reverse()
+    
+    # 获取指数基本信息
+    info_query = f"""
+    SELECT ts_code, name, count, exchange, type
+    FROM ods_ths_index
+    WHERE ts_code = '{ts_code}'
+    """
+    info_result = _execute_query(info_query)
+    index_info = info_result[0] if info_result else {}
+    
+    closes = [r.get('close', 0) for r in result if r.get('close')]
+    pct_chgs = [r.get('pct_change', 0) for r in result if r.get('pct_change') is not None]
+    
+    return {
+        "ts_code": ts_code,
+        "index_name": index_info.get('name'),
+        "index_type": index_info.get('type'),
+        "constituent_count": index_info.get('count'),
+        "days": len(result),
+        "data": result[-10:],
+        "stats": {
+            "latest_close": closes[-1] if closes else None,
+            "period_return": round(((closes[-1] / closes[0]) - 1) * 100, 2) if closes and closes[0] else None,
+            "avg_daily_return": round(sum(pct_chgs) / len(pct_chgs), 3) if pct_chgs else None,
+            "max_close": max(closes) if closes else None,
+            "min_close": min(closes) if closes else None
+        }
+    }
+
+
+def get_ths_members(ts_code: str) -> Dict[str, Any]:
+    """获取同花顺概念/行业成分股。
+
+    Args:
+        ts_code: 同花顺指数代码
+
+    Returns:
+        包含成分股列表的字典
+    """
+    # 获取指数信息
+    info_query = f"""
+    SELECT ts_code, name, count, type
+    FROM ods_ths_index
+    WHERE ts_code = '{ts_code}'
+    """
+    info_result = _execute_query(info_query)
+    index_info = info_result[0] if info_result else {}
+    
+    # 获取成分股
+    query = f"""
+    SELECT ts_code, code, name, weight, in_date, out_date, is_new
+    FROM ods_ths_member
+    WHERE ts_code = '{ts_code}'
+    ORDER BY weight DESC NULLS LAST
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到同花顺指数 {ts_code} 的成分股数据"}
+    
+    return {
+        "ts_code": ts_code,
+        "index_name": index_info.get('name'),
+        "index_type": index_info.get('type'),
+        "constituent_count": len(result),
+        "constituents": result[:30],  # 返回前30个
+        "new_additions": [r for r in result if r.get('is_new') == 'Y'][:10]
+    }
+
+
+def get_global_index(ts_code: str = None, trade_date: str = None, days: int = 20) -> Dict[str, Any]:
+    """获取国际指数数据。
+
+    Args:
+        ts_code: 国际指数代码（可选），如 SPX（标普500）、DJI（道琼斯）、IXIC（纳斯达克）
+        trade_date: 交易日期（可选）
+        days: 获取最近多少天数据，默认20天
+
+    Returns:
+        国际指数数据
+    """
+    if ts_code:
+        query = f"""
+        SELECT ts_code, trade_date, open, high, low, close,
+               pre_close, change, pct_chg, swing, vol, amount
+        FROM ods_index_global
+        WHERE ts_code = '{ts_code}'
+        ORDER BY trade_date DESC
+        LIMIT {days}
+        """
+        result = _execute_query(query)
+        if not result:
+            return {"error": f"未找到国际指数 {ts_code} 的数据"}
+        
+        result.reverse()
+        closes = [r.get('close', 0) for r in result if r.get('close')]
+        
+        return {
+            "ts_code": ts_code,
+            "days": len(result),
+            "data": result[-10:],
+            "stats": {
+                "latest_close": closes[-1] if closes else None,
+                "period_return": round(((closes[-1] / closes[0]) - 1) * 100, 2) if closes and closes[0] else None,
+            }
+        }
+    
+    elif trade_date:
+        query = f"""
+        SELECT ts_code, trade_date, open, high, low, close,
+               pre_close, change, pct_chg, swing
+        FROM ods_index_global
+        WHERE trade_date = '{trade_date}'
+        ORDER BY ts_code
+        """
+        result = _execute_query(query)
+        if not result:
+            return {"error": f"未找到 {trade_date} 的国际指数数据"}
+        
+        return {
+            "trade_date": trade_date,
+            "indices": result
+        }
+    
+    else:
+        # 获取最新日期的所有国际指数
+        date_query = "SELECT max(trade_date) as latest FROM ods_index_global"
+        date_result = _execute_query(date_query)
+        if date_result and date_result[0].get('latest'):
+            latest = date_result[0]['latest']
+            if hasattr(latest, 'strftime'):
+                trade_date = latest.strftime('%Y%m%d')
+            else:
+                trade_date = str(latest).replace('-', '')
+            return get_global_index(trade_date=trade_date)
+        return {"error": "未找到国际指数数据"}
+
+
+def get_market_daily_stats(trade_date: str = None) -> Dict[str, Any]:
+    """获取每日全市场统计数据。
+
+    Args:
+        trade_date: 交易日期（YYYYMMDD），不传则获取最新日期
+
+    Returns:
+        全市场统计数据（上市公司数、总市值、成交额等）
+    """
+    if not trade_date:
+        date_query = "SELECT max(trade_date) as latest FROM ods_daily_info"
+        date_result = _execute_query(date_query)
+        if date_result and date_result[0].get('latest'):
+            latest = date_result[0]['latest']
+            if hasattr(latest, 'strftime'):
+                trade_date = latest.strftime('%Y%m%d')
+            else:
+                trade_date = str(latest).replace('-', '')
+        else:
+            return {"error": "未找到每日市场统计数据"}
+    
+    query = f"""
+    SELECT 
+        trade_date, ts_code, ts_name, com_count, 
+        total_share, float_share, total_mv, float_mv,
+        amount, vol, trans_count, pe, tr, exchange
+    FROM ods_daily_info
+    WHERE trade_date = '{trade_date}'
+    ORDER BY ts_code
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到 {trade_date} 的市场统计数据"}
+    
+    # 汇总统计
+    total_companies = sum(r.get('com_count', 0) or 0 for r in result)
+    total_mv = sum(r.get('total_mv', 0) or 0 for r in result)
+    total_amount = sum(r.get('amount', 0) or 0 for r in result)
+    
+    return {
+        "trade_date": trade_date,
+        "summary": {
+            "total_companies": total_companies,
+            "total_mv_billion": round(total_mv / 100000000, 2) if total_mv else None,
+            "total_amount_billion": round(total_amount / 100000000, 2) if total_amount else None
+        },
+        "by_market": result
+    }
+
+
+def get_industry_classification(level: str = "L1", src: str = "SW2021") -> Dict[str, Any]:
+    """获取行业分类信息。
+
+    Args:
+        level: 分类级别 L1(一级)/L2(二级)/L3(三级)
+        src: 分类来源 SW2021(申万2021)/SW(申万)/MSCI
+
+    Returns:
+        行业分类信息
+    """
+    query = f"""
+    SELECT 
+        index_code, industry_name, level, industry_code,
+        is_pub, parent_code, src
+    FROM dim_index_classify
+    WHERE level = '{level}' AND src = '{src}'
+    ORDER BY index_code
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": f"未找到 {src} {level} 级行业分类数据"}
+    
+    return {
+        "source": src,
+        "level": level,
+        "total_count": len(result),
+        "classifications": result
+    }
+
+
+def compare_index_performance(ts_codes: List[str], days: int = 20) -> Dict[str, Any]:
+    """比较多个指数的表现。
+
+    Args:
+        ts_codes: 指数代码列表，如 ['000300.SH', '000905.SH', '399006.SZ']
+        days: 比较最近多少天，默认20天
+
+    Returns:
+        指数表现对比
+    """
+    if not ts_codes:
+        return {"error": "请提供至少一个指数代码"}
+    
+    codes_str = "','".join(ts_codes)
+    query = f"""
+    SELECT ts_code, trade_date, close, pct_chg
+    FROM ods_idx_factor_pro
+    WHERE ts_code IN ('{codes_str}')
+    ORDER BY trade_date DESC
+    """
+    result = _execute_query(query)
+    if not result:
+        return {"error": "未找到指定指数的数据"}
+    
+    # 按指数分组处理
+    index_data = {}
+    for r in result:
+        code = r.get('ts_code')
+        if code not in index_data:
+            index_data[code] = []
+        if len(index_data[code]) < days:
+            index_data[code].append(r)
+    
+    # 计算各指数统计
+    performance = []
+    for code in ts_codes:
+        data = index_data.get(code, [])
+        if not data:
+            performance.append({"ts_code": code, "error": "无数据"})
+            continue
+        
+        data.reverse()
+        closes = [d.get('close', 0) for d in data if d.get('close')]
+        pct_chgs = [d.get('pct_chg', 0) for d in data if d.get('pct_chg') is not None]
+        
+        performance.append({
+            "ts_code": code,
+            "latest_close": closes[-1] if closes else None,
+            "period_return": round(((closes[-1] / closes[0]) - 1) * 100, 2) if closes and closes[0] else None,
+            "avg_daily_return": round(sum(pct_chgs) / len(pct_chgs), 3) if pct_chgs else None,
+            "max_drawdown": _calc_max_drawdown(closes) if closes else None,
+            "volatility": round(_calc_std(pct_chgs), 3) if pct_chgs else None,
+            "trading_days": len(data)
+        })
+    
+    # 排序
+    performance.sort(key=lambda x: x.get('period_return') or -999, reverse=True)
+    
+    return {
+        "comparison_days": days,
+        "performance": performance,
+        "best_performer": performance[0] if performance else None,
+        "worst_performer": performance[-1] if performance else None
+    }
+
+
+def _calc_max_drawdown(prices: List[float]) -> float:
+    """计算最大回撤"""
+    if not prices:
+        return 0
+    max_price = prices[0]
+    max_drawdown = 0
+    for price in prices:
+        if price > max_price:
+            max_price = price
+        drawdown = (max_price - price) / max_price * 100
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    return round(max_drawdown, 2)
+
+
+def _calc_std(values: List[float]) -> float:
+    """计算标准差"""
+    if not values or len(values) < 2:
+        return 0
+    mean = sum(values) / len(values)
+    variance = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
+    return variance ** 0.5
+
+
+def get_industry_ranking(trade_date: str = None, source: str = "sw") -> Dict[str, Any]:
+    """获取行业涨跌幅排行。
+
+    Args:
+        trade_date: 交易日期（YYYYMMDD），不传则获取最新
+        source: 数据来源 sw(申万)/ci(中信)
+
+    Returns:
+        行业涨跌幅排行
+    """
+    if source.lower() == "sw":
+        return get_sw_industry_daily(trade_date)
+    elif source.lower() == "ci":
+        return get_ci_industry_daily(trade_date)
+    else:
+        return {"error": f"不支持的数据来源: {source}，请使用 sw 或 ci"}

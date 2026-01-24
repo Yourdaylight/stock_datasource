@@ -1,0 +1,7 @@
+{
+  "rate_limit": 500,
+  "timeout": 30,
+  "api_name": "index_classify",
+  "description": "申万行业分类数据",
+  "min_points": 2000
+}

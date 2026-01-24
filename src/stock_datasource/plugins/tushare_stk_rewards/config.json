@@ -1,0 +1,7 @@
+{
+  "rate_limit": 200,
+  "timeout": 30,
+  "api_name": "stk_rewards",
+  "description": "管理层薪酬和持股数据",
+  "min_points": 2000
+}

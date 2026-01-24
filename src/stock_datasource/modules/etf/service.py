@@ -114,27 +114,56 @@ class EtfService(BaseListService):
         etf_type: Optional[str] = None,
         list_status: Optional[str] = None,
         keyword: Optional[str] = None,
+        trade_date: Optional[str] = None,
+        manager: Optional[str] = None,
+        tracking_index: Optional[str] = None,
+        fee_min: Optional[float] = None,
+        fee_max: Optional[float] = None,
+        amount_min: Optional[float] = None,
+        pct_chg_min: Optional[float] = None,
+        pct_chg_max: Optional[float] = None,
         page: int = 1,
         page_size: int = 20,
         sort_by: Optional[str] = None,
         sort_order: str = "desc",
     ) -> Dict[str, Any]:
-        """Get ETF list with latest daily quotes and basic info.
+        """Get ETF list with daily quotes and basic info.
         
-        Returns paginated items similar to screener data structure.
+        Args:
+            exchange: Exchange filter (SH/SZ)
+            etf_type: ETF type filter
+            list_status: List status filter (L/D/P)
+            keyword: Search keyword
+            trade_date: Trade date filter (YYYYMMDD), defaults to latest
+            manager: Fund manager filter
+            tracking_index: Tracking index code filter
+            fee_min: Minimum management fee (percentage)
+            fee_max: Maximum management fee (percentage)
+            amount_min: Minimum trading amount (10000 yuan)
+            pct_chg_min: Minimum price change percentage
+            pct_chg_max: Maximum price change percentage
+            page: Page number
+            page_size: Page size
+            sort_by: Sort field
+            sort_order: Sort direction (asc/desc)
+        
+        Returns:
+            Paginated ETF list with daily quotes
         """
         db = _get_db()
         
-        # Get latest trade date from ETF daily table
-        date_query = "SELECT max(trade_date) as max_date FROM ods_etf_fund_daily"
-        date_df = db.execute_query(date_query)
-        if date_df.empty or date_df.iloc[0]["max_date"] is None:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
-        
-        latest_date = _format_date(date_df.iloc[0]["max_date"])
+        # Get trade date: use specified or latest
+        if trade_date:
+            target_date = trade_date
+        else:
+            date_query = "SELECT max(trade_date) as max_date FROM ods_etf_fund_daily"
+            date_df = db.execute_query(date_query)
+            if date_df.empty or date_df.iloc[0]["max_date"] is None:
+                return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0, "trade_date": None}
+            target_date = _format_date(date_df.iloc[0]["max_date"])
         
         # Build WHERE clause
-        where_parts = [f"d.trade_date = '{latest_date}'"]
+        where_parts = [f"d.trade_date = '{target_date}'"]
         if exchange:
             exchange_escaped = exchange.replace("'", "''")
             where_parts.append(f"b.exchange = '{exchange_escaped}'")
@@ -156,6 +185,23 @@ class EtfService(BaseListService):
                     f"b.index_name LIKE '%{keyword_escaped}%'" +
                     ")"
                 )
+        # New filters
+        if manager:
+            manager_escaped = manager.replace("'", "''")
+            where_parts.append(f"b.mgr_name = '{manager_escaped}'")
+        if tracking_index:
+            tracking_index_escaped = tracking_index.replace("'", "''")
+            where_parts.append(f"b.index_code = '{tracking_index_escaped}'")
+        if fee_min is not None:
+            where_parts.append(f"b.mgt_fee >= {float(fee_min)}")
+        if fee_max is not None:
+            where_parts.append(f"b.mgt_fee <= {float(fee_max)}")
+        if amount_min is not None:
+            where_parts.append(f"d.amount >= {float(amount_min)}")
+        if pct_chg_min is not None:
+            where_parts.append(f"d.pct_chg >= {float(pct_chg_min)}")
+        if pct_chg_max is not None:
+            where_parts.append(f"d.pct_chg <= {float(pct_chg_max)}")
         
         where_clause = " AND ".join(where_parts)
         
@@ -176,13 +222,13 @@ class EtfService(BaseListService):
         count_query = f"""
             SELECT count(*) as cnt
             FROM ods_etf_fund_daily d
-            LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
+            LEFT JOIN (SELECT * FROM ods_etf_basic FINAL) b ON d.ts_code = b.ts_code
             WHERE {where_clause}
         """
         count_df = db.execute_query(count_query)
         total = int(count_df.iloc[0]["cnt"]) if not count_df.empty else 0
         if total == 0:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+            return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0, "trade_date": target_date}
         
         # Pagination
         total_pages = (total + page_size - 1) // page_size
@@ -211,7 +257,7 @@ class EtfService(BaseListService):
                 b.etf_type,
                 b.mgt_fee
             FROM ods_etf_fund_daily d
-            LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
+            LEFT JOIN (SELECT * FROM ods_etf_basic FINAL) b ON d.ts_code = b.ts_code
             WHERE {where_clause}
             ORDER BY {sort_field} {sort_direction}
             LIMIT {page_size} OFFSET {offset}
@@ -249,6 +295,7 @@ class EtfService(BaseListService):
             "page": page,
             "page_size": page_size,
             "total_pages": total_pages,
+            "trade_date": target_date,
         }
     
     def get_etf_detail(self, ts_code: str) -> Optional[Dict[str, Any]]:
@@ -326,7 +373,7 @@ class EtfService(BaseListService):
         ts_code_escaped = ts_code.replace("'", "''")
         
         # Get ETF name
-        name_query = f"SELECT csname as name FROM ods_etf_basic WHERE ts_code = '{ts_code_escaped}'"
+        name_query = f"SELECT csname as name FROM ods_etf_basic FINAL WHERE ts_code = '{ts_code_escaped}'"
         name_result = _execute_query(name_query)
         name = name_result[0].get("name") if name_result else None
         
@@ -412,7 +459,7 @@ class EtfService(BaseListService):
                 ELSE exchange
             END as label,
             count() as count
-        FROM ods_etf_basic
+        FROM ods_etf_basic FINAL
         WHERE exchange IS NOT NULL AND exchange != ''
         GROUP BY exchange
         ORDER BY count DESC
@@ -426,7 +473,7 @@ class EtfService(BaseListService):
             etf_type as value,
             etf_type as label,
             count() as count
-        FROM ods_etf_basic
+        FROM ods_etf_basic FINAL
         WHERE etf_type IS NOT NULL AND etf_type != ''
         GROUP BY etf_type
         ORDER BY count DESC
@@ -436,6 +483,52 @@ class EtfService(BaseListService):
     def get_invest_types(self) -> List[Dict[str, Any]]:
         """Get all available investment types (same as etf_type for this schema)."""
         return self.get_types()
+    
+    def get_managers(self) -> List[Dict[str, Any]]:
+        """Get all available fund managers."""
+        query = """
+        SELECT 
+            mgr_name as value,
+            mgr_name as label,
+            count() as count
+        FROM ods_etf_basic FINAL
+        WHERE mgr_name IS NOT NULL AND mgr_name != ''
+        GROUP BY mgr_name
+        ORDER BY count DESC
+        """
+        return _execute_query(query)
+    
+    def get_tracking_indices(self) -> List[Dict[str, Any]]:
+        """Get all tracking indices."""
+        query = """
+        SELECT 
+            index_code as value,
+            index_name as label,
+            count() as count
+        FROM ods_etf_basic FINAL
+        WHERE index_code IS NOT NULL AND index_code != ''
+        GROUP BY index_code, index_name
+        ORDER BY count DESC
+        """
+        return _execute_query(query)
+    
+    def get_trade_dates(self, limit: int = 30) -> List[str]:
+        """Get available trade dates from ETF daily data.
+        
+        Args:
+            limit: Maximum number of dates to return
+            
+        Returns:
+            List of trade dates in YYYYMMDD format, descending order
+        """
+        query = f"""
+        SELECT DISTINCT trade_date
+        FROM ods_etf_fund_daily
+        ORDER BY trade_date DESC
+        LIMIT {int(limit)}
+        """
+        result = _execute_query(query)
+        return [_format_date(r.get('trade_date')) for r in result if r.get('trade_date')]
     
     async def analyze_etf(
         self,

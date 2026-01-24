@@ -16,7 +16,8 @@ import {
   ControlPlatformIcon,
   LockOnIcon,
   LogoutIcon,
-  QueueIcon
+  QueueIcon,
+  TrendingUpIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -33,6 +34,7 @@ const menuItems = [
   { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
   { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true },
+  { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
   { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },

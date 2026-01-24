@@ -55,6 +55,9 @@ const categoryOptions = [
   { label: '港股', value: 'hk_stock' },
   { label: '指数', value: 'index' },
   { label: 'ETF基金', value: 'etf_fund' },
+  { label: '市场统计', value: 'market' },
+  { label: '参考数据', value: 'reference' },
+  { label: '基本面', value: 'fundamental' },
   { label: '系统', value: 'system' }
 ]
 
@@ -393,6 +396,9 @@ const getCategoryText = (category?: string) => {
     stock: 'A股',  // backward compatibility
     index: '指数',
     etf_fund: 'ETF基金',
+    market: '市场统计',
+    reference: '参考数据',
+    fundamental: '基本面',
     system: '系统'
   }
   return category ? map[category] || category : '-'
@@ -415,6 +421,9 @@ const getCategoryTheme = (category?: string) => {
     stock: 'primary',  // backward compatibility
     index: 'success',
     etf_fund: 'warning',
+    market: 'primary',
+    reference: 'warning',
+    fundamental: 'success',
     system: 'default'
   }
   return category ? map[category] || 'default' : 'default'
