@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useIndexStore } from '@/stores/index'
 import IndexDetailDialog from './components/IndexDetailDialog.vue'
 import IndexAnalysisPanel from './components/IndexAnalysisPanel.vue'
+import DataUpdateDialog from '@/components/DataUpdateDialog.vue'
 
 const indexStore = useIndexStore()
 const searchInput = ref('')
@@ -17,6 +18,10 @@ const showAnalysisPanel = ref(false)
 const analysisIndexCode = ref('')
 const analysisIndexName = ref('')
 
+// Data update dialog state
+const showDataUpdateDialog = ref(false)
+const noDataDate = ref('')
+
 // Common indices for quick access
 const commonIndices = [
   { code: '000300.SH', name: '沪深300' },
@@ -27,14 +32,18 @@ const commonIndices = [
   { code: '000001.SH', name: '上证指数' },
 ]
 
-// Table columns
+// Table columns with daily data
 const columns = [
   { colKey: 'ts_code', title: '代码', width: 110 },
   { colKey: 'name', title: '名称', width: 150 },
+  { colKey: 'trade_date', title: '日期', width: 100 },
+  { colKey: 'close', title: '收盘点位', width: 100 },
+  { colKey: 'pct_chg', title: '涨跌幅', width: 90 },
+  { colKey: 'vol', title: '成交量', width: 100 },
+  { colKey: 'amount', title: '成交额', width: 110 },
   { colKey: 'market', title: '市场', width: 80 },
   { colKey: 'category', title: '类别', width: 100 },
   { colKey: 'publisher', title: '发布方', width: 100 },
-  { colKey: 'weight_rule', title: '加权方式', width: 120 },
   { colKey: 'list_date', title: '发布日期', width: 100 },
   { colKey: 'operation', title: '操作', width: 150, fixed: 'right' }
 ]
@@ -50,6 +59,43 @@ const categoryOptions = computed(() => [
   { value: '', label: '全部类别' },
   ...indexStore.categories.map(c => ({ value: c.category, label: `${c.category} (${c.count})` }))
 ])
+
+// Publisher options for filter
+const publisherOptions = computed(() => [
+  { value: '', label: '全部发布方' },
+  ...indexStore.publishers.map(p => ({ value: p.value, label: `${p.label} (${p.count})` }))
+])
+
+// Date options for filter
+const dateOptions = computed(() => {
+  return indexStore.tradeDates.map(d => ({
+    value: d,
+    label: formatDateDisplay(d)
+  }))
+})
+
+// Pct change range options
+const pctChgRangeOptions = [
+  { value: '', label: '全部涨跌' },
+  { value: 'up', label: '上涨' },
+  { value: 'down', label: '下跌' },
+  { value: 'up1+', label: '涨幅>1%' },
+  { value: 'up2+', label: '涨幅>2%' },
+  { value: 'down1+', label: '跌幅>1%' },
+  { value: 'down2+', label: '跌幅>2%' },
+]
+
+// Format date for display (handles both YYYYMMDD and YYYY-MM-DD)
+const formatDateDisplay = (date: string) => {
+  if (!date) return date
+  // Already has dashes (YYYY-MM-DD format)
+  if (date.includes('-')) return date
+  // YYYYMMDD format -> YYYY-MM-DD
+  if (date.length === 8) {
+    return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+  }
+  return date
+}
 
 // Pagination
 const pagination = computed(() => ({
@@ -72,6 +118,23 @@ const handleMarketChange = (value: string) => {
 
 const handleCategoryChange = (value: string) => {
   indexStore.setCategory(value)
+}
+
+const handleDateChange = async (value: string) => {
+  await indexStore.setDate(value)
+  // Check if no data for this date
+  if (indexStore.total === 0 && value) {
+    noDataDate.value = value
+    showDataUpdateDialog.value = true
+  }
+}
+
+const handlePublisherChange = (value: string) => {
+  indexStore.setPublisher(value)
+}
+
+const handlePctChgRangeChange = (value: string) => {
+  indexStore.setPctChgRange(value)
 }
 
 const handlePageChange = (current: number) => {
@@ -116,10 +179,31 @@ const handleAnalysisPanelClose = () => {
 
 // Load data on mount
 onMounted(() => {
+  indexStore.fetchTradeDates()
   indexStore.fetchIndices()
   indexStore.fetchMarkets()
   indexStore.fetchCategories()
+  indexStore.fetchPublishers()
 })
+
+// Watch for no data scenario when date changes
+watch(() => indexStore.total, (newTotal) => {
+  if (newTotal === 0 && indexStore.selectedDate && !indexStore.loading) {
+    noDataDate.value = indexStore.selectedDate
+    showDataUpdateDialog.value = true
+  }
+})
+
+// Format helpers for table display
+const formatVolume = (val?: number) => {
+  if (!val) return '-'
+  return (val / 10000).toFixed(2) + '万手'
+}
+
+const formatAmount = (val?: number) => {
+  if (!val) return '-'
+  return (val / 10000).toFixed(2) + '万'
+}
 </script>
 
 <template>
@@ -150,6 +234,32 @@ onMounted(() => {
         <t-card title="筛选条件">
           <div class="filter-section">
             <div class="filter-item">
+              <div class="filter-label">交易日期</div>
+              <t-date-picker
+                :value="indexStore.selectedDate"
+                placeholder="选择日期"
+                format="YYYY-MM-DD"
+                value-type="YYYYMMDD"
+                :enable-time-picker="false"
+                @change="handleDateChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">搜索</div>
+              <t-input
+                v-model="searchInput"
+                placeholder="输入指数名称或代码"
+                clearable
+                @enter="handleSearch"
+              >
+                <template #suffix-icon>
+                  <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
+                </template>
+              </t-input>
+            </div>
+            
+            <div class="filter-item">
               <div class="filter-label">市场</div>
               <t-select
                 :value="indexStore.selectedMarket"
@@ -172,17 +282,26 @@ onMounted(() => {
             </div>
             
             <div class="filter-item">
-              <div class="filter-label">搜索</div>
-              <t-input
-                v-model="searchInput"
-                placeholder="输入指数名称"
+              <div class="filter-label">发布方</div>
+              <t-select
+                :value="indexStore.selectedPublisher"
+                :options="publisherOptions"
+                placeholder="选择发布方"
                 clearable
-                @enter="handleSearch"
-              >
-                <template #suffix-icon>
-                  <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
-                </template>
-              </t-input>
+                filterable
+                @change="handlePublisherChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">涨跌幅</div>
+              <t-select
+                :value="indexStore.selectedPctChgRange"
+                :options="pctChgRangeOptions"
+                placeholder="选择涨跌幅范围"
+                clearable
+                @change="handlePctChgRangeChange"
+              />
             </div>
             
             <t-button variant="outline" block @click="handleClearFilters" style="margin-top: 16px">
@@ -210,6 +329,20 @@ onMounted(() => {
               <t-link theme="primary" @click="handleViewDetail(row)">
                 {{ row.ts_code }}
               </t-link>
+            </template>
+            <template #close="{ row }">
+              {{ row.close?.toFixed(2) || '-' }}
+            </template>
+            <template #pct_chg="{ row }">
+              <span :style="{ color: (row.pct_chg || 0) >= 0 ? '#e34d59' : '#00a870' }">
+                {{ row.pct_chg?.toFixed(2) || '0.00' }}%
+              </span>
+            </template>
+            <template #vol="{ row }">
+              {{ formatVolume(row.vol) }}
+            </template>
+            <template #amount="{ row }">
+              {{ formatAmount(row.amount) }}
             </template>
             <template #operation="{ row }">
               <t-space>
@@ -257,6 +390,14 @@ onMounted(() => {
         :index-name="analysisIndexName"
       />
     </t-drawer>
+    
+    <!-- Data Update Dialog -->
+    <DataUpdateDialog
+      v-model:visible="showDataUpdateDialog"
+      :date="noDataDate"
+      plugin-name="tushare_index_daily"
+      data-type="指数"
+    />
   </div>
 </template>
 

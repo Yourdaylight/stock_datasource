@@ -20,12 +20,39 @@ class IndexInfo(BaseModel):
     desc: Optional[str] = Field(None, description="Description")
 
 
+class IndexQuoteItem(BaseModel):
+    """Index with daily quote data."""
+    ts_code: str = Field(..., description="Index code")
+    name: Optional[str] = Field(None, description="Index name")
+    fullname: Optional[str] = Field(None, description="Full name")
+    market: Optional[str] = Field(None, description="Market (SSE/SZSE/CSI)")
+    publisher: Optional[str] = Field(None, description="Publisher")
+    index_type: Optional[str] = Field(None, description="Index type")
+    category: Optional[str] = Field(None, description="Category")
+    base_date: Optional[str] = Field(None, description="Base date")
+    base_point: Optional[float] = Field(None, description="Base point")
+    list_date: Optional[str] = Field(None, description="List date")
+    weight_rule: Optional[str] = Field(None, description="Weight rule")
+    desc: Optional[str] = Field(None, description="Description")
+    # Daily quote fields
+    trade_date: Optional[str] = Field(None, description="Trade date")
+    open: Optional[float] = Field(None, description="Open price")
+    high: Optional[float] = Field(None, description="High price")
+    low: Optional[float] = Field(None, description="Low price")
+    close: Optional[float] = Field(None, description="Close price")
+    pre_close: Optional[float] = Field(None, description="Previous close")
+    pct_chg: Optional[float] = Field(None, description="Price change %")
+    vol: Optional[float] = Field(None, description="Volume")
+    amount: Optional[float] = Field(None, description="Amount")
+
+
 class IndexListResponse(BaseModel):
     """Response for index list query."""
     total: int = Field(..., description="Total count")
     page: int = Field(..., description="Current page")
     page_size: int = Field(..., description="Page size")
-    data: List[IndexInfo] = Field(..., description="Index list")
+    data: List[IndexQuoteItem] = Field(..., description="Index list")
+    trade_date: Optional[str] = Field(None, description="Trade date for query")
 
 
 class Constituent(BaseModel):

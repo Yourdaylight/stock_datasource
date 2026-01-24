@@ -298,6 +298,43 @@ class BasePlugin(ABC):
         
         return schedule
     
+    def get_sync_mode(self) -> str:
+        """Get plugin data sync mode.
+        
+        Returns:
+            Sync mode string:
+            - 'incremental': Append new data (default, for time-series data like daily bars)
+            - 'full_replace': Truncate table and reload all data (for dimension/basic tables)
+        
+        For dimension tables (stock_basic, etf_basic, index_basic), use 'full_replace'
+        because Tushare API returns complete dataset each time and we want to ensure
+        data consistency without duplicates.
+        """
+        config = self.get_config()
+        return config.get("sync_mode", "incremental")
+    
+    def _truncate_table(self, table_name: str) -> bool:
+        """Truncate table before full data reload.
+        
+        Args:
+            table_name: Name of table to truncate
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.db:
+            self.logger.error("Database not initialized")
+            return False
+        
+        try:
+            self.logger.info(f"Truncating table {table_name} for full_replace sync mode")
+            self.db.execute_query(f"TRUNCATE TABLE {table_name}")
+            self.logger.info(f"Table {table_name} truncated successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to truncate table {table_name}: {e}")
+            return False
+    
     def should_run_today(self, current_date=None) -> bool:
         """Check if plugin should run on the given date.
         

@@ -1,0 +1,37 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare 指数周线行情数据",
+  "schedule": {
+    "frequency": "weekly",
+    "time": "18:00",
+    "day_of_week": "friday"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "TS指数代码，如 000001.SH"
+    },
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期 YYYYMMDD格式"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期 YYYYMMDD格式"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期 YYYYMMDD格式"
+    }
+  }
+}

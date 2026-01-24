@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useIndexStore } from '@/stores/index'
+import { indexApi, type IndexKLineData } from '@/api/index'
+import KLineChart from '@/components/charts/KLineChart.vue'
+import type { KLineData } from '@/types/common'
 
 const props = defineProps<{
   visible: boolean
@@ -15,12 +18,71 @@ const emit = defineEmits<{
 
 const indexStore = useIndexStore()
 const activeTab = ref('info')
+const chartLoading = ref(false)
+const klineData = ref<KLineData[]>([])
+
+// Chart controls
+const freq = ref<'daily' | 'weekly' | 'monthly'>('daily')
+const freqOptions = [
+  { label: '日线', value: 'daily' },
+  { label: '周线', value: 'weekly' },
+  { label: '月线', value: 'monthly' }
+]
+
+// Date range picker
+const getDefaultDateRange = (): [string, string] => {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 90)
+  const formatDate = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '')
+  return [formatDate(start), formatDate(end)]
+}
+const dateRange = ref<[string, string]>(getDefaultDateRange())
 
 // Constituent table columns
 const constituentColumns = [
   { colKey: 'con_code', title: '成分股代码', width: 120 },
   { colKey: 'weight', title: '权重 (%)', width: 100 },
 ]
+
+// Fetch K-line data
+const fetchKlineData = async () => {
+  if (!props.indexCode) return
+  
+  chartLoading.value = true
+  try {
+    const response = await indexApi.getKLine(props.indexCode, {
+      start_date: dateRange.value[0],
+      end_date: dateRange.value[1],
+      freq: freq.value
+    })
+    
+    // Convert to KLineData format
+    klineData.value = response.data.map((d: IndexKLineData) => ({
+      date: formatDateDisplay(d.trade_date),
+      open: d.open,
+      high: d.high,
+      low: d.low,
+      close: d.close,
+      volume: d.vol || 0,
+      amount: d.amount || 0
+    }))
+  } catch (e) {
+    console.error('Failed to fetch K-line data:', e)
+    klineData.value = []
+  } finally {
+    chartLoading.value = false
+  }
+}
+
+const formatDateDisplay = (date: string) => {
+  if (!date) return date
+  if (date.includes('-')) return date
+  if (date.length === 8) {
+    return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+  }
+  return date
+}
 
 // Watch for index code changes
 watch(() => props.indexCode, async (newCode) => {
@@ -31,6 +93,28 @@ watch(() => props.indexCode, async (newCode) => {
     ])
   }
 }, { immediate: true })
+
+watch(() => props.visible, (visible) => {
+  if (visible) {
+    activeTab.value = 'info'
+    klineData.value = []
+  }
+})
+
+// Lazy load chart data when tab changes
+watch(() => activeTab.value, (tab) => {
+  if (tab === 'chart' && klineData.value.length === 0 && !chartLoading.value) {
+    fetchKlineData()
+  }
+})
+
+const handleDateRangeChange = () => {
+  fetchKlineData()
+}
+
+const handleFreqChange = () => {
+  fetchKlineData()
+}
 
 const handleClose = () => {
   emit('update:visible', false)
@@ -55,7 +139,7 @@ const formatWeight = (weight: number | undefined) => {
   <t-dialog
     :visible="visible"
     :header="`${indexStore.currentIndex?.name || indexCode} 详情`"
-    width="800px"
+    width="900px"
     :footer="false"
     @close="handleClose"
   >
@@ -112,6 +196,35 @@ const formatWeight = (weight: number | undefined) => {
               <span class="info-label">描述</span>
               <span class="info-value desc">{{ indexStore.currentIndex.desc || '-' }}</span>
             </div>
+          </div>
+        </t-tab-panel>
+        
+        <!-- K-line Chart Tab -->
+        <t-tab-panel value="chart" label="K线走势">
+          <div class="chart-controls">
+            <t-space>
+              <t-radio-group v-model="freq" variant="default-filled" @change="handleFreqChange">
+                <t-radio-button v-for="opt in freqOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </t-radio-button>
+              </t-radio-group>
+              <t-date-range-picker
+                v-model="dateRange"
+                style="width: 260px"
+                enable-time-picker="false"
+                format="YYYYMMDD"
+                value-type="YYYYMMDD"
+                @change="handleDateRangeChange"
+              />
+            </t-space>
+          </div>
+          
+          <div class="chart-container">
+            <KLineChart
+              :data="klineData"
+              :loading="chartLoading"
+              :height="400"
+            />
           </div>
         </t-tab-panel>
         
@@ -180,6 +293,14 @@ const formatWeight = (weight: number | undefined) => {
 
 .info-value.desc {
   line-height: 1.6;
+}
+
+.chart-controls {
+  margin-bottom: 16px;
+}
+
+.chart-container {
+  min-height: 400px;
 }
 
 .constituents-header {

@@ -78,7 +78,7 @@ const getChangeColor = (value?: number) => {
                   <span class="info-label">管理费率</span>
                   <span class="info-value">
                     {{ etfStore.quickAnalysis.basic_info.m_fee 
-                       ? (etfStore.quickAnalysis.basic_info.m_fee * 100).toFixed(2) + '%' 
+                       ? etfStore.quickAnalysis.basic_info.m_fee.toFixed(2) + '%' 
                        : '-' }}
                   </span>
                 </div>
@@ -86,7 +86,7 @@ const getChangeColor = (value?: number) => {
                   <span class="info-label">托管费率</span>
                   <span class="info-value">
                     {{ etfStore.quickAnalysis.basic_info.c_fee 
-                       ? (etfStore.quickAnalysis.basic_info.c_fee * 100).toFixed(2) + '%' 
+                       ? etfStore.quickAnalysis.basic_info.c_fee.toFixed(2) + '%' 
                        : '-' }}
                   </span>
                 </div>

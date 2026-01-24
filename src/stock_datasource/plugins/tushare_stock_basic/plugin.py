@@ -130,6 +130,12 @@ class TuShareStockBasicPlugin(BasePlugin):
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Load stock basic data into ODS and DIM tables.
         
+        For basic/dimension tables, we use full_replace sync mode:
+        1. Truncate the tables first
+        2. Insert all new data
+        
+        This ensures data consistency without duplicates.
+        
         Args:
             data: Stock basic data to load
         
@@ -151,6 +157,12 @@ class TuShareStockBasicPlugin(BasePlugin):
         }
         
         try:
+            # For full_replace mode, truncate tables first
+            if self.get_sync_mode() == 'full_replace':
+                for table in ['ods_stock_basic', 'dim_security']:
+                    if not self._truncate_table(table):
+                        return {"status": "failed", "error": f"Failed to truncate {table}"}
+            
             # Load into ODS table
             self.logger.info(f"Loading {len(data)} records into ods_stock_basic")
             ods_data = data.copy()

@@ -1,4 +1,4 @@
-"""TuShare ETF basic information plugin implementation."""
+"""TuShare ETF基准指数列表 plugin implementation."""
 
 import pandas as pd
 from typing import Dict, Any, Optional, List
@@ -11,12 +11,12 @@ from stock_datasource.core.base_plugin import PluginCategory, PluginRole
 from .extractor import extractor
 
 
-class TuShareETFBasicPlugin(BasePlugin):
-    """TuShare ETF basic information plugin."""
+class TuShareETFIndexPlugin(BasePlugin):
+    """TuShare ETF基准指数列表 plugin."""
     
     @property
     def name(self) -> str:
-        return "tushare_etf_basic"
+        return "tushare_etf_index"
     
     @property
     def version(self) -> str:
@@ -24,7 +24,7 @@ class TuShareETFBasicPlugin(BasePlugin):
     
     @property
     def description(self) -> str:
-        return "TuShare ETF基础信息 from etf_basic API"
+        return "TuShare ETF基准指数列表 from etf_index API"
     
     @property
     def api_rate_limit(self) -> int:
@@ -45,60 +45,50 @@ class TuShareETFBasicPlugin(BasePlugin):
     
     def get_role(self) -> PluginRole:
         """Get plugin role."""
-        return PluginRole.BASIC
+        return PluginRole.AUXILIARY  # 辅助数据，为ETF提供基准指数信息
     
     def get_dependencies(self) -> List[str]:
         """Get plugin dependencies."""
-        return []  # ETF basic has no dependencies
+        return []  # 无必须依赖
     
     def get_optional_dependencies(self) -> List[str]:
         """Get optional plugin dependencies."""
-        return []
+        return ["tushare_etf_basic"]  # 可选与ETF基础信息关联
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
-        """Extract ETF basic information from TuShare.
+        """Extract ETF基准指数列表 from TuShare.
         
         Args:
-            list_status: 上市状态 L上市 D退市 P待上市 (default: L)
-            exchange: 交易所 SH/SZ
-            ts_code: ETF代码
-            index_code: 跟踪指数代码
-            mgr: 管理人简称
+            ts_code: 指数代码
+            pub_date: 发布日期（格式：YYYYMMDD）
+            base_date: 指数基期（格式：YYYYMMDD）
         """
-        list_status = kwargs.get('list_status', 'L')
-        exchange = kwargs.get('exchange')
         ts_code = kwargs.get('ts_code')
-        index_code = kwargs.get('index_code')
-        mgr = kwargs.get('mgr')
+        pub_date = kwargs.get('pub_date')
+        base_date = kwargs.get('base_date')
         
-        self.logger.info(f"Extracting ETF basic information with list_status={list_status}")
+        self.logger.info(f"Extracting ETF基准指数列表")
         
         data = extractor.extract(
-            list_status=list_status,
-            exchange=exchange,
             ts_code=ts_code,
-            index_code=index_code,
-            mgr=mgr
+            pub_date=pub_date,
+            base_date=base_date
         )
         
         if data.empty:
-            self.logger.warning(f"No ETF basic data found")
+            self.logger.warning(f"No ETF基准指数 data found")
             return pd.DataFrame()
         
-        # Add system columns
-        data['version'] = int(datetime.now().timestamp())
-        data['_ingested_at'] = datetime.now()
-        
-        self.logger.info(f"Extracted {len(data)} ETF basic records")
+        self.logger.info(f"Extracted {len(data)} ETF基准指数 records")
         return data
     
     def validate_data(self, data: pd.DataFrame) -> bool:
-        """Validate ETF basic data."""
+        """Validate ETF基准指数列表 data."""
         if data.empty:
-            self.logger.warning("Empty ETF basic data")
+            self.logger.warning("Empty ETF基准指数列表 data")
             return False
         
-        required_columns = ['ts_code', 'list_status']
+        required_columns = ['ts_code']
         missing_columns = [col for col in required_columns if col not in data.columns]
         
         if missing_columns:
@@ -107,39 +97,42 @@ class TuShareETFBasicPlugin(BasePlugin):
         
         # Check for null values in key fields
         null_ts_codes = data['ts_code'].isnull().sum()
-        null_status = data['list_status'].isnull().sum()
         
-        if null_ts_codes > 0 or null_status > 0:
-            self.logger.error(f"Found null values: ts_code={null_ts_codes}, list_status={null_status}")
+        if null_ts_codes > 0:
+            self.logger.error(f"Found {null_ts_codes} null ts_code values")
             return False
         
-        # Validate list_status values
-        valid_status = ['L', 'D', 'P']
-        invalid_status = data[~data['list_status'].isin(valid_status)]
-        if len(invalid_status) > 0:
-            self.logger.error(f"Found {len(invalid_status)} invalid list_status values")
-            return False
+        # Check for duplicates
+        dup_count = data['ts_code'].duplicated().sum()
+        if dup_count > 0:
+            self.logger.warning(f"Found {dup_count} duplicate ts_code values")
         
-        self.logger.info(f"ETF basic data validation passed for {len(data)} records")
+        self.logger.info(f"ETF基准指数列表 data validation passed for {len(data)} records")
         return True
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data for database insertion."""
         # Convert date columns
-        date_columns = ['setup_date', 'list_date']
+        date_columns = ['pub_date', 'base_date']
         for col in date_columns:
             if col in data.columns:
                 data[col] = pd.to_datetime(data[col], format='%Y%m%d', errors='coerce').dt.date
         
         # Convert numeric columns
-        if 'mgt_fee' in data.columns:
-            data['mgt_fee'] = pd.to_numeric(data['mgt_fee'], errors='coerce')
+        if 'bp' in data.columns:
+            data['bp'] = pd.to_numeric(data['bp'], errors='coerce')
         
-        self.logger.info(f"Transformed {len(data)} ETF basic records")
+        # Fill NaN for string columns
+        string_columns = ['indx_name', 'indx_csname', 'pub_party_name', 'adj_circle']
+        for col in string_columns:
+            if col in data.columns:
+                data[col] = data[col].fillna('')
+        
+        self.logger.info(f"Transformed {len(data)} ETF基准指数 records")
         return data
     
     def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
-        """Load ETF basic data into ODS table.
+        """Load ETF基准指数列表 data into ODS table.
         
         For basic/dimension tables, we use full_replace sync mode:
         1. Truncate the table first
@@ -148,7 +141,7 @@ class TuShareETFBasicPlugin(BasePlugin):
         This ensures data consistency without duplicates.
         
         Args:
-            data: ETF basic data to load
+            data: ETF基准指数列表 data to load
         
         Returns:
             Loading statistics
@@ -168,7 +161,7 @@ class TuShareETFBasicPlugin(BasePlugin):
         }
         
         try:
-            table_name = 'ods_etf_basic'
+            table_name = 'ods_etf_index'
             
             # For full_replace mode, truncate table first
             if self.get_sync_mode() == 'full_replace':
@@ -209,18 +202,27 @@ if __name__ == "__main__":
     import sys
     import argparse
     
-    parser = argparse.ArgumentParser(description="TuShare ETF Basic Plugin")
-    parser.add_argument("--list-status", default="L", help="List status (L/D/P, default: L)")
-    parser.add_argument("--exchange", help="Exchange (SH/SZ)")
+    parser = argparse.ArgumentParser(description="TuShare ETF Index Plugin")
+    parser.add_argument("--ts-code", help="指数代码")
+    parser.add_argument("--pub-date", help="发布日期（格式：YYYYMMDD）")
+    parser.add_argument("--base-date", help="指数基期（格式：YYYYMMDD）")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     
     args = parser.parse_args()
     
     # Initialize plugin
-    plugin = TuShareETFBasicPlugin()
+    plugin = TuShareETFIndexPlugin()
     
     # Run pipeline
-    result = plugin.run(list_status=args.list_status, exchange=args.exchange)
+    kwargs = {}
+    if args.ts_code:
+        kwargs['ts_code'] = args.ts_code
+    if args.pub_date:
+        kwargs['pub_date'] = args.pub_date
+    if args.base_date:
+        kwargs['base_date'] = args.base_date
+    
+    result = plugin.run(**kwargs)
     
     # Print result
     print(f"\n{'='*60}")

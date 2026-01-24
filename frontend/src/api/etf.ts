@@ -45,6 +45,19 @@ export interface EtfListResponse {
   page: number
   page_size: number
   total_pages: number
+  trade_date?: string
+}
+
+export interface ManagerOption {
+  value: string
+  label: string
+  count: number
+}
+
+export interface TrackingIndexOption {
+  value: string
+  label: string
+  count: number
 }
 
 export interface EtfDailyData {
@@ -161,6 +174,14 @@ export const etfApi = {
     invest_type?: string
     status?: string
     keyword?: string
+    trade_date?: string
+    manager?: string
+    tracking_index?: string
+    fee_min?: number
+    fee_max?: number
+    amount_min?: number
+    pct_chg_min?: number
+    pct_chg_max?: number
     page?: number
     page_size?: number
   } = {}): Promise<EtfListResponse> {
@@ -170,6 +191,14 @@ export const etfApi = {
     if (params.invest_type) queryParams.append('invest_type', params.invest_type)
     if (params.status) queryParams.append('status', params.status)
     if (params.keyword) queryParams.append('keyword', params.keyword)
+    if (params.trade_date) queryParams.append('trade_date', params.trade_date)
+    if (params.manager) queryParams.append('manager', params.manager)
+    if (params.tracking_index) queryParams.append('tracking_index', params.tracking_index)
+    if (params.fee_min !== undefined) queryParams.append('fee_min', params.fee_min.toString())
+    if (params.fee_max !== undefined) queryParams.append('fee_max', params.fee_max.toString())
+    if (params.amount_min !== undefined) queryParams.append('amount_min', params.amount_min.toString())
+    if (params.pct_chg_min !== undefined) queryParams.append('pct_chg_min', params.pct_chg_min.toString())
+    if (params.pct_chg_max !== undefined) queryParams.append('pct_chg_max', params.pct_chg_max.toString())
     if (params.page) queryParams.append('page', params.page.toString())
     if (params.page_size) queryParams.append('page_size', params.page_size.toString())
     
@@ -214,6 +243,21 @@ export const etfApi = {
   // Get available invest types
   getInvestTypes(): Promise<EtfTypeOption[]> {
     return request.get('/api/etf/invest-types')
+  },
+
+  // Get available managers
+  getManagers(): Promise<ManagerOption[]> {
+    return request.get('/api/etf/managers')
+  },
+
+  // Get available tracking indices
+  getTrackingIndices(): Promise<TrackingIndexOption[]> {
+    return request.get('/api/etf/tracking-indices')
+  },
+
+  // Get available trade dates
+  getTradeDates(limit: number = 30): Promise<string[]> {
+    return request.get(`/api/etf/trade-dates?limit=${limit}`)
   },
 
   // AI analysis with conversation memory

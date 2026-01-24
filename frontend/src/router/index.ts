@@ -52,6 +52,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '智能选ETF', icon: 'control-platform', requiresAuth: true }
   },
   {
+    path: '/index',
+    name: 'Index',
+    component: () => import('@/views/index/IndexScreenerView.vue'),
+    meta: { title: '指数行情', icon: 'trending-up', requiresAuth: true }
+  },
+  {
     path: '/strategy',
     name: 'Strategy',
     component: () => import('@/views/StrategyWorkbench.vue'),

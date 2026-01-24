@@ -25,15 +25,23 @@ async def get_indices(
     market: Optional[str] = Query(None, description="市场筛选 (SSE/SZSE/CSI)"),
     category: Optional[str] = Query(None, description="类别筛选"),
     keyword: Optional[str] = Query(None, description="名称搜索关键词"),
+    trade_date: Optional[str] = Query(None, description="交易日期筛选 (YYYYMMDD)"),
+    publisher: Optional[str] = Query(None, description="发布机构筛选"),
+    pct_chg_min: Optional[float] = Query(None, description="最小涨跌幅 (%)"),
+    pct_chg_max: Optional[float] = Query(None, description="最大涨跌幅 (%)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
 ):
-    """获取指数列表，支持分页和筛选。"""
+    """获取指数列表（包含指定日期行情），支持分页和筛选。"""
     service = get_index_service()
     result = service.get_indices(
         market=market,
         category=category,
         keyword=keyword,
+        trade_date=trade_date,
+        publisher=publisher,
+        pct_chg_min=pct_chg_min,
+        pct_chg_max=pct_chg_max,
         page=page,
         page_size=page_size,
     )
@@ -91,10 +99,13 @@ async def get_index_kline(
     ts_code: str,
     start_date: Optional[str] = Query(None, description="开始日期 (YYYYMMDD)"),
     end_date: Optional[str] = Query(None, description="结束日期 (YYYYMMDD)"),
+    freq: str = Query("daily", description="数据频率 (daily=日线, weekly=周线, monthly=月线)"),
 ):
-    """获取指数K线数据。"""
+    """获取指数K线数据，支持日线/周线/月线切换。"""
+    if freq not in ["daily", "weekly", "monthly"]:
+        raise HTTPException(status_code=400, detail="Invalid freq, must be one of: daily, weekly, monthly")
     service = get_index_service()
-    result = service.get_kline(ts_code, start_date, end_date)
+    result = service.get_kline(ts_code, start_date, end_date, freq)
     return result
 
 
@@ -110,6 +121,22 @@ async def get_categories():
     """获取所有可用类别。"""
     service = get_index_service()
     return service.get_categories()
+
+
+@router.get("/publishers", summary="获取发布机构列表")
+async def get_publishers():
+    """获取所有可用发布机构。"""
+    service = get_index_service()
+    return service.get_publishers()
+
+
+@router.get("/trade-dates", summary="获取可用交易日期")
+async def get_trade_dates(
+    limit: int = Query(30, ge=1, le=365, description="返回日期数量"),
+):
+    """获取可用交易日期列表。"""
+    service = get_index_service()
+    return service.get_trade_dates(limit)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="AI量化分析")

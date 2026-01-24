@@ -69,6 +69,9 @@ class BaseListService(ABC):
     - get_list_columns(): Columns to select for list view
     - get_search_fields(): Fields to search with keyword
     - get_filter_configs(): Filter configurations
+    
+    For tables using ReplacingMergeTree engine, set use_final=True to add FINAL
+    keyword for deduplication.
     """
     
     def __init__(self):
@@ -79,6 +82,15 @@ class BaseListService(ABC):
     def table_name(self) -> str:
         """Main table name for queries."""
         pass
+    
+    @property
+    def use_final(self) -> bool:
+        """Whether to use FINAL keyword for ReplacingMergeTree tables.
+        
+        Override this to return True for tables that may have duplicate data
+        due to multiple syncs with ReplacingMergeTree engine.
+        """
+        return False
     
     @abstractmethod
     def get_list_columns(self) -> List[str]:
@@ -143,6 +155,12 @@ class BaseListService(ABC):
         
         return " AND ".join(conditions)
     
+    def _get_table_ref(self) -> str:
+        """Get table reference with optional FINAL keyword."""
+        if self.use_final:
+            return f"{self.table_name} FINAL"
+        return self.table_name
+    
     def get_list(self, params: ListQueryParams) -> ListResponse:
         """Get paginated list with filters and search.
         
@@ -153,11 +171,12 @@ class BaseListService(ABC):
             ListResponse with total count and data
         """
         where_clause = self._build_where_clause(params.keyword, params.filters)
+        table_ref = self._get_table_ref()
         
         # Count total
         count_query = f"""
         SELECT count() as total
-        FROM {self.table_name}
+        FROM {table_ref}
         WHERE {where_clause}
         """
         count_result = self._execute_query(count_query)
@@ -172,7 +191,7 @@ class BaseListService(ABC):
         
         query = f"""
         SELECT {columns_str}
-        FROM {self.table_name}
+        FROM {table_ref}
         WHERE {where_clause}
         {order_clause}
         LIMIT {params.page_size}
@@ -209,12 +228,13 @@ class BaseListService(ABC):
         if config.options_query:
             return self._execute_query(config.options_query)
         
+        table_ref = self._get_table_ref()
         # Default: distinct values from table
         query = f"""
         SELECT DISTINCT {filter_field} as value, 
                {filter_field} as label,
                count() as count
-        FROM {self.table_name}
+        FROM {table_ref}
         WHERE {filter_field} IS NOT NULL AND {filter_field} != ''
         GROUP BY {filter_field}
         ORDER BY count DESC
@@ -243,9 +263,10 @@ class BaseListService(ABC):
             Record dict or None
         """
         id_escaped = id_value.replace("'", "''")
+        table_ref = self._get_table_ref()
         query = f"""
         SELECT *
-        FROM {self.table_name}
+        FROM {table_ref}
         WHERE {id_field} = '{id_escaped}'
         """
         result = self._execute_query(query)

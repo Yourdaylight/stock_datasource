@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useEtfStore } from '@/stores/etf'
 import EtfDetailDialog from './components/EtfDetailDialog.vue'
 import EtfAnalysisPanel from './components/EtfAnalysisPanel.vue'
+import DataUpdateDialog from '@/components/DataUpdateDialog.vue'
 
 const etfStore = useEtfStore()
 const searchInput = ref('')
@@ -16,6 +17,10 @@ const selectedEtfCode = ref('')
 const showAnalysisPanel = ref(false)
 const analysisEtfCode = ref('')
 const analysisEtfName = ref('')
+
+// Data update dialog state
+const showDataUpdateDialog = ref(false)
+const noDataDate = ref('')
 
 // Common ETFs for quick access
 const commonEtfs = [
@@ -72,6 +77,65 @@ const statusOptions = [
   { value: 'I', label: '发行' },
 ]
 
+// Manager options for filter
+const managerOptions = computed(() => [
+  { value: '', label: '全部管理人' },
+  ...etfStore.managers.map(m => ({ value: m.value, label: `${m.label} (${m.count})` }))
+])
+
+// Tracking index options for filter
+const trackingIndexOptions = computed(() => [
+  { value: '', label: '全部跟踪指数' },
+  ...etfStore.trackingIndices.map(t => ({ value: t.value, label: `${t.label} (${t.count})` }))
+])
+
+// Fee range options
+const feeRangeOptions = [
+  { value: '', label: '全部费率' },
+  { value: '0-0.2', label: '0-0.2%' },
+  { value: '0.2-0.5', label: '0.2%-0.5%' },
+  { value: '0.5+', label: '0.5%以上' },
+]
+
+// Amount range options
+const amountRangeOptions = [
+  { value: '', label: '全部成交额' },
+  { value: '1000+', label: '1000万以上' },
+  { value: '5000+', label: '5000万以上' },
+  { value: '1e+', label: '1亿以上' },
+]
+
+// Pct change range options
+const pctChgRangeOptions = [
+  { value: '', label: '全部涨跌' },
+  { value: 'up', label: '上涨' },
+  { value: 'down', label: '下跌' },
+  { value: 'up2+', label: '涨幅>2%' },
+  { value: 'up5+', label: '涨幅>5%' },
+  { value: 'down2+', label: '跌幅>2%' },
+  { value: 'down5+', label: '跌幅>5%' },
+]
+
+// Date options for filter
+const dateOptions = computed(() => {
+  return etfStore.tradeDates.map(d => ({
+    value: d,
+    label: formatDateDisplay(d)
+  }))
+})
+
+// Format date for display (handles both YYYYMMDD and YYYY-MM-DD)
+const formatDateDisplay = (date: string) => {
+  if (!date) return date
+  // Already has dashes (YYYY-MM-DD format)
+  if (date.includes('-')) return date
+  // YYYYMMDD format -> YYYY-MM-DD
+  if (date.length === 8) {
+    return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+  }
+  return date
+}
+
 // Handlers
 const handleSearch = () => {
   etfStore.setKeyword(searchInput.value)
@@ -91,6 +155,35 @@ const handleInvestTypeChange = (value: string) => {
 
 const handleStatusChange = (value: string) => {
   etfStore.setStatus(value)
+}
+
+const handleDateChange = async (value: string) => {
+  await etfStore.setDate(value)
+  // Check if no data for this date
+  if (etfStore.total === 0 && value) {
+    noDataDate.value = value
+    showDataUpdateDialog.value = true
+  }
+}
+
+const handleManagerChange = (value: string) => {
+  etfStore.setManager(value)
+}
+
+const handleTrackingIndexChange = (value: string) => {
+  etfStore.setTrackingIndex(value)
+}
+
+const handleFeeRangeChange = (value: string) => {
+  etfStore.setFeeRange(value)
+}
+
+const handleAmountRangeChange = (value: string) => {
+  etfStore.setAmountRange(value)
+}
+
+const handlePctChgRangeChange = (value: string) => {
+  etfStore.setPctChgRange(value)
 }
 
 const handlePageChange = (current: number) => {
@@ -175,10 +268,21 @@ const formatAmount = (val?: number) => {
 
 // Load data on mount
 onMounted(() => {
+  etfStore.fetchTradeDates()
   etfStore.fetchEtfs()
   etfStore.fetchExchanges()
   etfStore.fetchTypes()
   etfStore.fetchInvestTypes()
+  etfStore.fetchManagers()
+  etfStore.fetchTrackingIndices()
+})
+
+// Watch for no data scenario when date changes
+watch(() => etfStore.total, (newTotal) => {
+  if (newTotal === 0 && etfStore.selectedDate && !etfStore.loading) {
+    noDataDate.value = etfStore.selectedDate
+    showDataUpdateDialog.value = true
+  }
 })
 </script>
 
@@ -209,6 +313,32 @@ onMounted(() => {
       <t-col :span="3">
         <t-card title="筛选条件">
           <div class="filter-section">
+            <div class="filter-item">
+              <div class="filter-label">交易日期</div>
+              <t-date-picker
+                :value="etfStore.selectedDate"
+                placeholder="选择日期"
+                format="YYYY-MM-DD"
+                value-type="YYYYMMDD"
+                :enable-time-picker="false"
+                @change="handleDateChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">搜索</div>
+              <t-input
+                v-model="searchInput"
+                placeholder="输入ETF名称或代码"
+                clearable
+                @enter="handleSearch"
+              >
+                <template #suffix-icon>
+                  <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
+                </template>
+              </t-input>
+            </div>
+            
             <div class="filter-item">
               <div class="filter-label">交易所</div>
               <t-select
@@ -243,6 +373,30 @@ onMounted(() => {
             </div>
             
             <div class="filter-item">
+              <div class="filter-label">管理人</div>
+              <t-select
+                :value="etfStore.selectedManager"
+                :options="managerOptions"
+                placeholder="选择管理人"
+                clearable
+                filterable
+                @change="handleManagerChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">跟踪指数</div>
+              <t-select
+                :value="etfStore.selectedTrackingIndex"
+                :options="trackingIndexOptions"
+                placeholder="选择跟踪指数"
+                clearable
+                filterable
+                @change="handleTrackingIndexChange"
+              />
+            </div>
+            
+            <div class="filter-item">
               <div class="filter-label">状态</div>
               <t-select
                 :value="etfStore.selectedStatus"
@@ -254,17 +408,36 @@ onMounted(() => {
             </div>
             
             <div class="filter-item">
-              <div class="filter-label">搜索</div>
-              <t-input
-                v-model="searchInput"
-                placeholder="输入ETF名称或代码"
+              <div class="filter-label">管理费率</div>
+              <t-select
+                :value="etfStore.selectedFeeRange"
+                :options="feeRangeOptions"
+                placeholder="选择费率范围"
                 clearable
-                @enter="handleSearch"
-              >
-                <template #suffix-icon>
-                  <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
-                </template>
-              </t-input>
+                @change="handleFeeRangeChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">成交额</div>
+              <t-select
+                :value="etfStore.selectedAmountRange"
+                :options="amountRangeOptions"
+                placeholder="选择成交额范围"
+                clearable
+                @change="handleAmountRangeChange"
+              />
+            </div>
+            
+            <div class="filter-item">
+              <div class="filter-label">涨跌幅</div>
+              <t-select
+                :value="etfStore.selectedPctChgRange"
+                :options="pctChgRangeOptions"
+                placeholder="选择涨跌幅范围"
+                clearable
+                @change="handlePctChgRangeChange"
+              />
             </div>
             
             <t-button variant="outline" block @click="handleClearFilters" style="margin-top: 16px">
@@ -311,7 +484,7 @@ onMounted(() => {
               {{ getMarketLabel(row.exchange) }}
             </template>
             <template #mgt_fee="{ row }">
-              {{ row.mgt_fee ? (row.mgt_fee * 100).toFixed(2) + '%' : '-' }}
+              {{ row.mgt_fee ? row.mgt_fee.toFixed(2) + '%' : '-' }}
             </template>
             <template #list_status="{ row }">
               <t-tag :theme="getStatusTheme(row.list_status)" size="small">
@@ -364,6 +537,14 @@ onMounted(() => {
         :etf-name="analysisEtfName"
       />
     </t-drawer>
+    
+    <!-- Data Update Dialog -->
+    <DataUpdateDialog
+      v-model:visible="showDataUpdateDialog"
+      :date="noDataDate"
+      plugin-name="tushare_etf_daily"
+      data-type="ETF"
+    />
   </div>
 </template>
 
