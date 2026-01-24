@@ -1,0 +1,28 @@
+{
+  "table_name": "ods_express",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "ann_date", "data_type": "Date", "nullable": false, "comment": "公告日期"},
+    {"name": "end_date", "data_type": "Date", "nullable": false, "comment": "报告期"},
+    {"name": "revenue", "data_type": "Nullable(Float64)", "nullable": true, "comment": "营业收入(元)"},
+    {"name": "operate_profit", "data_type": "Nullable(Float64)", "nullable": true, "comment": "营业利润(元)"},
+    {"name": "total_profit", "data_type": "Nullable(Float64)", "nullable": true, "comment": "利润总额(元)"},
+    {"name": "n_income", "data_type": "Nullable(Float64)", "nullable": true, "comment": "净利润(元)"},
+    {"name": "total_assets", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总资产(元)"},
+    {"name": "total_hldr_eqy_exc_min_int", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股东权益合计(不含少数股东权益)(元)"},
+    {"name": "diluted_eps", "data_type": "Nullable(Float64)", "nullable": true, "comment": "每股收益(摊薄)(元)"},
+    {"name": "diluted_roe", "data_type": "Nullable(Float64)", "nullable": true, "comment": "净资产收益率(摊薄)(%)"},
+    {"name": "yoy_net_profit", "data_type": "Nullable(Float64)", "nullable": true, "comment": "净利润同比增长(%)"},
+    {"name": "bps", "data_type": "Nullable(Float64)", "nullable": true, "comment": "每股净资产(元)"},
+    {"name": "perf_summary", "data_type": "Nullable(String)", "nullable": true, "comment": "业绩简要说明"},
+    {"name": "update_flag", "data_type": "Nullable(Int32)", "nullable": true, "comment": "更新标志"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(end_date)",
+  "order_by": ["ts_code", "end_date", "ann_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "业绩快报数据 from TuShare API"
+}

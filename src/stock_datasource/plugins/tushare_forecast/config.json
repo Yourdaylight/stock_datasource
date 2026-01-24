@@ -1,0 +1,47 @@
+{
+  "name": "tushare_forecast",
+  "version": "1.0.0",
+  "description": "Tushare 业绩预告数据插件",
+  "api_name": "forecast",
+  "rate_limit": {
+    "calls_per_minute": 120,
+    "retry_count": 3,
+    "retry_delay": 1
+  },
+  "schedule": {
+    "cron": "0 6 * * *",
+    "timezone": "Asia/Shanghai"
+  },
+  "parameters": {
+    "ts_code": {
+      "type": "string",
+      "description": "股票代码（与ann_date二选一）",
+      "required": false
+    },
+    "ann_date": {
+      "type": "string",
+      "description": "公告日期（与ts_code二选一）",
+      "required": false
+    },
+    "start_date": {
+      "type": "string",
+      "description": "公告开始日期",
+      "required": false
+    },
+    "end_date": {
+      "type": "string",
+      "description": "公告结束日期",
+      "required": false
+    },
+    "period": {
+      "type": "string",
+      "description": "报告期",
+      "required": false
+    },
+    "type": {
+      "type": "string",
+      "description": "预告类型（预增/预减/扭亏/首亏/续亏/续盈/略增/略减/不确定）",
+      "required": false
+    }
+  }
+}

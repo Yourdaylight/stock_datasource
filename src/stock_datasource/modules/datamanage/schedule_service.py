@@ -25,6 +25,7 @@ from ...config.runtime_config import (
 from ...core.plugin_manager import plugin_manager
 from ...core.trade_calendar import TradeCalendarService
 from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_LABELS
+from .schemas import TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -733,9 +734,11 @@ class ScheduleService:
         
         for old_task in failed_tasks:
             try:
+                # Convert task_type from string to TaskType enum
+                task_type_enum = TaskType(old_task.task_type)
                 new_task = sync_task_manager.create_task(
                     plugin_name=old_task.plugin_name,
-                    task_type=old_task.task_type,
+                    task_type=task_type_enum,
                     trade_dates=old_task.trade_dates if old_task.trade_dates else None,
                     user_id="system",
                     username="retry",
