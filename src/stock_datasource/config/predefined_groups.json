@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "groups": [
+    {
+      "group_id": "predefined_cn_stock_basic",
+      "name": "A股基础数据",
+      "description": "A股股票基础信息，是其他A股数据的依赖基础",
+      "plugin_names": ["tushare_stock_basic"],
+      "default_task_type": "full",
+      "category": "cn_stock"
+    },
+    {
+      "group_id": "predefined_cn_stock_daily",
+      "name": "A股日线行情",
+      "description": "A股日线行情数据（含基础信息和复权因子）",
+      "plugin_names": [
+        "tushare_stock_basic",
+        "tushare_daily",
+        "tushare_adj_factor"
+      ],
+      "default_task_type": "incremental",
+      "category": "cn_stock"
+    },
+    {
+      "group_id": "predefined_financial_basic",
+      "name": "A股财务报表-基础版",
+      "description": "三大财务报表（利润表、资产负债表、现金流量表）",
+      "plugin_names": [
+        "tushare_stock_basic",
+        "tushare_income",
+        "tushare_balancesheet",
+        "tushare_cashflow"
+      ],
+      "default_task_type": "incremental",
+      "category": "cn_stock"
+    },
+    {
+      "group_id": "predefined_financial_full",
+      "name": "A股财务报表-完整版",
+      "description": "完整财务数据（三大报表+业绩预告+业绩快报+审计意见）",
+      "plugin_names": [
+        "tushare_stock_basic",
+        "tushare_income",
+        "tushare_balancesheet",
+        "tushare_cashflow",
+        "tushare_forecast",
+        "tushare_express",
+        "tushare_fina_audit"
+      ],
+      "default_task_type": "incremental",
+      "category": "cn_stock"
+    },
+    {
+      "group_id": "predefined_financial_vip",
+      "name": "A股财务报表-VIP批量版",
+      "description": "VIP接口批量获取全市场财务数据（需5000积分）",
+      "plugin_names": [
+        "tushare_stock_basic",
+        "tushare_income_vip",
+        "tushare_balancesheet_vip",
+        "tushare_cashflow_vip"
+      ],
+      "default_task_type": "full",
+      "category": "cn_stock"
+    },
+    {
+      "group_id": "predefined_index_basic",
+      "name": "指数基础数据",
+      "description": "指数基础信息，是其他指数数据的依赖基础",
+      "plugin_names": ["tushare_index_basic"],
+      "default_task_type": "full",
+      "category": "index"
+    },
+    {
+      "group_id": "predefined_index_full",
+      "name": "指数完整数据",
+      "description": "指数完整数据（基础信息+成分权重+技术因子）",
+      "plugin_names": [
+        "tushare_index_basic",
+        "tushare_index_weight",
+        "tushare_idx_factor_pro"
+      ],
+      "default_task_type": "incremental",
+      "category": "index"
+    },
+    {
+      "group_id": "predefined_etf_basic",
+      "name": "ETF基础数据",
+      "description": "ETF基础信息",
+      "plugin_names": ["tushare_etf_basic"],
+      "default_task_type": "full",
+      "category": "etf_fund"
+    },
+    {
+      "group_id": "predefined_etf_full",
+      "name": "ETF完整数据",
+      "description": "ETF完整数据（基础信息+日线行情+复权因子）",
+      "plugin_names": [
+        "tushare_etf_basic",
+        "tushare_etf_fund_daily",
+        "tushare_etf_fund_adj"
+      ],
+      "default_task_type": "incremental",
+      "category": "etf_fund"
+    },
+    {
+      "group_id": "predefined_daily_update",
+      "name": "全市场每日更新",
+      "description": "每日需要更新的全部数据（适合定时调度）",
+      "plugin_names": [
+        "tushare_daily",
+        "tushare_daily_basic",
+        "tushare_adj_factor",
+        "tushare_etf_fund_daily"
+      ],
+      "default_task_type": "incremental",
+      "category": "daily"
+    }
+  ],
+  "categories": [
+    {"key": "cn_stock", "label": "A股", "order": 1},
+    {"key": "index", "label": "指数", "order": 2},
+    {"key": "etf_fund", "label": "ETF基金", "order": 3},
+    {"key": "daily", "label": "每日更新", "order": 4}
+  ]
+}

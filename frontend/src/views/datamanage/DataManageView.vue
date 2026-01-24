@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useDataManageStore } from '@/stores/datamanage'
 import { useAuthStore } from '@/stores/auth'
-import type { PluginCategory, PluginRole, SyncTaskQueryParams, ScheduleExecutionRecord, BatchExecutionDetail, BatchTaskDetail, PluginGroup } from '@/api/datamanage'
+import type { PluginCategory, PluginRole, SyncTaskQueryParams, ScheduleExecutionRecord, BatchExecutionDetail, BatchTaskDetail, PluginGroup, GroupCategory } from '@/api/datamanage'
 import MissingDataPanel from './components/MissingDataPanel.vue'
 import SyncTaskPanel from './components/SyncTaskPanel.vue'
 import PluginDetailDialog from './components/PluginDetailDialog.vue'
@@ -14,6 +14,7 @@ import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
 import TaskDetailDialog from './components/TaskDetailDialog.vue'
 import SchedulePanel from './components/SchedulePanel.vue'
 import GroupSyncDialog from './components/GroupSyncDialog.vue'
+import GroupDetailDialog from './components/GroupDetailDialog.vue'
 import type { SyncTask } from '@/api/datamanage'
 
 const dataStore = useDataManageStore()
@@ -268,6 +269,36 @@ const groupFormLoading = ref(false)
 const groupSyncDialogVisible = ref(false)
 const selectedGroupForSync = ref<PluginGroup | null>(null)
 
+// Group detail dialog state
+const groupDetailDialogVisible = ref(false)
+const selectedGroupForDetail = ref<PluginGroup | null>(null)
+
+// Group category filter
+const selectedGroupCategory = ref<GroupCategory | ''>('')
+const groupCategoryOptions = [
+  { label: '全部', value: '' },
+  { label: 'A股', value: 'cn_stock' },
+  { label: '指数', value: 'index' },
+  { label: 'ETF基金', value: 'etf_fund' },
+  { label: '每日更新', value: 'daily' },
+  { label: '自定义', value: 'custom' }
+]
+
+// Computed: filtered groups by category
+const filteredPredefinedGroups = computed(() => {
+  const groups = dataStore.predefinedGroups
+  if (!selectedGroupCategory.value) return groups
+  return groups.filter(g => g.category === selectedGroupCategory.value)
+})
+
+const filteredCustomGroups = computed(() => {
+  const groups = dataStore.customGroups
+  if (!selectedGroupCategory.value || selectedGroupCategory.value === 'custom') {
+    return selectedGroupCategory.value === 'custom' ? groups : groups
+  }
+  return groups.filter(g => g.category === selectedGroupCategory.value)
+})
+
 // Task type options for group form
 const taskTypeOptions = [
   { label: '增量同步', value: 'incremental' },
@@ -342,6 +373,37 @@ const handleDeleteGroup = async (group: PluginGroup) => {
   } catch (e) {
     MessagePlugin.error('删除失败')
   }
+}
+
+// Show group detail dialog
+const handleShowGroupDetail = (group: PluginGroup) => {
+  selectedGroupForDetail.value = group
+  groupDetailDialogVisible.value = true
+}
+
+// Handle edit group (check if readonly)
+const handleEditGroupSafe = (group: PluginGroup) => {
+  if (group.is_predefined || group.is_readonly) {
+    MessagePlugin.warning('预定义组合不可编辑')
+    return
+  }
+  handleEditGroup(group)
+}
+
+// Handle delete group (check if readonly)
+const handleDeleteGroupSafe = async (group: PluginGroup) => {
+  if (group.is_predefined || group.is_readonly) {
+    MessagePlugin.warning('预定义组合不可删除')
+    return
+  }
+  await handleDeleteGroup(group)
+}
+
+// Handle execute from group detail dialog
+const handleGroupDetailExecute = async (group: PluginGroup) => {
+  // Refresh batch executions list
+  await fetchBatchExecutions()
+  dataStore.startTaskPolling()
 }
 
 // Trigger group sync - open dialog
@@ -641,6 +703,18 @@ const formatTime = (timeStr?: string) => {
   if (!timeStr) return '-'
   const date = new Date(timeStr)
   return date.toLocaleString('zh-CN')
+}
+
+// Get category label for display
+const getCategoryLabel = (category: GroupCategory | string): string => {
+  const labelMap: Record<string, string> = {
+    cn_stock: 'A股',
+    index: '指数',
+    etf_fund: 'ETF基金',
+    daily: '每日更新',
+    custom: '自定义'
+  }
+  return labelMap[category] || category
 }
 
 // Handle tab change - lazy load missing data only when quality tab is selected
@@ -967,57 +1041,138 @@ onMounted(() => {
         <!-- Plugin Groups Tab -->
         <t-tab-panel value="groups" label="自定义组合">
           <div class="filter-bar">
-            <t-button theme="primary" @click="handleCreateGroup">
-              <t-icon name="add" style="margin-right: 4px" />
-              创建组合
-            </t-button>
-            <t-button theme="default" variant="outline" @click="dataStore.fetchPluginGroups">
-              <t-icon name="refresh" style="margin-right: 4px" />
-              刷新
-            </t-button>
-            <div class="filter-result">
-              共 <span class="count">{{ dataStore.pluginGroups.length }}</span> 个组合
+            <t-radio-group v-model="selectedGroupCategory" variant="default-filled" size="small">
+              <t-radio-button 
+                v-for="option in groupCategoryOptions" 
+                :key="option.value" 
+                :value="option.value"
+              >
+                {{ option.label }}
+              </t-radio-button>
+            </t-radio-group>
+            <div class="filter-bar-right">
+              <t-button theme="primary" @click="handleCreateGroup">
+                <t-icon name="add" style="margin-right: 4px" />
+                创建组合
+              </t-button>
+              <t-button theme="default" variant="outline" @click="dataStore.fetchPluginGroups">
+                <t-icon name="refresh" style="margin-right: 4px" />
+                刷新
+              </t-button>
             </div>
           </div>
 
-          <t-table
-            :data="dataStore.pluginGroups"
-            :columns="[
-              { colKey: 'name', title: '组合名称', width: 150 },
-              { colKey: 'description', title: '描述', minWidth: 150 },
-              { colKey: 'default_task_type', title: '默认同步', width: 100 },
-              { colKey: 'plugin_count', title: '插件数', width: 80 },
-              { colKey: 'created_at', title: '创建时间', width: 160 },
-              { colKey: 'operation', title: '操作', width: 200, fixed: 'right' }
-            ]"
-            :loading="dataStore.pluginGroupsLoading"
-            row-key="group_id"
-          >
-            <template #default_task_type="{ row }">
-              <t-tag 
-                :theme="row.default_task_type === 'full' ? 'warning' : row.default_task_type === 'backfill' ? 'default' : 'primary'" 
-                variant="light" 
-                size="small"
-              >
-                {{ row.default_task_type === 'full' ? '全量' : row.default_task_type === 'backfill' ? '补录' : '增量' }}
-              </t-tag>
-            </template>
-            <template #plugin_count="{ row }">
-              {{ row.plugin_names?.length || 0 }}
-            </template>
-            <template #created_at="{ row }">
-              {{ formatTime(row.created_at) }}
-            </template>
-            <template #operation="{ row }">
-              <t-space>
-                <t-link theme="primary" @click="handleTriggerGroup(row)">执行</t-link>
-                <t-link theme="default" @click="handleEditGroup(row)">编辑</t-link>
-                <t-popconfirm content="确定删除该组合？" @confirm="handleDeleteGroup(row)">
-                  <t-link theme="danger">删除</t-link>
-                </t-popconfirm>
-              </t-space>
-            </template>
-          </t-table>
+          <!-- 预定义组合 -->
+          <div v-if="filteredPredefinedGroups.length > 0" class="group-section">
+            <h4 class="section-title">
+              <t-icon name="lock-on" />
+              预定义组合 ({{ filteredPredefinedGroups.length }})
+            </h4>
+            <t-table
+              :data="filteredPredefinedGroups"
+              :columns="[
+                { colKey: 'name', title: '组合名称', width: 180 },
+                { colKey: 'description', title: '描述', minWidth: 150 },
+                { colKey: 'category', title: '分类', width: 100 },
+                { colKey: 'default_task_type', title: '默认同步', width: 100 },
+                { colKey: 'plugin_count', title: '插件数', width: 80 },
+                { colKey: 'operation', title: '操作', width: 150, fixed: 'right' }
+              ]"
+              :loading="dataStore.pluginGroupsLoading"
+              row-key="group_id"
+              size="small"
+            >
+              <template #name="{ row }">
+                <span>{{ row.name }}</span>
+              </template>
+              <template #category="{ row }">
+                <t-tag size="small" variant="outline">
+                  {{ getCategoryLabel(row.category) }}
+                </t-tag>
+              </template>
+              <template #default_task_type="{ row }">
+                <t-tag 
+                  :theme="row.default_task_type === 'full' ? 'warning' : row.default_task_type === 'backfill' ? 'default' : 'primary'" 
+                  variant="light" 
+                  size="small"
+                >
+                  {{ row.default_task_type === 'full' ? '全量' : row.default_task_type === 'backfill' ? '补录' : '增量' }}
+                </t-tag>
+              </template>
+              <template #plugin_count="{ row }">
+                {{ row.plugin_names?.length || 0 }}
+              </template>
+              <template #operation="{ row }">
+                <t-space size="small">
+                  <t-link theme="primary" @click="handleTriggerGroup(row)">执行</t-link>
+                  <t-link theme="default" @click="handleShowGroupDetail(row)">详情</t-link>
+                </t-space>
+              </template>
+            </t-table>
+          </div>
+
+          <!-- 用户自定义组合 -->
+          <div class="group-section">
+            <h4 class="section-title">
+              <t-icon name="folder" />
+              我的组合 ({{ filteredCustomGroups.length }})
+            </h4>
+            <t-table
+              v-if="filteredCustomGroups.length > 0"
+              :data="filteredCustomGroups"
+              :columns="[
+                { colKey: 'name', title: '组合名称', width: 180 },
+                { colKey: 'description', title: '描述', minWidth: 150 },
+                { colKey: 'default_task_type', title: '默认同步', width: 100 },
+                { colKey: 'plugin_count', title: '插件数', width: 80 },
+                { colKey: 'created_at', title: '创建时间', width: 160 },
+                { colKey: 'operation', title: '操作', width: 200, fixed: 'right' }
+              ]"
+              :loading="dataStore.pluginGroupsLoading"
+              row-key="group_id"
+              size="small"
+            >
+              <template #default_task_type="{ row }">
+                <t-tag 
+                  :theme="row.default_task_type === 'full' ? 'warning' : row.default_task_type === 'backfill' ? 'default' : 'primary'" 
+                  variant="light" 
+                  size="small"
+                >
+                  {{ row.default_task_type === 'full' ? '全量' : row.default_task_type === 'backfill' ? '补录' : '增量' }}
+                </t-tag>
+              </template>
+              <template #plugin_count="{ row }">
+                {{ row.plugin_names?.length || 0 }}
+              </template>
+              <template #created_at="{ row }">
+                {{ formatTime(row.created_at) }}
+              </template>
+              <template #operation="{ row }">
+                <t-space size="small">
+                  <t-link theme="primary" @click="handleTriggerGroup(row)">执行</t-link>
+                  <t-link theme="default" @click="handleShowGroupDetail(row)">详情</t-link>
+                  <t-link theme="default" @click="handleEditGroupSafe(row)">编辑</t-link>
+                  <t-popconfirm content="确定删除该组合？" @confirm="handleDeleteGroupSafe(row)">
+                    <t-link theme="danger">删除</t-link>
+                  </t-popconfirm>
+                </t-space>
+              </template>
+            </t-table>
+            <t-result 
+              v-else 
+              theme="default" 
+              title="暂无自定义组合" 
+              description="点击「创建组合」添加您的第一个组合"
+              style="padding: 40px 0"
+            >
+              <template #extra>
+                <t-button theme="primary" @click="handleCreateGroup">
+                  <t-icon name="add" style="margin-right: 4px" />
+                  创建组合
+                </t-button>
+              </template>
+            </t-result>
+          </div>
         </t-tab-panel>
 
         <!-- Settings Tab -->
@@ -1212,6 +1367,13 @@ onMounted(() => {
       v-model:visible="groupSyncDialogVisible"
       :group="selectedGroupForSync"
       @confirm="handleGroupSyncConfirm"
+    />
+    
+    <!-- Group Detail Dialog -->
+    <GroupDetailDialog
+      v-model:visible="groupDetailDialogVisible"
+      :group="selectedGroupForDetail"
+      @execute="handleGroupDetailExecute"
     />
     </template>
   </div>
@@ -1416,5 +1578,26 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
   font-size: 13px;
   margin-right: 8px;
+}
+
+/* Group section styles */
+.group-section {
+  margin-bottom: 24px;
+  
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--td-text-color-primary);
+  }
+}
+
+.filter-bar-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>
