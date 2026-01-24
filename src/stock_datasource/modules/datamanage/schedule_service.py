@@ -410,13 +410,22 @@ class ScheduleService:
         """Get schedule execution history."""
         history = get_schedule_history(limit=limit)
         
-        # Update running executions status
-        for record in history:
-            if record.get("status") == "running":
-                self.update_execution_status(record.get("execution_id"))
+        # 收集需要更新的 running 状态记录的 execution_id
+        running_ids = [
+            record.get("execution_id") 
+            for record in history 
+            if record.get("status") == "running" and record.get("execution_id")
+        ]
         
-        # Re-fetch history after updates
-        history = get_schedule_history(limit=limit)
+        # 只有当存在 running 状态的记录时才进行状态更新
+        if running_ids:
+            # 批量更新 running 状态记录（最多更新前5个，避免超时）
+            # 传入 cached_history 避免重复读取文件
+            for execution_id in running_ids[:5]:
+                self.update_execution_status(execution_id, cached_history=history)
+            
+            # 只有更新过状态才重新获取历史
+            history = get_schedule_history(limit=limit)
         
         # Filter by days
         if days > 0:
@@ -472,11 +481,17 @@ class ScheduleService:
         logger.info(f"Retrying execution {execution_id}")
         return self.trigger_now(is_manual=True)
     
-    def update_execution_status(self, execution_id: str) -> Optional[Dict[str, Any]]:
-        """Update execution status by checking task statuses."""
+    def update_execution_status(self, execution_id: str, cached_history: List[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Update execution status by checking task statuses.
+        
+        Args:
+            execution_id: The execution ID to update
+            cached_history: Optional pre-fetched history to avoid repeated file reads
+        """
         from .service import sync_task_manager
         
-        history = get_schedule_history(limit=100)
+        # 使用缓存的历史记录，避免重复读取文件
+        history = cached_history if cached_history is not None else get_schedule_history(limit=100)
         record = None
         for r in history:
             if r.get("execution_id") == execution_id:

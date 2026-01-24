@@ -47,7 +47,7 @@ export interface QualityMetrics {
   latest_update?: string
 }
 
-export type PluginCategory = 'cn_stock' | 'hk_stock' | 'index' | 'etf_fund' | 'system' | 'stock'
+export type PluginCategory = 'cn_stock' | 'hk_stock' | 'index' | 'etf_fund' | 'market' | 'reference' | 'fundamental' | 'system' | 'stock'
 export type PluginRole = 'primary' | 'basic' | 'derived' | 'auxiliary'
 
 export interface PluginInfo {

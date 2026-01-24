@@ -1,0 +1,27 @@
+{
+  "table_name": "ods_daily_info",
+  "table_type": "ods",
+  "columns": [
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "市场代码"},
+    {"name": "ts_name", "data_type": "Nullable(String)", "nullable": true, "comment": "市场名称"},
+    {"name": "com_count", "data_type": "Nullable(Int64)", "nullable": true, "comment": "挂牌数"},
+    {"name": "total_share", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总股本(亿股)"},
+    {"name": "float_share", "data_type": "Nullable(Float64)", "nullable": true, "comment": "流通股本(亿股)"},
+    {"name": "total_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "总市值(亿元)"},
+    {"name": "float_mv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "流通市值(亿元)"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交金额(亿元)"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交量(亿股)"},
+    {"name": "trans_count", "data_type": "Nullable(Int64)", "nullable": true, "comment": "成交笔数(万笔)"},
+    {"name": "pe", "data_type": "Nullable(Float64)", "nullable": true, "comment": "平均市盈率"},
+    {"name": "tr", "data_type": "Nullable(Float64)", "nullable": true, "comment": "换手率(%)"},
+    {"name": "exchange", "data_type": "LowCardinality(String)", "nullable": true, "comment": "交易所(SSE/SZSE)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["trade_date", "ts_code"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "每日全市场交易统计 from TuShare daily_info API"
+}

@@ -1,0 +1,7 @@
+{
+  "rate_limit": 200,
+  "timeout": 30,
+  "api_name": "daily_info",
+  "description": "每日全市场交易统计",
+  "min_points": 2000
+}

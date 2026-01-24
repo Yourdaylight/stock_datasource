@@ -1,0 +1,24 @@
+{
+  "table_name": "ods_index_weekly",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收盘点位"},
+    {"name": "open", "data_type": "Nullable(Float64)", "nullable": true, "comment": "开盘点位"},
+    {"name": "high", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最高点位"},
+    {"name": "low", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最低点位"},
+    {"name": "pre_close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "前收盘点位"},
+    {"name": "change", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌点位"},
+    {"name": "pct_chg", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌幅(%)"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交量(手)"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交额(千元)"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "指数周线行情数据 from TuShare index_weekly API"
+}

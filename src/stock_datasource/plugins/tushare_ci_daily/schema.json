@@ -1,0 +1,24 @@
+{
+  "table_name": "ods_ci_daily",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "中信行业指数代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "name", "data_type": "Nullable(String)", "nullable": true, "comment": "行业名称"},
+    {"name": "open", "data_type": "Nullable(Float64)", "nullable": true, "comment": "开盘点位"},
+    {"name": "high", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最高点位"},
+    {"name": "low", "data_type": "Nullable(Float64)", "nullable": true, "comment": "最低点位"},
+    {"name": "close", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收盘点位"},
+    {"name": "change", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌点"},
+    {"name": "pct_change", "data_type": "Nullable(Float64)", "nullable": true, "comment": "涨跌幅(%)"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交量"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "nullable": true, "comment": "成交额"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "中信行业指数日线行情 from TuShare ci_daily API"
+}

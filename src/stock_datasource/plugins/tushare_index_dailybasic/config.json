@@ -1,0 +1,7 @@
+{
+  "rate_limit": 500,
+  "timeout": 30,
+  "api_name": "index_dailybasic",
+  "description": "大盘指数每日指标数据",
+  "min_points": 400
+}
