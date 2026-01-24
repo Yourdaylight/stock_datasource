@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare financial audit opinion data plugin",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "19:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "Stock code (e.g., 600000.SH)"
+    },
+    "ann_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement date in YYYYMMDD format"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format"
+    },
+    "period": {
+      "type": "string",
+      "required": false,
+      "description": "Report period (e.g., 20231231)"
+    }
+  }
+}

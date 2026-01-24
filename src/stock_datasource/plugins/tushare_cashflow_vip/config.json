@@ -1,0 +1,62 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 60,
+  "retry_attempts": 3,
+  "description": "TuShare cash flow VIP data plugin (batch mode, requires 5000 points)",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "19:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "Stock code (e.g., 600000.SH)"
+    },
+    "ann_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement date in YYYYMMDD format"
+    },
+    "f_ann_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "First announcement date in YYYYMMDD format"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Announcement end date in YYYYMMDD format"
+    },
+    "period": {
+      "type": "string",
+      "required": false,
+      "description": "Report period (e.g., 20231231)"
+    },
+    "report_type": {
+      "type": "string",
+      "required": false,
+      "description": "Report type: 1=合并报表, 2=单季合并, 4=调整合并报表, 6=母公司报表"
+    },
+    "comp_type": {
+      "type": "string",
+      "required": false,
+      "description": "Company type: 1=一般工商业, 2=银行, 3=保险, 4=证券"
+    },
+    "is_calc": {
+      "type": "integer",
+      "required": false,
+      "description": "是否计算报表: 0=实际报表, 1=计算报表"
+    }
+  }
+}
