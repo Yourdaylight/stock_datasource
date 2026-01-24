@@ -73,11 +73,60 @@
 - [x] 7.7 更新 Agent 系统提示词，添加新工具说明
 - [x] 7.8 更新 Agent 工具列表，注册所有新工具
 
+## Phase 8: 财务审计意见插件 (tushare_fina_audit)
+
+- [x] 8.1 创建 `tushare_fina_audit` 插件目录结构
+- [x] 8.2 实现 `config.json` 配置文件
+- [x] 8.3 实现 `schema.json` 定义 ClickHouse 表结构（ods_fina_audit）
+- [x] 8.4 实现 `extractor.py` 调用 `pro.fina_audit()` API
+- [x] 8.5 实现 `plugin.py` 继承 BasePlugin
+- [x] 8.6 实现 `service.py` 提供查询方法
+- [ ] 8.7 创建 ClickHouse 表 `ods_fina_audit`
+- [ ] 8.8 验证: 单只股票数据提取和查询
+- [ ] 8.9 验证: 批处理模式支持
+
+## Phase 9: 利润表 VIP 插件 (tushare_income_vip)
+
+- [x] 9.1 创建 `tushare_income_vip` 插件目录结构
+- [x] 9.2 实现 `config.json` 配置文件（复用 ods_income_statement 表）
+- [x] 9.3 实现 `extractor.py` 调用 `pro.income_vip()` API
+- [x] 9.4 实现 `plugin.py` 继承 BasePlugin（支持按 period 批量获取）
+- [x] 9.5 实现 `service.py` 提供查询方法
+- [ ] 9.6 验证: 按季度批量获取全市场数据
+
+## Phase 10: 资产负债表 VIP 插件 (tushare_balancesheet_vip)
+
+- [x] 10.1 创建 `tushare_balancesheet_vip` 插件目录结构
+- [x] 10.2 实现 `config.json` 配置文件（复用 ods_balance_sheet 表）
+- [x] 10.3 实现 `extractor.py` 调用 `pro.balancesheet_vip()` API
+- [x] 10.4 实现 `plugin.py` 继承 BasePlugin（支持按 period 批量获取）
+- [x] 10.5 实现 `service.py` 提供查询方法
+- [ ] 10.6 验证: 按季度批量获取全市场数据
+
+## Phase 11: 现金流量表 VIP 插件 (tushare_cashflow_vip)
+
+- [x] 11.1 创建 `tushare_cashflow_vip` 插件目录结构
+- [x] 11.2 实现 `config.json` 配置文件（复用 ods_cash_flow 表）
+- [x] 11.3 实现 `extractor.py` 调用 `pro.cashflow_vip()` API
+- [x] 11.4 实现 `plugin.py` 继承 BasePlugin（支持按 period 批量获取）
+- [x] 11.5 实现 `service.py` 提供查询方法
+- [ ] 11.6 验证: 按季度批量获取全市场数据
+
+## Phase 12: VIP 接口 Agent 集成
+
+- [x] 12.1 在 `ReportAgent` 中添加审计意见查询工具（get_audit_opinion）
+- [x] 12.2 在 `ReportAgent` 中添加非标准审计意见查询工具（get_non_standard_opinions）
+- [x] 12.3 更新 Agent 系统提示词，添加审计意见相关工具说明
+- [ ] 12.4 更新 FinancialReportService 集成审计意见分析
+
 ## Dependencies
 
-- Phase 1-5 可并行开发
-- Phase 6 依赖 Phase 1-5 完成
-- Phase 7 依赖 Phase 6 完成
+- Phase 1-5 可并行开发（已完成）
+- Phase 6 依赖 Phase 1-5 完成（已完成）
+- Phase 7 依赖 Phase 6 完成（已完成）
+- **Phase 8 (财务审计意见) 可独立开发**
+- **Phase 9-11 (VIP 接口) 可并行开发，依赖积分 >= 5000**
+- **Phase 12 依赖 Phase 8-11 完成**
 
 ## Verification Criteria
 

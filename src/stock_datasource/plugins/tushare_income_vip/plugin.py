@@ -1,0 +1,222 @@
+"""TuShare income statement VIP data plugin implementation."""
+
+import pandas as pd
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from pathlib import Path
+import json
+
+from stock_datasource.plugins import BasePlugin
+from stock_datasource.core.base_plugin import PluginCategory, PluginRole
+from .extractor import extractor
+
+
+class TuShareIncomeVipPlugin(BasePlugin):
+    """TuShare income statement VIP data plugin (batch mode)."""
+    
+    @property
+    def name(self) -> str:
+        return "tushare_income_vip"
+    
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+    
+    @property
+    def description(self) -> str:
+        return "TuShare income statement VIP data (batch mode, requires 5000 points)"
+    
+    @property
+    def api_rate_limit(self) -> int:
+        config_file = Path(__file__).parent / "config.json"
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config.get("rate_limit", 120)
+    
+    def get_category(self) -> PluginCategory:
+        """Return plugin category."""
+        return PluginCategory.CN_STOCK
+    
+    def get_role(self) -> PluginRole:
+        """Return plugin role."""
+        return PluginRole.PRIMARY
+    
+    def get_dependencies(self) -> List[str]:
+        """Return plugin dependencies."""
+        return ["tushare_stock_basic"]
+    
+    def get_optional_dependencies(self) -> List[str]:
+        """Return optional dependencies."""
+        return []
+    
+    def extract_data(self, **kwargs) -> pd.DataFrame:
+        """Extract income statement VIP data from TuShare.
+        
+        VIP API supports batch extraction by period.
+        
+        Args:
+            ts_code: Stock code (optional, e.g., 600000.SH)
+            ann_date: Announcement date in YYYYMMDD format
+            start_date: Announcement start date in YYYYMMDD format
+            end_date: Announcement end date in YYYYMMDD format
+            period: Report period (e.g., 20231231) - main batch parameter
+            report_type: Report type (1=合并报表, 2=单季合并, etc.)
+            comp_type: Company type (1=工商业, 2=银行, 3=保险, 4=证券)
+        """
+        ts_code = kwargs.get('ts_code')
+        ann_date = kwargs.get('ann_date')
+        start_date = kwargs.get('start_date')
+        end_date = kwargs.get('end_date')
+        period = kwargs.get('period')
+        report_type = kwargs.get('report_type', '1')  # Default to consolidated statement
+        comp_type = kwargs.get('comp_type')
+        
+        self.logger.info(f"Extracting income statement VIP data (period={period}, report_type={report_type})")
+        
+        data = extractor.extract(
+            ts_code=ts_code,
+            ann_date=ann_date,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            report_type=report_type,
+            comp_type=comp_type
+        )
+        
+        if data.empty:
+            self.logger.warning(f"No income statement VIP data found for period={period}")
+            return pd.DataFrame()
+        
+        self.logger.info(f"Extracted {len(data)} income statement VIP records")
+        return data
+    
+    def validate_data(self, data: pd.DataFrame) -> bool:
+        """Validate income statement data."""
+        if data.empty:
+            self.logger.warning("Empty income statement data")
+            return False
+        
+        required_columns = ['ts_code', 'end_date']
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        
+        if missing_columns:
+            self.logger.error(f"Missing required columns: {missing_columns}")
+            return False
+        
+        # Check for null values in key fields
+        null_ts_codes = data['ts_code'].isnull().sum()
+        if null_ts_codes > 0:
+            self.logger.error(f"Found {null_ts_codes} null ts_code values")
+            return False
+        
+        null_end_dates = data['end_date'].isnull().sum()
+        if null_end_dates > 0:
+            self.logger.error(f"Found {null_end_dates} null end_date values")
+            return False
+        
+        self.logger.info(f"Income statement VIP data validation passed for {len(data)} records")
+        return True
+    
+    def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Transform income statement data for database insertion."""
+        # Numeric columns from income statement
+        numeric_columns = [
+            'basic_eps', 'diluted_eps', 'total_revenue', 'revenue',
+            'int_income', 'prem_earned', 'comm_income', 'n_commis_income',
+            'n_oth_income', 'n_oth_b_income', 'prem_income', 'out_prem',
+            'une_prem_reser', 'reins_income', 'n_sec_tb_income', 'n_sec_uw_income',
+            'n_asset_mg_income', 'oth_b_income', 'fv_value_chg_gain', 'invest_income',
+            'ass_invest_income', 'forex_gain', 'total_cogs', 'oper_cost',
+            'int_exp', 'comm_exp', 'biz_tax_surchg', 'sell_exp', 'admin_exp',
+            'fin_exp', 'assets_impair_loss', 'prem_refund', 'compens_payout',
+            'reser_insur_liab', 'div_payt', 'reins_exp', 'oper_exp',
+            'compens_payout_refu', 'insur_reser_refu', 'reins_cost_refund',
+            'other_bus_cost', 'operate_profit', 'non_oper_income', 'non_oper_exp',
+            'nca_disploss', 'total_profit', 'income_tax', 'n_income',
+            'n_income_attr_p', 'minority_gain', 'oth_compr_income', 't_compr_income',
+            'compr_inc_attr_p', 'compr_inc_attr_m_s', 'ebit', 'ebitda',
+            'insurance_exp', 'undist_profit', 'distable_profit', 'rd_exp',
+            'fin_exp_int_exp', 'fin_exp_int_inc', 'transfer_surplus_rese',
+            'transfer_housing_imprest', 'transfer_oth', 'adj_lossgain',
+            'withdra_legal_surplus', 'withdra_legal_pubfund', 'withdra_biz_devfund',
+            'withdra_rese_fund', 'withdra_oth_ersu', 'workers_welfare',
+            'distr_profit_shrhder', 'prfshare_payable_dvd', 'comshare_payable_dvd',
+            'capit_comstock_div', 'net_after_nr_lp_correct', 'credit_impa_loss',
+            'net_expo_hedging_benefits', 'oth_impair_loss_assets', 'total_opcost',
+            'amodcost_fin_assets', 'oth_income', 'asset_disp_income',
+            'continued_net_profit', 'end_net_profit'
+        ]
+        
+        for col in numeric_columns:
+            if col in data.columns:
+                data[col] = pd.to_numeric(data[col], errors='coerce')
+        
+        # Convert date columns
+        date_columns = ['end_date', 'ann_date', 'f_ann_date']
+        for col in date_columns:
+            if col in data.columns:
+                data[col] = pd.to_datetime(data[col], format='%Y%m%d', errors='coerce').dt.date
+        
+        self.logger.info(f"Transformed {len(data)} income statement VIP records")
+        return data
+    
+    def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Load income statement data into ODS table (same as base income)."""
+        if not self.db:
+            self.logger.error("Database not initialized")
+            return {"status": "failed", "error": "Database not initialized"}
+        
+        if data.empty:
+            self.logger.warning("No data to load")
+            return {"status": "no_data", "loaded_records": 0}
+        
+        try:
+            # VIP data goes to same table as base income
+            self.logger.info(f"Loading {len(data)} records into ods_income_statement")
+            ods_data = data.copy()
+            ods_data['version'] = int(datetime.now().timestamp())
+            ods_data['_ingested_at'] = datetime.now()
+            
+            # Prepare data types
+            ods_data = self._prepare_data_for_insert('ods_income_statement', ods_data)
+            self.db.insert_dataframe('ods_income_statement', ods_data)
+            
+            self.logger.info(f"Successfully loaded {len(ods_data)} records")
+            return {
+                "status": "success",
+                "loaded_records": len(ods_data),
+                "table": "ods_income_statement"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data: {e}")
+            return {"status": "failed", "error": str(e)}
+
+
+if __name__ == "__main__":
+    import sys
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="TuShare Income Statement VIP Data Plugin")
+    parser.add_argument("--period", required=True, help="Report period (e.g., 20231231)")
+    parser.add_argument("--report-type", default="1", help="Report type (1=合并报表)")
+    parser.add_argument("--ts-code", help="Stock code (optional)")
+    
+    args = parser.parse_args()
+    
+    plugin = TuShareIncomeVipPlugin()
+    result = plugin.run(
+        period=args.period,
+        report_type=args.report_type,
+        ts_code=args.ts_code
+    )
+    
+    print(f"\nPlugin: {result['plugin']}")
+    print(f"Status: {result['status']}")
+    
+    if result['status'] != 'success':
+        if 'error' in result:
+            print(f"\nError: {result['error']}")
+        sys.exit(1)
+    
+    sys.exit(0)

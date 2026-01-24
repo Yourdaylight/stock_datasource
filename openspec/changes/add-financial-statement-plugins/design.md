@@ -29,7 +29,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │              FinancialStatementService                           │
 │  (统一查询服务，整合三张报表数据)                                   │
-└────────────────────────────┬────────────────────────────────────┘
+└────────────────────┬────────────────────────────────────┘
                              │
         ┌────────────────────┼────────────────────┐
         ▼                    ▼                    ▼
@@ -194,3 +194,173 @@ def get_cashflow(code: str, periods: int = 4) -> Dict:
 
 ### 与 FinancialReportService 集成
 现有的 `FinancialReportService` 将使用新插件的 Service 获取原始报表数据，结合财务指标数据提供完整的财务分析。
+
+## 新增插件设计
+
+### 4. 财务审计意见插件 (tushare_fina_audit)
+
+**接口说明**:
+- API: `pro.fina_audit()`
+- 积分要求: 500 积分
+- 文档: https://tushare.pro/document/2?doc_id=103
+
+**config.json**:
+```json
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare financial audit opinion data plugin",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "19:00"
+  },
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "Stock code (e.g., 600000.SH)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false
+    },
+    "period": {
+      "type": "string",
+      "required": false,
+      "description": "Report period (e.g., 20231231)"
+    }
+  }
+}
+```
+
+**Key Output Fields**:
+| 字段 | 类型 | 描述 |
+|------|------|------|
+| ts_code | str | 股票代码 |
+| ann_date | str | 公告日期 |
+| end_date | str | 报告期 |
+| audit_result | str | 审计结果（标准无保留意见/保留意见/否定意见等） |
+| audit_fees | float | 审计费用（元） |
+| audit_agency | str | 会计师事务所 |
+| audit_sign | str | 签字会计师 |
+
+**应用场景**:
+- 识别审计风险：非标准审计意见可能提示财务风险
+- 监管研究：分析审计意见与退市风险警示的关联性
+- 行业统计：统计不同会计师事务所的市场份额
+
+### 5. VIP 批量接口插件
+
+VIP 接口支持按季度批量获取全市场数据，效率更高，适合构建完整的财务数据库。
+
+**共同特点**:
+- 积分要求: 5000 积分
+- 支持按 `period` 参数一次性获取全市场数据
+- 与基础接口共用相同的表结构
+- 数据可合并存储，无需单独建表
+
+#### 5.1 利润表 VIP (tushare_income_vip)
+
+**接口说明**:
+- API: `pro.income_vip()`
+- 文档: https://tushare.pro/document/2?doc_id=80
+- 复用表: `ods_income_statement`
+
+**批量获取示例**:
+```python
+# 获取 2023 年三季报全部上市公司利润表
+df = pro.income_vip(period='20230930', report_type='1')
+```
+
+#### 5.2 资产负债表 VIP (tushare_balancesheet_vip)
+
+**接口说明**:
+- API: `pro.balancesheet_vip()`
+- 文档: https://tushare.pro/document/2?doc_id=162
+- 复用表: `ods_balance_sheet`
+
+**批量获取示例**:
+```python
+# 获取 2023 年年报全部上市公司资产负债表
+df = pro.balancesheet_vip(period='20231231', report_type='1')
+```
+
+#### 5.3 现金流量表 VIP (tushare_cashflow_vip)
+
+**接口说明**:
+- API: `pro.cashflow_vip()`
+- 文档: https://tushare.pro/document/2?doc_id=81
+- 复用表: `ods_cash_flow`
+
+**批量获取示例**:
+```python
+# 获取 2023 年年报全部上市公司现金流量表
+df = pro.cashflow_vip(period='20231231', report_type='1')
+```
+
+### VIP 接口 vs 基础接口对比
+
+| 特性 | 基础接口 | VIP 接口 |
+|------|----------|----------|
+| 积分要求 | 2000 | 5000 |
+| 查询方式 | 单只股票历史数据 | 按季度批量获取 |
+| 效率 | 低（需遍历股票） | 高（单次请求） |
+| 适用场景 | 单股分析、增量更新 | 全市场数据构建 |
+| 表结构 | 独立表 | 复用基础接口表 |
+
+### 架构扩展
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Tushare API                                     │
+├─────────────┬─────────────┬─────────────┬─────────────┬─────────────────────┤
+│  income()   │balancesheet()│  cashflow() │ fina_audit()│    VIP APIs         │
+│             │             │             │             │ income_vip()        │
+│             │             │             │             │ balancesheet_vip()  │
+│             │             │             │             │ cashflow_vip()      │
+└──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴─────────┬───────────┘
+       │             │             │             │                │
+       ▼             ▼             ▼             ▼                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Plugin Layer                                      │
+├─────────────┬─────────────┬─────────────┬─────────────┬─────────────────────┤
+│tushare_     │tushare_     │tushare_     │tushare_     │ tushare_income_vip  │
+│  income     │balancesheet │  cashflow   │ fina_audit  │ tushare_balance_vip │
+│             │             │             │             │ tushare_cashflow_vip│
+└──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴─────────┬───────────┘
+       │             │             │             │                │
+       ▼             ▼             ▼             ▼                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ClickHouse Database                                  │
+├─────────────┬─────────────┬─────────────┬─────────────────────────────────────┤
+│ods_income   │ods_balance  │ods_cash     │ods_fina_audit                       │
+│  _statement │  _sheet     │  _flow      │                                     │
+│ (基础+VIP)  │ (基础+VIP)  │ (基础+VIP)  │                                     │
+└─────────────┴─────────────┴─────────────┴─────────────────────────────────────┘
+```
+
+### FinancialAuditService
+
+提供财务审计意见查询服务：
+
+```python
+class FinancialAuditService:
+    """财务审计意见查询服务"""
+    
+    def get_audit_opinion(self, code: str, periods: int = 5) -> List[Dict]:
+        """获取审计意见数据"""
+        
+    def get_non_standard_opinions(self, start_date: str, end_date: str) -> List[Dict]:
+        """获取指定时间范围内的非标准审计意见"""
+        
+    def get_audit_by_agency(self, agency: str, year: str) -> List[Dict]:
+        """按会计师事务所查询审计数据"""
+```

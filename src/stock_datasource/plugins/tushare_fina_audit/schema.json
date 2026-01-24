@@ -1,0 +1,20 @@
+{
+  "table_name": "ods_fina_audit",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "ann_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "公告日期"},
+    {"name": "end_date", "data_type": "Date", "nullable": false, "comment": "报告期"},
+    {"name": "audit_result", "data_type": "Nullable(String)", "nullable": true, "comment": "审计结果"},
+    {"name": "audit_fees", "data_type": "Nullable(Float64)", "nullable": true, "comment": "审计费用(元)"},
+    {"name": "audit_agency", "data_type": "Nullable(String)", "nullable": true, "comment": "会计师事务所"},
+    {"name": "audit_sign", "data_type": "Nullable(String)", "nullable": true, "comment": "签字会计师"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYear(end_date)",
+  "order_by": ["ts_code", "end_date", "ann_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Financial audit opinion data from TuShare API"
+}

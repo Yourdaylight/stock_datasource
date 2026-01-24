@@ -555,6 +555,96 @@ def get_full_financial_statements(ts_code: str, periods: int = 4) -> str:
         return f"❌ 获取财务报表 {ts_code} 时发生错误: {str(e)}"
 
 
+def get_audit_opinion(ts_code: str, periods: int = 5) -> str:
+    """获取财务审计意见数据。
+
+    Args:
+        ts_code: 股票代码
+        periods: 期数，默认5期
+
+    Returns:
+        审计意见数据，包括审计结果、审计费用、会计师事务所等。
+    """
+    is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
+    if not is_valid:
+        return f"❌ {error_msg}"
+
+    try:
+        from ..plugins.tushare_fina_audit.service import TuShareFinaAuditService
+        service = TuShareFinaAuditService()
+        data = service.get_audit_opinion(ts_code, periods)
+
+        if not data:
+            return f"ℹ️ 未找到 {ts_code} 的审计意见数据"
+
+        report = f"## {ts_code} 财务审计意见 (近{len(data)}期)\n\n"
+        report += "| 报告期 | 审计结果 | 审计费用(万元) | 会计师事务所 | 签字会计师 |\n"
+        report += "|---------|----------|--------------|-------------|------------|\n"
+
+        for row in data[:periods]:
+            audit_fees = row.get('audit_fees', 0)
+            audit_fees_wan = audit_fees / 10000 if audit_fees else 0
+            report += f"| {row.get('end_date', '')} | {row.get('audit_result', 'N/A')} | {audit_fees_wan:.2f} | {row.get('audit_agency', 'N/A')} | {row.get('audit_sign', 'N/A')} |\n"
+
+        # 审计风险提示
+        non_standard = [r for r in data if r.get('audit_result') and r.get('audit_result') != '标准无保留意见']
+        if non_standard:
+            report += "\n### ⚠️ 审计风险提示\n"
+            report += f"发现 {len(non_standard)} 期非标准审计意见:\n"
+            for row in non_standard:
+                report += f"- {row.get('end_date', '')}: {row.get('audit_result', '')}\n"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting audit opinion for {ts_code}: {e}")
+        return f"❌ 获取审计意见 {ts_code} 时发生错误: {str(e)}"
+
+
+def get_non_standard_opinions(start_date: str = None, end_date: str = None, limit: int = 50) -> str:
+    """获取非标准审计意见列表。
+
+    Args:
+        start_date: 开始日期，格式 YYYY-MM-DD
+        end_date: 结束日期，格式 YYYY-MM-DD
+        limit: 返回记录数，默认50条
+
+    Returns:
+        非标准审计意见列表，用于风险监控。
+    """
+    try:
+        from datetime import datetime, timedelta
+        from ..plugins.tushare_fina_audit.service import TuShareFinaAuditService
+        
+        # 默认查询最近一年
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        
+        service = TuShareFinaAuditService()
+        data = service.get_non_standard_opinions(start_date, end_date, limit)
+
+        if not data:
+            return f"ℹ️ 在 {start_date} 至 {end_date} 期间未发现非标准审计意见"
+
+        report = f"## 非标准审计意见列表 ({start_date} 至 {end_date})\n\n"
+        report += f"共发现 {len(data)} 条非标准审计意见:\n\n"
+        report += "| 股票代码 | 报告期 | 审计结果 | 会计师事务所 | 公告日期 |\n"
+        report += "|----------|--------|----------|-------------|----------|\n"
+
+        for row in data[:limit]:
+            report += f"| {row.get('ts_code', '')} | {row.get('end_date', '')} | {row.get('audit_result', '')} | {row.get('audit_agency', '')} | {row.get('ann_date', '')} |\n"
+
+        report += "\n### 📝 说明\n"
+        report += "非标准审计意见可能表明公司存在财务风险，建议进一步研究具体原因。\n"
+        report += "常见类型包括：保留意见、否定意见、无法表示意见、带强调事项段的无保留意见等。"
+
+        return report
+    except Exception as e:
+        logger.error(f"Error getting non-standard opinions: {e}")
+        return f"❌ 获取非标准审计意见时发生错误: {str(e)}"
+
+
 class ReportAgent(LangGraphAgent):
     """Report Agent for financial report analysis using DeepAgents.
     
@@ -586,6 +676,8 @@ class ReportAgent(LangGraphAgent):
             get_forecast,
             get_express,
             get_full_financial_statements,
+            get_audit_opinion,
+            get_non_standard_opinions,
         ]
     
     def get_system_prompt(self) -> str:
@@ -598,6 +690,7 @@ class ReportAgent(LangGraphAgent):
 - AI驱动的投资洞察
 - 多维度风险识别
 - 基于数据的投资建议
+- 审计意见风险评估
 
 ## 可用工具
 - get_stock_info: 获取股票基本信息和最新行情
@@ -611,6 +704,8 @@ class ReportAgent(LangGraphAgent):
 - get_forecast: 获取业绩预告数据
 - get_express: 获取业绩快报数据
 - get_full_financial_statements: 获取完整的三大财务报表（利润表、资产负债表、现金流量表）
+- get_audit_opinion: 获取财务审计意见数据（审计结果、审计费用、会计师事务所、签字会计师）
+- get_non_standard_opinions: 获取非标准审计意见列表（用于风险监控和筛选）
 
 ## 分析框架 (基于真实财务数据)
 1. **盈利能力**: ROE、ROA、毛利率、净利率、EPS
@@ -619,19 +714,29 @@ class ReportAgent(LangGraphAgent):
 4. **成长性**: 营收增长率、利润增长率、趋势分析
 5. **估值水平**: PE、PB、PS与行业对比
 6. **行业地位**: 同业对比、行业排名、竞争优势
+7. **审计风险**: 审计意见类型、历史审计记录、会计师事务所变更
+
+## 审计意见类型说明
+- 标准无保留意见: 财务报表公允反映公司财务状况（最佳）
+- 带强调事项段的无保留意见: 存在需要关注的事项但不影响整体公允性
+- 保留意见: 部分事项无法核实或存在异议
+- 否定意见: 财务报表整体不公允（高风险警示）
+- 无法表示意见: 审计范围受限，无法发表意见（高风险警示）
 
 ## 分析流程
 1. 获取股票基本信息和行情数据
 2. 进行全面财务分析，评估财务健康度
-3. 执行同业对比，确定行业地位
-4. 生成AI投资洞察和风险评估
-5. 提供综合性投资建议和关注点
+3. 查看审计意见，评估财务报表可靠性
+4. 执行同业对比，确定行业地位
+5. 生成AI投资洞察和风险评估
+6. 提供综合性投资建议和关注点
 
 ## 专业标准
 - 基于真实财务数据，确保分析准确性
 - 多维度横向对比，提供行业视角
 - 历史趋势分析，识别发展轨迹
 - 风险因素识别，平衡收益与风险
+- 审计意见分析，评估报表可信度
 - 结构化输出，便于理解和决策
 
 ## 常用股票代码示例
@@ -644,6 +749,7 @@ class ReportAgent(LangGraphAgent):
 - 数据驱动：基于真实财务指标
 - 对比分析：横向同业、纵向历史
 - 风险意识：明确指出潜在风险
+- 审计关注：非标准意见需重点提示
 - 投资导向：提供实用投资建议
 - 专业表达：使用专业术语和标准
 
