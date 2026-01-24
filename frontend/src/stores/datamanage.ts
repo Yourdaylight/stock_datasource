@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { 
   datamanageApi, 
   type DataSource, 
@@ -30,7 +30,10 @@ import {
   type PluginGroupCreateRequest,
   type PluginGroupUpdateRequest,
   type PluginGroupListResponse,
-  type PluginGroupTriggerRequest
+  type PluginGroupTriggerRequest,
+  type GroupCategory,
+  type GroupCategoryInfo,
+  type PluginGroupDetail
 } from '@/api/datamanage'
 
 export const useDataManageStore = defineStore('datamanage', () => {
@@ -399,18 +402,58 @@ export const useDataManageStore = defineStore('datamanage', () => {
   
   const pluginGroups = ref<PluginGroup[]>([])
   const pluginGroupsLoading = ref(false)
+  const groupCategories = ref<GroupCategoryInfo[]>([])
+  const selectedGroupCategory = ref<GroupCategory | ''>('')
+  
+  // 计算属性：预定义组合和自定义组合分开
+  const predefinedGroups = computed(() => 
+    pluginGroups.value.filter(g => g.is_predefined)
+  )
+  const customGroups = computed(() => 
+    pluginGroups.value.filter(g => !g.is_predefined)
+  )
+  
+  // 按分类筛选后的组合
+  const filteredPredefinedGroups = computed(() => {
+    if (!selectedGroupCategory.value) return predefinedGroups.value
+    return predefinedGroups.value.filter(g => g.category === selectedGroupCategory.value)
+  })
+  const filteredCustomGroups = computed(() => {
+    if (!selectedGroupCategory.value) return customGroups.value
+    return customGroups.value.filter(g => g.category === selectedGroupCategory.value)
+  })
 
-  const fetchPluginGroups = async () => {
+  const fetchPluginGroups = async (category?: GroupCategory) => {
     pluginGroupsLoading.value = true
     try {
-      const response = await datamanageApi.getPluginGroups()
+      const response = await datamanageApi.getPluginGroups(category)
       pluginGroups.value = response.items
       return response
     } catch (e) {
       console.error('Failed to fetch plugin groups:', e)
-      return { items: [], total: 0 }
+      return { items: [], total: 0, predefined_count: 0, custom_count: 0 }
     } finally {
       pluginGroupsLoading.value = false
+    }
+  }
+
+  const fetchPredefinedGroups = async () => {
+    try {
+      const response = await datamanageApi.getPredefinedGroups()
+      groupCategories.value = response.categories
+      return response
+    } catch (e) {
+      console.error('Failed to fetch predefined groups:', e)
+      return { groups: [], categories: [] }
+    }
+  }
+
+  const fetchGroupDetail = async (groupId: string): Promise<PluginGroupDetail | null> => {
+    try {
+      return await datamanageApi.getPluginGroup(groupId)
+    } catch (e) {
+      console.error('Failed to fetch group detail:', e)
+      return null
     }
   }
 
@@ -522,6 +565,12 @@ export const useDataManageStore = defineStore('datamanage', () => {
     // Plugin groups state
     pluginGroups,
     pluginGroupsLoading,
+    groupCategories,
+    selectedGroupCategory,
+    predefinedGroups,
+    customGroups,
+    filteredPredefinedGroups,
+    filteredCustomGroups,
     
     // Actions
     fetchDataSources,
@@ -560,6 +609,8 @@ export const useDataManageStore = defineStore('datamanage', () => {
     
     // Plugin groups actions
     fetchPluginGroups,
+    fetchPredefinedGroups,
+    fetchGroupDetail,
     createPluginGroup,
     updatePluginGroup,
     deletePluginGroup,

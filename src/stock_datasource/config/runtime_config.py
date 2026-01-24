@@ -150,15 +150,136 @@ def update_schedule_execution(execution_id: str, updates: Dict[str, Any]) -> Non
 
 # ============ Plugin Groups Management ============
 
-def get_plugin_groups() -> list:
-    """Get all plugin groups."""
+PREDEFINED_GROUPS_PATH = Path(__file__).parent / "predefined_groups.json"
+
+def load_predefined_groups() -> list:
+    """Load predefined plugin groups from config file.
+    
+    Returns:
+        List of predefined plugin group dicts with is_predefined=True
+    """
+    if not PREDEFINED_GROUPS_PATH.exists():
+        return []
+    
+    try:
+        with PREDEFINED_GROUPS_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            groups = data.get("groups", [])
+            # Add predefined flags and created_at
+            from datetime import datetime
+            for g in groups:
+                g["is_predefined"] = True
+                g["is_readonly"] = True
+                g["created_at"] = datetime(2025, 1, 1).isoformat()  # Fixed timestamp for predefined
+                g["updated_at"] = None
+                g["created_by"] = "system"
+            return groups
+    except Exception:
+        return []
+
+
+def get_predefined_categories() -> list:
+    """Get predefined group categories.
+    
+    Returns:
+        List of category info dicts with key, label, order
+    """
+    if not PREDEFINED_GROUPS_PATH.exists():
+        return []
+    
+    try:
+        with PREDEFINED_GROUPS_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("categories", [])
+    except Exception:
+        return []
+
+
+def is_predefined_group(group_id: str) -> bool:
+    """Check if a group is predefined (cannot be modified/deleted).
+    
+    Args:
+        group_id: The group ID to check
+        
+    Returns:
+        True if the group is predefined
+    """
+    return group_id.startswith("predefined_")
+
+
+def get_plugin_groups(include_predefined: bool = True) -> list:
+    """Get all plugin groups (predefined + custom).
+    
+    Args:
+        include_predefined: Whether to include predefined groups (default True)
+        
+    Returns:
+        List of all plugin groups, predefined first then custom
+    """
+    result = []
+    
+    # Add predefined groups first
+    if include_predefined:
+        predefined = load_predefined_groups()
+        result.extend(predefined)
+    
+    # Add custom groups
     config = load_runtime_config()
-    return config.get("plugin_groups", [])
+    custom_groups = config.get("plugin_groups", [])
+    
+    # Ensure custom groups have new fields with defaults
+    for g in custom_groups:
+        if "is_predefined" not in g:
+            g["is_predefined"] = False
+        if "is_readonly" not in g:
+            g["is_readonly"] = False
+        if "category" not in g:
+            g["category"] = "custom"
+    
+    result.extend(custom_groups)
+    return result
+
+
+def get_custom_plugin_groups() -> list:
+    """Get only user-defined custom plugin groups.
+    
+    Returns:
+        List of custom plugin groups (excluding predefined)
+    """
+    config = load_runtime_config()
+    custom_groups = config.get("plugin_groups", [])
+    
+    # Ensure custom groups have new fields with defaults
+    for g in custom_groups:
+        if "is_predefined" not in g:
+            g["is_predefined"] = False
+        if "is_readonly" not in g:
+            g["is_readonly"] = False
+        if "category" not in g:
+            g["category"] = "custom"
+    
+    return custom_groups
 
 
 def get_plugin_group(group_id: str) -> Optional[Dict[str, Any]]:
-    """Get a specific plugin group by ID."""
-    groups = get_plugin_groups()
+    """Get a specific plugin group by ID (including predefined).
+    
+    Args:
+        group_id: The group ID to find
+        
+    Returns:
+        Plugin group dict if found, None otherwise
+    """
+    # First check predefined groups
+    if is_predefined_group(group_id):
+        predefined = load_predefined_groups()
+        for group in predefined:
+            if group.get("group_id") == group_id:
+                return group
+        return None
+    
+    # Then check custom groups
+    groups = get_custom_plugin_groups()
     for group in groups:
         if group.get("group_id") == group_id:
             return group

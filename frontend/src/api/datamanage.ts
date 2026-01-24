@@ -351,6 +351,7 @@ export interface PartialRetryRequest {
 
 // Plugin Group Types
 export type TaskType = 'incremental' | 'full' | 'backfill'
+export type GroupCategory = 'cn_stock' | 'index' | 'etf_fund' | 'daily' | 'custom'
 
 export interface PluginGroup {
   group_id: string
@@ -358,9 +359,30 @@ export interface PluginGroup {
   description: string
   plugin_names: string[]
   default_task_type: TaskType  // 默认同步类型
+  category: GroupCategory      // 分类
+  is_predefined: boolean       // 是否为预定义组合
+  is_readonly: boolean         // 是否只读
   created_at: string
   updated_at?: string
   created_by: string
+}
+
+export interface GroupPluginStatus {
+  name: string
+  exists: boolean
+  has_data: boolean
+}
+
+export interface PluginGroupDetail extends PluginGroup {
+  plugin_status: GroupPluginStatus[]
+  dependency_graph: Record<string, string[]>
+  execution_order: string[]
+}
+
+export interface GroupCategoryInfo {
+  key: GroupCategory
+  label: string
+  order: number
 }
 
 export interface PluginGroupCreateRequest {
@@ -380,6 +402,13 @@ export interface PluginGroupUpdateRequest {
 export interface PluginGroupListResponse {
   items: PluginGroup[]
   total: number
+  predefined_count: number
+  custom_count: number
+}
+
+export interface PredefinedGroupsResponse {
+  groups: PluginGroup[]
+  categories: GroupCategoryInfo[]
 }
 
 export interface PluginGroupTriggerRequest {
@@ -607,15 +636,20 @@ export const datamanageApi = {
   },
 
   // Plugin Groups
-  getPluginGroups(): Promise<PluginGroupListResponse> {
-    return request.get('/api/datamanage/groups')
+  getPluginGroups(category?: GroupCategory): Promise<PluginGroupListResponse> {
+    const params = category ? `?category=${category}` : ''
+    return request.get(`/api/datamanage/groups${params}`)
+  },
+
+  getPredefinedGroups(): Promise<PredefinedGroupsResponse> {
+    return request.get('/api/datamanage/groups/predefined')
   },
 
   createPluginGroup(data: PluginGroupCreateRequest): Promise<PluginGroup> {
     return request.post('/api/datamanage/groups', data)
   },
 
-  getPluginGroup(groupId: string): Promise<PluginGroup> {
+  getPluginGroup(groupId: string): Promise<PluginGroupDetail> {
     return request.get(`/api/datamanage/groups/${groupId}`)
   },
 

@@ -470,6 +470,15 @@ class PartialRetryRequest(BaseModel):
     task_ids: Optional[List[str]] = None         # 指定要重试的task_id列表，为空则重试所有失败的
 
 
+class GroupCategory(str, Enum):
+    """组合分类枚举."""
+    CN_STOCK = "cn_stock"    # A股相关
+    INDEX = "index"          # 指数相关
+    ETF_FUND = "etf_fund"    # ETF基金相关
+    DAILY = "daily"          # 每日更新
+    CUSTOM = "custom"        # 用户自定义（无分类）
+
+
 class PluginGroup(BaseModel):
     """自定义插件组合."""
     group_id: str
@@ -477,6 +486,9 @@ class PluginGroup(BaseModel):
     description: str = ""
     plugin_names: List[str]
     default_task_type: TaskType = TaskType.INCREMENTAL  # 默认同步类型
+    category: GroupCategory = GroupCategory.CUSTOM      # 分类
+    is_predefined: bool = False                         # 是否为预定义组合
+    is_readonly: bool = False                           # 是否只读
     created_at: datetime
     updated_at: Optional[datetime] = None
     created_by: str = ""
@@ -502,6 +514,35 @@ class PluginGroupListResponse(BaseModel):
     """Response for plugin group list."""
     items: List[PluginGroup]
     total: int
+    predefined_count: int = 0                           # 预定义组合数量
+    custom_count: int = 0                               # 用户自定义组合数量
+
+
+class GroupCategoryInfo(BaseModel):
+    """组合分类信息."""
+    key: str
+    label: str
+    order: int = 0
+
+
+class GroupPluginStatus(BaseModel):
+    """组合中插件状态."""
+    name: str
+    exists: bool
+    has_data: bool = False
+
+
+class PluginGroupDetail(PluginGroup):
+    """组合详情（含依赖关系图）."""
+    plugin_status: List[GroupPluginStatus] = []         # 各插件状态
+    dependency_graph: Dict[str, List[str]] = {}         # 依赖关系图
+    execution_order: List[str] = []                     # 执行顺序
+
+
+class PredefinedGroupsResponse(BaseModel):
+    """预定义组合列表响应."""
+    groups: List[PluginGroup]
+    categories: List[GroupCategoryInfo]
 
 
 class PluginGroupTriggerRequest(BaseModel):

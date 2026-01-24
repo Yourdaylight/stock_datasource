@@ -16,14 +16,16 @@ from .schemas import (
     ProxyConfig, ProxyConfigRequest, ProxyTestResult,
     DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
     BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum,
-    SyncTaskListResponse, TaskStatus
+    SyncTaskListResponse, TaskStatus,
+    GroupCategory, PluginGroupDetail, GroupPluginStatus, PredefinedGroupsResponse, GroupCategoryInfo
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
 from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_ALIASES
 from ...config.runtime_config import (
     save_runtime_config, 
-    get_plugin_groups, get_plugin_group, save_plugin_group, delete_plugin_group
+    get_plugin_groups, get_plugin_group, save_plugin_group, delete_plugin_group,
+    load_predefined_groups, get_predefined_categories, is_predefined_group, get_custom_plugin_groups
 )
 from ..auth.dependencies import require_admin
 
@@ -896,12 +898,46 @@ async def partial_retry_execution(
 
 
 @router.get("/groups", response_model=PluginGroupListResponse)
-async def list_plugin_groups(current_user: dict = Depends(require_admin)):
-    """获取所有自定义插件组合."""
-    groups = get_plugin_groups()
+async def list_plugin_groups(
+    category: Optional[str] = Query(None, description="按分类筛选: cn_stock/index/etf_fund/daily/custom"),
+    current_user: dict = Depends(require_admin)
+):
+    """获取所有插件组合（预定义 + 用户自定义）.
+    
+    返回预定义组合和用户自定义组合，预定义组合排在前面。
+    支持按分类筛选。
+    """
+    groups = get_plugin_groups(include_predefined=True)
+    
+    # 按分类筛选
+    if category:
+        groups = [g for g in groups if g.get("category") == category]
+    
+    # 统计预定义和自定义组合数量
+    predefined_count = sum(1 for g in groups if g.get("is_predefined", False))
+    custom_count = len(groups) - predefined_count
+    
     return PluginGroupListResponse(
         items=[PluginGroup(**g) for g in groups],
-        total=len(groups)
+        total=len(groups),
+        predefined_count=predefined_count,
+        custom_count=custom_count
+    )
+
+
+@router.get("/groups/predefined", response_model=PredefinedGroupsResponse)
+async def list_predefined_groups(current_user: dict = Depends(require_admin)):
+    """获取预定义插件组合列表.
+    
+    仅返回系统预定义的组合，不包含用户自定义组合。
+    同时返回分类列表。
+    """
+    predefined = load_predefined_groups()
+    categories = get_predefined_categories()
+    
+    return PredefinedGroupsResponse(
+        groups=[PluginGroup(**g) for g in predefined],
+        categories=[GroupCategoryInfo(**c) for c in categories]
     )
 
 
@@ -919,8 +955,8 @@ async def create_plugin_group(
         if not plugin_manager.get_plugin(name):
             raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
     
-    # Check for duplicate name
-    existing = get_plugin_groups()
+    # Check for duplicate name (only against custom groups)
+    existing = get_custom_plugin_groups()
     for g in existing:
         if g.get("name") == request.name:
             raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
@@ -931,6 +967,9 @@ async def create_plugin_group(
         "description": request.description,
         "plugin_names": request.plugin_names,
         "default_task_type": request.default_task_type.value,
+        "category": "custom",
+        "is_predefined": False,
+        "is_readonly": False,
         "created_at": datetime.now().isoformat(),
         "updated_at": None,
         "created_by": current_user.get("username", "admin")
@@ -940,16 +979,75 @@ async def create_plugin_group(
     return PluginGroup(**group)
 
 
-@router.get("/groups/{group_id}", response_model=PluginGroup)
+@router.get("/groups/{group_id}", response_model=PluginGroupDetail)
 async def get_plugin_group_detail(
     group_id: str,
     current_user: dict = Depends(require_admin)
 ):
-    """获取插件组合详情."""
+    """获取插件组合详情，包含依赖关系图和执行顺序."""
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-    return PluginGroup(**group)
+    
+    # 获取插件状态
+    plugin_status = []
+    for name in group.get("plugin_names", []):
+        plugin = plugin_manager.get_plugin(name)
+        exists = plugin is not None
+        has_data = False
+        if exists:
+            try:
+                status = data_manage_service.get_plugin_data_status(name)
+                has_data = status.get("total_records", 0) > 0
+            except:
+                pass
+        plugin_status.append(GroupPluginStatus(
+            name=name,
+            exists=exists,
+            has_data=has_data
+        ))
+    
+    # 构建依赖关系图
+    dependency_graph = {}
+    for name in group.get("plugin_names", []):
+        plugin = plugin_manager.get_plugin(name)
+        if plugin:
+            config = plugin.get_config()
+            deps = config.get("dependencies", [])
+            # 只包含组合内的依赖
+            internal_deps = [d for d in deps if d in group.get("plugin_names", [])]
+            dependency_graph[name] = internal_deps
+        else:
+            dependency_graph[name] = []
+    
+    # 计算执行顺序（拓扑排序）
+    execution_order = _topological_sort(dependency_graph)
+    
+    return PluginGroupDetail(
+        **group,
+        plugin_status=plugin_status,
+        dependency_graph=dependency_graph,
+        execution_order=execution_order
+    )
+
+
+def _topological_sort(graph: dict) -> list:
+    """对依赖图进行拓扑排序."""
+    visited = set()
+    result = []
+    
+    def visit(node):
+        if node in visited:
+            return
+        visited.add(node)
+        for dep in graph.get(node, []):
+            visit(dep)
+        result.append(node)
+    
+    for node in graph:
+        visit(node)
+    
+    return result
 
 
 @router.put("/groups/{group_id}", response_model=PluginGroup)
@@ -958,7 +1056,14 @@ async def update_plugin_group(
     request: PluginGroupUpdateRequest,
     current_user: dict = Depends(require_admin)
 ):
-    """更新插件组合."""
+    """更新插件组合.
+    
+    预定义组合不可修改。
+    """
+    # 检查是否为预定义组合
+    if is_predefined_group(group_id):
+        raise HTTPException(status_code=403, detail="Cannot modify predefined group")
+    
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
@@ -970,9 +1075,9 @@ async def update_plugin_group(
                 raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
         group["plugin_names"] = request.plugin_names
     
-    # Check for duplicate name (if changing)
+    # Check for duplicate name (if changing, only against custom groups)
     if request.name and request.name != group.get("name"):
-        existing = get_plugin_groups()
+        existing = get_custom_plugin_groups()
         for g in existing:
             if g.get("name") == request.name and g.get("group_id") != group_id:
                 raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
@@ -995,7 +1100,14 @@ async def delete_plugin_group_endpoint(
     group_id: str,
     current_user: dict = Depends(require_admin)
 ):
-    """删除插件组合."""
+    """删除插件组合.
+    
+    预定义组合不可删除。
+    """
+    # 检查是否为预定义组合
+    if is_predefined_group(group_id):
+        raise HTTPException(status_code=403, detail="Cannot delete predefined group")
+    
     success = delete_plugin_group(group_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
