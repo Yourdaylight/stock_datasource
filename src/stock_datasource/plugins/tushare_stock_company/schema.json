@@ -1,0 +1,29 @@
+{
+  "table_name": "ods_stock_company",
+  "engine": "ReplacingMergeTree(version)",
+  "partition_by": null,
+  "order_by": ["ts_code"],
+  "comment": "上市公司基础信息 from TuShare stock_company API",
+  "columns": [
+    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "股票代码"},
+    {"name": "com_name", "type": "String", "comment": "公司全称"},
+    {"name": "com_id", "type": "String", "comment": "统一社会信用代码"},
+    {"name": "exchange", "type": "LowCardinality(String)", "comment": "交易所代码"},
+    {"name": "chairman", "type": "String", "comment": "法人代表"},
+    {"name": "manager", "type": "String", "comment": "总经理"},
+    {"name": "secretary", "type": "String", "comment": "董秘"},
+    {"name": "reg_capital", "type": "Nullable(Float64)", "comment": "注册资本(万元)"},
+    {"name": "setup_date", "type": "Nullable(Date)", "comment": "注册日期"},
+    {"name": "province", "type": "String", "comment": "所在省份"},
+    {"name": "city", "type": "String", "comment": "所在城市"},
+    {"name": "introduction", "type": "String", "comment": "公司介绍"},
+    {"name": "website", "type": "String", "comment": "公司主页"},
+    {"name": "email", "type": "String", "comment": "电子邮件"},
+    {"name": "office", "type": "String", "comment": "办公室地址"},
+    {"name": "employees", "type": "Nullable(Int32)", "comment": "员工人数"},
+    {"name": "main_business", "type": "String", "comment": "主要业务及产品"},
+    {"name": "business_scope", "type": "String", "comment": "经营范围"},
+    {"name": "version", "type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "type": "DateTime", "default": "now()", "comment": "数据入库时间"}
+  ]
+}

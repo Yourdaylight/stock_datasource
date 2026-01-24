@@ -1,0 +1,18 @@
+{
+  "table_name": "ods_stock_hsgt",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "股票代码"},
+    {"name": "trade_date", "data_type": "Date", "nullable": false, "comment": "交易日期"},
+    {"name": "type", "data_type": "LowCardinality(String)", "nullable": false, "comment": "类型(HK_SZ/SZ_HK/HK_SH/SH_HK)"},
+    {"name": "name", "data_type": "String", "nullable": true, "comment": "股票名称"},
+    {"name": "type_name", "data_type": "String", "nullable": true, "comment": "类型名称"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["type", "ts_code", "trade_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "沪深港通股票列表 from TuShare stock_hsgt API"
+}

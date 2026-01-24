@@ -1,0 +1,21 @@
+{
+  "table_name": "ods_weekly",
+  "database": "stock_datasource",
+  "columns": [
+    {"name": "ts_code", "type": "String", "comment": "股票代码"},
+    {"name": "trade_date", "type": "String", "comment": "交易日期"},
+    {"name": "open", "type": "Nullable(Float64)", "comment": "周开盘价"},
+    {"name": "high", "type": "Nullable(Float64)", "comment": "周最高价"},
+    {"name": "low", "type": "Nullable(Float64)", "comment": "周最低价"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "周收盘价"},
+    {"name": "pre_close", "type": "Nullable(Float64)", "comment": "上一周收盘价"},
+    {"name": "change", "type": "Nullable(Float64)", "comment": "周涨跌额"},
+    {"name": "pct_chg", "type": "Nullable(Float64)", "comment": "周涨跌幅"},
+    {"name": "vol", "type": "Nullable(Float64)", "comment": "周成交量"},
+    {"name": "amount", "type": "Nullable(Float64)", "comment": "周成交额"}
+  ],
+  "engine": "ReplacingMergeTree()",
+  "partition_by": "substring(trade_date, 1, 4)",
+  "order_by": ["ts_code", "trade_date"],
+  "comment": "A股周线行情数据"
+}

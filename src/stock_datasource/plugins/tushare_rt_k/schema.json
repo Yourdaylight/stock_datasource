@@ -1,0 +1,26 @@
+{
+  "table_name": "ods_rt_k",
+  "engine": "ReplacingMergeTree(version)",
+  "partition_by": "toYYYYMMDD(trade_time)",
+  "order_by": ["ts_code", "trade_time"],
+  "comment": "沪深京实时日线 from TuShare rt_k API",
+  "columns": [
+    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "股票代码"},
+    {"name": "name", "type": "String", "comment": "股票名称"},
+    {"name": "pre_close", "type": "Nullable(Float64)", "comment": "昨收价"},
+    {"name": "high", "type": "Nullable(Float64)", "comment": "最高价"},
+    {"name": "open", "type": "Nullable(Float64)", "comment": "开盘价"},
+    {"name": "low", "type": "Nullable(Float64)", "comment": "最低价"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价(最新价)"},
+    {"name": "vol", "type": "Nullable(Int64)", "comment": "成交量(股)"},
+    {"name": "amount", "type": "Nullable(Int64)", "comment": "成交金额(元)"},
+    {"name": "num", "type": "Nullable(Int32)", "comment": "成交笔数"},
+    {"name": "ask_price1", "type": "Nullable(Float64)", "comment": "委托卖一价"},
+    {"name": "ask_volume1", "type": "Nullable(Int64)", "comment": "委托卖一量"},
+    {"name": "bid_price1", "type": "Nullable(Float64)", "comment": "委托买一价"},
+    {"name": "bid_volume1", "type": "Nullable(Int64)", "comment": "委托买一量"},
+    {"name": "trade_time", "type": "DateTime", "comment": "交易时间"},
+    {"name": "version", "type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "type": "DateTime", "default": "now()", "comment": "数据入库时间"}
+  ]
+}

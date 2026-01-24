@@ -1,0 +1,26 @@
+{
+  "plugin_name": "tushare_monthly",
+  "display_name": "月线行情",
+  "description": "获取A股月线行情数据",
+  "api_name": "monthly",
+  "category": "CN_STOCK",
+  "role": "PRIMARY",
+  "min_points": 2000,
+  "rate_limit": {
+    "max_rows_per_call": 4500
+  },
+  "update_frequency": "monthly",
+  "fields": [
+    "ts_code",
+    "trade_date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "pre_close",
+    "change",
+    "pct_chg",
+    "vol",
+    "amount"
+  ]
+}

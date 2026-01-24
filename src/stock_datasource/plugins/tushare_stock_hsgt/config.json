@@ -1,0 +1,42 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare 沪深港通股票列表数据",
+  "schedule": {
+    "frequency": "daily",
+    "time": "09:30"
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期，格式YYYYMMDD"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["HK_SZ", "SZ_HK", "HK_SH", "SH_HK"],
+      "required": true,
+      "description": "类型: HK_SZ深股通 SZ_HK港股通(深) HK_SH沪股通 SH_HK港股通(沪)"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "股票代码"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期，格式YYYYMMDD"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期，格式YYYYMMDD"
+    }
+  }
+}

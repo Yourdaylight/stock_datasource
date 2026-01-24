@@ -1,5 +1,7 @@
-"""TuShare suspension data plugin."""
+"""Tushare每日停复牌信息插件"""
 
-from .plugin import TuShareSuspendDPlugin
+from .extractor import SuspendDExtractor
+from .plugin import SuspendDPlugin
+from .service import SuspendDService
 
-__all__ = ["TuShareSuspendDPlugin"]
+__all__ = ["SuspendDExtractor", "SuspendDPlugin", "SuspendDService"]

@@ -1,0 +1,15 @@
+{
+  "plugin_name": "tushare_stock_company",
+  "display_name": "上市公司基础信息",
+  "description": "获取上市公司基础信息，包括公司名称、法人代表、注册资本、员工人数等",
+  "api_name": "stock_company",
+  "rate_limit": 120,
+  "required_points": 120,
+  "max_records_per_call": 4500,
+  "update_schedule": "daily",
+  "update_time": "09:00",
+  "category": "CN_STOCK",
+  "role": "AUXILIARY",
+  "tags": ["company", "basic", "info"],
+  "dependencies": []
+}

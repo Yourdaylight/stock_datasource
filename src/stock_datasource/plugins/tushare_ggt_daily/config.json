@@ -1,0 +1,13 @@
+{
+  "plugin_name": "tushare_ggt_daily",
+  "display_name": "港股通每日成交统计",
+  "description": "获取港股通每日成交信息，数据从2014年开始",
+  "api_name": "ggt_daily",
+  "category": "HK_STOCK",
+  "data_role": "PRIMARY",
+  "update_frequency": "daily",
+  "min_points": 2000,
+  "max_rows_per_call": 1000,
+  "dependencies": [],
+  "enabled": true
+}

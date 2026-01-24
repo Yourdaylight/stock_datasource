@@ -1,19 +1,15 @@
 {
-  "enabled": true,
-  "rate_limit": 120,
-  "timeout": 30,
-  "retry_attempts": 3,
-  "description": "TuShare suspension data plugin",
-  "schedule": {
-    "frequency": "daily",
-    "time": "18:00"
-  },
-  "parameters_schema": {
-    "trade_date": {
-      "type": "string",
-      "format": "date",
-      "required": true,
-      "description": "Trade date in YYYYMMDD format"
-    }
-  }
+  "plugin_name": "tushare_suspend_d",
+  "display_name": "每日停复牌信息",
+  "description": "按日期方式获取股票每日停复牌信息",
+  "api_name": "suspend_d",
+  "category": "CN_STOCK",
+  "role": "AUXILIARY",
+  "update_frequency": "daily",
+  "fields": [
+    "ts_code",
+    "trade_date",
+    "suspend_timing",
+    "suspend_type"
+  ]
 }

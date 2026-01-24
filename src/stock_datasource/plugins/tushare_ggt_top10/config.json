@@ -1,0 +1,12 @@
+{
+  "plugin_name": "tushare_ggt_top10",
+  "display_name": "港股通十大成交股",
+  "description": "获取港股通每日成交数据，包括沪市、深市详细数据",
+  "api_name": "ggt_top10",
+  "category": "HK_STOCK",
+  "data_role": "AUXILIARY",
+  "update_frequency": "daily",
+  "update_time": "18:00-20:00",
+  "dependencies": [],
+  "enabled": true
+}

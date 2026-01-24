@@ -1,0 +1,21 @@
+{
+  "table_name": "ods_hsgt_top10",
+  "database": "stock_datasource",
+  "columns": [
+    {"name": "trade_date", "type": "String", "comment": "交易日期"},
+    {"name": "ts_code", "type": "String", "comment": "股票代码"},
+    {"name": "name", "type": "Nullable(String)", "comment": "股票名称"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价"},
+    {"name": "change", "type": "Nullable(Float64)", "comment": "涨跌额"},
+    {"name": "rank", "type": "Int32 DEFAULT 0", "comment": "资金排名"},
+    {"name": "market_type", "type": "String", "comment": "市场类型：1-沪市，3-深市"},
+    {"name": "amount", "type": "Nullable(Float64)", "comment": "成交金额（元）"},
+    {"name": "net_amount", "type": "Nullable(Float64)", "comment": "净成交金额（元）"},
+    {"name": "buy", "type": "Nullable(Float64)", "comment": "买入金额（元）"},
+    {"name": "sell", "type": "Nullable(Float64)", "comment": "卖出金额（元）"}
+  ],
+  "engine": "ReplacingMergeTree()",
+  "partition_by": "substring(trade_date, 1, 6)",
+  "order_by": ["trade_date", "market_type", "rank"],
+  "comment": "沪深股通每日前十大成交股"
+}

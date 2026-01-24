@@ -1,0 +1,27 @@
+{
+  "table_name": "ods_ggt_top10",
+  "database": "stock_datasource",
+  "engine": "ReplacingMergeTree()",
+  "partition_by": "substring(trade_date, 1, 6)",
+  "order_by": ["ts_code", "trade_date", "market_type"],
+  "comment": "港股通每日十大成交股数据",
+  "columns": [
+    {"name": "trade_date", "type": "String", "comment": "交易日期"},
+    {"name": "ts_code", "type": "String", "comment": "股票代码"},
+    {"name": "name", "type": "Nullable(String)", "comment": "股票名称"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价"},
+    {"name": "p_change", "type": "Nullable(Float64)", "comment": "涨跌幅"},
+    {"name": "rank", "type": "Int32 DEFAULT 0", "comment": "资金排名"},
+    {"name": "market_type", "type": "String", "comment": "市场类型：2-港股通(沪)，4-港股通(深)"},
+    {"name": "amount", "type": "Nullable(Float64)", "comment": "累计成交金额(元)"},
+    {"name": "net_amount", "type": "Nullable(Float64)", "comment": "净买入金额(元)"},
+    {"name": "sh_amount", "type": "Nullable(Float64)", "comment": "沪市成交金额(元)"},
+    {"name": "sh_net_amount", "type": "Nullable(Float64)", "comment": "沪市净买入金额(元)"},
+    {"name": "sh_buy", "type": "Nullable(Float64)", "comment": "沪市买入金额(元)"},
+    {"name": "sh_sell", "type": "Nullable(Float64)", "comment": "沪市卖出金额(元)"},
+    {"name": "sz_amount", "type": "Nullable(Float64)", "comment": "深市成交金额(元)"},
+    {"name": "sz_net_amount", "type": "Nullable(Float64)", "comment": "深市净买入金额(元)"},
+    {"name": "sz_buy", "type": "Nullable(Float64)", "comment": "深市买入金额(元)"},
+    {"name": "sz_sell", "type": "Nullable(Float64)", "comment": "深市卖出金额(元)"}
+  ]
+}

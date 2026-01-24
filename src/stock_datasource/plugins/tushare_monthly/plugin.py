@@ -1,4 +1,4 @@
-"""每日停复牌信息插件实现"""
+"""月线行情插件实现"""
 
 import json
 from pathlib import Path
@@ -6,8 +6,8 @@ from pathlib import Path
 from stock_datasource.core.base_plugin import BasePlugin, PluginCategory, PluginRole
 
 
-class SuspendDPlugin(BasePlugin):
-    """每日停复牌信息插件"""
+class MonthlyPlugin(BasePlugin):
+    """月线行情插件"""
 
     def __init__(self, **kwargs):
         config_path = Path(__file__).parent / "config.json"
@@ -17,7 +17,7 @@ class SuspendDPlugin(BasePlugin):
         super().__init__(
             name=self.plugin_config["plugin_name"],
             category=PluginCategory.CN_STOCK,
-            role=PluginRole.AUXILIARY,
+            role=PluginRole.PRIMARY,
             **kwargs,
         )
 
@@ -26,10 +26,10 @@ class SuspendDPlugin(BasePlugin):
         return self.plugin_config["description"]
 
     def run(self, **kwargs) -> dict:
-        """运行插件获取停复牌信息"""
-        from .extractor import SuspendDExtractor
+        """运行插件获取月线行情数据"""
+        from .extractor import MonthlyExtractor
 
-        extractor = SuspendDExtractor()
+        extractor = MonthlyExtractor()
         df = extractor.extract(**kwargs)
 
         return {
@@ -42,25 +42,22 @@ class SuspendDPlugin(BasePlugin):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="每日停复牌信息提取")
+    parser = argparse.ArgumentParser(description="月线行情数据提取")
     parser.add_argument("--ts-code", type=str, help="股票代码")
     parser.add_argument("--trade-date", type=str, help="交易日期")
     parser.add_argument("--start-date", type=str, help="开始日期")
     parser.add_argument("--end-date", type=str, help="结束日期")
-    parser.add_argument("--suspend-type", type=str, choices=["S", "R"], help="停复牌类型")
 
     args = parser.parse_args()
 
-    plugin = SuspendDPlugin()
+    plugin = MonthlyPlugin()
     result = plugin.run(
         ts_code=args.ts_code,
         trade_date=args.trade_date,
         start_date=args.start_date,
         end_date=args.end_date,
-        suspend_type=args.suspend_type,
     )
 
     print(f"获取到 {result['count']} 条记录")
     if result["data"]:
-        for item in result["data"][:5]:
-            print(item)
+        print(f"示例数据: {result['data'][0]}")
