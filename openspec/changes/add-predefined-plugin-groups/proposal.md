@@ -76,18 +76,16 @@
 
 ### 预定义组合列表
 
-| 组合名称 | 描述 | 包含插件 | 分类 |
-|----------|------|----------|------|
-| **A股基础数据** | A股股票基础信息，是其他A股数据的依赖基础 | tushare_stock_basic | cn_stock |
-| **A股日线行情** | A股日线行情数据（含基础信息和复权因子） | tushare_stock_basic, tushare_daily, tushare_adj_factor | cn_stock |
-| **A股财务报表-基础版** | 三大财务报表（利润表、资产负债表、现金流量表） | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow | cn_stock |
-| **A股财务报表-完整版** | 完整财务数据（三大报表+业绩预告+业绩快报+审计意见） | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow, tushare_forecast, tushare_express, tushare_fina_audit | cn_stock |
-| **A股财务报表-VIP批量版** | VIP接口批量获取全市场财务数据（需5000积分） | tushare_stock_basic, tushare_income_vip, tushare_balancesheet_vip, tushare_cashflow_vip | cn_stock |
-| **指数基础数据** | 指数基础信息，是其他指数数据的依赖基础 | tushare_index_basic | index |
-| **指数完整数据** | 指数完整数据（基础信息+成分权重+技术因子） | tushare_index_basic, tushare_index_weight, tushare_idx_factor_pro | index |
-| **ETF基础数据** | ETF基础信息 | tushare_etf_basic | etf_fund |
-| **ETF完整数据** | ETF完整数据（基础信息+日线行情+复权因子） | tushare_etf_basic, tushare_etf_fund_daily, tushare_etf_fund_adj | etf_fund |
-| **全市场每日更新** | 每日需要更新的全部数据（适合定时调度） | tushare_daily, tushare_daily_basic, tushare_adj_factor, tushare_etf_fund_daily | daily |
+| 组合名称 | 描述 | 包含插件 | 分类 | 默认同步类型 |
+|----------|------|----------|------|--------------|
+| **全市场日线数据** | A股/ETF/指数的日线行情数据，每次同步时覆盖更新（含各自的基础数据依赖） | tushare_stock_basic, tushare_daily, tushare_index_basic, tushare_index_daily, tushare_etf_basic, tushare_etf_fund_daily | daily | **full（覆盖）** |
+| **A股日线行情** | A股日线行情数据（含基础信息和复权因子） | tushare_stock_basic, tushare_daily, tushare_adj_factor | cn_stock | incremental |
+| **A股财务报表-基础版** | 三大财务报表（利润表、资产负债表、现金流量表） | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow | cn_stock | incremental |
+| **A股财务报表-完整版** | 完整财务数据（三大报表+业绩预告+业绩快报+审计意见） | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow, tushare_forecast, tushare_express, tushare_fina_audit | cn_stock | incremental |
+| **A股财务报表-VIP批量版** | VIP接口批量获取全市场财务数据（需5000积分） | tushare_stock_basic, tushare_income_vip, tushare_balancesheet_vip, tushare_cashflow_vip | cn_stock | incremental |
+| **指数完整数据** | 指数完整数据（基础信息+成分权重+技术因子） | tushare_index_basic, tushare_index_weight, tushare_idx_factor_pro | index | incremental |
+| **ETF完整数据** | ETF完整数据（基础信息+日线行情+复权因子） | tushare_etf_basic, tushare_etf_fund_daily, tushare_etf_fund_adj | etf_fund | incremental |
+| **全市场每日更新** | 每日需要更新的全部数据（适合定时调度，增量更新） | tushare_daily, tushare_daily_basic, tushare_adj_factor, tushare_etf_fund_daily | daily | incremental |
 
 ### 数据模型扩展
 
@@ -114,11 +112,25 @@ class PluginGroup(BaseModel):
 {
   "groups": [
     {
-      "group_id": "predefined_cn_stock_basic",
-      "name": "A股基础数据",
-      "description": "A股股票基础信息，是其他A股数据的依赖基础",
-      "plugin_names": ["tushare_stock_basic"],
+      "group_id": "predefined_daily_all_markets",
+      "name": "全市场日线数据",
+      "description": "A股/ETF/指数的日线行情数据，每次同步时覆盖更新（含各自的基础数据依赖）",
+      "plugin_names": [
+        "tushare_stock_basic", "tushare_daily",
+        "tushare_index_basic", "tushare_index_daily",
+        "tushare_etf_basic", "tushare_etf_fund_daily"
+      ],
       "default_task_type": "full",
+      "category": "daily",
+      "is_predefined": true,
+      "is_readonly": true
+    },
+    {
+      "group_id": "predefined_cn_stock_daily",
+      "name": "A股日线行情",
+      "description": "A股日线行情数据（含基础信息和复权因子）",
+      "plugin_names": ["tushare_stock_basic", "tushare_daily", "tushare_adj_factor"],
+      "default_task_type": "incremental",
       "category": "cn_stock",
       "is_predefined": true,
       "is_readonly": true
@@ -182,11 +194,11 @@ Response:
 │ [全部] [A股] [指数] [ETF基金] [每日更新]         + 创建组合   ↻ 刷新          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  📦 预定义组合 (10)                                                          │
-│  ├─ A股基础数据          A股股票基础信息...        1个插件   [执行] [详情]    │
-│  ├─ A股日线行情          A股日线行情数据...        3个插件   [执行] [详情]    │
-│  ├─ A股财务报表-基础版   三大财务报表...           4个插件   [执行] [详情]    │
-│  ├─ A股财务报表-完整版   完整财务数据...           7个插件   [执行] [详情]    │
+│  📦 预定义组合 (8)                                                           │
+│  ├─ 全市场日线数据        A股/ETF/指数日线...    6个插件   [执行] [详情]    │
+│  ├─ A股日线行情          A股日线行情数据...      3个插件   [执行] [详情]    │
+│  ├─ A股财务报表-基础版   三大财务报表...         4个插件   [执行] [详情]    │
+│  ├─ A股财务报表-完整版   完整财务数据...         7个插件   [执行] [详情]    │
 │  └─ ...                                                                     │
 │                                                                             │
 │  📁 我的组合 (0)                                                             │

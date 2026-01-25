@@ -4,8 +4,8 @@
 
 - [x] 1.1 创建预定义组合配置文件
   - [x] 创建 `config/predefined_groups.json`
-  - [x] 定义 10 个预定义组合
-  - [x] 包含组合元数据（名称、描述、分类、插件列表）
+  - [x] 定义 8 个预定义组合（含全市场日线数据）
+  - [x] 包含组合元数据（名称、描述、分类、插件列表、默认同步类型）
 
 - [x] 1.2 扩展数据模型
   - [x] 在 `schemas.py` 中扩展 `PluginGroup` 模型
@@ -88,35 +88,33 @@
 
 ## 预定义组合清单
 
+### 每日更新 (daily)
+
+| 组合ID | 组合名称 | 插件列表 | 默认同步类型 |
+|--------|----------|----------|--------------|
+| predefined_daily_all_markets | 全市场日线数据 | tushare_stock_basic, tushare_daily, tushare_index_basic, tushare_index_daily, tushare_etf_basic, tushare_etf_fund_daily | full（覆盖） |
+| predefined_daily_update | 全市场每日更新 | tushare_daily, tushare_daily_basic, tushare_adj_factor, tushare_etf_fund_daily | incremental |
+
 ### A股相关 (cn_stock)
 
-| 组合ID | 组合名称 | 插件列表 |
-|--------|----------|----------|
-| predefined_cn_stock_basic | A股基础数据 | tushare_stock_basic |
-| predefined_cn_stock_daily | A股日线行情 | tushare_stock_basic, tushare_daily, tushare_adj_factor |
-| predefined_financial_basic | A股财务报表-基础版 | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow |
-| predefined_financial_full | A股财务报表-完整版 | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow, tushare_forecast, tushare_express, tushare_fina_audit |
-| predefined_financial_vip | A股财务报表-VIP批量版 | tushare_stock_basic, tushare_income_vip, tushare_balancesheet_vip, tushare_cashflow_vip |
+| 组合ID | 组合名称 | 插件列表 | 默认同步类型 |
+|--------|----------|----------|--------------|
+| predefined_cn_stock_daily | A股日线行情 | tushare_stock_basic, tushare_daily, tushare_adj_factor | incremental |
+| predefined_financial_basic | A股财务报表-基础版 | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow | incremental |
+| predefined_financial_full | A股财务报表-完整版 | tushare_stock_basic, tushare_income, tushare_balancesheet, tushare_cashflow, tushare_forecast, tushare_express, tushare_fina_audit | incremental |
+| predefined_financial_vip | A股财务报表-VIP批量版 | tushare_stock_basic, tushare_income_vip, tushare_balancesheet_vip, tushare_cashflow_vip | full |
 
 ### 指数相关 (index)
 
-| 组合ID | 组合名称 | 插件列表 |
-|--------|----------|----------|
-| predefined_index_basic | 指数基础数据 | tushare_index_basic |
-| predefined_index_full | 指数完整数据 | tushare_index_basic, tushare_index_weight, tushare_idx_factor_pro |
+| 组合ID | 组合名称 | 插件列表 | 默认同步类型 |
+|--------|----------|----------|--------------|
+| predefined_index_full | 指数完整数据 | tushare_index_basic, tushare_index_weight, tushare_idx_factor_pro | incremental |
 
 ### ETF基金相关 (etf_fund)
 
-| 组合ID | 组合名称 | 插件列表 |
-|--------|----------|----------|
-| predefined_etf_basic | ETF基础数据 | tushare_etf_basic |
-| predefined_etf_full | ETF完整数据 | tushare_etf_basic, tushare_etf_fund_daily, tushare_etf_fund_adj |
-
-### 每日更新 (daily)
-
-| 组合ID | 组合名称 | 插件列表 |
-|--------|----------|----------|
-| predefined_daily_update | 全市场每日更新 | tushare_daily, tushare_daily_basic, tushare_adj_factor, tushare_etf_fund_daily |
+| 组合ID | 组合名称 | 插件列表 | 默认同步类型 |
+|--------|----------|----------|--------------|
+| predefined_etf_full | ETF完整数据 | tushare_etf_basic, tushare_etf_fund_daily, tushare_etf_fund_adj | incremental |
 
 ## 实现清单
 
@@ -142,9 +140,10 @@
 
 ## 验收标准
 
-1. ✅ 系统启动后，"自定义组合" Tab 显示 10 个预定义组合
+1. ✅ 系统启动后，"自定义组合" Tab 显示 8 个预定义组合
 2. ✅ 预定义组合显示 🔒 标识，无法编辑或删除
-3. ✅ 可按分类筛选组合（A股/指数/ETF基金/每日更新）
+3. ✅ 可按分类筛选组合（每日更新/A股/指数/ETF基金）
 4. ✅ 点击"详情"显示组合包含的插件和依赖关系
 5. ✅ 点击"执行"可正常触发同步，按依赖顺序执行
 6. ✅ 用户自定义组合与预定义组合共存显示
+7. ✅ "全市场日线数据"组合默认使用 full（覆盖）同步模式

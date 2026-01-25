@@ -114,15 +114,22 @@ class PluginGroupListResponse(BaseModel):
 ```json
 // config/predefined_groups.json
 {
-  "version": "1.0",
+  "version": "1.1",
   "groups": [
     {
-      "group_id": "predefined_cn_stock_basic",
-      "name": "A股基础数据",
-      "description": "A股股票基础信息，是其他A股数据的依赖基础",
-      "plugin_names": ["tushare_stock_basic"],
+      "group_id": "predefined_daily_all_markets",
+      "name": "全市场日线数据",
+      "description": "A股/ETF/指数的日线行情数据，每次同步时覆盖更新（含各自的基础数据依赖）",
+      "plugin_names": [
+        "tushare_stock_basic",
+        "tushare_daily",
+        "tushare_index_basic",
+        "tushare_index_daily",
+        "tushare_etf_basic",
+        "tushare_etf_fund_daily"
+      ],
       "default_task_type": "full",
-      "category": "cn_stock"
+      "category": "daily"
     },
     {
       "group_id": "predefined_cn_stock_daily",
@@ -179,14 +186,6 @@ class PluginGroupListResponse(BaseModel):
       "category": "cn_stock"
     },
     {
-      "group_id": "predefined_index_basic",
-      "name": "指数基础数据",
-      "description": "指数基础信息，是其他指数数据的依赖基础",
-      "plugin_names": ["tushare_index_basic"],
-      "default_task_type": "full",
-      "category": "index"
-    },
-    {
       "group_id": "predefined_index_full",
       "name": "指数完整数据",
       "description": "指数完整数据（基础信息+成分权重+技术因子）",
@@ -197,14 +196,6 @@ class PluginGroupListResponse(BaseModel):
       ],
       "default_task_type": "incremental",
       "category": "index"
-    },
-    {
-      "group_id": "predefined_etf_basic",
-      "name": "ETF基础数据",
-      "description": "ETF基础信息",
-      "plugin_names": ["tushare_etf_basic"],
-      "default_task_type": "full",
-      "category": "etf_fund"
     },
     {
       "group_id": "predefined_etf_full",
@@ -221,7 +212,7 @@ class PluginGroupListResponse(BaseModel):
     {
       "group_id": "predefined_daily_update",
       "name": "全市场每日更新",
-      "description": "每日需要更新的全部数据（适合定时调度）",
+      "description": "每日需要更新的全部数据（适合定时调度，增量更新）",
       "plugin_names": [
         "tushare_daily",
         "tushare_daily_basic",
@@ -233,10 +224,10 @@ class PluginGroupListResponse(BaseModel):
     }
   ],
   "categories": [
-    {"key": "cn_stock", "label": "A股", "order": 1},
-    {"key": "index", "label": "指数", "order": 2},
-    {"key": "etf_fund", "label": "ETF基金", "order": 3},
-    {"key": "daily", "label": "每日更新", "order": 4}
+    {"key": "daily", "label": "每日更新", "order": 1},
+    {"key": "cn_stock", "label": "A股", "order": 2},
+    {"key": "index", "label": "指数", "order": 3},
+    {"key": "etf_fund", "label": "ETF基金", "order": 4}
   ]
 }
 ```
@@ -530,19 +521,23 @@ export interface GroupCategoryInfo {
 ### 依赖关系图数据结构
 
 ```typescript
-// 依赖关系图示例（A股财务报表-基础版）
+// 依赖关系图示例（全市场日线数据）
 {
   "dependency_graph": {
     "tushare_stock_basic": [],
-    "tushare_income": ["tushare_stock_basic"],
-    "tushare_balancesheet": ["tushare_stock_basic"],
-    "tushare_cashflow": ["tushare_stock_basic"]
+    "tushare_daily": ["tushare_stock_basic"],
+    "tushare_index_basic": [],
+    "tushare_index_daily": ["tushare_index_basic"],
+    "tushare_etf_basic": [],
+    "tushare_etf_fund_daily": ["tushare_etf_basic"]
   },
   "execution_order": [
     "tushare_stock_basic",
-    "tushare_income",
-    "tushare_balancesheet",
-    "tushare_cashflow"
+    "tushare_index_basic", 
+    "tushare_etf_basic",
+    "tushare_daily",
+    "tushare_index_daily",
+    "tushare_etf_fund_daily"
   ]
 }
 ```
@@ -550,19 +545,22 @@ export interface GroupCategoryInfo {
 ### 可视化渲染（简化版）
 
 ```
-执行顺序：
+执行顺序（全市场日线数据）：
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
-│  Step 1                    Step 2 (并行)                        │
-│  ┌──────────────┐         ┌──────────────┐                     │
-│  │ stock_basic  │────────▶│   income     │                     │
-│  │              │    │    └──────────────┘                     │
-│  │  (基础数据)   │    │    ┌──────────────┐                     │
-│  │              │────├───▶│ balancesheet │                     │
-│  │              │    │    └──────────────┘                     │
-│  │              │    │    ┌──────────────┐                     │
-│  └──────────────┘────└───▶│  cashflow    │                     │
-│                           └──────────────┘                     │
+│  Step 1 (并行 - 基础数据)          Step 2 (并行 - 日线数据)      │
+│  ┌──────────────┐                 ┌──────────────┐              │
+│  │ stock_basic  │────────────────▶│    daily     │              │
+│  │  (A股基础)    │                 └──────────────┘              │
+│  └──────────────┘                                               │
+│  ┌──────────────┐                 ┌──────────────┐              │
+│  │ index_basic  │────────────────▶│ index_daily  │              │
+│  │  (指数基础)   │                 └──────────────┘              │
+│  └──────────────┘                                               │
+│  ┌──────────────┐                 ┌──────────────┐              │
+│  │  etf_basic   │────────────────▶│etf_fund_daily│              │
+│  │  (ETF基础)   │                 └──────────────┘              │
+│  └──────────────┘                                               │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
