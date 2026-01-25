@@ -406,9 +406,22 @@ class ScheduleService:
         logger.info(f"Schedule {execution_id} started with {len(task_ids)} tasks")
         return record
     
-    def get_history(self, days: int = 7, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get schedule execution history."""
-        history = get_schedule_history(limit=limit)
+    def get_history(
+        self, 
+        days: int = 7, 
+        limit: int = 50,
+        status: Optional[str] = None,
+        trigger_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get schedule execution history with optional filtering.
+        
+        Args:
+            days: Number of days to look back
+            limit: Maximum number of records to return
+            status: Filter by status (running, completed, failed, skipped, interrupted)
+            trigger_type: Filter by trigger type (scheduled, manual, group, retry)
+        """
+        history = get_schedule_history(limit=limit * 2)  # Get more to allow for filtering
         
         # 收集需要更新的 running 状态记录的 execution_id
         running_ids = [
@@ -425,7 +438,7 @@ class ScheduleService:
                 self.update_execution_status(execution_id, cached_history=history)
             
             # 只有更新过状态才重新获取历史
-            history = get_schedule_history(limit=limit)
+            history = get_schedule_history(limit=limit * 2)
         
         # Filter by days
         if days > 0:
@@ -440,28 +453,39 @@ class ScheduleService:
                     filtered.append(record)
             history = filtered
         
+        # Filter by status
+        if status:
+            history = [r for r in history if r.get("status") == status]
+        
+        # Filter by trigger_type
+        if trigger_type:
+            history = [r for r in history if r.get("trigger_type") == trigger_type]
+        
         # Add can_retry flag for interrupted/failed executions
         for record in history:
-            status = record.get("status", "")
+            record_status = record.get("status", "")
             # Can retry if interrupted or failed
-            record["can_retry"] = status in ("interrupted", "failed")
+            record["can_retry"] = record_status in ("interrupted", "failed")
         
         return history[:limit]
     
     def retry_execution(self, execution_id: str) -> Dict[str, Any]:
-        """Retry a failed or interrupted execution.
+        """Retry a failed or interrupted execution in-place.
         
-        Creates a new execution with the same configuration as the original.
+        Retries all failed/cancelled tasks within the same execution record,
+        rather than creating a new execution.
         
         Args:
             execution_id: The ID of the execution to retry
             
         Returns:
-            New ScheduleExecutionRecord dict
+            Updated ScheduleExecutionRecord dict
             
         Raises:
             ValueError: If execution not found or cannot be retried
         """
+        from .service import sync_task_manager
+        
         # Find the original execution
         history = get_schedule_history(limit=100)
         original = None
@@ -477,9 +501,56 @@ class ScheduleService:
         if status not in ("interrupted", "failed"):
             raise ValueError(f"Execution {execution_id} cannot be retried (status: {status})")
         
-        # Trigger a new execution
-        logger.info(f"Retrying execution {execution_id}")
-        return self.trigger_now(is_manual=True)
+        # Get tasks that need to be retried (failed or cancelled)
+        original_task_ids = original.get("task_ids", [])
+        tasks_to_retry = []
+        
+        for tid in original_task_ids:
+            task = sync_task_manager.get_task(tid)
+            if task:
+                status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                if status_val in ("failed", "cancelled"):
+                    tasks_to_retry.append(task)
+        
+        if not tasks_to_retry:
+            raise ValueError(f"No failed or cancelled tasks to retry in execution {execution_id}")
+        
+        # Retry tasks in-place (create new tasks and update execution)
+        new_task_ids = list(original_task_ids)  # Copy original task ids
+        retried_count = 0
+        
+        for old_task in tasks_to_retry:
+            try:
+                # Convert task_type from string to TaskType enum
+                task_type_enum = TaskType(old_task.task_type)
+                new_task = sync_task_manager.create_task(
+                    plugin_name=old_task.plugin_name,
+                    task_type=task_type_enum,
+                    trade_dates=old_task.trade_dates if old_task.trade_dates else None,
+                    user_id="system",
+                    username="retry",
+                )
+                # Replace old task id with new task id in the list
+                old_idx = new_task_ids.index(old_task.task_id)
+                new_task_ids[old_idx] = new_task.task_id
+                retried_count += 1
+                logger.info(f"Retry execution: retried task {old_task.task_id} -> {new_task.task_id} for {old_task.plugin_name}")
+            except Exception as e:
+                logger.error(f"Failed to retry task for {old_task.plugin_name}: {e}")
+        
+        if retried_count == 0:
+            raise ValueError("Failed to retry any tasks")
+        
+        # Update the execution record with new task ids and reset status
+        original["task_ids"] = new_task_ids
+        original["status"] = "running"
+        original["completed_at"] = None
+        original["failed_plugins"] = max(0, original.get("failed_plugins", 0) - retried_count)
+        
+        update_schedule_execution(execution_id, original)
+        logger.info(f"Retried {retried_count} tasks in execution {execution_id}")
+        
+        return original
     
     def update_execution_status(self, execution_id: str, cached_history: List[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Update execution status by checking task statuses.
@@ -591,6 +662,46 @@ class ScheduleService:
         
         # Update status immediately
         return self.update_execution_status(execution_id)
+    
+    def delete_execution(self, execution_id: str) -> bool:
+        """Delete an execution record.
+        
+        Only completed/failed/interrupted/skipped/stopped executions can be deleted.
+        
+        Args:
+            execution_id: The execution ID to delete
+            
+        Returns:
+            True if deleted successfully
+            
+        Raises:
+            ValueError: If execution not found or still running
+        """
+        history = get_schedule_history(limit=200)
+        record = None
+        record_index = None
+        for i, r in enumerate(history):
+            if r.get("execution_id") == execution_id:
+                record = r
+                record_index = i
+                break
+        
+        if not record:
+            raise ValueError(f"Execution {execution_id} not found")
+        
+        status = record.get("status", "")
+        if status in ("running", "stopping"):
+            raise ValueError(f"Cannot delete running execution (status: {status})")
+        
+        # Remove from history
+        history.pop(record_index)
+        
+        # Save updated history
+        from ...config.runtime_config import save_schedule_history
+        save_schedule_history(history)
+        
+        logger.info(f"Deleted execution {execution_id}")
+        return True
     
     def get_execution_detail(self, execution_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed execution info including all task details and error summary.

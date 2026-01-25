@@ -55,7 +55,7 @@ async def test_connection(source_id: str, current_user: dict = Depends(require_a
 
 @router.get("/missing-data", response_model=MissingDataSummary)
 async def get_missing_data(
-    days: int = Query(default=30, ge=1, le=365, description="Number of trading days to check"),
+    days: int = Query(default=30, ge=1, le=3650, description="Number of trading days to check (max 10 years)"),
     force_refresh: bool = Query(default=False, description="Force refresh cache"),
     current_user: dict = Depends(require_admin),
 ):
@@ -139,10 +139,11 @@ async def trigger_sync(
         username=current_user.get("username"),
     )
     
-    # Create execution record for single plugin sync
+    # Create execution record for single plugin sync with plugin name as group_name
     schedule_service.create_manual_execution(
         task_ids=[task.task_id],
-        trigger_type="manual"
+        trigger_type="manual",
+        group_name=request.plugin_name  # Use plugin name for better display
     )
     
     return task
@@ -792,13 +793,16 @@ async def trigger_schedule_now(current_user: dict = Depends(require_admin)):
 async def get_schedule_history(
     days: int = Query(default=7, ge=1, le=30, description="查询天数"),
     limit: int = Query(default=50, ge=1, le=200, description="返回条数"),
+    status: Optional[str] = Query(default=None, description="状态过滤: running, completed, failed, skipped, interrupted"),
+    trigger_type: Optional[str] = Query(default=None, description="触发类型: scheduled, manual, group, retry"),
     current_user: dict = Depends(require_admin)
 ):
     """获取调度执行历史.
     
     返回最近的调度执行记录，包括执行时间、状态、涉及的插件数量等。
+    支持按状态和触发类型筛选。
     """
-    history = schedule_service.get_history(days=days, limit=limit)
+    history = schedule_service.get_history(days=days, limit=limit, status=status, trigger_type=trigger_type)
     return ScheduleHistoryResponse(
         items=[ScheduleExecutionRecord(**r) for r in history],
         total=len(history)
@@ -869,6 +873,24 @@ async def stop_execution(
     try:
         record = schedule_service.stop_execution(execution_id)
         return ScheduleExecutionRecord(**record)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/schedule/execution/{execution_id}")
+async def delete_schedule_execution(
+    execution_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """删除一条调度执行记录.
+    
+    仅支持删除已完成/失败/中断的执行记录，不能删除正在运行的记录。
+    """
+    try:
+        success = schedule_service.delete_execution(execution_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Cannot delete execution (not found or still running)")
+        return {"success": True, "message": "Execution deleted"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1163,3 +1185,142 @@ async def trigger_plugin_group(
     )
     
     return ScheduleExecutionRecord(**record)
+
+
+# ============ Data Explorer API ============
+
+from fastapi.responses import StreamingResponse
+from .data_explorer_service import data_explorer_service
+from .schemas import (
+    ExplorerTableListResponse, ExplorerTableSchema, ExplorerTableInfo,
+    ExplorerSimpleQueryRequest, ExplorerSqlExecuteRequest, ExplorerSqlExecuteResponse,
+    ExplorerSqlExportRequest, ExportFormat,
+    SqlTemplate, SqlTemplateCreate, SqlTemplateListResponse
+)
+
+
+@router.get("/explorer/tables", response_model=ExplorerTableListResponse)
+async def get_explorer_tables(
+    category: Optional[str] = Query(default=None, description="按分类筛选: cn_stock, index, etf_fund 等"),
+    current_user: dict = Depends(require_admin),
+):
+    """获取所有可查询的表列表.
+    
+    返回所有插件对应的数据库表，包含表名、分类、列信息、行数等。
+    """
+    return data_explorer_service.get_available_tables(category)
+
+
+@router.get("/explorer/tables/{table_name}/schema", response_model=ExplorerTableSchema)
+async def get_explorer_table_schema(
+    table_name: str,
+    current_user: dict = Depends(require_admin),
+):
+    """获取表结构详情.
+    
+    返回表的完整列定义、分区方式、排序键等信息。
+    """
+    schema = data_explorer_service.get_table_schema(table_name)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"表 {table_name} 不存在")
+    return schema
+
+
+@router.post("/explorer/tables/{table_name}/query", response_model=ExplorerSqlExecuteResponse)
+async def query_explorer_table(
+    table_name: str,
+    request: ExplorerSimpleQueryRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """简单筛选查询.
+    
+    支持日期范围、代码筛选、排序和分页。
+    """
+    try:
+        return data_explorer_service.execute_simple_query(table_name, request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/explorer/sql/execute", response_model=ExplorerSqlExecuteResponse)
+async def execute_explorer_sql(
+    request: ExplorerSqlExecuteRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """执行 SQL 查询.
+    
+    仅允许 SELECT 查询，且只能查询已注册的插件表。
+    自动添加 LIMIT 限制，防止返回过多数据。
+    """
+    try:
+        return data_explorer_service.execute_sql_query(
+            sql=request.sql,
+            max_rows=request.max_rows,
+            timeout=request.timeout
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/explorer/sql/export")
+async def export_explorer_sql(
+    request: ExplorerSqlExportRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """导出查询结果.
+    
+    支持 CSV 和 Excel 格式，最大导出 10000 行。
+    """
+    try:
+        content, filename = data_explorer_service.export_query_result(
+            sql=request.sql,
+            format=request.format,
+            filename=request.filename
+        )
+        
+        media_type = "text/csv" if request.format == ExportFormat.CSV else \
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/explorer/sql/templates", response_model=List[SqlTemplate])
+async def get_explorer_templates(
+    category: Optional[str] = Query(default=None, description="按分类筛选"),
+    current_user: dict = Depends(require_admin),
+):
+    """获取查询模板列表."""
+    user_id = str(current_user.get("id", ""))
+    return data_explorer_service.get_templates(user_id, category)
+
+
+@router.post("/explorer/sql/templates", response_model=SqlTemplate)
+async def create_explorer_template(
+    template: SqlTemplateCreate,
+    current_user: dict = Depends(require_admin),
+):
+    """创建查询模板."""
+    user_id = str(current_user.get("id", ""))
+    try:
+        return data_explorer_service.create_template(user_id, template)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/explorer/sql/templates/{template_id}")
+async def delete_explorer_template(
+    template_id: int,
+    current_user: dict = Depends(require_admin),
+):
+    """删除查询模板."""
+    user_id = str(current_user.get("id", ""))
+    success = data_explorer_service.delete_template(user_id, template_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="模板不存在或无权删除")
+    return {"success": True, "message": "删除成功"}

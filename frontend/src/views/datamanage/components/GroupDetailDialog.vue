@@ -124,6 +124,7 @@ const pluginColumns = [
 ]
 
 const categoryLabelMap: Record<GroupCategory, string> = {
+  system: '系统维护',
   cn_stock: 'A股',
   index: '指数',
   etf_fund: 'ETF基金',

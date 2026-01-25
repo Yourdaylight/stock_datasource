@@ -17,7 +17,10 @@ import {
   LockOnIcon,
   LogoutIcon,
   QueueIcon,
-  TrendingUpIcon
+  TrendingUpIcon,
+  SearchIcon,
+  TimeIcon,
+  SettingIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -27,7 +30,17 @@ const authStore = useAuthStore()
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/market', '/research']
 
-const menuItems = [
+// Menu items with submenu support
+interface MenuItem {
+  path: string
+  title: string
+  icon: any
+  public?: boolean
+  requiresAuth?: boolean
+  children?: MenuItem[]
+}
+
+const menuItems: MenuItem[] = [
   { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
   { path: '/research', title: '研究数据', icon: FileSearchIcon, public: true },
   { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
@@ -39,14 +52,37 @@ const menuItems = [
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
-  { path: '/datamanage', title: '数据管理', icon: ServerIcon, requiresAuth: true }
+  { 
+    path: '/datamanage', 
+    title: '数据管理', 
+    icon: ServerIcon, 
+    requiresAuth: true,
+    children: [
+      { path: '/datamanage', title: '数据概览', icon: ServerIcon, requiresAuth: true },
+      { path: '/datamanage/explorer', title: '数据浏览器', icon: SearchIcon, requiresAuth: true },
+      { path: '/datamanage/tasks', title: '同步任务', icon: TimeIcon, requiresAuth: true },
+      { path: '/datamanage/config', title: '数据配置', icon: SettingIcon, requiresAuth: true }
+    ]
+  }
 ]
 
 const activeMenu = computed(() => route.path)
 const isLoginPage = computed(() => route.path === '/login')
 
+// Find menu item including children
+const findMenuItem = (path: string, items: MenuItem[] = menuItems): MenuItem | undefined => {
+  for (const item of items) {
+    if (item.path === path) return item
+    if (item.children) {
+      const found = findMenuItem(path, item.children)
+      if (found) return found
+    }
+  }
+  return undefined
+}
+
 const handleMenuChange = (value: string) => {
-  const item = menuItems.find(m => m.path === value)
+  const item = findMenuItem(value)
   if (item?.requiresAuth && !authStore.isAuthenticated) {
     MessagePlugin.warning('请先登录')
     router.push({ path: '/login', query: { redirect: value } })
@@ -56,7 +92,7 @@ const handleMenuChange = (value: string) => {
 }
 
 const currentTitle = computed(() => {
-  const item = menuItems.find(m => m.path === route.path)
+  const item = findMenuItem(route.path)
   return item?.title || 'AI 智能选股平台'
 })
 
@@ -93,22 +129,46 @@ onMounted(async () => {
         theme="light"
         @change="handleMenuChange"
       >
-        <t-menu-item
-          v-for="item in menuItems"
-          :key="item.path"
-          :value="item.path"
-        >
-          <template #icon>
-            <component :is="item.icon" />
-          </template>
-          <div class="menu-item-content">
-            <span>{{ item.title }}</span>
-            <LockOnIcon 
-              v-if="item.requiresAuth && !authStore.isAuthenticated" 
-              class="lock-icon"
-            />
-          </div>
-        </t-menu-item>
+        <template v-for="item in menuItems" :key="item.path">
+          <!-- Item with submenu -->
+          <t-submenu v-if="item.children" :value="item.path">
+            <template #icon>
+              <component :is="item.icon" />
+            </template>
+            <template #title>
+              <div class="menu-item-content">
+                <span>{{ item.title }}</span>
+                <LockOnIcon 
+                  v-if="item.requiresAuth && !authStore.isAuthenticated" 
+                  class="lock-icon"
+                />
+              </div>
+            </template>
+            <t-menu-item
+              v-for="child in item.children"
+              :key="child.path"
+              :value="child.path"
+            >
+              <template #icon>
+                <component :is="child.icon" />
+              </template>
+              {{ child.title }}
+            </t-menu-item>
+          </t-submenu>
+          <!-- Regular item -->
+          <t-menu-item v-else :value="item.path">
+            <template #icon>
+              <component :is="item.icon" />
+            </template>
+            <div class="menu-item-content">
+              <span>{{ item.title }}</span>
+              <LockOnIcon 
+                v-if="item.requiresAuth && !authStore.isAuthenticated" 
+                class="lock-icon"
+              />
+            </div>
+          </t-menu-item>
+        </template>
       </t-menu>
     </aside>
     

@@ -82,6 +82,24 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据管理', icon: 'server', requiresAuth: true }
   },
   {
+    path: '/datamanage/explorer',
+    name: 'DataExplorer',
+    component: () => import('@/views/datamanage/DataExplorerView.vue'),
+    meta: { title: '数据浏览器', icon: 'search', requiresAuth: true }
+  },
+  {
+    path: '/datamanage/tasks',
+    name: 'SyncTasks',
+    component: () => import('@/views/datamanage/SyncTasksView.vue'),
+    meta: { title: '同步任务', icon: 'time', requiresAuth: true }
+  },
+  {
+    path: '/datamanage/config',
+    name: 'DataConfig',
+    component: () => import('@/views/datamanage/DataConfigView.vue'),
+    meta: { title: '数据配置', icon: 'setting', requiresAuth: true }
+  },
+  {
     path: '/workflow',
     name: 'Workflow',
     component: () => import('@/views/workflow/WorkflowList.vue'),

@@ -11,5 +11,7 @@
   "category": "CN_STOCK",
   "role": "PRIMARY",
   "tags": ["realtime", "kline", "daily", "quote"],
-  "dependencies": []
+  "dependencies": [],
+  "schedule_enabled": false,
+  "schedule_note": "实时数据插件，仅在交易时段有数据，不适合定时调度"
 }

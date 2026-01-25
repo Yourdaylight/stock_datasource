@@ -148,6 +148,13 @@ def update_schedule_execution(execution_id: str, updates: Dict[str, Any]) -> Non
     save_runtime_config(schedule_history=history)
 
 
+def save_schedule_history(history: list) -> None:
+    """Save the entire schedule history (for deletions)."""
+    # Keep only last 100 records
+    history = history[:100]
+    save_runtime_config(schedule_history=history)
+
+
 # ============ Plugin Groups Management ============
 
 PREDEFINED_GROUPS_PATH = Path(__file__).parent / "predefined_groups.json"

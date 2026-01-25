@@ -11,5 +11,7 @@
   "category": "CN_STOCK",
   "role": "PRIMARY",
   "tags": ["minute", "kline", "history", "quote"],
-  "dependencies": []
+  "dependencies": [],
+  "schedule_enabled": false,
+  "schedule_note": "需要指定股票代码(ts_code)，不适合批量定时调度，建议按需手动执行"
 }

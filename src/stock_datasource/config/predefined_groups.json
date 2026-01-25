@@ -1,6 +1,16 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "groups": [
+    {
+      "group_id": "predefined_trade_calendar",
+      "name": "交易日历",
+      "description": "交易日历数据（建议每半年执行一次，获取未来一年的交易日信息）",
+      "plugin_names": [
+        "tushare_trade_calendar"
+      ],
+      "default_task_type": "full",
+      "category": "system"
+    },
     {
       "group_id": "predefined_daily_all_markets",
       "name": "全市场日线数据",
@@ -97,7 +107,7 @@
     {
       "group_id": "predefined_daily_update",
       "name": "全市场每日更新",
-      "description": "每日需要更新的全部数据（适合定时调度，增量更新）",
+      "description": "每日需要更新的全部数据（适合定时调度，增量更新，不含交易日历）",
       "plugin_names": [
         "tushare_daily",
         "tushare_daily_basic",
@@ -109,6 +119,7 @@
     }
   ],
   "categories": [
+    {"key": "system", "label": "系统维护", "order": 0},
     {"key": "daily", "label": "每日更新", "order": 1},
     {"key": "cn_stock", "label": "A股", "order": 2},
     {"key": "index", "label": "指数", "order": 3},

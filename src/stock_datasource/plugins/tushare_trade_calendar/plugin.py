@@ -39,12 +39,25 @@ class TuShareTradeCalendarPlugin(BasePlugin):
             return json.load(f)
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
-        """Extract trade calendar data from TuShare."""
+        """Extract trade calendar data from TuShare.
+        
+        If start_date and end_date are not provided, defaults to:
+        - start_date: 2 years ago from today
+        - end_date: 2 years from today (to cover future trading days)
+        """
+        from datetime import date, timedelta
+        
         start_date = kwargs.get('start_date')
         end_date = kwargs.get('end_date')
         
+        # Default to 2 years back and 2 years forward if not provided
         if not start_date or not end_date:
-            raise ValueError("start_date and end_date are required")
+            today = date.today()
+            default_start = today - timedelta(days=730)  # ~2 years back
+            default_end = today + timedelta(days=730)    # ~2 years forward
+            start_date = start_date or default_start.strftime('%Y%m%d')
+            end_date = end_date or default_end.strftime('%Y%m%d')
+            self.logger.info(f"Using default date range: {start_date} to {end_date}")
         
         self.logger.info(f"Extracting trade calendar from {start_date} to {end_date}")
         
