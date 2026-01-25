@@ -51,26 +51,42 @@ class DataManageService:
     
     def check_data_exists(self, table_name: str, date_column: Optional[str], trade_date: str) -> bool:
         """Check if data exists for a specific date in a table.
-        
+
         Uses LIMIT 1 for efficiency instead of count() to avoid memory issues on large tables.
-        
+
         Args:
             table_name: Name of the ODS table
             date_column: Name of the date column (None for dimension tables)
             trade_date: Date to check (YYYY-MM-DD format)
-        
+
         Returns:
             True if data exists, False otherwise (always True for dimension tables)
         """
         # Dimension tables without date column - skip date-based check
         if not date_column:
             return True
-        
+
         try:
             # First check if table exists to avoid slow retry on non-existent tables
             if not db_client.table_exists(table_name):
+                self.logger.debug(f"Table {table_name} does not exist, returning False")
                 return False
-            
+
+            # Check if date_column exists in the table before querying
+            # This prevents query failures on dimension tables or tables with different schemas
+            try:
+                table_schema = db_client.get_table_schema(table_name)
+                column_names = {col['column_name'] for col in table_schema}
+                if date_column not in column_names:
+                    self.logger.warning(
+                        f"Date column '{date_column}' does not exist in table {table_name}. "
+                        f"Available columns: {list(column_names)[:10]}"
+                    )
+                    return False
+            except Exception as schema_error:
+                # If we can't check schema, log but don't crash - try the query anyway
+                self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
+
             # Use LIMIT 1 instead of count() for memory efficiency
             query = f"""
             SELECT 1
@@ -79,32 +95,49 @@ class DataManageService:
             LIMIT 1
             """
             result = db_client.execute_query(query, {"trade_date": trade_date})
-            
+
             return not result.empty
-            
+
         except Exception as e:
-            self.logger.warning(f"Failed to check data in {table_name} for {trade_date}: {e}")
+            # Log the error but don't crash - return False to indicate data doesn't exist
+            self.logger.warning(
+                f"Failed to check data in {table_name} for {trade_date}: {type(e).__name__}: {e}"
+            )
             return False
     
     def get_table_latest_date(self, table_name: str, date_column: Optional[str]) -> Optional[str]:
         """Get the latest date in a table.
-        
+
         Args:
             table_name: Name of the ODS table
             date_column: Name of the date column (None for dimension tables)
-        
+
         Returns:
             Latest date string or None
         """
         # Return None for dimension tables without date column
         if not date_column:
             return None
-        
+
         try:
             # First check if table exists to avoid slow retry on non-existent tables
             if not db_client.table_exists(table_name):
+                self.logger.debug(f"Table {table_name} does not exist, returning None")
                 return None
-            
+
+            # Check if date_column exists in the table before querying
+            try:
+                table_schema = db_client.get_table_schema(table_name)
+                column_names = {col['column_name'] for col in table_schema}
+                if date_column not in column_names:
+                    self.logger.warning(
+                        f"Date column '{date_column}' does not exist in table {table_name}. "
+                        f"Available columns: {list(column_names)[:10]}"
+                    )
+                    return None
+            except Exception as schema_error:
+                self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
+
             # Use ORDER BY + LIMIT 1 for efficiency on large tables
             query = f"""
             SELECT {date_column} as latest_date
@@ -113,15 +146,17 @@ class DataManageService:
             LIMIT 1
             """
             result = db_client.execute_query(query)
-            
+
             if result.empty or result['latest_date'].iloc[0] is None:
                 return None
-            
+
             latest = result['latest_date'].iloc[0]
             return latest.strftime('%Y-%m-%d') if hasattr(latest, 'strftime') else str(latest)
-            
+
         except Exception as e:
-            self.logger.warning(f"Failed to get latest date from {table_name}: {e}")
+            self.logger.warning(
+                f"Failed to get latest date from {table_name}: {type(e).__name__}: {e}"
+            )
             return None
     
     def get_table_record_count(self, table_name: str) -> int:
@@ -154,10 +189,10 @@ class DataManageService:
     
     def _get_plugin_date_column(self, plugin_name: str) -> Optional[str]:
         """Get the date column name for a plugin's table.
-        
+
         Args:
             plugin_name: Plugin name
-        
+
         Returns:
             Date column name, or None if table has no date column (dimension tables)
         """
@@ -165,6 +200,7 @@ class DataManageService:
         dim_tables = {
             "tushare_stock_basic",      # dim table - uses list_date but not for daily data
             "tushare_index_basic",      # dim table - uses list_date
+            "tushare_index_classify",   # dim table - industry classification
             "tushare_ths_index",        # dim table - uses list_date
             "tushare_etf_basic",        # dim table - uses list_date
             "akshare_hk_stock_list",    # dim table - uses list_date
