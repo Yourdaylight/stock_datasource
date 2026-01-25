@@ -11,6 +11,8 @@
 6. **错误信息不详细**：插件报错500时无法获取完整堆栈信息用于调试
 7. **任务展示维度单一**：仅以单个插件维度展示，不便于查看批量任务整体执行情况
 8. **缺乏自定义组合同步**：无法将多个插件组合成一个批量任务统一触发
+9. **任务列表刷新后与详情不一致**：列表刷新后展开行显示旧缓存数据
+10. **重试创建新任务**：重试操作会创建全新任务，而非在原任务上重试
 
 ## What Changes
 
@@ -31,6 +33,7 @@
 - **修改**：`ScheduleExecutionRecord` 增加 `group_name` 字段标识组合触发
 - **修改**：`trigger_type` 扩展支持 `group`、`retry` 类型
 - **修复**：增量同步使用交易日历获取最近有效交易日，避免使用未来日期或当天未发布数据的日期
+- **修改**：`retry_execution` 改为在原任务上重试失败/取消的任务，而非创建新执行记录
 
 ### 前端改进
 - **新增**：数据缺失检测面板（按交易日展示）
@@ -48,6 +51,17 @@
 - **新增**：任务详情弹窗（显示任务ID、进度、处理日期、错误信息等）
 - **修复**：进度条百分比保留一位小数显示
 - **新增**：检测插件数说明提示（仅检测daily频率插件）
+- **修复**：任务列表刷新时清除展开行缓存，确保数据一致性
+
+### 插件调度配置改进
+- **新增**：`schedule_enabled` 配置项，控制插件是否参与定时调度
+- **新增**：`schedule_note` 配置项，说明不参与调度的原因
+- **修改**：以下插件设置 `schedule_enabled: false`：
+  - `tushare_rt_k` - 实时数据插件，仅交易时段有数据
+  - `tushare_stk_mins` - 需要指定股票代码，不适合批量调度
+  - `tushare_trade_calendar` - 交易日历变化不频繁，建议每半年手动执行
+- **修复**：`tushare_ci_daily`、`tushare_index_global` 支持 `trade_date` 参数，无参数时返回空数据而非报错
+- **修复**：`tushare_trade_calendar` 添加默认日期范围（前后各2年），支持无参数调用
 
 ## Impact
 
@@ -57,17 +71,24 @@
 ### Affected Code
 - `src/stock_datasource/modules/datamanage/router.py` - API路由，新增分页排序参数、批量任务详情API、部分重试API、组合管理API
 - `src/stock_datasource/modules/datamanage/service.py` - 新增服务层，增强错误捕获
-- `src/stock_datasource/modules/datamanage/schedule_service.py` - 新增批量任务详情获取、部分重试、手动执行记录创建
+- `src/stock_datasource/modules/datamanage/schedule_service.py` - 新增批量任务详情获取、部分重试、手动执行记录创建、原地重试逻辑
 - `src/stock_datasource/modules/datamanage/schemas.py` - 新增分页响应模型、批量任务详情模型、组合管理模型
 - `src/stock_datasource/config/runtime_config.py` - 新增plugin_groups存储和管理函数
 - `src/stock_datasource/core/plugin_manager.py` - 增强插件信息
 - `src/stock_datasource/core/base_plugin.py` - 增加数据状态方法
 - `frontend/src/views/datamanage/DataManageView.vue` - 界面重构、批量任务展示、错误汇总弹窗、部分重试、组合管理Tab
+- `frontend/src/views/datamanage/SyncTasksView.vue` - 任务列表刷新时清除缓存
 - `frontend/src/views/datamanage/components/MissingDataPanel.vue` - 天数选择器、检测插件数说明
 - `frontend/src/views/datamanage/components/TaskDetailDialog.vue` - 任务详情弹窗、错误堆栈展示
 - `frontend/src/stores/datamanage.ts` - 状态管理，新增批量任务详情获取、部分重试、组合管理
 - `frontend/src/api/datamanage.ts` - API调用，新增批量任务详情接口、部分重试接口、组合管理接口
+- `src/stock_datasource/plugins/tushare_rt_k/config.json` - 添加 schedule_enabled: false
+- `src/stock_datasource/plugins/tushare_stk_mins/config.json` - 添加 schedule_enabled: false
+- `src/stock_datasource/plugins/tushare_trade_calendar/config.json` - 添加 schedule_enabled: false
+- `src/stock_datasource/plugins/tushare_ci_daily/plugin.py` - 支持 trade_date 参数
+- `src/stock_datasource/plugins/tushare_index_global/plugin.py` - 支持 trade_date 参数
+- `src/stock_datasource/plugins/tushare_trade_calendar/plugin.py` - 添加默认日期范围
 
 ### Dependencies
 - 依赖 `ods_trade_calendar` 表提供交易日历数据
-- 依赖各插件的 `config.json` 中的 `schedule` 配置
+- 依赖各插件的 `config.json` 中的 `schedule` 和 `schedule_enabled` 配置

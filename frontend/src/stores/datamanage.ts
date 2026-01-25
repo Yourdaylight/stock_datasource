@@ -352,9 +352,14 @@ export const useDataManageStore = defineStore('datamanage', () => {
     }
   }
 
-  const fetchScheduleHistory = async (days: number = 7, limit: number = 50) => {
+  const fetchScheduleHistory = async (
+    days: number = 7, 
+    limit: number = 50,
+    status?: string,
+    triggerType?: string
+  ) => {
     try {
-      const response = await datamanageApi.getScheduleHistory(days, limit)
+      const response = await datamanageApi.getScheduleHistory(days, limit, status, triggerType)
       scheduleHistory.value = response.items
       return response
     } catch (e) {

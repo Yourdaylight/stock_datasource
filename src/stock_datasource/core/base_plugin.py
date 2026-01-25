@@ -396,6 +396,11 @@ class BasePlugin(ABC):
         }
         
         try:
+            # Step 0: Ensure table exists
+            schema = self.get_schema()
+            if schema and schema.get('table_name'):
+                self._ensure_table_exists(schema)
+            
             # Step 1: Extract
             self.logger.info(f"[{self.name}] Step 1: Extracting data with params: {kwargs}")
             data = self.extract_data(**kwargs)
@@ -466,6 +471,74 @@ class BasePlugin(ABC):
             Dict with loading statistics and status
         """
         pass
+    
+    def _ensure_table_exists(self, schema: Dict[str, Any]) -> None:
+        """Ensure target table exists, create if not.
+        
+        Args:
+            schema: Table schema definition
+        """
+        if not self.db:
+            return
+        
+        table_name = schema.get('table_name')
+        if not table_name:
+            return
+        
+        try:
+            if self.db.table_exists(table_name):
+                return
+            
+            # Build CREATE TABLE SQL
+            columns = schema.get('columns', [])
+            engine = schema.get('engine', 'MergeTree')
+            engine_params = schema.get('engine_params', [])
+            partition_by = schema.get('partition_by')
+            order_by = schema.get('order_by', [])
+            comment = schema.get('comment', '')
+            
+            col_defs = []
+            for col in columns:
+                # Support both 'type' and 'data_type' field names
+                col_type = col.get('type') or col.get('data_type', 'String')
+                col_def = f"`{col['name']}` {col_type}"
+                if col.get('default'):
+                    col_def += f" DEFAULT {col['default']}"
+                if col.get('comment'):
+                    col_def += f" COMMENT '{col['comment']}'"
+                col_defs.append(col_def)
+            
+            create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
+            create_sql += ",\n".join(f"    {col}" for col in col_defs)
+            
+            # Handle engine with params
+            if engine_params:
+                engine_str = f"{engine}({', '.join(engine_params)})"
+            elif '(' not in engine:
+                engine_str = f"{engine}()"
+            else:
+                engine_str = engine
+            create_sql += f"\n) ENGINE = {engine_str}"
+            
+            if partition_by:
+                create_sql += f"\nPARTITION BY {partition_by}"
+            
+            if order_by:
+                if isinstance(order_by, list):
+                    create_sql += f"\nORDER BY ({', '.join(order_by)})"
+                else:
+                    create_sql += f"\nORDER BY ({order_by})"
+            
+            if comment:
+                create_sql += f"\nCOMMENT '{comment}'"
+            
+            self.logger.info(f"[{self.name}] Creating table {table_name}")
+            self.db.create_table(create_sql)
+            self.logger.info(f"[{self.name}] Table {table_name} created successfully")
+            
+        except Exception as e:
+            self.logger.error(f"[{self.name}] Failed to ensure table exists: {e}")
+            raise
     
     def _add_system_columns(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add system columns (version, _ingested_at) to data.

@@ -433,6 +433,80 @@ export interface SyncTaskQueryParams {
   sort_order?: 'asc' | 'desc'
 }
 
+// ============ Data Explorer Types ============
+
+export interface ExplorerColumnInfo {
+  name: string
+  data_type: string
+  nullable: boolean
+  comment?: string
+}
+
+export interface ExplorerTableInfo {
+  plugin_name: string
+  table_name: string
+  category: string
+  columns: ExplorerColumnInfo[]
+  row_count?: number
+  description?: string
+}
+
+export interface ExplorerTableSchema {
+  table_name: string
+  columns: ExplorerColumnInfo[]
+  partition_by?: string
+  order_by?: string[]
+  engine?: string
+  comment?: string
+}
+
+export interface ExplorerTableListResponse {
+  tables: ExplorerTableInfo[]
+  categories: { key: string; label: string }[]
+}
+
+export interface ExplorerSimpleQueryRequest {
+  filters?: Record<string, any>
+  sort_by?: string
+  sort_order?: 'ASC' | 'DESC'
+  page?: number
+  page_size?: number
+}
+
+export interface ExplorerSqlExecuteRequest {
+  sql: string
+  max_rows?: number
+  timeout?: number
+}
+
+export interface ExplorerSqlExecuteResponse {
+  columns: string[]
+  data: Record<string, any>[]
+  row_count: number
+  total_count?: number
+  execution_time_ms: number
+  truncated: boolean
+  table_not_exists?: boolean  // Flag indicating table doesn't exist in database
+}
+
+export interface SqlTemplate {
+  id?: number
+  name: string
+  description?: string
+  sql: string
+  category?: string
+  user_id?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface SqlTemplateCreate {
+  name: string
+  description?: string
+  sql: string
+  category?: string
+}
+
 export const datamanageApi = {
   // Data Sources
   getDataSources(): Promise<DataSource[]> {
@@ -619,8 +693,11 @@ export const datamanageApi = {
     return request.post(`/api/datamanage/schedule/retry/${executionId}`)
   },
 
-  getScheduleHistory(days: number = 7, limit: number = 50): Promise<ScheduleHistoryResponse> {
-    return request.get(`/api/datamanage/schedule/history?days=${days}&limit=${limit}`)
+  getScheduleHistory(days: number = 7, limit: number = 50, status?: string, triggerType?: string): Promise<ScheduleHistoryResponse> {
+    let url = `/api/datamanage/schedule/history?days=${days}&limit=${limit}`
+    if (status) url += `&status=${encodeURIComponent(status)}`
+    if (triggerType) url += `&trigger_type=${encodeURIComponent(triggerType)}`
+    return request.get(url)
   },
 
   getExecutionDetail(executionId: string): Promise<BatchExecutionDetail> {
@@ -629,6 +706,10 @@ export const datamanageApi = {
 
   stopExecution(executionId: string): Promise<ScheduleExecutionRecord> {
     return request.post(`/api/datamanage/schedule/stop/${executionId}`)
+  },
+
+  deleteScheduleExecution(executionId: string): Promise<{ success: boolean; message: string }> {
+    return request.delete(`/api/datamanage/schedule/execution/${executionId}`)
   },
 
   partialRetryExecution(executionId: string, taskIds?: string[]): Promise<ScheduleExecutionRecord> {
@@ -663,5 +744,51 @@ export const datamanageApi = {
 
   triggerPluginGroup(groupId: string, data?: PluginGroupTriggerRequest): Promise<ScheduleExecutionRecord> {
     return request.post(`/api/datamanage/groups/${groupId}/trigger`, data || {})
+  },
+
+  // ============ Data Explorer API ============
+  
+  // Get available tables for exploration
+  getExplorerTables(category?: string): Promise<ExplorerTableListResponse> {
+    const params = category ? `?category=${category}` : ''
+    return request.get(`/api/datamanage/explorer/tables${params}`)
+  },
+
+  // Get table schema details
+  getExplorerTableSchema(tableName: string): Promise<ExplorerTableSchema> {
+    return request.get(`/api/datamanage/explorer/tables/${tableName}/schema`)
+  },
+
+  // Simple filter query
+  queryExplorerTable(tableName: string, params: ExplorerSimpleQueryRequest): Promise<ExplorerSqlExecuteResponse> {
+    return request.post(`/api/datamanage/explorer/tables/${tableName}/query`, params)
+  },
+
+  // Execute SQL query
+  executeExplorerSql(params: ExplorerSqlExecuteRequest): Promise<ExplorerSqlExecuteResponse> {
+    return request.post('/api/datamanage/explorer/sql/execute', params)
+  },
+
+  // Export query results
+  exportExplorerSql(sql: string, format: 'csv' | 'xlsx', filename?: string): Promise<Blob> {
+    return request.post('/api/datamanage/explorer/sql/export', { sql, format, filename }, {
+      responseType: 'blob'
+    })
+  },
+
+  // Get SQL templates
+  getExplorerTemplates(category?: string): Promise<SqlTemplate[]> {
+    const params = category ? `?category=${category}` : ''
+    return request.get(`/api/datamanage/explorer/sql/templates${params}`)
+  },
+
+  // Create SQL template
+  createExplorerTemplate(template: SqlTemplateCreate): Promise<SqlTemplate> {
+    return request.post('/api/datamanage/explorer/sql/templates', template)
+  },
+
+  // Delete SQL template
+  deleteExplorerTemplate(templateId: number): Promise<void> {
+    return request.delete(`/api/datamanage/explorer/sql/templates/${templateId}`)
   }
 }

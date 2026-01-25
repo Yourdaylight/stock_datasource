@@ -56,9 +56,15 @@ class TuShareIndexGlobalPlugin(BasePlugin):
         if ts_code and start_date and end_date:
             data = extractor.extract_by_date_range(ts_code, start_date, end_date)
         elif trade_date:
+            # Support trade_date for scheduled tasks
             data = extractor.extract(trade_date, ts_code)
+        elif start_date and end_date:
+            # Support date range without ts_code (fetch all)
+            data = extractor.extract_by_date_range(ts_code, start_date, end_date)
         else:
-            raise ValueError("Either trade_date or (ts_code, start_date, end_date) is required")
+            # For scheduled tasks without parameters, this plugin requires trade_date
+            self.logger.warning("No parameters provided, skipping extraction")
+            return pd.DataFrame()
         return data
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:

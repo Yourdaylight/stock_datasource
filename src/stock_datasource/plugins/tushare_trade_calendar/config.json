@@ -4,11 +4,8 @@
   "timeout": 30,
   "retry_attempts": 3,
   "description": "TuShare trade calendar data plugin",
-  "schedule": {
-    "frequency": "weekly",
-    "day_of_week": "monday",
-    "time": "18:00"
-  },
+  "schedule_enabled": false,
+  "schedule_note": "交易日历数据变化不频繁，建议每半年手动执行一次更新",
   "parameters_schema": {
     "exchange": {
       "type": "string",

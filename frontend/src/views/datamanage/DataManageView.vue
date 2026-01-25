@@ -3,19 +3,14 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useDataManageStore } from '@/stores/datamanage'
 import { useAuthStore } from '@/stores/auth'
-import type { PluginCategory, PluginRole, SyncTaskQueryParams, ScheduleExecutionRecord, BatchExecutionDetail, BatchTaskDetail, PluginGroup, GroupCategory } from '@/api/datamanage'
+import type { PluginCategory, PluginRole, PluginGroup, GroupCategory } from '@/api/datamanage'
 import MissingDataPanel from './components/MissingDataPanel.vue'
-import SyncTaskPanel from './components/SyncTaskPanel.vue'
 import PluginDetailDialog from './components/PluginDetailDialog.vue'
 import PluginDataDialog from './components/PluginDataDialog.vue'
 import DiagnosisPanel from './components/DiagnosisPanel.vue'
 import SyncDialog from './components/SyncDialog.vue'
-import ProxyConfigPanel from './components/ProxyConfigPanel.vue'
-import TaskDetailDialog from './components/TaskDetailDialog.vue'
-import SchedulePanel from './components/SchedulePanel.vue'
 import GroupSyncDialog from './components/GroupSyncDialog.vue'
 import GroupDetailDialog from './components/GroupDetailDialog.vue'
-import type { SyncTask } from '@/api/datamanage'
 
 const dataStore = useDataManageStore()
 const authStore = useAuthStore()
@@ -28,27 +23,6 @@ const isAdmin = computed(() => authStore.isAdmin)
 const searchKeyword = ref('')
 const selectedCategory = ref<PluginCategory | ''>('')
 const selectedRole = ref<PluginRole | ''>('')
-
-// Task filter states
-const taskSearchKeyword = ref('')
-const taskStatusFilter = ref<string>('')
-const taskSortBy = ref<'created_at' | 'started_at' | 'completed_at'>('created_at')
-const taskSortOrder = ref<'asc' | 'desc'>('desc')
-
-const taskStatusOptions = [
-  { label: '全部状态', value: '' },
-  { label: '等待中', value: 'pending' },
-  { label: '运行中', value: 'running' },
-  { label: '已完成', value: 'completed' },
-  { label: '失败', value: 'failed' },
-  { label: '已取消', value: 'cancelled' }
-]
-
-const taskSortOptions = [
-  { label: '创建时间', value: 'created_at' },
-  { label: '开始时间', value: 'started_at' },
-  { label: '完成时间', value: 'completed_at' }
-]
 
 const categoryOptions = [
   { label: '全部类别', value: '' },
@@ -102,155 +76,11 @@ const handleResetFilters = () => {
   selectedRole.value = ''
 }
 
-// Task filtering and pagination handlers
-const handleTaskSearch = () => {
-  dataStore.fetchSyncTasks({
-    page: 1,
-    plugin_name: taskSearchKeyword.value || undefined,
-    status: taskStatusFilter.value as any || undefined,
-    sort_by: taskSortBy.value,
-    sort_order: taskSortOrder.value
-  })
-}
-
-const handleTaskPageChange = (pageInfo: { current: number; pageSize: number }) => {
-  dataStore.fetchSyncTasks({
-    page: pageInfo.current,
-    page_size: pageInfo.pageSize,
-    plugin_name: taskSearchKeyword.value || undefined,
-    status: taskStatusFilter.value as any || undefined,
-    sort_by: taskSortBy.value,
-    sort_order: taskSortOrder.value
-  })
-}
-
-const handleResetTaskFilters = () => {
-  taskSearchKeyword.value = ''
-  taskStatusFilter.value = ''
-  taskSortBy.value = 'created_at'
-  taskSortOrder.value = 'desc'
-  dataStore.fetchSyncTasks({ page: 1 })
-}
-
 // Dialog states
 const detailDialogVisible = ref(false)
 const dataDialogVisible = ref(false)
 const syncDialogVisible = ref(false)
-const taskDetailDialogVisible = ref(false)
-const batchDetailDialogVisible = ref(false)
 const selectedPluginName = ref('')
-const selectedTask = ref<SyncTask | null>(null)
-const selectedBatchDetail = ref<BatchExecutionDetail | null>(null)
-const batchDetailLoading = ref(false)
-
-// Batch execution list states
-const batchExecutions = ref<ScheduleExecutionRecord[]>([])
-const batchExecutionsLoading = ref(false)
-const expandedBatchIds = ref<string[]>([])
-const batchTasksCache = ref<Record<string, BatchTaskDetail[]>>({})
-
-// Batch execution columns
-const batchColumns = [
-  { colKey: 'expand', type: 'expand', width: 48 },
-  { colKey: 'execution_id', title: '执行ID', width: 100 },
-  { colKey: 'trigger_type', title: '触发方式', width: 90 },
-  { colKey: 'started_at', title: '开始时间', width: 160 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'plugins_count', title: '插件数', width: 120 },
-  { colKey: 'completed_at', title: '完成时间', width: 160 },
-  { colKey: 'operation', title: '操作', width: 140 }
-]
-
-// Fetch batch executions
-const fetchBatchExecutions = async () => {
-  batchExecutionsLoading.value = true
-  try {
-    const response = await dataStore.fetchScheduleHistory(30, 100)
-    batchExecutions.value = response.items || []
-  } finally {
-    batchExecutionsLoading.value = false
-  }
-}
-
-// Handle batch row expand
-// TDesign expand-change: (value: Array<string | number>, context: { expandedRowData: Array<TableRowData> })
-const handleBatchExpand = async (value: string[], context: { expandedRowData: ScheduleExecutionRecord[] }) => {
-  expandedBatchIds.value = value || []
-  
-  // Fetch task details for newly expanded rows
-  for (const row of context.expandedRowData || []) {
-    const executionId = row.execution_id
-    if (executionId && !batchTasksCache.value[executionId]) {
-      const detail = await dataStore.fetchExecutionDetail(executionId)
-      if (detail) {
-        batchTasksCache.value[executionId] = detail.tasks
-      }
-    }
-  }
-}
-
-// Get tasks for a batch execution
-const getBatchTasks = (executionId: string): BatchTaskDetail[] => {
-  return batchTasksCache.value[executionId] || []
-}
-
-// Handle view batch detail dialog
-const handleViewBatchDetail = async (row: ScheduleExecutionRecord) => {
-  batchDetailLoading.value = true
-  batchDetailDialogVisible.value = true
-  try {
-    selectedBatchDetail.value = await dataStore.fetchExecutionDetail(row.execution_id)
-  } finally {
-    batchDetailLoading.value = false
-  }
-}
-
-// Copy error summary to clipboard
-const handleCopyErrorSummary = async () => {
-  if (!selectedBatchDetail.value?.error_summary) return
-  try {
-    await navigator.clipboard.writeText(selectedBatchDetail.value.error_summary)
-    MessagePlugin.success('错误信息已复制到剪贴板')
-  } catch (e) {
-    MessagePlugin.error('复制失败')
-  }
-}
-
-// Stop batch execution
-const handleStopExecution = async (executionId: string) => {
-  try {
-    await dataStore.stopExecution(executionId)
-    MessagePlugin.success('已停止执行')
-    await fetchBatchExecutions()
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '停止失败')
-  }
-}
-
-// Retry batch execution
-const handleRetryBatchExecution = async (executionId: string) => {
-  try {
-    await dataStore.retryScheduleExecution(executionId)
-    MessagePlugin.success('已创建重试任务')
-    await fetchBatchExecutions()
-    dataStore.startTaskPolling()
-  } catch (e) {
-    MessagePlugin.error('重试失败')
-  }
-}
-
-// Partial retry (only failed tasks) - in-place retry
-const handlePartialRetryExecution = async (executionId: string, taskIds?: string[]) => {
-  try {
-    await dataStore.partialRetryExecution(executionId, taskIds)
-    MessagePlugin.success('正在重试失败任务')
-    await fetchBatchExecutions()
-    batchDetailDialogVisible.value = false
-    dataStore.startTaskPolling()
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '部分重试失败')
-  }
-}
 
 // ============ Plugin Groups ============
 
@@ -400,9 +230,7 @@ const handleDeleteGroupSafe = async (group: PluginGroup) => {
 }
 
 // Handle execute from group detail dialog
-const handleGroupDetailExecute = async (group: PluginGroup) => {
-  // Refresh batch executions list
-  await fetchBatchExecutions()
+const handleGroupDetailExecute = async () => {
   dataStore.startTaskPolling()
 }
 
@@ -424,7 +252,6 @@ const handleGroupSyncConfirm = async (
       trade_dates: dates.length > 0 ? dates : undefined
     })
     MessagePlugin.success(`已触发组合同步`)
-    await fetchBatchExecutions()
     dataStore.startTaskPolling()
   } catch (e) {
     MessagePlugin.error('触发失败')
@@ -500,90 +327,6 @@ const getRoleTheme = (role?: string) => {
   }
   return role ? map[role] || 'default' : 'default'
 }
-
-// Get brief error message for display in task list
-const getErrorBrief = (errorMessage?: string) => {
-  if (!errorMessage) return ''
-  // Get first line or first 50 chars
-  const stackSeparator = '\n\n--- 堆栈跟踪 ---\n'
-  let brief = errorMessage.includes(stackSeparator) 
-    ? errorMessage.substring(0, errorMessage.indexOf(stackSeparator))
-    : errorMessage
-  // Further truncate if too long
-  const maxLen = 40
-  if (brief.length > maxLen) {
-    brief = brief.substring(0, maxLen) + '...'
-  }
-  return brief
-}
-
-// Batch task status helpers
-const getBatchStatusTheme = (status: string) => {
-  switch (status) {
-    case 'completed': return 'success'
-    case 'failed': return 'danger'
-    case 'running': return 'warning'
-    case 'stopping': return 'warning'
-    case 'stopped': return 'default'
-    case 'interrupted': return 'danger'
-    case 'skipped': return 'default'
-    default: return 'default'
-  }
-}
-
-const getBatchStatusText = (status: string) => {
-  switch (status) {
-    case 'completed': return '完成'
-    case 'failed': return '失败'
-    case 'running': return '执行中'
-    case 'stopping': return '停止中'
-    case 'stopped': return '已停止'
-    case 'interrupted': return '中断'
-    case 'skipped': return '跳过'
-    default: return status
-  }
-}
-
-const getTaskStatusText = (status: string) => {
-  switch (status) {
-    case 'completed': return '完成'
-    case 'failed': return '失败'
-    case 'running': return '执行中'
-    case 'pending': return '等待'
-    case 'cancelled': return '已取消'
-    default: return status
-  }
-}
-
-const getTriggerTypeTheme = (type: string) => {
-  switch (type) {
-    case 'scheduled': return 'primary'
-    case 'manual': return 'warning'
-    case 'group': return 'success'
-    case 'retry': return 'default'
-    default: return 'default'
-  }
-}
-
-const getTriggerTypeText = (type: string) => {
-  switch (type) {
-    case 'scheduled': return '定时'
-    case 'manual': return '手动'
-    case 'group': return '组合'
-    case 'retry': return '重试'
-    default: return type
-  }
-}
-
-const taskColumns = [
-  { colKey: 'plugin_name', title: '插件', width: 150 },
-  { colKey: 'task_type', title: '类型', width: 80 },
-  { colKey: 'status', title: '状态', width: 200 },
-  { colKey: 'progress', title: '进度', width: 120 },
-  { colKey: 'records_processed', title: '处理记录', width: 100 },
-  { colKey: 'created_at', title: '创建时间', width: 150 },
-  { colKey: 'operation', title: '操作', width: 120 }
-]
 
 const qualityColumns = [
   { colKey: 'table_name', title: '表名', width: 150 },
@@ -668,11 +411,6 @@ const handleRetryTask = async (taskId: string) => {
   }
 }
 
-const handleViewTaskDetail = (task: SyncTask) => {
-  selectedTask.value = task
-  taskDetailDialogVisible.value = true
-}
-
 const getFrequencyText = (freq?: string) => {
   if (!freq) return '-'
   return freq === 'daily' ? '每日' : freq === 'weekly' ? '每周' : freq
@@ -699,6 +437,7 @@ const pluginsWithMissing = computed(() => {
   return dataStore.plugins.filter(p => p.missing_count > 0).length
 })
 
+// Format time for display
 const formatTime = (timeStr?: string) => {
   if (!timeStr) return '-'
   const date = new Date(timeStr)
@@ -708,6 +447,7 @@ const formatTime = (timeStr?: string) => {
 // Get category label for display
 const getCategoryLabel = (category: GroupCategory | string): string => {
   const labelMap: Record<string, string> = {
+    system: '系统维护',
     cn_stock: 'A股',
     index: '指数',
     etf_fund: 'ETF基金',
@@ -738,10 +478,8 @@ const handleTabChange = (value: string) => {
 
 onMounted(() => {
   dataStore.fetchDataSources()
-  dataStore.fetchSyncTasks()
   dataStore.fetchPlugins()
   dataStore.fetchQualityMetrics()
-  fetchBatchExecutions()
   dataStore.fetchPluginGroups()
   // Don't fetch missing data on mount - it will be fetched when quality tab is selected
 })
@@ -876,132 +614,6 @@ onMounted(() => {
                 <t-link theme="primary" @click="handleViewDetail(row.name)">详情</t-link>
                 <t-link theme="primary" @click="handleViewData(row.name)">数据</t-link>
                 <t-link theme="primary" @click="handleTriggerSync(row.name)">同步</t-link>
-              </t-space>
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- Tasks Tab -->
-        <t-tab-panel value="tasks" label="同步任务">
-          <!-- Batch Task Header -->
-          <div class="filter-bar">
-            <t-button theme="default" variant="outline" @click="fetchBatchExecutions">
-              <t-icon name="refresh" style="margin-right: 4px" />
-              刷新
-            </t-button>
-            <div class="filter-result">
-              共 <span class="count">{{ batchExecutions.length }}</span> 个批量任务
-            </div>
-          </div>
-
-          <!-- Batch Executions Table with Expandable Rows -->
-          <t-table
-            :data="batchExecutions"
-            :columns="batchColumns"
-            :loading="batchExecutionsLoading"
-            row-key="execution_id"
-            :expanded-row-keys="expandedBatchIds"
-            @expand-change="handleBatchExpand"
-          >
-            <!-- Expand Row - Sub Tasks -->
-            <template #expandedRow="{ row }">
-              <div class="sub-tasks-container">
-                <t-table
-                  :data="getBatchTasks(row.execution_id)"
-                  :columns="[
-                    { colKey: 'plugin_name', title: '插件', width: 180 },
-                    { colKey: 'status', title: '状态', width: 100 },
-                    { colKey: 'progress', title: '进度', width: 120 },
-                    { colKey: 'records_processed', title: '处理记录', width: 100 },
-                    { colKey: 'error_brief', title: '错误信息', minWidth: 200 }
-                  ]"
-                  size="small"
-                  row-key="task_id"
-                >
-                  <template #status="{ row: task }">
-                    <t-tag :theme="getStatusTheme(task.status)" size="small">
-                      {{ getTaskStatusText(task.status) }}
-                    </t-tag>
-                  </template>
-                  <template #progress="{ row: task }">
-                    <t-progress 
-                      :percentage="Number(task.progress.toFixed(1))" 
-                      size="small"
-                      :label="task.progress.toFixed(1) + '%'"
-                    />
-                  </template>
-                  <template #records_processed="{ row: task }">
-                    {{ task.records_processed.toLocaleString() }}
-                  </template>
-                  <template #error_brief="{ row: task }">
-                    <span v-if="task.error_message" class="error-brief">
-                      {{ getErrorBrief(task.error_message) }}
-                    </span>
-                    <span v-else class="no-error">-</span>
-                  </template>
-                </t-table>
-              </div>
-            </template>
-
-            <!-- Columns -->
-            <template #execution_id="{ row }">
-              <span class="execution-id">{{ row.execution_id }}</span>
-            </template>
-            <template #trigger_type="{ row }">
-              <t-tag :theme="getTriggerTypeTheme(row.trigger_type)" variant="light" size="small">
-                {{ getTriggerTypeText(row.trigger_type) }}
-              </t-tag>
-              <span v-if="row.group_name" class="group-name">{{ row.group_name }}</span>
-            </template>
-            <template #started_at="{ row }">
-              {{ formatTime(row.started_at) }}
-            </template>
-            <template #status="{ row }">
-              <div class="status-cell">
-                <t-tag :theme="getBatchStatusTheme(row.status)" size="small">
-                  {{ getBatchStatusText(row.status) }}
-                </t-tag>
-                <span v-if="row.failed_plugins > 0" class="failed-badge">
-                  {{ row.failed_plugins }} 失败
-                </span>
-              </div>
-            </template>
-            <template #plugins_count="{ row }">
-              <span v-if="row.status === 'skipped'">-</span>
-              <span v-else>
-                <span class="completed-count">{{ row.completed_plugins }}</span>
-                <span class="total-count">/{{ row.total_plugins }}</span>
-              </span>
-            </template>
-            <template #completed_at="{ row }">
-              {{ row.completed_at ? formatTime(row.completed_at) : '-' }}
-            </template>
-            <template #operation="{ row }">
-              <t-space>
-                <t-link theme="primary" @click="handleViewBatchDetail(row)">
-                  详情
-                </t-link>
-                <t-popconfirm 
-                  v-if="row.status === 'running'" 
-                  content="确定停止此任务？" 
-                  @confirm="handleStopExecution(row.execution_id)"
-                >
-                  <t-link theme="danger">停止</t-link>
-                </t-popconfirm>
-                <t-link 
-                  v-if="row.failed_plugins > 0 && row.status !== 'running'" 
-                  theme="warning" 
-                  @click="handlePartialRetryExecution(row.execution_id)"
-                >
-                  重试失败
-                </t-link>
-                <t-link 
-                  v-else-if="row.can_retry" 
-                  theme="primary" 
-                  @click="handleRetryBatchExecution(row.execution_id)"
-                >
-                  重试
-                </t-link>
               </t-space>
             </template>
           </t-table>
@@ -1174,12 +786,6 @@ onMounted(() => {
             </t-result>
           </div>
         </t-tab-panel>
-
-        <!-- Settings Tab -->
-        <t-tab-panel value="settings" label="配置">
-          <SchedulePanel />
-          <ProxyConfigPanel />
-        </t-tab-panel>
       </t-tabs>
     </t-card>
 
@@ -1199,124 +805,6 @@ onMounted(() => {
       :plugin-name="selectedPluginName"
       @confirm="handleSyncConfirm"
     />
-    <TaskDetailDialog
-      v-model:visible="taskDetailDialogVisible"
-      :task="selectedTask"
-    />
-    
-    <!-- Batch Execution Detail Dialog -->
-    <t-dialog
-      v-model:visible="batchDetailDialogVisible"
-      header="批量任务详情"
-      width="900px"
-      :footer="false"
-    >
-      <t-loading :loading="batchDetailLoading">
-        <div v-if="selectedBatchDetail" class="batch-detail">
-          <!-- Summary -->
-          <div class="batch-summary">
-            <div class="summary-item">
-              <span class="label">执行ID:</span>
-              <span class="value">{{ selectedBatchDetail.execution_id }}</span>
-            </div>
-            <div class="summary-item">
-              <span class="label">触发方式:</span>
-              <t-tag :theme="getTriggerTypeTheme(selectedBatchDetail.trigger_type)" variant="light" size="small">
-                {{ getTriggerTypeText(selectedBatchDetail.trigger_type) }}
-              </t-tag>
-              <span v-if="selectedBatchDetail.group_name" class="group-name">{{ selectedBatchDetail.group_name }}</span>
-            </div>
-            <div class="summary-item">
-              <span class="label">状态:</span>
-              <t-tag :theme="getBatchStatusTheme(selectedBatchDetail.status)" size="small">
-                {{ getBatchStatusText(selectedBatchDetail.status) }}
-              </t-tag>
-            </div>
-            <div class="summary-item">
-              <span class="label">插件数:</span>
-              <span class="value">
-                <span class="completed-count">{{ selectedBatchDetail.completed_plugins }}</span>
-                <span class="total-count">/{{ selectedBatchDetail.total_plugins }}</span>
-                <span v-if="selectedBatchDetail.failed_plugins > 0" class="failed-badge">
-                  ({{ selectedBatchDetail.failed_plugins }} 失败)
-                </span>
-              </span>
-            </div>
-            <div v-if="selectedBatchDetail.status === 'running'" class="summary-item">
-              <t-popconfirm content="确定停止此任务？" @confirm="handleStopExecution(selectedBatchDetail.execution_id)">
-                <t-button theme="danger" size="small">
-                  <t-icon name="close" style="margin-right: 4px" />
-                  停止任务
-                </t-button>
-              </t-popconfirm>
-            </div>
-            <div v-if="selectedBatchDetail.failed_plugins > 0 && selectedBatchDetail.status !== 'running'" class="summary-item">
-              <t-button theme="warning" size="small" @click="handlePartialRetryExecution(selectedBatchDetail.execution_id)">
-                <t-icon name="refresh" style="margin-right: 4px" />
-                重试失败任务
-              </t-button>
-            </div>
-          </div>
-          
-          <!-- Tasks Table -->
-          <div class="batch-tasks">
-            <h4>子任务列表</h4>
-            <t-table
-              :data="selectedBatchDetail.tasks"
-              :columns="[
-                { colKey: 'plugin_name', title: '插件', width: 180 },
-                { colKey: 'status', title: '状态', width: 100 },
-                { colKey: 'progress', title: '进度', width: 120 },
-                { colKey: 'records_processed', title: '处理记录', width: 100 },
-                { colKey: 'error_brief', title: '错误信息', minWidth: 200 }
-              ]"
-              size="small"
-              row-key="task_id"
-              max-height="300"
-            >
-              <template #status="{ row }">
-                <t-tag :theme="getStatusTheme(row.status)" size="small">
-                  {{ getTaskStatusText(row.status) }}
-                </t-tag>
-              </template>
-              <template #progress="{ row }">
-                <t-progress 
-                  :percentage="Number(row.progress.toFixed(1))" 
-                  size="small"
-                  :label="row.progress.toFixed(1) + '%'"
-                />
-              </template>
-              <template #records_processed="{ row }">
-                {{ row.records_processed.toLocaleString() }}
-              </template>
-              <template #error_brief="{ row }">
-                <span v-if="row.error_message" class="error-brief">
-                  {{ getErrorBrief(row.error_message) }}
-                </span>
-                <span v-else class="no-error">-</span>
-              </template>
-            </t-table>
-          </div>
-          
-          <!-- Error Summary with Copy Button -->
-          <div v-if="selectedBatchDetail.error_summary" class="error-summary-section">
-            <div class="error-header">
-              <h4>错误信息汇总</h4>
-              <t-button theme="primary" variant="outline" size="small" @click="handleCopyErrorSummary">
-                <t-icon name="file-copy" style="margin-right: 4px" />
-                一键复制
-              </t-button>
-            </div>
-            <pre class="error-content">{{ selectedBatchDetail.error_summary }}</pre>
-          </div>
-          
-          <div v-else class="no-errors">
-            <t-icon name="check-circle" size="20px" style="color: var(--td-success-color); margin-right: 8px" />
-            所有任务执行成功，无错误信息
-          </div>
-        </div>
-      </t-loading>
-    </t-dialog>
     
     <!-- Plugin Group Dialog -->
     <t-dialog
@@ -1448,9 +936,18 @@ onMounted(() => {
   background: var(--td-bg-color-container);
 }
 
+/* Task name styles */
+.task-name {
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
 .execution-id {
+  display: block;
   font-family: monospace;
-  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+  margin-top: 2px;
 }
 
 .failed-badge {

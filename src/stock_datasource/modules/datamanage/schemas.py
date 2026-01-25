@@ -472,6 +472,7 @@ class PartialRetryRequest(BaseModel):
 
 class GroupCategory(str, Enum):
     """组合分类枚举."""
+    SYSTEM = "system"        # 系统维护
     CN_STOCK = "cn_stock"    # A股相关
     INDEX = "index"          # 指数相关
     ETF_FUND = "etf_fund"    # ETF基金相关
@@ -549,3 +550,107 @@ class PluginGroupTriggerRequest(BaseModel):
     """Request model for triggering a plugin group sync."""
     task_type: TaskType = TaskType.INCREMENTAL
     trade_dates: Optional[List[str]] = None
+
+
+# ============================================
+# Data Explorer Models
+# ============================================
+
+class ExplorerColumnInfo(BaseModel):
+    """Column info for data explorer."""
+    name: str
+    data_type: str
+    nullable: bool = True
+    comment: Optional[str] = None
+
+
+class ExplorerTableInfo(BaseModel):
+    """Table info for data explorer."""
+    plugin_name: str
+    table_name: str
+    category: str  # cn_stock, index, etf_fund, etc.
+    columns: List[ExplorerColumnInfo] = []
+    row_count: Optional[int] = None
+    description: Optional[str] = None
+
+
+class ExplorerTableSchema(BaseModel):
+    """Detailed table schema for data explorer."""
+    table_name: str
+    columns: List[ExplorerColumnInfo]
+    partition_by: Optional[str] = None
+    order_by: Optional[List[str]] = None
+    engine: Optional[str] = None
+    comment: Optional[str] = None
+
+
+class ExplorerTableListResponse(BaseModel):
+    """Table list response for data explorer."""
+    tables: List[ExplorerTableInfo]
+    categories: List[Dict[str, str]]
+
+
+class ExplorerSimpleQueryRequest(BaseModel):
+    """Simple filter query request."""
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    sort_by: Optional[str] = None
+    sort_order: str = Field(default="DESC", pattern="^(ASC|DESC)$")
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=100, ge=1, le=1000)
+
+
+class ExportFormat(str, Enum):
+    """Export format enum."""
+    CSV = "csv"
+    XLSX = "xlsx"
+
+
+class ExplorerSqlExecuteRequest(BaseModel):
+    """SQL execute request."""
+    sql: str = Field(..., max_length=10000)
+    max_rows: int = Field(default=1000, ge=1, le=10000)
+    timeout: int = Field(default=30, ge=1, le=300)
+
+
+class ExplorerSqlExecuteResponse(BaseModel):
+    """SQL execute response."""
+    columns: List[str]
+    data: List[Dict[str, Any]]
+    row_count: int
+    total_count: Optional[int] = None
+    execution_time_ms: int
+    truncated: bool = False
+    table_not_exists: bool = False  # Flag indicating table doesn't exist in database
+
+
+class ExplorerSqlExportRequest(BaseModel):
+    """SQL export request."""
+    sql: str = Field(..., max_length=10000)
+    format: ExportFormat = ExportFormat.CSV
+    filename: Optional[str] = None
+
+
+class SqlTemplate(BaseModel):
+    """SQL template model."""
+    id: Optional[int] = None
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    sql: str = Field(..., max_length=10000)
+    category: Optional[str] = None
+    user_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SqlTemplateCreate(BaseModel):
+    """Create SQL template request."""
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    sql: str = Field(..., max_length=10000)
+    category: Optional[str] = None
+
+
+class SqlTemplateListResponse(BaseModel):
+    """SQL template list response."""
+    items: List[SqlTemplate]
+    total: int
