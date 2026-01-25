@@ -142,6 +142,10 @@ class TuShareIdxFactorProPlugin(BasePlugin):
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors='coerce')
         
+        # Rename pct_change to pct_chg for table compatibility
+        if 'pct_change' in data.columns:
+            data = data.rename(columns={'pct_change': 'pct_chg'})
+        
         # Convert date format
         if 'trade_date' in data.columns:
             data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d').dt.date

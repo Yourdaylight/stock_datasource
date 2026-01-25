@@ -294,6 +294,31 @@ class DataExistsCheckResult(BaseModel):
     record_counts: Dict[str, int] = {}  # date -> record count
 
 
+class GroupDataExistsCheckRequest(BaseModel):
+    """Request model for checking if data exists for a group of plugins."""
+    dates: List[str] = Field(..., min_length=1, description="List of dates to check (YYYY-MM-DD format)")
+
+
+class PluginDataExistsInfo(BaseModel):
+    """Data existence info for a single plugin."""
+    plugin_name: str
+    existing_dates: List[str]
+    non_existing_dates: List[str]
+    has_date_column: bool = True  # False for dimension tables
+
+
+class GroupDataExistsCheckResult(BaseModel):
+    """Result of checking if data exists for a group of plugins."""
+    group_id: str
+    group_name: str
+    dates_checked: List[str]
+    plugins: List[PluginDataExistsInfo]
+    # Summary
+    all_plugins_have_data: bool  # All plugins have data for all dates
+    plugins_with_existing_data: List[str]  # Plugins that have data (might need overwrite)
+    plugins_missing_data: List[str]  # Plugins that don't have data
+
+
 # ============================================
 # Proxy Configuration Models
 # ============================================

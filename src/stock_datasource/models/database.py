@@ -316,23 +316,38 @@ class ClickHouseClient:
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
         """Insert DataFrame into table."""
-        self._ensure_connected()
-        
-        # Use HTTP client if in HTTP mode
-        if self._use_http and self._http_client:
-            self._http_client.insert_dataframe(table_name, df, settings)
-            return
-        
-        try:
-            self.client.insert_dataframe(
-                f"INSERT INTO {table_name} VALUES",
-                df,
-                settings=settings or {}
-            )
-            logger.info(f"Inserted {len(df)} rows into {table_name} [{self.name}]")
-        except Exception as e:
-            logger.error(f"Failed to insert data into {table_name} [{self.name}]: {e}")
-            raise
+        with self._lock:
+            self._ensure_connected()
+            
+            # Use HTTP client if in HTTP mode
+            if self._use_http and self._http_client:
+                self._http_client.insert_dataframe(table_name, df, settings)
+                return
+            
+            try:
+                self.client.insert_dataframe(
+                    f"INSERT INTO {table_name} VALUES",
+                    df,
+                    settings=settings or {}
+                )
+                logger.info(f"Inserted {len(df)} rows into {table_name} [{self.name}]")
+            except Exception as e:
+                if self._should_reconnect(e):
+                    logger.warning(f"Reconnect ClickHouse during insert [{self.name}] due to: {e}")
+                    self._reconnect()
+                    # After reconnect, check if we switched to HTTP
+                    if self._use_http and self._http_client:
+                        self._http_client.insert_dataframe(table_name, df, settings)
+                        return
+                    self.client.insert_dataframe(
+                        f"INSERT INTO {table_name} VALUES",
+                        df,
+                        settings=settings or {}
+                    )
+                    logger.info(f"Inserted {len(df)} rows into {table_name} [{self.name}]")
+                else:
+                    logger.error(f"Failed to insert data into {table_name} [{self.name}]: {e}")
+                    raise
     
     def create_database(self, database_name: str) -> None:
         """Create database if not exists."""

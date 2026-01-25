@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from pathlib import Path
 import json
+import time
 
 from stock_datasource.plugins import BasePlugin
 from stock_datasource.core.base_plugin import PluginCategory, PluginRole
@@ -178,20 +179,32 @@ class TuShareETFFundDailyPlugin(BasePlugin):
             ods_data = data.copy()
             ods_data['version'] = int(datetime.now().timestamp())
             ods_data['_ingested_at'] = datetime.now()
-            
+
             ods_data = self._prepare_data_for_insert('ods_etf_fund_daily', ods_data)
-            
+
             settings = {
-                'max_partitions_per_insert_block': 1000
+                'max_partitions_per_insert_block': 1000,
+                'async_insert': 0  # Disable async insert to ensure data is written
             }
             self.db.insert_dataframe('ods_etf_fund_daily', ods_data, settings=settings)
-            
+
+            # Verify data was actually written
+            self.logger.info(f"Verifying data insertion into ods_etf_fund_daily")
+            time.sleep(1)  # Give ClickHouse time to process
+            actual_count = self.db.execute_query(f"SELECT count() FROM ods_etf_fund_daily")
+            if not actual_count.empty:
+                actual_records = actual_count.iloc[0, 0]
+                self.logger.info(f"Verified {actual_records} records in ods_etf_fund_daily")
+            else:
+                actual_records = 0
+                self.logger.warning(f"Could not verify record count in ods_etf_fund_daily")
+
             results['tables_loaded'].append({
                 'table': 'ods_etf_fund_daily',
-                'records': len(ods_data)
+                'records': actual_records
             })
-            results['total_records'] += len(ods_data)
-            self.logger.info(f"Loaded {len(ods_data)} records into ods_etf_fund_daily")
+            results['total_records'] = actual_records
+            self.logger.info(f"Loaded {actual_records} records into ods_etf_fund_daily")
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")
