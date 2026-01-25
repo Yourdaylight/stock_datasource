@@ -74,18 +74,29 @@ class DataManageService:
 
             # Check if date_column exists in the table before querying
             # This prevents query failures on dimension tables or tables with different schemas
-            try:
-                table_schema = db_client.get_table_schema(table_name)
-                column_names = {col['column_name'] for col in table_schema}
-                if date_column not in column_names:
-                    self.logger.warning(
-                        f"Date column '{date_column}' does not exist in table {table_name}. "
-                        f"Available columns: {list(column_names)[:10]}"
-                    )
+            # Use cache to avoid repeated schema checks
+            cache_key = f"schema_check:{table_name}:{date_column}"
+            if not hasattr(self, '_schema_check_cache'):
+                self._schema_check_cache = {}
+            
+            if cache_key in self._schema_check_cache:
+                if not self._schema_check_cache[cache_key]:
                     return False
-            except Exception as schema_error:
-                # If we can't check schema, log but don't crash - try the query anyway
-                self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
+            else:
+                try:
+                    table_schema = db_client.get_table_schema(table_name)
+                    column_names = {col['column_name'] for col in table_schema}
+                    if date_column not in column_names:
+                        self.logger.debug(
+                            f"Date column '{date_column}' does not exist in table {table_name}. "
+                            f"Available columns: {list(column_names)[:10]}"
+                        )
+                        self._schema_check_cache[cache_key] = False
+                        return False
+                    self._schema_check_cache[cache_key] = True
+                except Exception as schema_error:
+                    # If we can't check schema, log but don't crash - try the query anyway
+                    self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
 
             # Use LIMIT 1 instead of count() for memory efficiency
             query = f"""
@@ -126,17 +137,28 @@ class DataManageService:
                 return None
 
             # Check if date_column exists in the table before querying
-            try:
-                table_schema = db_client.get_table_schema(table_name)
-                column_names = {col['column_name'] for col in table_schema}
-                if date_column not in column_names:
-                    self.logger.warning(
-                        f"Date column '{date_column}' does not exist in table {table_name}. "
-                        f"Available columns: {list(column_names)[:10]}"
-                    )
+            # Use cache to avoid repeated schema checks
+            cache_key = f"schema_check:{table_name}:{date_column}"
+            if not hasattr(self, '_schema_check_cache'):
+                self._schema_check_cache = {}
+            
+            if cache_key in self._schema_check_cache:
+                if not self._schema_check_cache[cache_key]:
                     return None
-            except Exception as schema_error:
-                self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
+            else:
+                try:
+                    table_schema = db_client.get_table_schema(table_name)
+                    column_names = {col['column_name'] for col in table_schema}
+                    if date_column not in column_names:
+                        self.logger.debug(
+                            f"Date column '{date_column}' does not exist in table {table_name}. "
+                            f"Available columns: {list(column_names)[:10]}"
+                        )
+                        self._schema_check_cache[cache_key] = False
+                        return None
+                    self._schema_check_cache[cache_key] = True
+                except Exception as schema_error:
+                    self.logger.debug(f"Could not verify schema for {table_name}: {schema_error}")
 
             # Use ORDER BY + LIMIT 1 for efficiency on large tables
             query = f"""
@@ -213,6 +235,8 @@ class DataManageService:
             "tushare_trade_calendar": "cal_date",
             "tushare_finace_indicator": "end_date",  # uses report end_date
             "tushare_etf_stk_mins": "trade_time",    # minute data uses trade_time
+            "tushare_stk_mins": "trade_time",         # minute data uses trade_time
+            "tushare_rt_k": "trade_time",             # real-time data uses trade_time
             "tushare_express": "ann_date",  # financial reports use ann_date
             "tushare_forecast": "ann_date",  # financial forecasts use ann_date
             "tushare_income": "ann_date",  # income statement uses ann_date
@@ -712,6 +736,95 @@ class DataManageService:
             non_existing_dates=non_existing_dates,
             record_counts=record_counts
         )
+    
+    def check_group_data_exists(self, group_id: str, dates: List[str]) -> Dict[str, Any]:
+        """Check if data exists for specific dates across all plugins in a group.
+        
+        Args:
+            group_id: Plugin group ID
+            dates: List of dates to check (YYYY-MM-DD format)
+        
+        Returns:
+            GroupDataExistsCheckResult with per-plugin data existence info
+        """
+        from .schemas import (
+            GroupDataExistsCheckResult, 
+            PluginDataExistsInfo
+        )
+        from .plugin_groups import get_plugin_group
+        
+        group = get_plugin_group(group_id)
+        if not group:
+            raise ValueError(f"Group {group_id} not found")
+        
+        plugin_names = group.get("plugin_names", [])
+        group_name = group.get("name", group_id)
+        
+        plugins_info = []
+        plugins_with_existing_data = []
+        plugins_missing_data = []
+        
+        for plugin_name in plugin_names:
+            plugin = plugin_manager.get_plugin(plugin_name)
+            if not plugin:
+                continue
+            
+            # Get date column to check if this is a dimension table
+            date_column = self._get_plugin_date_column(plugin_name)
+            
+            if not date_column:
+                # Dimension table - check if it has any data
+                schema = plugin.get_schema()
+                table_name = schema.get("table_name", f"ods_{plugin_name}")
+                has_data = False
+                try:
+                    query = f"SELECT 1 FROM {table_name} LIMIT 1"
+                    result = db_client.execute_query(query)
+                    has_data = not result.empty
+                except Exception:
+                    pass
+                
+                plugins_info.append(PluginDataExistsInfo(
+                    plugin_name=plugin_name,
+                    existing_dates=dates if has_data else [],
+                    non_existing_dates=[] if has_data else dates,
+                    has_date_column=False
+                ))
+                
+                if has_data:
+                    plugins_with_existing_data.append(plugin_name)
+                else:
+                    plugins_missing_data.append(plugin_name)
+            else:
+                # Daily data table - check each date
+                check_result = self.check_dates_data_exists(plugin_name, dates)
+                
+                plugins_info.append(PluginDataExistsInfo(
+                    plugin_name=plugin_name,
+                    existing_dates=check_result.existing_dates,
+                    non_existing_dates=check_result.non_existing_dates,
+                    has_date_column=True
+                ))
+                
+                if check_result.existing_dates:
+                    plugins_with_existing_data.append(plugin_name)
+                if check_result.non_existing_dates:
+                    plugins_missing_data.append(plugin_name)
+        
+        # Determine if all plugins have data for all dates
+        all_have_data = all(
+            len(p.non_existing_dates) == 0 for p in plugins_info
+        )
+        
+        return GroupDataExistsCheckResult(
+            group_id=group_id,
+            group_name=group_name,
+            dates_checked=dates,
+            plugins=plugins_info,
+            all_plugins_have_data=all_have_data,
+            plugins_with_existing_data=plugins_with_existing_data,
+            plugins_missing_data=plugins_missing_data
+        )
 
 
 class SyncTaskManager:
@@ -1082,7 +1195,8 @@ class SyncTaskManager:
                 result = plugin.run(trade_date=target_date)
                 
                 if result.get("status") == "success":
-                    task.records_processed = result.get("steps", {}).get("load", {}).get("total_records", 0)
+                    # Convert to int to avoid numpy.uint64 serialization issues
+                    task.records_processed = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
                     task.progress = 100
                 else:
                     # Pipeline failed - get detailed error info
@@ -1202,7 +1316,9 @@ class SyncTaskManager:
                 last_request_time = time.time()
             
             try:
-                result = plugin.run(trade_date=trade_date)
+                # Convert YYYY-MM-DD to YYYYMMDD format for tushare API
+                date_for_api = trade_date.replace("-", "") if "-" in trade_date else trade_date
+                result = plugin.run(trade_date=date_for_api)
                 return {"date": trade_date, "result": result, "error": None}
             except Exception as e:
                 return {"date": trade_date, "result": None, "error": str(e)}
@@ -1218,7 +1334,8 @@ class SyncTaskManager:
                     completed_count += 1
                     
                     if result_data["result"] and result_data["result"].get("status") == "success":
-                        records = result_data["result"].get("steps", {}).get("load", {}).get("total_records", 0)
+                        # Convert to int to avoid numpy.uint64 serialization issues
+                        records = int(result_data["result"].get("steps", {}).get("load", {}).get("total_records", 0))
                         task.records_processed += records
                     elif result_data["error"]:
                         self.logger.warning(

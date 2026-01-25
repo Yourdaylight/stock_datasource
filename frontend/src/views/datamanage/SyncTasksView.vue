@@ -321,12 +321,13 @@ const formatTime = (timeStr?: string) => {
 }
 
 // Get task name from group_name or trigger_type
-const getTaskName = (row: ScheduleExecutionRecord) => {
+// Used by both list view AND detail dialog for consistency
+const getTaskName = (row: ScheduleExecutionRecord | BatchExecutionDetail) => {
+  // 优先使用 group_name（组合名称或插件名称）
   if (row.group_name) {
-    // For manual sync with single plugin, group_name is the plugin name
     return row.group_name
   }
-  // For scheduled/group tasks with count info
+  // 没有 group_name 时，根据 trigger_type 和插件数生成通用名称
   const pluginCount = row.total_plugins || 0
   switch (row.trigger_type) {
     case 'scheduled': 
@@ -426,7 +427,7 @@ onMounted(() => {
                   { colKey: 'plugin_name', title: '插件', width: 180 },
                   { colKey: 'status', title: '状态', width: 100 },
                   { colKey: 'progress', title: '进度', width: 120 },
-                  { colKey: 'records_processed', title: '处理记录', width: 100 },
+                  { colKey: 'records_processed', title: '处理记录', width: 120 },
                   { colKey: 'error_brief', title: '错误信息', minWidth: 200 }
                 ]"
                 size="small"
@@ -442,14 +443,25 @@ onMounted(() => {
                     :percentage="Number(task.progress.toFixed(1))" 
                     size="small"
                     :label="task.progress.toFixed(1) + '%'"
+                    :status="task.status === 'completed' && task.records_processed === 0 ? 'warning' : undefined"
                   />
                 </template>
                 <template #records_processed="{ row: task }">
-                  {{ task.records_processed.toLocaleString() }}
+                  <span v-if="task.records_processed > 0">
+                    {{ task.records_processed.toLocaleString() }}
+                  </span>
+                  <span v-else-if="task.status === 'completed'" class="no-data-warning">
+                    <t-icon name="error-circle" size="14px" />
+                    无数据
+                  </span>
+                  <span v-else>0</span>
                 </template>
                 <template #error_brief="{ row: task }">
                   <span v-if="task.error_message" class="error-brief">
                     {{ getErrorBrief(task.error_message) }}
+                  </span>
+                  <span v-else-if="task.status === 'completed' && task.records_processed === 0" class="no-data-hint">
+                    数据源无该日期数据
                   </span>
                   <span v-else class="no-error">-</span>
                 </template>
@@ -535,7 +547,7 @@ onMounted(() => {
           <div class="batch-summary">
             <div class="summary-item">
               <span class="label">任务名称:</span>
-              <span class="value">{{ selectedBatchDetail.group_name || '同步任务' }}</span>
+              <span class="value">{{ getTaskName(selectedBatchDetail) }}</span>
             </div>
             <div class="summary-item">
               <span class="label">执行ID:</span>
@@ -588,7 +600,7 @@ onMounted(() => {
                 { colKey: 'plugin_name', title: '插件', width: 180 },
                 { colKey: 'status', title: '状态', width: 100 },
                 { colKey: 'progress', title: '进度', width: 120 },
-                { colKey: 'records_processed', title: '处理记录', width: 100 },
+                { colKey: 'records_processed', title: '处理记录', width: 120 },
                 { colKey: 'error_brief', title: '错误信息', minWidth: 200 }
               ]"
               size="small"
@@ -605,14 +617,25 @@ onMounted(() => {
                   :percentage="Number(row.progress.toFixed(1))" 
                   size="small"
                   :label="row.progress.toFixed(1) + '%'"
+                  :status="row.status === 'completed' && row.records_processed === 0 ? 'warning' : undefined"
                 />
               </template>
               <template #records_processed="{ row }">
-                {{ row.records_processed.toLocaleString() }}
+                <span v-if="row.records_processed > 0">
+                  {{ row.records_processed.toLocaleString() }}
+                </span>
+                <span v-else-if="row.status === 'completed'" class="no-data-warning">
+                  <t-icon name="error-circle" size="14px" />
+                  无数据
+                </span>
+                <span v-else>0</span>
               </template>
               <template #error_brief="{ row }">
                 <span v-if="row.error_message" class="error-brief">
                   {{ getErrorBrief(row.error_message) }}
+                </span>
+                <span v-else-if="row.status === 'completed' && row.records_processed === 0" class="no-data-hint">
+                  数据源无该日期数据
                 </span>
                 <span v-else class="no-error">-</span>
               </template>
@@ -737,6 +760,19 @@ onMounted(() => {
 
 .no-error {
   color: var(--td-text-color-placeholder);
+}
+
+.no-data-warning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--td-warning-color);
+  font-size: 12px;
+}
+
+.no-data-hint {
+  color: var(--td-warning-color-hover);
+  font-size: 12px;
 }
 
 /* Batch detail dialog styles */

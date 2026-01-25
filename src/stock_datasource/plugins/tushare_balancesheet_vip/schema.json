@@ -1,0 +1,29 @@
+{
+  "table_name": "ods_balance_sheet_vip",
+  "table_type": "ods",
+  "columns": [
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
+    {"name": "ann_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "公告日期"},
+    {"name": "end_date", "data_type": "Date", "nullable": false, "comment": "报告期"},
+    {"name": "report_type", "data_type": "LowCardinality(String)", "nullable": true, "comment": "报告类型"},
+    {"name": "comp_type", "data_type": "LowCardinality(String)", "nullable": true, "comment": "公司类型(1一般工商业 2银行 3保险 4证券)"},
+    {"name": "total_assets", "data_type": "Nullable(Float64)", "nullable": true, "comment": "资产总计"},
+    {"name": "total_liab", "data_type": "Nullable(Float64)", "nullable": true, "comment": "负债合计"},
+    {"name": "total_hldr_eqy_exc_min_int", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股东权益合计(不含少数股东权益)"},
+    {"name": "total_hldr_eqy_inc_min_int", "data_type": "Nullable(Float64)", "nullable": true, "comment": "股东权益合计(含少数股东权益)"},
+    {"name": "total_liab_hldr_eqy", "data_type": "Nullable(Float64)", "nullable": true, "comment": "负债和股东权益总计"},
+    {"name": "treasury_st_shares", "data_type": "Nullable(Float64)", "nullable": true, "comment": "库存股"},
+    {"name": "special_rcv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "专项应收款"},
+    {"name": "oth_rcv", "data_type": "Nullable(Float64)", "nullable": true, "comment": "其他应收款"},
+    {"name": "oth_eqt_tools", "data_type": "Nullable(Float64)", "nullable": true, "comment": "其他权益工具"},
+    {"name": "oth_eqt_tools_int", "data_type": "Nullable(Float64)", "nullable": true, "comment": "其他权益工具(少数股东)"},
+    {"name": "cash_reser_equity", "data_type": "Nullable(Float64)", "nullable": true, "comment": "库存股"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYear(end_date)",
+  "order_by": ["ts_code", "end_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "Balance sheet VIP data from TuShare API (batch mode)"
+}

@@ -78,12 +78,80 @@
         </div>
       </div>
 
+      <!-- 数据重复校验结果 -->
+      <div v-if="checkResult && checkResult.plugins_with_existing_data.length > 0" class="check-result-section">
+        <h4 class="section-title">数据检测结果</h4>
+        <t-alert theme="warning" :close="false">
+          <template #message>
+            <div class="check-result-content">
+              <p><strong>以下 {{ checkResult.plugins_with_existing_data.length }} 个插件已有数据：</strong></p>
+              <div class="plugin-tags">
+                <t-tag 
+                  v-for="name in checkResult.plugins_with_existing_data" 
+                  :key="name"
+                  theme="warning"
+                  variant="light"
+                >
+                  {{ name }}
+                </t-tag>
+              </div>
+              <p v-if="checkResult.plugins_missing_data.length > 0" class="missing-hint">
+                另有 {{ checkResult.plugins_missing_data.length }} 个插件无数据
+              </p>
+            </div>
+          </template>
+        </t-alert>
+      </div>
+
+      <!-- 覆盖确认 -->
+      <div v-if="showOverwriteConfirm" class="overwrite-section">
+        <t-alert theme="error" :close="false">
+          <template #message>
+            <div class="overwrite-content">
+              <p><strong>请选择操作方式：</strong></p>
+              <t-space direction="vertical" size="small" style="width: 100%">
+                <t-button 
+                  theme="danger" 
+                  variant="outline" 
+                  block
+                  @click="handleOverwriteConfirm(true)"
+                >
+                  覆盖更新所有插件数据
+                </t-button>
+                <t-button 
+                  v-if="checkResult && checkResult.plugins_missing_data.length > 0"
+                  theme="primary" 
+                  variant="outline" 
+                  block
+                  @click="handleOverwriteConfirm(false)"
+                >
+                  仅同步 {{ checkResult.plugins_missing_data.length }} 个缺失数据的插件
+                </t-button>
+                <t-button 
+                  theme="default" 
+                  variant="outline" 
+                  block
+                  @click="showOverwriteConfirm = false"
+                >
+                  取消
+                </t-button>
+              </t-space>
+            </div>
+          </template>
+        </t-alert>
+      </div>
+
       <!-- 操作按钮 -->
       <div class="dialog-footer">
         <t-button theme="default" @click="handleClose">关闭</t-button>
-        <t-button theme="primary" @click="handleExecute" :loading="executing">
+        <t-button 
+          theme="primary" 
+          @click="handleExecute" 
+          :loading="executing || checking"
+          :disabled="showOverwriteConfirm"
+        >
           <t-icon name="play-circle" />
-          执行同步
+          {{ checking ? '检查中...' : '执行同步' }}
         </t-button>
       </div>
     </div>
@@ -97,7 +165,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { PluginGroup, PluginGroupDetail, GroupCategory, TaskType } from '@/api/datamanage'
+import type { PluginGroup, PluginGroupDetail, GroupCategory, TaskType, GroupDataExistsCheckResult } from '@/api/datamanage'
+import { datamanageApi } from '@/api/datamanage'
 import { useDataManageStore } from '@/stores/datamanage'
 
 interface Props {
@@ -115,7 +184,10 @@ const dataStore = useDataManageStore()
 
 const loading = ref(false)
 const executing = ref(false)
+const checking = ref(false)
 const detail = ref<PluginGroupDetail | null>(null)
+const checkResult = ref<GroupDataExistsCheckResult | null>(null)
+const showOverwriteConfirm = ref(false)
 
 const pluginColumns = [
   { colKey: 'name', title: '插件名称', width: 200 },
@@ -154,10 +226,18 @@ const getTaskTypeTheme = (type: TaskType): string => {
   return map[type] || 'default'
 }
 
+// Get today's date in YYYY-MM-DD format
+const getTodayDate = (): string => {
+  const today = new Date()
+  return today.toISOString().split('T')[0]
+}
+
 // 监听 visible 变化，加载详情
 watch(() => props.visible, async (newVal) => {
   if (newVal && props.group) {
     loading.value = true
+    checkResult.value = null
+    showOverwriteConfirm.value = false
     try {
       detail.value = await dataStore.fetchGroupDetail(props.group.group_id)
     } catch (e) {
@@ -167,6 +247,8 @@ watch(() => props.visible, async (newVal) => {
     }
   } else {
     detail.value = null
+    checkResult.value = null
+    showOverwriteConfirm.value = false
   }
 })
 
@@ -174,12 +256,64 @@ const handleClose = () => {
   emit('update:visible', false)
 }
 
+// Check if data exists for the group
+const checkDataExists = async (): Promise<boolean> => {
+  if (!props.group) return false
+  
+  checking.value = true
+  try {
+    // Check today's date for incremental sync
+    const dates = [getTodayDate()]
+    checkResult.value = await datamanageApi.checkGroupDataExists(props.group.group_id, dates)
+    
+    // Return true if any plugin has existing data
+    return checkResult.value.plugins_with_existing_data.length > 0
+  } catch (e) {
+    console.error('Failed to check data exists:', e)
+    // If check fails, proceed without warning
+    return false
+  } finally {
+    checking.value = false
+  }
+}
+
 const handleExecute = async () => {
+  if (!props.group) return
+  
+  // First check if data exists
+  const hasExistingData = await checkDataExists()
+  
+  if (hasExistingData) {
+    // Show confirmation dialog
+    showOverwriteConfirm.value = true
+    return
+  }
+  
+  // No existing data, proceed directly
+  await doExecute(false)
+}
+
+const handleOverwriteConfirm = async (overwrite: boolean) => {
+  if (overwrite) {
+    // Overwrite all
+    await doExecute(true)
+  } else {
+    // Only sync plugins with missing data
+    // For now, just trigger with force_overwrite=false
+    // The backend will handle incremental sync
+    await doExecute(false)
+  }
+}
+
+const doExecute = async (forceOverwrite: boolean) => {
   if (!props.group) return
   
   executing.value = true
   try {
-    await dataStore.triggerPluginGroup(props.group.group_id)
+    await dataStore.triggerPluginGroup(props.group.group_id, {
+      task_type: detail.value?.default_task_type || 'incremental',
+      force_overwrite: forceOverwrite
+    })
     MessagePlugin.success(`已触发组合 "${props.group.name}" 同步`)
     emit('execute', props.group)
     handleClose()
@@ -187,6 +321,7 @@ const handleExecute = async () => {
     MessagePlugin.error(e.message || '触发同步失败')
   } finally {
     executing.value = false
+    showOverwriteConfirm.value = false
   }
 }
 </script>
@@ -239,6 +374,42 @@ const handleExecute = async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.group-detail .check-result-section {
+  margin-top: 16px;
+}
+
+.group-detail .check-result-content {
+  width: 100%;
+}
+
+.group-detail .check-result-content p {
+  margin: 0 0 8px 0;
+}
+
+.group-detail .plugin-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-detail .missing-hint {
+  margin-top: 8px !important;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.group-detail .overwrite-section {
+  margin-top: 16px;
+}
+
+.group-detail .overwrite-content {
+  width: 100%;
+}
+
+.group-detail .overwrite-content p {
+  margin: 0 0 12px 0;
 }
 
 .group-detail .dialog-footer {

@@ -159,11 +159,7 @@ const handleStatusChange = (value: string) => {
 
 const handleDateChange = async (value: string) => {
   await etfStore.setDate(value)
-  // Check if no data for this date
-  if (etfStore.total === 0 && value) {
-    noDataDate.value = value
-    showDataUpdateDialog.value = true
-  }
+  // Don't show dialog here - let the watch handle it after loading completes
 }
 
 const handleManagerChange = (value: string) => {
@@ -278,10 +274,39 @@ onMounted(() => {
 })
 
 // Watch for no data scenario when date changes
-watch(() => etfStore.total, (newTotal) => {
-  if (newTotal === 0 && etfStore.selectedDate && !etfStore.loading) {
-    noDataDate.value = etfStore.selectedDate
+// Only show dialog if loading is complete AND total is 0 AND it's a date change (not filter change)
+const lastCheckedDate = ref('')
+watch(() => [etfStore.total, etfStore.loading, etfStore.selectedDate], ([newTotal, isLoading, selectedDate]) => {
+  // Skip if still loading
+  if (isLoading) return
+  
+  // Skip if no date selected
+  if (!selectedDate) return
+  
+  // Only show dialog if:
+  // 1. Total is 0
+  // 2. The date has changed since last check (not just filter change)
+  // 3. No active filters that could cause zero results
+  const hasActiveFilters = !!(
+    etfStore.selectedExchange ||
+    etfStore.selectedType ||
+    etfStore.selectedInvestType ||
+    etfStore.selectedStatus ||
+    etfStore.searchKeyword ||
+    etfStore.selectedManager ||
+    etfStore.selectedTrackingIndex ||
+    etfStore.selectedFeeRange ||
+    etfStore.selectedAmountRange ||
+    etfStore.selectedPctChgRange
+  )
+  
+  if (newTotal === 0 && selectedDate !== lastCheckedDate.value && !hasActiveFilters) {
+    lastCheckedDate.value = selectedDate
+    noDataDate.value = selectedDate
     showDataUpdateDialog.value = true
+  } else if (newTotal > 0) {
+    // Reset when we have data
+    lastCheckedDate.value = selectedDate
   }
 })
 </script>

@@ -414,6 +414,29 @@ export interface PredefinedGroupsResponse {
 export interface PluginGroupTriggerRequest {
   task_type?: 'incremental' | 'full' | 'backfill'
   trade_dates?: string[]
+  force_overwrite?: boolean
+}
+
+// Group data exists check types
+export interface GroupDataExistsCheckRequest {
+  dates: string[]
+}
+
+export interface PluginDataExistsInfo {
+  plugin_name: string
+  existing_dates: string[]
+  non_existing_dates: string[]
+  has_date_column: boolean
+}
+
+export interface GroupDataExistsCheckResult {
+  group_id: string
+  group_name: string
+  dates_checked: string[]
+  plugins: PluginDataExistsInfo[]
+  all_plugins_have_data: boolean
+  plugins_with_existing_data: string[]
+  plugins_missing_data: string[]
 }
 
 export interface SyncTaskListResponse {
@@ -740,6 +763,10 @@ export const datamanageApi = {
 
   deletePluginGroup(groupId: string): Promise<void> {
     return request.delete(`/api/datamanage/groups/${groupId}`)
+  },
+
+  checkGroupDataExists(groupId: string, dates: string[]): Promise<GroupDataExistsCheckResult> {
+    return request.post(`/api/datamanage/groups/${groupId}/check-exists`, { dates })
   },
 
   triggerPluginGroup(groupId: string, data?: PluginGroupTriggerRequest): Promise<ScheduleExecutionRecord> {

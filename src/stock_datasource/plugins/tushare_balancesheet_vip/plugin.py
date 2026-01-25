@@ -49,6 +49,12 @@ class TuShareBalancesheetVipPlugin(BasePlugin):
         """Return optional dependencies."""
         return []
     
+    def get_schema(self) -> Dict[str, Any]:
+        """Get table schema from separate JSON file."""
+        schema_file = Path(__file__).parent / "schema.json"
+        with open(schema_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
     def extract_data(self, **kwargs) -> pd.DataFrame:
         """Extract balance sheet VIP data from TuShare.
         

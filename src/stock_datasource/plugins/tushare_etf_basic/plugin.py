@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from pathlib import Path
 import json
+import time
 
 from stock_datasource.plugins import BasePlugin
 from stock_datasource.core.base_plugin import PluginCategory, PluginRole
@@ -169,32 +170,45 @@ class TuShareETFBasicPlugin(BasePlugin):
         
         try:
             table_name = 'ods_etf_basic'
-            
+
             # For full_replace mode, truncate table first
             if self.get_sync_mode() == 'full_replace':
                 if not self._truncate_table(table_name):
                     return {"status": "failed", "error": f"Failed to truncate {table_name}"}
-            
+
             # Load into ODS table
             self.logger.info(f"Loading {len(data)} records into {table_name}")
             ods_data = data.copy()
             ods_data['version'] = int(datetime.now().timestamp())
             ods_data['_ingested_at'] = datetime.now()
-            
+
             ods_data = self._prepare_data_for_insert(table_name, ods_data)
-            
+
             # Add ClickHouse settings for large inserts
             settings = {
-                'max_partitions_per_insert_block': 1000
+                'max_partitions_per_insert_block': 1000,
+                'wait_for_async_insert': 1,  # Wait for async insert to complete
+                'async_insert': 0  # Disable async insert to ensure data is written
             }
             self.db.insert_dataframe(table_name, ods_data, settings=settings)
-            
+
+            # Verify data was actually written
+            self.logger.info(f"Verifying data insertion into {table_name}")
+            time.sleep(2)  # Give ClickHouse time to process
+            actual_count = self.db.execute_query(f"SELECT count() FROM {table_name}")
+            if not actual_count.empty:
+                actual_records = actual_count.iloc[0, 0]
+                self.logger.info(f"Verified {actual_records} records in {table_name}")
+            else:
+                actual_records = 0
+                self.logger.warning(f"Could not verify record count in {table_name}")
+
             results['tables_loaded'].append({
                 'table': table_name,
-                'records': len(ods_data)
+                'records': actual_records  # Use actual count, not attempt count
             })
-            results['total_records'] += len(ods_data)
-            self.logger.info(f"Loaded {len(ods_data)} records into {table_name}")
+            results['total_records'] = actual_records
+            self.logger.info(f"Loaded {actual_records} records into {table_name}")
             
         except Exception as e:
             self.logger.error(f"Failed to load data: {e}")

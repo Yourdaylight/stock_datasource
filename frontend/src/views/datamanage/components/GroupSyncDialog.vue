@@ -123,7 +123,7 @@ const selectedDateCount = computed(() => {
           />
           <div v-if="selectedDateCount > 0" class="date-hint">
             <t-icon name="info-circle" />
-            <span>已选择 {{ selectedDateCount }} 天</span>
+            <span>已选择 {{ selectedDateCount }} 天（系统会自动过滤非交易日）</span>
           </div>
         </t-form-item>
         

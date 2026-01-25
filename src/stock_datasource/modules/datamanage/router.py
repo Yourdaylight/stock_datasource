@@ -17,7 +17,8 @@ from .schemas import (
     DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
     BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum,
     SyncTaskListResponse, TaskStatus,
-    GroupCategory, PluginGroupDetail, GroupPluginStatus, PredefinedGroupsResponse, GroupCategoryInfo
+    GroupCategory, PluginGroupDetail, GroupPluginStatus, PredefinedGroupsResponse, GroupCategoryInfo,
+    GroupDataExistsCheckRequest, GroupDataExistsCheckResult
 )
 from .service import data_manage_service, sync_task_manager, diagnosis_service
 from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
@@ -1136,6 +1137,23 @@ async def delete_plugin_group_endpoint(
     return {"success": True, "message": "Group deleted"}
 
 
+@router.post("/groups/{group_id}/check-exists")
+async def check_group_data_exists(
+    group_id: str,
+    request: GroupDataExistsCheckRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """检查组合中所有插件指定日期的数据是否存在.
+    
+    用于在触发组合同步前检查数据重复情况，与单插件同步的数据检查逻辑一致。
+    """
+    try:
+        result = data_manage_service.check_group_data_exists(group_id, request.dates)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/groups/{group_id}/trigger", response_model=ScheduleExecutionRecord)
 async def trigger_plugin_group(
     group_id: str,
@@ -1145,7 +1163,11 @@ async def trigger_plugin_group(
     """触发插件组合同步.
     
     按依赖顺序执行组合中的所有插件。
+    维度表(basic类)只执行一次全量同步,不传递多日期。
+    日期列表会自动过滤非交易日。
     """
+    from stock_datasource.core.trade_calendar import trade_calendar_service
+    
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
@@ -1153,6 +1175,28 @@ async def trigger_plugin_group(
     plugin_names = group.get("plugin_names", [])
     if not plugin_names:
         raise HTTPException(status_code=400, detail="Group has no plugins")
+    
+    # Dimension tables that should not receive trade_dates for backfill
+    dim_tables = {
+        "tushare_stock_basic", "tushare_index_basic", "tushare_index_classify",
+        "tushare_ths_index", "tushare_etf_basic", "akshare_hk_stock_list",
+    }
+    
+    # Filter trade_dates to only include actual trading days
+    # Use calendar membership check for correctness (supports any historical range)
+    filtered_trade_dates = None
+    if request.trade_dates:
+        filtered_trade_dates = [d for d in request.trade_dates if trade_calendar_service.is_trading_day(d)]
+        if not filtered_trade_dates:
+            logger.warning(f"All provided dates are non-trading days: {request.trade_dates[:5]}...")
+            # Fall back to original dates if all filtered out (edge case)
+            filtered_trade_dates = request.trade_dates
+        elif len(filtered_trade_dates) < len(request.trade_dates):
+            filtered_out = [d for d in request.trade_dates if d not in filtered_trade_dates]
+            logger.info(
+                f"Filtered {len(filtered_out)} non-trading days, remaining {len(filtered_trade_dates)} trading days. "
+                f"Example filtered out: {filtered_out[:5]}"
+            )
     
     # Create tasks for each plugin
     task_ids = []
@@ -1162,17 +1206,26 @@ async def trigger_plugin_group(
             continue
         
         try:
+            # Determine task type and dates based on plugin type
+            task_type = request.task_type
+            trade_dates = filtered_trade_dates
+            
+            # For dimension tables, always use incremental (single run) without multi-date
+            if name in dim_tables:
+                task_type = TaskType.INCREMENTAL
+                trade_dates = None  # Dimension tables don't need dates
+            
             task = sync_task_manager.create_task(
                 plugin_name=name,
-                task_type=request.task_type,
-                trade_dates=request.trade_dates,
+                task_type=task_type,
+                trade_dates=trade_dates,
                 user_id=current_user.get("id"),
                 username=current_user.get("username"),
             )
             task_ids.append(task.task_id)
         except Exception as e:
             # Log but continue
-            pass
+            logger.warning(f"Failed to create task for {name}: {e}")
     
     if not task_ids:
         raise HTTPException(status_code=400, detail="Failed to create any tasks")
