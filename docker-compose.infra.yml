@@ -33,19 +33,18 @@ services:
     restart: always
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-stockredis123}
       --maxmemory 1gb
       --maxmemory-policy allkeys-lru
       --appendonly yes
       --appendfsync everysec
     ports:
-      - "${REDIS_EXPOSE_PORT:-6380}:6379"
+      - "${REDIS_EXPOSE_PORT:-16379}:6379"
     volumes:
       - redis_data:/data
     networks:
       - stock_network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-stockredis123}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10

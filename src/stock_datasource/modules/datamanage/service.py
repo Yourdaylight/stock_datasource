@@ -1355,7 +1355,9 @@ class SyncTaskManager:
         task_type: TaskType = TaskType.INCREMENTAL,
         trade_dates: Optional[List[str]] = None,
         user_id: Optional[str] = None,
-        username: Optional[str] = None
+        username: Optional[str] = None,
+        use_queue: bool = True,
+        execution_id: Optional[str] = None
     ) -> SyncTask:
         """Create a new sync task.
         
@@ -1365,10 +1367,55 @@ class SyncTaskManager:
             trade_dates: List of dates for backfill
             user_id: ID of the user who triggered the task
             username: Username of the user who triggered the task
+            use_queue: If True, use Redis queue (worker processes); 
+                       If False, use legacy ThreadPoolExecutor
+            execution_id: Batch execution ID if part of a group trigger
         
         Returns:
             Created task
         """
+        # Try to use Redis queue if enabled
+        if use_queue:
+            try:
+                from stock_datasource.services.task_queue import task_queue, TaskPriority
+                
+                # Determine priority
+                priority = TaskPriority.HIGH if task_type == TaskType.INCREMENTAL else TaskPriority.NORMAL
+                
+                task_id = task_queue.enqueue(
+                    plugin_name=plugin_name,
+                    task_type=task_type.value,
+                    trade_dates=trade_dates,
+                    priority=priority,
+                    execution_id=execution_id,
+                    user_id=user_id,
+                )
+                
+                if task_id:
+                    # Create SyncTask object for API response
+                    task = SyncTask(
+                        task_id=task_id,
+                        plugin_name=plugin_name,
+                        task_type=task_type.value,
+                        status=TaskStatus.PENDING,
+                        progress=0,
+                        records_processed=0,
+                        trade_dates=trade_dates or [],
+                        created_at=datetime.now(),
+                        user_id=user_id,
+                        username=username
+                    )
+                    
+                    # Also save to ClickHouse for history
+                    self._save_task_to_db(task)
+                    
+                    self.logger.info(f"Created task {task_id} in Redis queue for plugin {plugin_name}")
+                    return task
+                    
+            except Exception as e:
+                self.logger.warning(f"Redis queue unavailable, falling back to legacy mode: {e}")
+        
+        # Legacy mode: use in-memory queue + ThreadPoolExecutor
         task_id = str(uuid.uuid4())
         
         task = SyncTask(
@@ -1391,11 +1438,37 @@ class SyncTaskManager:
         # Save to database immediately
         self._save_task_to_db(task)
         
-        self.logger.info(f"Created task {task_id} for plugin {plugin_name}")
+        self.logger.info(f"Created task {task_id} for plugin {plugin_name} (legacy mode)")
         return task
     
     def get_task(self, task_id: str) -> Optional[SyncTask]:
-        """Get task by ID."""
+        """Get task by ID.
+        
+        First checks Redis queue, then falls back to in-memory cache.
+        """
+        # Try Redis first
+        try:
+            from stock_datasource.services.task_queue import task_queue
+            task_data = task_queue.get_task(task_id)
+            if task_data:
+                # Convert to SyncTask
+                return SyncTask(
+                    task_id=task_data.get("task_id"),
+                    plugin_name=task_data.get("plugin_name"),
+                    task_type=task_data.get("task_type"),
+                    status=TaskStatus(task_data.get("status", "pending")),
+                    progress=float(task_data.get("progress", 0)),
+                    records_processed=int(task_data.get("records_processed", 0)),
+                    trade_dates=task_data.get("trade_dates", []),
+                    error_message=task_data.get("error_message"),
+                    created_at=datetime.fromisoformat(task_data["created_at"]) if task_data.get("created_at") else None,
+                    started_at=datetime.fromisoformat(task_data["started_at"]) if task_data.get("started_at") else None,
+                    completed_at=datetime.fromisoformat(task_data["completed_at"]) if task_data.get("completed_at") else None,
+                )
+        except Exception as e:
+            self.logger.debug(f"Redis task lookup failed: {e}")
+        
+        # Fall back to in-memory
         return self._tasks.get(task_id)
     
     def get_all_tasks(self) -> List[SyncTask]:
