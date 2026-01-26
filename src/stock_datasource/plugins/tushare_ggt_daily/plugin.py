@@ -12,25 +12,67 @@ class GgtDailyPlugin(BasePlugin):
     def __init__(self, **kwargs):
         config_path = Path(__file__).parent / "config.json"
         with open(config_path) as f:
-            self.plugin_config = json.load(f)
+            self._plugin_config = json.load(f)
 
-        super().__init__(
-            name=self.plugin_config["plugin_name"],
-            category=PluginCategory.HK_STOCK,
-            role=PluginRole.PRIMARY,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
+
+    @property
+    def name(self) -> str:
+        """Plugin name."""
+        return self._plugin_config.get("plugin_name", "tushare_ggt_daily")
 
     @property
     def description(self) -> str:
-        return self.plugin_config["description"]
+        return self._plugin_config.get("description", "港股通每日成交统计插件")
 
-    def run(self, **kwargs) -> dict:
-        """运行插件获取港股通每日成交统计数据"""
+    def extract_data(self, **kwargs) -> dict:
+        """Extract GGT daily data from TuShare API."""
         from .extractor import GgtDailyExtractor
 
         extractor = GgtDailyExtractor()
-        df = extractor.extract(**kwargs)
+        return extractor.extract(**kwargs)
+
+    def load_data(self, data: dict) -> dict:
+        """Load GGT daily data into database.
+
+        Args:
+            data: DataFrame with GGT daily data
+
+        Returns:
+            Dict with loading statistics
+        """
+        import pandas as pd
+
+        # Convert dict back to DataFrame if needed
+        if isinstance(data, dict) and "data" in data:
+            df = pd.DataFrame(data["data"])
+        else:
+            df = data
+
+        if not self.db:
+            raise ValueError("Database connection not available")
+
+        # Use the BasePlugin's _ensure_table_exists method
+        schema = self.get_schema()
+        self._ensure_table_exists(schema)
+
+        # Insert data using ClickHouse client
+        table_name = schema.get('table_name')
+        if not table_name:
+            raise ValueError("Table name not found in schema")
+
+        # Convert DataFrame to ClickHouse format
+        self.db.insert_dataframe(table_name, df)
+
+        return {
+            "status": "success",
+            "count": len(df),
+            "table": table_name
+        }
+
+    def run(self, **kwargs) -> dict:
+        """运行插件获取港股通每日成交统计数据"""
+        df = self.extract_data(**kwargs)
 
         return {
             "status": "success",

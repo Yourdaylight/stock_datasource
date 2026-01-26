@@ -279,7 +279,10 @@ def create_app() -> FastAPI:
     
     # Register module routes (8 business modules)
     _register_module_routes(app)
-    
+
+    # Register system logs routes
+    _register_system_logs_routes(app)
+
     # Register strategy routes
     _register_strategy_routes(app)
     
@@ -323,8 +326,33 @@ def create_app() -> FastAPI:
         return {
             "name": "AI Stock Platform",
             "version": "2.0.0",
-            "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest", "toplist"]
+            "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest", "toplist", "system_logs"]
         }
+    
+    # Custom access log middleware
+    @app.middleware("http")
+    async def log_requests(request, call_next):
+        """Log HTTP requests with timestamp."""
+        from datetime import datetime
+        from stock_datasource.utils.logger import logger as loguru_logger
+        
+        start_time = datetime.now()
+        
+        # Process request
+        response = await call_next(request)
+        
+        # Calculate duration
+        process_time = (datetime.now() - start_time).total_seconds()
+        
+        # Log with timestamp using loguru format
+        loguru_logger.info(
+            f"{request.client.host}:{request.client.port} - "
+            f'"{request.method} {request.url.path}{request.url.query}" '
+            f"{response.status_code} - "
+            f"{process_time:.3f}s"
+        )
+        
+        return response
     
     return app
 
@@ -333,7 +361,7 @@ def _register_module_routes(app: FastAPI) -> None:
     """Register all business module routes."""
     try:
         from stock_datasource.modules import get_all_routers
-        
+
         for prefix, router, tags in get_all_routers():
             app.include_router(
                 router,
@@ -343,6 +371,16 @@ def _register_module_routes(app: FastAPI) -> None:
             logger.info(f"Registered module: {prefix}")
     except Exception as e:
         logger.warning(f"Failed to register module routes: {e}")
+
+
+def _register_system_logs_routes(app: FastAPI) -> None:
+    """Register system logs routes."""
+    try:
+        from stock_datasource.modules.system_logs.router import router as system_logs_router
+        app.include_router(system_logs_router)
+        logger.info("Registered system logs routes")
+    except Exception as e:
+        logger.warning(f"Failed to register system logs routes: {e}")
 
 
 def _register_strategy_routes(app: FastAPI) -> None:
@@ -482,4 +520,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         log_level="info",
+        access_log=False,  # Disable default access log, using custom middleware instead
     )
