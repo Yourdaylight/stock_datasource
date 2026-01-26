@@ -20,7 +20,7 @@ import sys
 import time
 import traceback
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any
 
 from stock_datasource.services.task_queue import task_queue, TaskPriority
 from stock_datasource.core.plugin_manager import plugin_manager
@@ -33,6 +33,75 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("task_worker")
+
+
+def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Queue) -> None:
+    """Run plugin in a subprocess and report result via queue.
+
+    This function MUST NOT raise (best effort) so the parent can classify failures.
+    """
+    try:
+        from stock_datasource.core.proxy import proxy_context
+
+        plugin_name = task_data.get("plugin_name")
+        task_type = task_data.get("task_type")
+        trade_dates = task_data.get("trade_dates", [])
+        task_id = task_data.get("task_id")
+
+        plugin_manager.discover_plugins()
+        plugin = plugin_manager.get_plugin(plugin_name)
+        if not plugin:
+            result_queue.put((False, 0, "plugin_not_found", f"Plugin {plugin_name} not found"))
+            return
+
+        with proxy_context():
+            if task_type == "backfill" and trade_dates:
+                # run per date to provide partial progress in parent process only
+                total_records = 0
+                for date in trade_dates:
+                    date_for_api = date.replace("-", "") if "-" in date else date
+                    result = plugin.run(trade_date=date_for_api)
+                    if result.get("status") != "success":
+                        err = result.get("error", "插件执行失败")
+                        detail = result.get("error_detail", "")
+                        msg = f"{err}\n{detail}" if detail else err
+                        result_queue.put((False, total_records, "retryable", msg))
+                        return
+                    total_records += int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+
+                result_queue.put((True, total_records, "", ""))
+                return
+
+            # incremental
+            from stock_datasource.core.trade_calendar import trade_calendar_service
+
+            today = datetime.now().strftime("%Y%m%d")
+            if trade_calendar_service.is_trading_day(today):
+                target_date = today
+            else:
+                prev_date = trade_calendar_service.get_prev_trading_day(today)
+                target_date = prev_date or (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+            # incremental
+            # NOTE: some plugins (e.g. *_vip) are batch-mode and require `period` instead of `trade_date`.
+            run_kwargs: dict[str, Any] = {"trade_date": target_date}
+
+            if plugin_name and plugin_name.endswith("_vip"):
+                year = target_date[:4]
+                run_kwargs = {"period": f"{year}1231"}
+
+            result = plugin.run(**run_kwargs)
+            if result.get("status") != "success":
+                err = result.get("error", "插件执行失败")
+                detail = result.get("error_detail", "")
+                msg = f"{err}\n{detail}" if detail else err
+                result_queue.put((False, 0, "retryable", msg))
+                return
+
+            records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+            result_queue.put((True, records, "", ""))
+    except Exception as e:
+        result_queue.put((False, 0, "retryable", str(e)))
 
 
 class TaskWorker:
@@ -81,55 +150,185 @@ class TaskWorker:
         logger.info(f"Worker {self.worker_id}: Stopped")
     
     def _process_task(self, task_data: dict):
-        """Process a single task.
-        
-        Args:
-            task_data: Task data dict from queue
-        """
+        """Process a single task with timeout + automatic retries."""
         task_id = task_data.get("task_id")
         plugin_name = task_data.get("plugin_name")
-        task_type = task_data.get("task_type")
-        trade_dates = task_data.get("trade_dates", [])
-        
+
         self.current_task_id = task_id
         logger.info(f"Worker {self.worker_id}: Processing task {task_id} for plugin {plugin_name}")
-        
+
         try:
-            # Get plugin
-            plugin = plugin_manager.get_plugin(plugin_name)
-            if not plugin:
-                raise ValueError(f"Plugin {plugin_name} not found")
-            
-            # Execute based on task type
-            if task_type == "backfill" and trade_dates:
-                records = self._execute_backfill(task_id, plugin, trade_dates)
-            else:
-                records = self._execute_incremental(task_id, plugin)
-            
-            # Mark as completed
-            task_queue.complete_task(task_id, records)
-            
-            # Update execution stats
+            attempt = int(task_data.get("attempt", 0))
+            max_attempts = int(task_data.get("max_attempts", 3))
+
+            try:
+                timeout_seconds = int(task_data.get("timeout_seconds", 900))
+            except Exception:
+                raw_timeout = task_data.get("timeout_seconds")
+                logger.warning(
+                    f"Worker {self.worker_id}: Invalid timeout_seconds={raw_timeout!r} for task {task_id}, fallback to 900"
+                )
+                timeout_seconds = 900
+
             execution_id = task_data.get("execution_id")
+
+            if attempt >= max_attempts:
+                raise ValueError(f"Task attempts already exhausted: attempt={attempt}, max_attempts={max_attempts}")
+
+            success, records, error_type, error_msg = self._run_task_with_timeout(
+                task_data=task_data,
+                timeout_seconds=timeout_seconds,
+            )
+
+            if success:
+                task_queue.complete_task(task_id, records)
+                if execution_id:
+                    task_queue.update_execution_stats(execution_id)
+                logger.info(f"Worker {self.worker_id}: Task {task_id} completed with {records} records")
+                return
+
+            # Failed
+            next_attempt = attempt + 1
+            if self._is_retryable_error(error_type) and next_attempt < max_attempts:
+                delay_seconds = self._compute_backoff_seconds(next_attempt)
+                logger.warning(
+                    f"Worker {self.worker_id}: Task {task_id} failed (attempt {next_attempt}/{max_attempts}), "
+                    f"retry in {delay_seconds}s: {error_type}: {error_msg[:200]}"
+                )
+                self._schedule_retry(
+                    task_data=task_data,
+                    next_attempt=next_attempt,
+                    delay_seconds=delay_seconds,
+                    last_error_type=error_type,
+                    error_message=error_msg,
+                )
+                if execution_id:
+                    task_queue.update_execution_stats(execution_id)
+                return
+
+            # Attempts exhausted or non-retryable
+            final_attempt = next_attempt if next_attempt > attempt else attempt
+            full_error = f"{error_type}: {error_msg}\n\n{traceback.format_exc()}"
+            self._mark_failed_exhausted(
+                task_id=task_id,
+                attempt=final_attempt,
+                max_attempts=max_attempts,
+                last_error_type=error_type,
+                error_message=full_error,
+            )
             if execution_id:
                 task_queue.update_execution_stats(execution_id)
-            
-            logger.info(f"Worker {self.worker_id}: Task {task_id} completed with {records} records")
-            
+
+            logger.error(
+                f"Worker {self.worker_id}: Task {task_id} failed permanently: {error_type}: {error_msg[:200]}"
+            )
+
         except Exception as e:
             error_msg = f"{str(e)}\n\n{traceback.format_exc()}"
             task_queue.fail_task(task_id, error_msg)
-            
-            # Update execution stats
             execution_id = task_data.get("execution_id")
             if execution_id:
                 task_queue.update_execution_stats(execution_id)
-            
             logger.error(f"Worker {self.worker_id}: Task {task_id} failed: {e}")
-        
+
         finally:
             self.current_task_id = None
     
+    def _is_retryable_error(self, error_type: str) -> bool:
+        if error_type in {"plugin_not_found", "config_error"}:
+            return False
+        return True
+
+    def _compute_backoff_seconds(self, attempt: int) -> int:
+        # Exponential backoff with jitter (bounded)
+        base = min(2 ** attempt, 60)
+        jitter = int(time.time()) % 3
+        return base + jitter
+
+    def _schedule_retry(
+        self,
+        task_data: dict,
+        next_attempt: int,
+        delay_seconds: int,
+        last_error_type: str,
+        error_message: str,
+    ) -> None:
+        from stock_datasource.services.task_queue import RedisUnavailableError
+
+        task_id = task_data.get("task_id")
+        priority = int(task_data.get("priority", TaskPriority.NORMAL.value))
+
+        try:
+            redis = task_queue._get_redis()
+        except RedisUnavailableError:
+            return
+
+        now = datetime.now()
+        next_run_at = (now + timedelta(seconds=delay_seconds)).isoformat()
+
+        redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
+            "status": "pending",
+            "attempt": next_attempt,
+            "next_run_at": next_run_at,
+            "last_error_type": last_error_type,
+            "error_message": error_message[:2000],
+            "updated_at": now.isoformat(),
+            "started_at": "",
+            "completed_at": "",
+        })
+
+        queue_key = task_queue.QUEUE_KEY.format(priority=priority)
+        redis.lpush(queue_key, task_id)
+
+    def _mark_failed_exhausted(
+        self,
+        task_id: str,
+        attempt: int,
+        max_attempts: int,
+        last_error_type: str,
+        error_message: str,
+    ) -> None:
+        from stock_datasource.services.task_queue import RedisUnavailableError
+
+        try:
+            redis = task_queue._get_redis()
+        except RedisUnavailableError:
+            return
+
+        now = datetime.now().isoformat()
+        redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
+            "status": "failed",
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "last_error_type": last_error_type,
+            "error_message": error_message[:2000],
+            "completed_at": now,
+            "updated_at": now,
+        })
+        redis.srem(task_queue.RUNNING_KEY, task_id)
+
+    def _run_task_with_timeout(self, task_data: dict, timeout_seconds: int) -> tuple[bool, int, str, str]:
+        """Run the plugin execution in a child process to enforce wall-clock timeout."""
+        result_queue: multiprocessing.Queue = multiprocessing.Queue(maxsize=1)
+
+        proc = multiprocessing.Process(
+            target=_run_plugin_in_subprocess,
+            args=(task_data, result_queue),
+        )
+        proc.start()
+        proc.join(timeout=timeout_seconds)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+            return False, 0, "timeout", f"Task exceeded timeout_seconds={timeout_seconds}"
+
+        try:
+            success, records, error_type, error_msg = result_queue.get_nowait()
+            return bool(success), int(records), str(error_type), str(error_msg)
+        except Exception:
+            return False, 0, "unknown", "Subprocess finished without returning result"
+
     def _execute_incremental(self, task_id: str, plugin) -> int:
         """Execute incremental sync for a plugin.
         

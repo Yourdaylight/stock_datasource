@@ -154,13 +154,17 @@ async def trigger_sync(
             }
         )
     
-    task = sync_task_manager.create_task(
-        plugin_name=request.plugin_name,
-        task_type=request.task_type,
-        trade_dates=request.trade_dates,
-        user_id=current_user.get("id"),
-        username=current_user.get("username"),
-    )
+    try:
+        task = sync_task_manager.create_task(
+            plugin_name=request.plugin_name,
+            task_type=request.task_type,
+            trade_dates=request.trade_dates,
+            user_id=current_user.get("id"),
+            username=current_user.get("username"),
+        )
+    except Exception as e:
+        # Mode A: Redis required
+        raise HTTPException(status_code=503, detail=str(e))
     
     # Create execution record for single plugin sync with plugin name as group_name
     schedule_service.create_manual_execution(
@@ -175,27 +179,42 @@ async def trigger_sync(
 @router.get("/sync/status/{task_id}", response_model=SyncTask)
 async def get_sync_status(task_id: str, current_user: dict = Depends(require_admin)):
     """Get sync task status."""
-    task = sync_task_manager.get_task(task_id)
+    try:
+        task = sync_task_manager.get_task(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     if not task:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
     return task
 
 
 @router.post("/sync/cancel/{task_id}")
 async def cancel_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Cancel a pending sync task."""
-    success = sync_task_manager.cancel_task(task_id)
+    try:
+        success = sync_task_manager.cancel_task(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     if not success:
         raise HTTPException(status_code=400, detail="Cannot cancel task (not pending or not found)")
+
     return {"success": True, "message": "Task cancelled"}
 
 
 @router.delete("/sync/tasks/{task_id}")
 async def delete_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Delete a sync task (any status except running)."""
-    success = sync_task_manager.delete_task(task_id)
+    try:
+        success = sync_task_manager.delete_task(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     if not success:
         raise HTTPException(status_code=400, detail="Cannot delete task (running or not found)")
+
     return {"success": True, "message": "Task deleted"}
 
 
@@ -206,12 +225,17 @@ async def retry_sync_task(task_id: str, current_user: dict = Depends(require_adm
     Creates a new task with the same parameters as the original task.
     Only works for tasks with status 'failed' or 'cancelled'.
     """
-    new_task = sync_task_manager.retry_task(task_id)
+    try:
+        new_task = sync_task_manager.retry_task(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     if not new_task:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Cannot retry task (not found or not in failed/cancelled status)"
         )
+
     return new_task
 
 

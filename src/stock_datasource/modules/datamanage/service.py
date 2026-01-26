@@ -1374,50 +1374,31 @@ class SyncTaskManager:
         Returns:
             Created task
         """
-        # Try to use Redis queue if enabled
-        if use_queue:
-            try:
-                from stock_datasource.services.task_queue import task_queue, TaskPriority
-                
-                # Determine priority
-                priority = TaskPriority.HIGH if task_type == TaskType.INCREMENTAL else TaskPriority.NORMAL
-                
-                task_id = task_queue.enqueue(
-                    plugin_name=plugin_name,
-                    task_type=task_type.value,
-                    trade_dates=trade_dates,
-                    priority=priority,
-                    execution_id=execution_id,
-                    user_id=user_id,
-                )
-                
-                if task_id:
-                    # Create SyncTask object for API response
-                    task = SyncTask(
-                        task_id=task_id,
-                        plugin_name=plugin_name,
-                        task_type=task_type.value,
-                        status=TaskStatus.PENDING,
-                        progress=0,
-                        records_processed=0,
-                        trade_dates=trade_dates or [],
-                        created_at=datetime.now(),
-                        user_id=user_id,
-                        username=username
-                    )
-                    
-                    # Also save to ClickHouse for history
-                    self._save_task_to_db(task)
-                    
-                    self.logger.info(f"Created task {task_id} in Redis queue for plugin {plugin_name}")
-                    return task
-                    
-            except Exception as e:
-                self.logger.warning(f"Redis queue unavailable, falling back to legacy mode: {e}")
-        
-        # Legacy mode: use in-memory queue + ThreadPoolExecutor
-        task_id = str(uuid.uuid4())
-        
+        if not use_queue:
+            raise ValueError("Legacy in-memory execution is no longer supported; use Redis queue")
+
+        # Redis queue is the single execution path (Mode A).
+        from stock_datasource.services.task_queue import task_queue, TaskPriority, RedisUnavailableError
+
+        # Determine priority
+        priority = TaskPriority.HIGH if task_type == TaskType.INCREMENTAL else TaskPriority.NORMAL
+
+        try:
+            task_id = task_queue.enqueue(
+                plugin_name=plugin_name,
+                task_type=task_type.value,
+                trade_dates=trade_dates,
+                priority=priority,
+                execution_id=execution_id,
+                user_id=user_id,
+            )
+        except RedisUnavailableError as e:
+            raise ValueError(f"Redis unavailable: {e}")
+
+        if not task_id:
+            raise ValueError("Failed to enqueue task")
+
+        # Create SyncTask object for API response
         task = SyncTask(
             task_id=task_id,
             plugin_name=plugin_name,
@@ -1430,46 +1411,26 @@ class SyncTaskManager:
             user_id=user_id,
             username=username
         )
-        
-        with self._lock:
-            self._tasks[task_id] = task
-            self._task_queue.append(task_id)
-        
-        # Save to database immediately
+
+        # Also save to ClickHouse for history
         self._save_task_to_db(task)
-        
-        self.logger.info(f"Created task {task_id} for plugin {plugin_name} (legacy mode)")
+
+        self.logger.info(f"Created task {task_id} in Redis queue for plugin {plugin_name}")
         return task
     
     def get_task(self, task_id: str) -> Optional[SyncTask]:
-        """Get task by ID.
-        
-        First checks Redis queue, then falls back to in-memory cache.
+        """Get task by ID (Redis is the single source of truth).
+
+        Mode A:
+            If Redis is unavailable, raise to let API fail fast.
         """
-        # Try Redis first
-        try:
-            from stock_datasource.services.task_queue import task_queue
-            task_data = task_queue.get_task(task_id)
-            if task_data:
-                # Convert to SyncTask
-                return SyncTask(
-                    task_id=task_data.get("task_id"),
-                    plugin_name=task_data.get("plugin_name"),
-                    task_type=task_data.get("task_type"),
-                    status=TaskStatus(task_data.get("status", "pending")),
-                    progress=float(task_data.get("progress", 0)),
-                    records_processed=int(task_data.get("records_processed", 0)),
-                    trade_dates=task_data.get("trade_dates", []),
-                    error_message=task_data.get("error_message"),
-                    created_at=datetime.fromisoformat(task_data["created_at"]) if task_data.get("created_at") else None,
-                    started_at=datetime.fromisoformat(task_data["started_at"]) if task_data.get("started_at") else None,
-                    completed_at=datetime.fromisoformat(task_data["completed_at"]) if task_data.get("completed_at") else None,
-                )
-        except Exception as e:
-            self.logger.debug(f"Redis task lookup failed: {e}")
-        
-        # Fall back to in-memory
-        return self._tasks.get(task_id)
+        from stock_datasource.services.task_queue import task_queue
+
+        task_data = task_queue.get_task(task_id)
+        if not task_data:
+            return None
+
+        return self._task_data_to_sync_task(task_data)
     
     def get_all_tasks(self) -> List[SyncTask]:
         """Get all tasks."""
@@ -1499,8 +1460,17 @@ class SyncTaskManager:
         Returns:
             Paginated task list response
         """
-        # Get all tasks
-        tasks = list(self._tasks.values())
+        tasks: List[SyncTask] = []
+
+        # Prefer Redis-backed task list (single source of truth).
+        try:
+            from stock_datasource.services.task_queue import task_queue
+
+            queue_tasks = task_queue.list_tasks(limit=5000)
+            tasks = [self._task_data_to_sync_task(t) for t in queue_tasks]
+        except Exception:
+            # Fallback to in-memory list for backward compatibility (should be empty in new mode)
+            tasks = list(self._tasks.values())
         
         # Filter by status
         if status:
@@ -1542,6 +1512,38 @@ class SyncTaskManager:
             page_size=page_size,
             total_pages=total_pages
         )
+
+    def _task_data_to_sync_task(self, task_data: Dict[str, Any]) -> SyncTask:
+        """Convert Redis task hash to SyncTask schema."""
+        def _parse_dt(value: str) -> Optional[datetime]:
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(value)
+            except Exception:
+                return None
+
+        status_str = str(task_data.get("status", "pending"))
+        try:
+            status_enum = TaskStatus(status_str)
+        except Exception:
+            status_enum = TaskStatus.PENDING
+
+        return SyncTask(
+            task_id=str(task_data.get("task_id", "")),
+            plugin_name=str(task_data.get("plugin_name", "")),
+            task_type=str(task_data.get("task_type", "")),
+            status=status_enum,
+            progress=float(task_data.get("progress", 0)),
+            records_processed=int(task_data.get("records_processed", 0)),
+            trade_dates=task_data.get("trade_dates", []) or [],
+            created_at=_parse_dt(str(task_data.get("created_at", ""))) or datetime.now(),
+            started_at=_parse_dt(str(task_data.get("started_at", ""))),
+            completed_at=_parse_dt(str(task_data.get("completed_at", ""))),
+            error_message=str(task_data.get("error_message", "")),
+            user_id=str(task_data.get("user_id", "")) or None,
+            username=None,
+        )
     
     def get_running_tasks(self) -> List[SyncTask]:
         """Get running tasks."""
@@ -1560,44 +1562,47 @@ class SyncTaskManager:
         Returns:
             True if cancelled, False otherwise
         """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if task and task.status == TaskStatus.PENDING:
-                task.status = TaskStatus.CANCELLED
-                task.completed_at = datetime.now()
-                if task_id in self._task_queue:
-                    self._task_queue.remove(task_id)
-                # Save to database
-                self._save_task_to_db(task)
-                return True
-        return False
+        try:
+            from stock_datasource.services.task_queue import task_queue, RedisUnavailableError
+
+            success = task_queue.cancel_task(task_id)
+            if not success:
+                return False
+
+            # Persist cancellation to ClickHouse (best-effort)
+            try:
+                task_data = task_queue.get_task(task_id)
+                if task_data:
+                    self._save_task_to_db(self._task_data_to_sync_task(task_data))
+            except Exception:
+                pass
+
+            return True
+        except RedisUnavailableError:
+            return False
     
     def delete_task(self, task_id: str) -> bool:
         """Delete a task (any status except running).
-        
-        Args:
-            task_id: Task ID
-        
-        Returns:
-            True if deleted, False otherwise
+
+        Redis is the single source of truth for real-time status.
+
+        Mode A:
+            If Redis is unavailable, raise to let API fail fast.
         """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if not task:
-                return False
-            
-            # Cannot delete running tasks
-            if task.status == TaskStatus.RUNNING:
-                return False
-            
-            # Remove from queue if pending
-            if task_id in self._task_queue:
-                self._task_queue.remove(task_id)
-            
-            # Remove from memory
-            del self._tasks[task_id]
-        
-        # Delete from database
+        from stock_datasource.services.task_queue import task_queue
+
+        task_data = task_queue.get_task(task_id)
+        if not task_data:
+            return False
+
+        if str(task_data.get("status", "")) == TaskStatus.RUNNING.value:
+            return False
+
+        deleted = task_queue.delete_task(task_id)
+        if not deleted:
+            return False
+
+        # Delete from ClickHouse history (best-effort)
         try:
             delete_sql = f"""
             ALTER TABLE {self.TASK_TABLE} DELETE 
@@ -1607,7 +1612,7 @@ class SyncTaskManager:
             self.logger.info(f"Deleted task {task_id} from database")
         except Exception as e:
             self.logger.error(f"Failed to delete task {task_id} from database: {e}")
-        
+
         return True
     
     def retry_task(self, task_id: str) -> Optional[SyncTask]:
@@ -1619,31 +1624,32 @@ class SyncTaskManager:
         Returns:
             New SyncTask if retry created, None if task not found or not retryable
         """
-        with self._lock:
-            task = self._tasks.get(task_id)
-            if not task:
+        try:
+            from stock_datasource.services.task_queue import task_queue, RedisUnavailableError
+
+            task_data = task_queue.get_task(task_id)
+            if not task_data:
                 self.logger.warning(f"Task {task_id} not found for retry")
                 return None
-            
-            # Only allow retry for failed or cancelled tasks
-            if task.status not in [TaskStatus.FAILED, TaskStatus.CANCELLED]:
-                self.logger.warning(f"Task {task_id} is not retryable (status: {task.status})")
+
+            status = str(task_data.get("status", "pending"))
+            if status not in {"failed", "cancelled"}:
+                self.logger.warning(f"Task {task_id} is not retryable (status: {status})")
                 return None
-            
-            # Get task parameters
-            plugin_name = task.plugin_name
-            task_type = task.task_type
-            trade_dates = task.trade_dates
-        
-        # Create new task with same parameters
-        self.logger.info(f"Retrying task {task_id} for plugin {plugin_name}")
-        new_task = self.create_task(
-            plugin_name=plugin_name,
-            task_type=TaskType(task_type),
-            trade_dates=trade_dates if trade_dates else None
-        )
-        
-        return new_task
+
+            plugin_name = str(task_data.get("plugin_name", ""))
+            task_type = TaskType(str(task_data.get("task_type", "incremental")))
+            trade_dates = task_data.get("trade_dates", [])
+
+            # Manual retry => create NEW task_id (audit-friendly)
+            self.logger.info(f"Retrying task {task_id} for plugin {plugin_name} (new task_id)")
+            return self.create_task(
+                plugin_name=plugin_name,
+                task_type=task_type,
+                trade_dates=trade_dates if trade_dates else None,
+            )
+        except RedisUnavailableError:
+            return None
     
     def cleanup_old_tasks(self, days: int = 30):
         """Clean up tasks older than specified days.

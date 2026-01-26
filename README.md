@@ -110,7 +110,9 @@ CLICKHOUSE_HOST=clickhouse                # 容器名
 CLICKHOUSE_USER=clickhouse
 CLICKHOUSE_PASSWORD=clickhouse
 REDIS_HOST=redis
+REDIS_PORT=6379
 REDIS_PASSWORD=stockredis123
+REDIS_DB=1
 ```
 
 #### 2. 一键启动
@@ -176,7 +178,9 @@ CLICKHOUSE_DATABASE=stock_datasource
 
 # ======== Redis 配置 ========
 REDIS_HOST=redis                          # 使用 docker-compose.infra.yml 的 Redis
+REDIS_PORT=6379
 REDIS_PASSWORD=stockredis123
+REDIS_DB=1
 
 # ======== Langfuse 配置（可选）========
 # 如果有已运行的 Langfuse
@@ -297,6 +301,7 @@ CLICKHOUSE_DATABASE=stock_datasource
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
+REDIS_DB=1
 ```
 
 #### 4. 启动基础设施
@@ -392,7 +397,7 @@ uv run python -m stock_datasource.services.mcp_server
 ┌─────────────────────────────────────────────────────────────────┐
 │                      API Layer (FastAPI)                         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  OrchestratorAgent                        │   │
+│  │                  OrchestratorAgent                        │
 │  │    ┌──────────────────────────────────────────────┐      │   │
 │  │    │           意图识别 & 路由分发                   │      │   │
 │  │    └──────────────────────────────────────────────┘      │   │
@@ -405,18 +410,18 @@ uv run python -m stock_datasource.services.mcp_server
 │  │    + TopListAgent, WorkflowAgent, ChatAgent              │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
-        │                                                    │
-        ▼                                                    ▼
-┌───────────────────┐    ┌─────────────┐    ┌───────────────────┐
-│   LLM Provider    │    │    Redis    │    │  ClickHouse DB    │
-│ OpenAI / 国产大模型│    │   缓存服务   │    │   A股全量数据     │
-└───────────────────┘    └─────────────┘    └───────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│     Langfuse      │
-│   AI 可观测平台    │
-└───────────────────┘
+        │                                  │                │
+        ▼                                  ▼                ▼
+┌───────────────────┐    ┌─────────────┐   ┌────────────────────┐
+│   LLM Provider    │    │    Redis    │   │     Task Worker    │
+│ OpenAI / 国产大模型│    │ 队列 & 缓存 │   │ 任务调度/采集执行    │
+└───────────────────┘    └─────────────┘   └────────────────────┘
+        │                                  │
+        ▼                                  ▼
+┌───────────────────┐    ┌───────────────────┐
+│     Langfuse      │    │  ClickHouse DB    │
+│   AI 可观测平台    │    │   A股全量数据     │
+└───────────────────┘    └───────────────────┘
 ```
 
 ### 技术栈
