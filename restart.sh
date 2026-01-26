@@ -156,6 +156,38 @@ stop_by_port_safely() {
   fi
 }
 
+stop_legacy_workers() {
+  local pids
+  pids=$(pgrep -f "stock_datasource.services.task_worker" 2>/dev/null || true)
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  local any_stopped=false
+  for pid in $pids; do
+    if ! pid_exists "$pid"; then
+      continue
+    fi
+
+    local cmd cwd
+    cmd="$(pid_cmdline "$pid")"
+    cwd="$(pid_cwd "$pid")"
+
+    if [[ -n "$cwd" ]] && [[ "$cwd" == "$SCRIPT_DIR"* ]]; then
+      continue
+    fi
+
+    if [[ "$cmd" == *"python"* ]] || [[ "$cmd" == *"uv "* ]]; then
+      stop_pid "$pid" "旧 Worker"
+      any_stopped=true
+    fi
+  done
+
+  if [[ "$any_stopped" == true ]]; then
+    sleep 1
+  fi
+}
+
 print_header() {
   echo "=========================================="
   echo "  重启服务"
@@ -169,6 +201,8 @@ stop_services() {
   # 先按 pidfile 停（最安全）
   stop_by_pidfile "$BACKEND_PID_FILE" "后端服务" "stock_datasource.services.http_server" "$SCRIPT_DIR"
   stop_by_pidfile "$FRONTEND_PID_FILE" "前端服务" "vite" "$SCRIPT_DIR/frontend"
+
+  stop_legacy_workers
 
   # 再按端口兜底（带白名单校验，避免误杀 ssh 端口转发）
   stop_by_port_safely 8000 "后端服务" "stock_datasource.services.http_server" "$SCRIPT_DIR"

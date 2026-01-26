@@ -64,7 +64,7 @@ def _start_background_workers(num_workers: int = 10):
         worker = multiprocessing.Process(
             target=run_worker,
             args=(worker_id,),
-            daemon=True
+            daemon=False
         )
         worker.start()
         _worker_processes.append(worker)
