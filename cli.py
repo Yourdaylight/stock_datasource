@@ -22,6 +22,37 @@ def cli():
     pass
 
 
+@cli.group()
+def logs():
+    """Log management commands."""
+    pass
+
+
+@logs.command()
+@click.option('--retention-days', default=30, help='Number of days to keep (default: 30)')
+def archive(retention_days):
+    """Archive old log files."""
+    click.echo(f"Archiving logs older than {retention_days} days...")
+
+    try:
+        from stock_datasource.modules.system_logs.service import get_log_service
+
+        log_service = get_log_service()
+        result = log_service.archive_logs(retention_days=retention_days)
+
+        click.echo(f"✓ Archive status: {result['status']}")
+        click.echo(f"✓ Archived {result['archived_count']} files")
+
+        if result['archived_files']:
+            click.echo("Archived files:")
+            for filename in result['archived_files']:
+                click.echo(f"  - {filename}")
+
+    except Exception as e:
+        click.echo(f"✗ Log archiving failed: {e}", err=True)
+        sys.exit(1)
+
+
 @cli.command()
 @click.option('--table', help='Specific table to create')
 @click.option('--timeout', default=300, help='Timeout in seconds (default: 300)')

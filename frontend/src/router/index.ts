@@ -100,6 +100,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据配置', icon: 'setting', requiresAuth: true }
   },
   {
+    path: '/system-logs',
+    name: 'SystemLogs',
+    component: () => import('@/views/SystemLogs.vue'),
+    meta: { title: '系统日志', icon: 'file-list', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/workflow',
     name: 'Workflow',
     component: () => import('@/views/workflow/WorkflowList.vue'),
@@ -136,11 +142,12 @@ const router = createRouter({
 // Navigation guard for authentication
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  
+
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth === true
+  const requiresAdmin = to.meta.requiresAdmin === true
   const isPublic = to.meta.public === true || PUBLIC_ROUTES.includes(to.path)
-  
+
   // If route is public, allow access
   if (isPublic) {
     // If user is logged in and trying to access login page, redirect to market
@@ -151,7 +158,7 @@ router.beforeEach(async (to, from, next) => {
     next()
     return
   }
-  
+
   // For protected routes, check authentication
   if (requiresAuth) {
     const isAuth = await authStore.checkAuth()
@@ -160,8 +167,14 @@ router.beforeEach(async (to, from, next) => {
       next({ path: '/login', query: { redirect: to.fullPath } })
       return
     }
+
+    // Check admin permission if required
+    if (requiresAdmin && !authStore.user?.is_admin) {
+      next('/market')
+      return
+    }
   }
-  
+
   next()
 })
 

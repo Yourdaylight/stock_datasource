@@ -48,7 +48,7 @@ class TaskQueue:
         """Get or create Redis connection."""
         if self._redis is not None and self._connected:
             return self._redis
-        
+
         try:
             self._redis = Redis(
                 host=settings.REDIS_HOST,
@@ -56,8 +56,8 @@ class TaskQueue:
                 password=settings.REDIS_PASSWORD or None,
                 db=settings.REDIS_DB,
                 decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
+                socket_connect_timeout=10,
+                socket_timeout=10,
             )
             self._redis.ping()
             self._connected = True
@@ -134,17 +134,17 @@ class TaskQueue:
     
     def dequeue(self, timeout: int = 5) -> Optional[Dict[str, Any]]:
         """Get next task from queue (blocking).
-        
+
         Args:
             timeout: Seconds to wait for a task
-            
+
         Returns:
             Task data dict if available, None otherwise
         """
         redis = self._get_redis()
         if not redis:
             return None
-        
+
         try:
             # Try queues in priority order (0=HIGH, 1=NORMAL, 2=LOW)
             queue_keys = [
@@ -152,35 +152,39 @@ class TaskQueue:
                 self.QUEUE_KEY.format(priority=1),
                 self.QUEUE_KEY.format(priority=2),
             ]
-            
+
             # BRPOP blocks until a task is available
             result = redis.brpop(queue_keys, timeout=timeout)
             if not result:
                 return None
-            
+
             queue_key, task_id = result
-            
+
             # Get task data
             task_data = redis.hgetall(self.TASK_KEY.format(task_id=task_id))
             if not task_data:
                 logger.warning(f"Task {task_id} not found in Redis")
                 return None
-            
+
             # Parse JSON fields
             task_data["trade_dates"] = json.loads(task_data.get("trade_dates", "[]"))
             task_data["progress"] = float(task_data.get("progress", 0))
             task_data["records_processed"] = int(task_data.get("records_processed", 0))
             task_data["priority"] = int(task_data.get("priority", 1))
-            
+
             # Mark as running
             redis.hset(self.TASK_KEY.format(task_id=task_id), "status", "running")
             redis.hset(self.TASK_KEY.format(task_id=task_id), "started_at", datetime.now().isoformat())
             redis.sadd(self.RUNNING_KEY, task_id)
-            
+
             return task_data
-            
+
         except Exception as e:
-            logger.error(f"Failed to dequeue task: {e}")
+            # Timeout waiting for empty queue is normal, log as DEBUG
+            if "Timeout" in str(e) or "timeout" in str(e):
+                logger.debug(f"No task available in queue (timeout after {timeout}s)")
+            else:
+                logger.error(f"Failed to dequeue task: {e}")
             return None
     
     def update_progress(self, task_id: str, progress: float, records_processed: int = 0):

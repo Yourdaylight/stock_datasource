@@ -8,6 +8,7 @@ import {
   ChartLineIcon,
   FilterIcon,
   FileSearchIcon,
+  FileIcon,
   UserIcon,
   ServerIcon,
   WalletIcon,
@@ -37,6 +38,7 @@ interface MenuItem {
   icon: any
   public?: boolean
   requiresAuth?: boolean
+  requiresAdmin?: boolean
   children?: MenuItem[]
 }
 
@@ -52,10 +54,17 @@ const menuItems: MenuItem[] = [
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
   { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
-  { 
-    path: '/datamanage', 
-    title: '数据管理', 
-    icon: ServerIcon, 
+  {
+    path: '/system-logs',
+    title: '系统日志',
+    icon: FileIcon,
+    requiresAuth: true,
+    requiresAdmin: true
+  },
+  {
+    path: '/datamanage',
+    title: '数据管理',
+    icon: ServerIcon,
     requiresAuth: true,
     children: [
       { path: '/datamanage', title: '数据概览', icon: ServerIcon, requiresAuth: true },
@@ -86,6 +95,10 @@ const handleMenuChange = (value: string) => {
   if (item?.requiresAuth && !authStore.isAuthenticated) {
     MessagePlugin.warning('请先登录')
     router.push({ path: '/login', query: { redirect: value } })
+    return
+  }
+  if (item?.requiresAdmin && !authStore.user?.is_admin) {
+    MessagePlugin.warning('需要管理员权限')
     return
   }
   router.push(value)
