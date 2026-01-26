@@ -729,6 +729,7 @@ class ScheduleService:
         task_ids = record.get("task_ids", [])
         tasks = []
         error_parts = []
+        all_trade_dates = set()
         
         for task_id in task_ids:
             task = sync_task_manager.get_task(task_id)
@@ -742,8 +743,13 @@ class ScheduleService:
                     "error_message": task.error_message,
                     "created_at": task.created_at.isoformat() if task.created_at else None,
                     "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                    "trade_dates": task.trade_dates if task.trade_dates else [],
                 }
                 tasks.append(task_detail)
+                
+                # Collect all trade dates
+                if task.trade_dates:
+                    all_trade_dates.update(task.trade_dates)
                 
                 # Collect errors for summary
                 if task.error_message:
@@ -751,6 +757,15 @@ class ScheduleService:
         
         # Build error summary for easy copying
         error_summary = "\n\n".join(error_parts) if error_parts else ""
+        
+        # Calculate date range from tasks or record
+        date_range = record.get("date_range")
+        if not date_range and all_trade_dates:
+            sorted_dates = sorted(all_trade_dates)
+            if len(sorted_dates) == 1:
+                date_range = sorted_dates[0]
+            else:
+                date_range = f"{sorted_dates[0]} ~ {sorted_dates[-1]}"
         
         return {
             "execution_id": record.get("execution_id"),
@@ -764,13 +779,15 @@ class ScheduleService:
             "tasks": tasks,
             "error_summary": error_summary,
             "group_name": record.get("group_name"),
+            "date_range": date_range,
         }
     
     def create_manual_execution(
         self, 
         task_ids: List[str], 
         trigger_type: str = "manual",
-        group_name: Optional[str] = None
+        group_name: Optional[str] = None,
+        date_range: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create an execution record for manual sync (single plugin or batch).
         
@@ -778,6 +795,7 @@ class ScheduleService:
             task_ids: List of task IDs to associate with this execution
             trigger_type: Type of trigger ("manual", "group")
             group_name: Name of the plugin group if triggered from a group
+            date_range: Date range string (e.g. "2026-01-01 ~ 2026-01-25")
             
         Returns:
             ScheduleExecutionRecord dict
@@ -800,6 +818,9 @@ class ScheduleService:
         
         if group_name:
             record["group_name"] = group_name
+        
+        if date_range:
+            record["date_range"] = date_range
         
         add_schedule_execution(record)
         logger.info(f"Created manual execution {execution_id} with {len(task_ids)} tasks")

@@ -1,6 +1,8 @@
 """Data management module router - Admin only access."""
 
 import uuid
+import asyncio
+import io
 from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import List, Optional
@@ -35,6 +37,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+AUTO_MISSING_DATA_MAX_DAYS = 180
+
+
+async def _detect_missing_data_async(days: int, force_refresh: bool) -> MissingDataSummary:
+    """Run missing-data detection off the event loop to avoid blocking other requests."""
+    return await asyncio.to_thread(
+        data_manage_service.detect_missing_data,
+        days=days,
+        force_refresh=force_refresh,
+    )
+
+
 # ============ Data Sources ============
 
 @router.get("/datasources", response_model=List[DataSource])
@@ -61,7 +75,15 @@ async def get_missing_data(
     current_user: dict = Depends(require_admin),
 ):
     """Get missing data summary across all daily plugins."""
-    return data_manage_service.detect_missing_data(days=days, force_refresh=force_refresh)
+    if days > AUTO_MISSING_DATA_MAX_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"days={days} is greater than auto limit ({AUTO_MISSING_DATA_MAX_DAYS}). "
+                "For >180 days, use POST /api/datamanage/missing-data/detect to trigger manually."
+            ),
+        )
+    return await _detect_missing_data_async(days=days, force_refresh=force_refresh)
 
 
 @router.post("/missing-data/detect", response_model=MissingDataSummary)
@@ -70,7 +92,7 @@ async def trigger_missing_data_detection(
     current_user: dict = Depends(require_admin),
 ):
     """Manually trigger missing data detection."""
-    return data_manage_service.detect_missing_data(days=request.days, force_refresh=True)
+    return await _detect_missing_data_async(days=request.days, force_refresh=True)
 
 
 # ============ Sync Tasks ============
@@ -1230,11 +1252,21 @@ async def trigger_plugin_group(
     if not task_ids:
         raise HTTPException(status_code=400, detail="Failed to create any tasks")
     
+    # Calculate date range string for display
+    date_range = None
+    if filtered_trade_dates:
+        sorted_dates = sorted(filtered_trade_dates)
+        if len(sorted_dates) == 1:
+            date_range = sorted_dates[0]
+        else:
+            date_range = f"{sorted_dates[0]} ~ {sorted_dates[-1]}"
+    
     # Create execution record
     record = schedule_service.create_manual_execution(
         task_ids=task_ids,
         trigger_type="group",
-        group_name=group.get("name")
+        group_name=group.get("name"),
+        date_range=date_range
     )
     
     return ScheduleExecutionRecord(**record)

@@ -83,9 +83,10 @@
     {
       "group_id": "predefined_index_full",
       "name": "指数完整数据",
-      "description": "指数完整数据（基础信息+成分权重+技术因子）",
+      "description": "指数完整数据（基础信息+日线行情+成分权重+技术因子）",
       "plugin_names": [
         "tushare_index_basic",
+        "tushare_index_daily",
         "tushare_index_weight",
         "tushare_idx_factor_pro"
       ],

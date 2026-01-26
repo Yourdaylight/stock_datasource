@@ -311,6 +311,7 @@ export interface ScheduleExecutionRecord {
   task_ids: string[]
   can_retry: boolean
   group_name?: string  // Name of plugin group if triggered from group
+  date_range?: string  // Date range string (e.g. "2026-01-01 ~ 2026-01-25")
 }
 
 export interface ScheduleHistoryResponse {
@@ -328,6 +329,7 @@ export interface BatchTaskDetail {
   error_message?: string
   created_at?: string
   completed_at?: string
+  trade_dates?: string[]  // Processed dates list
 }
 
 export interface BatchExecutionDetail {
@@ -341,7 +343,8 @@ export interface BatchExecutionDetail {
   failed_plugins: number
   tasks: BatchTaskDetail[]
   error_summary: string  // All error messages concatenated for easy copying
-  group_name?: string
+  group_name?: string  // Name of plugin group if triggered from group
+  date_range?: string  // Date range string (e.g. "2026-01-01 ~ 2026-01-25")
 }
 
 // Partial Retry Request
