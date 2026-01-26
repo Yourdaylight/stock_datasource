@@ -7,6 +7,9 @@ import logging
 import importlib
 import inspect
 from pathlib import Path
+import os
+import multiprocessing
+import signal
 
 # Load environment variables at module import
 from dotenv import load_dotenv
@@ -19,6 +22,77 @@ logger = logging.getLogger(__name__)
 
 # Global cache for services
 _services_cache = {}
+
+# Global list to track worker processes
+_worker_processes: list[multiprocessing.Process] = []
+
+
+def _is_local_dev() -> bool:
+    """Check if running in local development environment.
+
+    Returns:
+        True if not in Docker container, False otherwise
+    """
+    # Check if running inside Docker
+    if os.path.exists('/.dockerenv'):
+        return False
+
+    # Check for container markers
+    if os.path.exists('/proc/1/cgroup'):
+        with open('/proc/1/cgroup', 'r') as f:
+            cgroup_content = f.read()
+            if 'docker' in cgroup_content or 'kubepods' in cgroup_content:
+                return False
+
+    # If not in container, assume local dev
+    return True
+
+
+def _start_background_workers(num_workers: int = 10):
+    """Start worker processes in background.
+
+    Args:
+        num_workers: Number of worker processes to start
+    """
+    from stock_datasource.services.task_worker import run_worker
+
+    global _worker_processes
+
+    logger.info(f"Starting {num_workers} background workers (local dev mode)")
+
+    for worker_id in range(num_workers):
+        worker = multiprocessing.Process(
+            target=run_worker,
+            args=(worker_id,),
+            daemon=True
+        )
+        worker.start()
+        _worker_processes.append(worker)
+        logger.info(f"Started worker {worker_id} with PID {worker.pid}")
+
+
+def _stop_background_workers():
+    """Stop all background worker processes gracefully."""
+    global _worker_processes
+
+    if not _worker_processes:
+        return
+
+    logger.info(f"Stopping {len(_worker_processes)} background workers...")
+
+    for worker in _worker_processes:
+        if worker.is_alive():
+            logger.info(f"Terminating worker (PID {worker.pid})")
+            worker.terminate()
+            worker.join(timeout=5)
+
+            if worker.is_alive():
+                logger.warning(f"Worker (PID {worker.pid}) did not terminate, killing...")
+                worker.kill()
+                worker.join(timeout=5)
+
+    _worker_processes.clear()
+    logger.info("All background workers stopped")
 
 
 @asynccontextmanager
@@ -149,14 +223,30 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_delayed_start, daemon=True).start()
     except Exception as e:
         logger.warning(f"SyncTaskManager start failed: {e}")
-    
+
+    # Start background workers in local dev mode
+    try:
+        if _is_local_dev():
+            _start_background_workers(num_workers=10)
+        else:
+            logger.info("Docker environment detected - workers run in separate container")
+    except Exception as e:
+        logger.warning(f"Failed to start background workers: {e}")
+
     logger.info("Application initialization completed")
     
     yield  # Application runs here
     
     # Shutdown
     logger.info("Shutting down application...")
-    
+
+    # Stop background workers (local dev mode only)
+    try:
+        if _is_local_dev():
+            _stop_background_workers()
+    except Exception as e:
+        logger.warning(f"Failed to stop background workers: {e}")
+
     # Stop sync task manager
     try:
         from stock_datasource.modules.datamanage.service import sync_task_manager
@@ -217,11 +307,10 @@ def create_app() -> FastAPI:
         except Exception as e:
             response["cache"] = {"available": False, "error": str(e)}
         
-        # Check ClickHouse
+        # Check ClickHouse - use global client to avoid reconnection overhead
         try:
-            from stock_datasource.models.database import ClickHouseClient
-            client = ClickHouseClient()
-            client.execute("SELECT 1")
+            from stock_datasource.models.database import db_client
+            db_client.execute("SELECT 1")
             response["clickhouse"] = "connected"
         except Exception as e:
             response["clickhouse"] = f"error: {str(e)}"
