@@ -58,10 +58,10 @@ const batchColumns = [
   { colKey: 'expand', type: 'expand', width: 48 },
   { colKey: 'group_name', title: '任务名称', width: 150 },
   { colKey: 'trigger_type', title: '触发方式', width: 90 },
+  { colKey: 'date_range', title: '日期范围', width: 180 },
   { colKey: 'started_at', title: '开始时间', width: 160 },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'plugins_count', title: '插件数', width: 120 },
-  { colKey: 'completed_at', title: '完成时间', width: 160 },
+  { colKey: 'plugins_count', title: '插件数', width: 100 },
   { colKey: 'operation', title: '操作', width: 140 }
 ]
 
@@ -479,6 +479,10 @@ onMounted(() => {
               {{ getTriggerTypeText(row.trigger_type) }}
             </t-tag>
           </template>
+          <template #date_range="{ row }">
+            <span v-if="row.date_range" class="date-range-cell">{{ row.date_range }}</span>
+            <span v-else class="no-date-range">-</span>
+          </template>
           <template #started_at="{ row }">
             {{ formatTime(row.started_at) }}
           </template>
@@ -574,6 +578,10 @@ onMounted(() => {
                   ({{ selectedBatchDetail.failed_plugins }} 失败)
                 </span>
               </span>
+            </div>
+            <div v-if="selectedBatchDetail.date_range" class="summary-item full-width">
+              <span class="label">日期范围:</span>
+              <span class="value date-range-value">{{ selectedBatchDetail.date_range }}</span>
             </div>
             <div v-if="selectedBatchDetail.status === 'running'" class="summary-item">
               <t-popconfirm content="确定停止此任务？" @confirm="handleStopExecution(selectedBatchDetail.execution_id)">

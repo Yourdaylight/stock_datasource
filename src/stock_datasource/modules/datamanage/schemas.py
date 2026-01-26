@@ -455,6 +455,8 @@ class ScheduleExecutionRecord(BaseModel):
     failed_plugins: int = 0
     task_ids: List[str] = []                     # 关联的同步任务ID
     can_retry: bool = False                      # 是否可以重试
+    group_name: Optional[str] = None             # 自定义组合名称
+    date_range: Optional[str] = None             # 日期范围（如"2026-01-01 ~ 2026-01-25"）
 
 
 class ScheduleHistoryResponse(BaseModel):
@@ -473,6 +475,7 @@ class BatchTaskDetail(BaseModel):
     error_message: Optional[str] = None
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    trade_dates: List[str] = []                  # 处理的日期列表
 
 
 class BatchExecutionDetail(BaseModel):
@@ -488,6 +491,7 @@ class BatchExecutionDetail(BaseModel):
     tasks: List[BatchTaskDetail] = []            # 所有子任务详情
     error_summary: str = ""                      # 所有失败任务的错误信息汇总（用于一键复制）
     group_name: Optional[str] = None             # 自定义组合名称（如果是组合触发的）
+    date_range: Optional[str] = None             # 日期范围（如"2026-01-01 ~ 2026-01-25"）
 
 
 class PartialRetryRequest(BaseModel):
