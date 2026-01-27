@@ -83,7 +83,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile.frontend.production
+          file: docker/Dockerfile.frontend
+          target: production
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
