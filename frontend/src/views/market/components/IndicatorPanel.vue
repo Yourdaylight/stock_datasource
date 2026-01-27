@@ -108,6 +108,7 @@ const applyPreset = (preset: { name: string; indicators: string[] }) => {
   padding: 12px;
   background: #fafafa;
   border-radius: 8px;
+  display: inline-block;
 }
 
 .panel-header {
@@ -123,14 +124,13 @@ const applyPreset = (preset: { name: string; indicators: string[] }) => {
 }
 
 .indicator-groups {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
   gap: 12px;
 }
 
 .indicator-group {
   background: #fff;
-  padding: 10px;
+  padding: 10px 36px;
   border-radius: 6px;
 }
 

@@ -47,10 +47,9 @@ const stockProfile = ref<StockProfile | null>(null)
 const profileLoading = ref(false)
 
 // Chart options
-const period = ref(90) // 默认90天
+const period = ref(365) // 默认365天
 const adjustType = ref<'qfq' | 'hfq' | 'none'>('qfq')
 const selectedIndicators = ref<string[]>(['MA', 'MACD', 'RSI', 'KDJ'])
-const showIndicatorPanel = ref(true)
 
 // Add to watchlist form
 const addToWatchlistForm = ref({
@@ -455,25 +454,84 @@ watch(() => props.visible, (visible) => {
                 style="width: 100px"
                 @change="handleAdjustChange"
               />
-              <t-button 
-                variant="outline" 
-                size="small"
-                @click="showIndicatorPanel = !showIndicatorPanel"
-              >
-                <template #icon><t-icon name="setting" /></template>
-                指标设置
-              </t-button>
             </t-space>
           </div>
         </div>
       </t-card>
       
-      <!-- Indicator Panel -->
-      <div v-if="showIndicatorPanel" class="indicator-collapse">
-        <IndicatorPanel 
-          :selected-indicators="selectedIndicators"
-          @change="handleIndicatorChange"
-        />
+      <!-- Top Row: Indicator Panel + Chip + Profile -->
+      <div class="top-row">
+        <!-- Indicator Panel (左侧，与K线图宽度一致) -->
+        <div class="indicator-collapse">
+          <IndicatorPanel 
+            :selected-indicators="selectedIndicators"
+            @change="handleIndicatorChange"
+          />
+        </div>
+        
+        <!-- 筹码峰和十维画像 (右侧，与右面板宽度一致) -->
+        <div class="top-right-cards">
+          <!-- Chip Distribution -->
+          <t-card title="筹码峰" class="chip-card-top" :bordered="false">
+            <template #actions>
+              <t-space size="small">
+                <t-date-picker
+                  v-model="chipDate"
+                  placeholder="选择日期"
+                  size="small"
+                  style="width: 100px"
+                  :disabled-date="(date: Date) => date > new Date()"
+                  @change="handleChipDateChange"
+                />
+                <t-button variant="text" size="small" @click="fetchChipData" :loading="chipLoading">
+                  <t-icon name="refresh" />
+                </t-button>
+              </t-space>
+            </template>
+            
+            <div v-if="chipLoading" class="chip-loading-small">
+              <t-loading size="small" text="加载中..." />
+            </div>
+            <ChipDistributionChart
+              v-else
+              :data="chipData"
+              :stats="chipStats"
+              :current-price="latestPrice"
+              :loading="chipLoading"
+              height="100%"
+            />
+          </t-card>
+          
+          <!-- Stock Profile (十维画像) -->
+          <t-card title="十维画像" class="profile-card-top" :bordered="false">
+            <template #actions>
+              <div v-if="stockProfile" class="total-score-mini" :style="{ color: scoreColor(stockProfile.total_score) }">
+                {{ stockProfile.total_score.toFixed(1) }}分
+              </div>
+            </template>
+            
+            <t-loading v-if="profileLoading" size="small" text="加载中..." class="profile-loading" />
+            <div v-else-if="stockProfile" class="profile-dimensions">
+              <div 
+                v-for="dim in stockProfile.dimensions" 
+                :key="dim.name"
+                class="dimension-row"
+              >
+                <span class="dim-name">{{ dim.name }}</span>
+                <t-progress
+                  :percentage="dim.score"
+                  :color="scoreColor(dim.score)"
+                  :stroke-width="4"
+                  size="small"
+                  class="dim-progress"
+                />
+                <span class="dim-score">{{ dim.score.toFixed(0) }}</span>
+                <t-tag :theme="levelTheme(dim.level)" size="small">{{ dim.level }}</t-tag>
+              </div>
+            </div>
+            <t-empty v-else description="暂无画像数据" size="small" />
+          </t-card>
+        </div>
       </div>
       
       <!-- Main Content Layout -->
@@ -541,72 +599,9 @@ watch(() => props.visible, (visible) => {
           </t-card>
         </div>
         
-        <!-- Right: Analysis Panel (flex: 1) -->
+        <!-- Right: AI Analysis Panel (flex: 1) -->
         <div class="right-panel">
-          <!-- Top Half: Chip Distribution + Stock Profile -->
-          <div class="right-top">
-            <!-- Chip Distribution -->
-            <t-card title="筹码峰" class="chip-card" :bordered="false">
-              <template #actions>
-                <t-space size="small">
-                  <t-date-picker
-                    v-model="chipDate"
-                    placeholder="选择日期"
-                    size="small"
-                    style="width: 100px"
-                    :disabled-date="(date: Date) => date > new Date()"
-                    @change="handleChipDateChange"
-                  />
-                  <t-button variant="text" size="small" @click="fetchChipData" :loading="chipLoading">
-                    <t-icon name="refresh" />
-                  </t-button>
-                </t-space>
-              </template>
-              
-              <div v-if="chipLoading" class="chip-loading-small">
-                <t-loading size="small" text="加载中..." />
-              </div>
-              <ChipDistributionChart
-                v-else
-                :data="chipData"
-                :stats="chipStats"
-                :current-price="latestPrice"
-                :loading="chipLoading"
-                height="100%"
-              />
-            </t-card>
-            
-            <!-- Stock Profile (十维画像) -->
-            <t-card title="十维画像" class="profile-card" :bordered="false">
-              <template #actions>
-                <div v-if="stockProfile" class="total-score-mini" :style="{ color: scoreColor(stockProfile.total_score) }">
-                  {{ stockProfile.total_score.toFixed(1) }}分
-                </div>
-              </template>
-              
-              <t-loading v-if="profileLoading" size="small" text="加载中..." class="profile-loading" />
-              <div v-else-if="stockProfile" class="profile-dimensions">
-                <div 
-                  v-for="dim in stockProfile.dimensions" 
-                  :key="dim.name"
-                  class="dimension-row"
-                >
-                  <span class="dim-name">{{ dim.name }}</span>
-                  <t-progress
-                    :percentage="dim.score"
-                    :color="scoreColor(dim.score)"
-                    :stroke-width="4"
-                    size="small"
-                    class="dim-progress"
-                  />
-                  <t-tag :theme="levelTheme(dim.level)" size="small">{{ dim.level }}</t-tag>
-                </div>
-              </div>
-              <t-empty v-else description="暂无画像数据" size="small" />
-            </t-card>
-          </div>
-          
-          <!-- Bottom Half: AI Analysis -->
+          <!-- AI Analysis -->
           <t-card title="AI 智能分析" class="analysis-card" :bordered="false">
             <template #actions>
               <t-space size="small">
@@ -614,7 +609,7 @@ watch(() => props.visible, (visible) => {
                   技术分析
                 </t-button>
                 <t-button size="small" variant="outline" @click="handleAIAnalyze" :loading="analysisLoading">
-                  AI 分析
+                  AI 智能分析
                 </t-button>
               </t-space>
             </template>
@@ -733,8 +728,39 @@ watch(() => props.visible, (visible) => {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.indicator-collapse {
+/* Top Row: Indicator Panel + Chip + Profile */
+.top-row {
+  display: flex;
+  gap: 16px;
   margin-top: 12px;
+}
+
+.indicator-collapse {
+  flex: 0 0 auto;
+}
+
+.top-right-cards {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  gap: 12px;
+}
+
+.chip-card-top,
+.profile-card-top {
+  flex: 1;
+  min-width: 0;
+  background: #fafafa;
+}
+
+.chip-card-top :deep(.t-card__body) {
+  height: 160px;
+  overflow: hidden;
+}
+
+.profile-card-top :deep(.t-card__body) {
+  height: 200px;
+  overflow: hidden;
 }
 
 /* Main Layout - K-line with right panel */
@@ -769,28 +795,6 @@ watch(() => props.visible, (visible) => {
   gap: 12px;
 }
 
-/* Right Top: Chip + Profile side by side */
-.right-top {
-  flex: 1;
-  display: flex;
-  gap: 12px;
-  min-height: 0;
-}
-
-.right-top .chip-card,
-.right-top .profile-card {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.right-top .chip-card :deep(.t-card__body),
-.right-top .profile-card :deep(.t-card__body) {
-  flex: 1;
-  min-height: 0;
-}
-
 /* Watchlist Card */
 .watchlist-card {
   background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
@@ -813,21 +817,11 @@ watch(() => props.visible, (visible) => {
   margin-bottom: 0;
 }
 
-/* Chip Card */
-.chip-card {
-  background: #fafafa;
-}
-
 .chip-loading-small {
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100%;
-}
-
-/* Profile Card */
-.profile-card {
-  background: #fafafa;
 }
 
 .total-score-mini {
@@ -843,21 +837,23 @@ watch(() => props.visible, (visible) => {
 }
 
 .profile-dimensions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  overflow: hidden;
+  height: 100%;
+  align-content: space-evenly;
+  padding: 0 8px;
 }
 
 .dimension-row {
   display: flex;
   align-items: center;
-  gap: 6px;
 }
 
 .dim-name {
-  width: 56px;
-  font-size: 11px;
+  width: 32px;
+  font-size: 12px;
   color: #666;
   flex-shrink: 0;
 }
@@ -865,12 +861,35 @@ watch(() => props.visible, (visible) => {
 .dim-progress {
   flex: 1;
   min-width: 0;
+  margin-right: 4px;
+}
+
+.dim-progress :deep(.t-progress) {
+  display: flex;
+  align-items: center;
+}
+
+.dim-progress :deep(.t-progress__bar) {
+  flex: 1;
+  height: 5px !important;
+}
+
+.dim-progress :deep(.t-progress__info) {
+  display: none;
+}
+
+.dim-score {
+  width: 24px;
+  font-size: 11px;
+  color: #666;
+  text-align: right;
+  margin-right: 4px;
 }
 
 .dimension-row :deep(.t-tag) {
   flex-shrink: 0;
-  font-size: 10px;
-  padding: 0 4px;
+  font-size: 11px;
+  padding: 0 6px;
   height: 18px;
   line-height: 18px;
 }

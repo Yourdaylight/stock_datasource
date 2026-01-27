@@ -279,7 +279,7 @@ const renderedSummary = computed(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  height: 100%;
   color: #999;
   text-align: center;
 }
