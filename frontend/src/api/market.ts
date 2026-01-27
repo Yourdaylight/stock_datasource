@@ -140,6 +140,12 @@ export const marketApi = {
     return new EventSource(`/api/market/analysis/stream?${queryParams}`)
   },
 
+  // AI Analysis Stream (with LLM streaming)
+  aiAnalyzeStream(code: string, period: number = 60): EventSource {
+    const queryParams = new URLSearchParams({ code, period: String(period) })
+    return new EventSource(`/api/market/analysis/ai/stream?${queryParams}`)
+  },
+
   // Chip Distribution (筹码分布)
   async getChipDistribution(params: { ts_code: string; trade_date?: string }): Promise<ChipData[]> {
     const endpoint = params.trade_date 

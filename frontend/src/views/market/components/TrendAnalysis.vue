@@ -1,32 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { marked } from 'marked'
-import type { TechnicalSignal } from '@/types/common'
 
 const props = defineProps<{
-  trend?: string
-  support?: number
-  resistance?: number
-  signals?: TechnicalSignal[]
   summary?: string
   disclaimer?: string
   loading?: boolean
+  status?: string  // 流式分析状态
 }>()
-
-const trendClass = computed(() => {
-  if (!props.trend) return ''
-  if (props.trend.includes('上涨')) return 'up'
-  if (props.trend.includes('下跌')) return 'down'
-  return 'neutral'
-})
-
-const bullishSignals = computed(() => 
-  props.signals?.filter(s => s.type === 'bullish') || []
-)
-
-const bearishSignals = computed(() => 
-  props.signals?.filter(s => s.type === 'bearish') || []
-)
 
 // Convert markdown summary to HTML
 const renderedSummary = computed(() => {
@@ -47,81 +28,32 @@ const renderedSummary = computed(() => {
 
 <template>
   <div class="trend-analysis">
-    <t-loading v-if="loading" size="medium" />
+    <!-- Loading with status -->
+    <div v-if="loading && !summary" class="loading-state">
+      <t-loading size="medium" />
+      <div v-if="status" class="status-text">{{ status }}</div>
+    </div>
     
-    <template v-else-if="trend">
-      <!-- Trend Direction -->
-      <div class="trend-section">
-        <div class="section-title">趋势判断</div>
-        <div class="trend-badge" :class="trendClass">
-          {{ trend }}
-        </div>
-      </div>
-      
-      <!-- Support/Resistance -->
-      <div v-if="support && resistance" class="levels-section">
-        <div class="section-title">关键位置</div>
-        <div class="levels">
-          <div class="level-item">
-            <span class="level-label">支撑位</span>
-            <span class="level-value support">{{ support.toFixed(2) }}</span>
-          </div>
-          <div class="level-item">
-            <span class="level-label">压力位</span>
-            <span class="level-value resistance">{{ resistance.toFixed(2) }}</span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Signals -->
-      <div v-if="signals && signals.length > 0" class="signals-section">
-        <div class="section-title">技术信号</div>
-        
-        <div v-if="bullishSignals.length > 0" class="signal-group">
-          <div class="signal-group-title bullish">
-            <t-icon name="arrow-up" /> 看多信号
-          </div>
-          <div class="signal-list">
-            <t-tag 
-              v-for="signal in bullishSignals" 
-              :key="signal.signal"
-              theme="success"
-              variant="light"
-            >
-              <t-tooltip :content="signal.description">
-                {{ signal.signal }}
-              </t-tooltip>
-            </t-tag>
-          </div>
-        </div>
-        
-        <div v-if="bearishSignals.length > 0" class="signal-group">
-          <div class="signal-group-title bearish">
-            <t-icon name="arrow-down" /> 看空信号
-          </div>
-          <div class="signal-list">
-            <t-tag 
-              v-for="signal in bearishSignals" 
-              :key="signal.signal"
-              theme="danger"
-              variant="light"
-            >
-              <t-tooltip :content="signal.description">
-                {{ signal.signal }}
-              </t-tooltip>
-            </t-tag>
-          </div>
-        </div>
+    <template v-else-if="summary">
+      <!-- Status bar during streaming -->
+      <div v-if="loading && status" class="streaming-status">
+        <t-loading size="small" />
+        <span>{{ status }}</span>
       </div>
       
       <!-- Summary -->
-      <div v-if="summary" class="summary-section">
-        <div class="section-title">分析摘要</div>
+      <div class="summary-section">
+        <div class="section-title">
+          AI 分析报告
+          <span v-if="loading" class="typing-indicator">
+            <span></span><span></span><span></span>
+          </span>
+        </div>
         <div class="summary-text markdown-body" v-html="renderedSummary"></div>
       </div>
       
       <!-- Disclaimer -->
-      <div v-if="disclaimer" class="disclaimer">
+      <div v-if="disclaimer && !loading" class="disclaimer">
         <t-icon name="info-circle" />
         {{ disclaimer }}
       </div>
@@ -136,9 +68,80 @@ const renderedSummary = computed(() => {
 
 <style scoped>
 .trend-analysis {
-  padding: 16px;
+  padding: 12px;
   background: #fff;
   border-radius: 8px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+}
+
+.status-text {
+  color: #666;
+  font-size: 13px;
+}
+
+.streaming-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #e6f7ff;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #1890ff;
+}
+
+.summary-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: #f9f9f9;
+  border-radius: 4px;
+  color: #666;
+  font-size: 13px;
+}
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.typing-indicator span {
+  width: 4px;
+  height: 4px;
+  background: #1890ff;
+  border-radius: 50%;
+  margin: 0 2px;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typing {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
 }
 
 .section-title {
@@ -147,79 +150,8 @@ const renderedSummary = computed(() => {
   margin-bottom: 8px;
 }
 
-.trend-section,
-.levels-section,
-.signals-section,
 .summary-section {
   margin-bottom: 16px;
-}
-
-.trend-badge {
-  display: inline-block;
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.trend-badge.up {
-  background: #fff0f0;
-  color: #ec0000;
-}
-
-.trend-badge.down {
-  background: #f0fff0;
-  color: #00da3c;
-}
-
-.trend-badge.neutral {
-  background: #f5f5f5;
-  color: #666;
-}
-
-.levels {
-  display: flex;
-  gap: 24px;
-}
-
-.level-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.level-label {
-  font-size: 12px;
-  color: #999;
-}
-
-.level-value {
-  font-size: 18px;
-  font-weight: 600;
-  margin-top: 4px;
-}
-
-.level-value.support { color: #00da3c; }
-.level-value.resistance { color: #ec0000; }
-
-.signal-group {
-  margin-bottom: 12px;
-}
-
-.signal-group-title {
-  font-size: 12px;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.signal-group-title.bullish { color: #52c41a; }
-.signal-group-title.bearish { color: #ff4d4f; }
-
-.signal-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .summary-text {
@@ -233,8 +165,8 @@ const renderedSummary = computed(() => {
 
 /* Markdown content styles */
 .summary-text.markdown-body {
-  max-height: 400px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .summary-text.markdown-body :deep(h1),
@@ -347,7 +279,7 @@ const renderedSummary = computed(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  height: 100%;
   color: #999;
   text-align: center;
 }

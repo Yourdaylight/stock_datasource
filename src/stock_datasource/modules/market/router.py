@@ -373,6 +373,167 @@ async def ai_analyze_stock(request: AnalysisRequest):
         }
 
 
+@router.get("/analysis/ai/stream")
+async def ai_analyze_stock_stream(
+    code: str = Query(..., description="Stock code"),
+    period: int = Query(60, ge=10, le=365, description="Analysis period")
+):
+    """Stream AI analysis for a stock (SSE format).
+    
+    Returns Server-Sent Events with analysis progress and streaming content.
+    """
+    async def generate():
+        try:
+            service = get_market_service()
+            
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'message': '正在获取股票数据...'})}\n\n"
+            
+            # Step 1: Get trend data
+            try:
+                trend_data = await service.analyze_trend(code, period)
+            except Exception as e:
+                logger.error(f"Failed to get trend data: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'获取股票数据失败: {str(e)}'})}\n\n"
+                return
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': '正在计算技术指标...'})}\n\n"
+            
+            # Step 2: Get indicator data
+            try:
+                indicator_data = await service.get_indicators(
+                    code, 
+                    ["MACD", "RSI", "KDJ", "BOLL", "MA"], 
+                    period=period
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get indicators: {e}")
+                indicator_data = {}
+            
+            # Step 3: Prepare data context
+            stock_name = trend_data.get("name", code)
+            trend = trend_data.get("trend", "未知")
+            support = trend_data.get("support", 0)
+            resistance = trend_data.get("resistance", 0)
+            signals = trend_data.get("signals", [])
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': '正在进行AI分析...'})}\n\n"
+            
+            # Extract latest indicator values
+            indicators = indicator_data.get("indicators", {})
+            latest_indicators = {}
+            for key, values in indicators.items():
+                if values and len(values) > 0:
+                    for v in reversed(values):
+                        if v is not None:
+                            latest_indicators[key] = round(v, 2) if isinstance(v, float) else v
+                            break
+            
+            # Format signals for prompt
+            signal_text = ""
+            if signals:
+                bullish = [s for s in signals if s.get("type") == "bullish"]
+                bearish = [s for s in signals if s.get("type") == "bearish"]
+                if bullish:
+                    signal_text += f"\n看多信号: {', '.join(s.get('signal', '') for s in bullish)}"
+                if bearish:
+                    signal_text += f"\n看空信号: {', '.join(s.get('signal', '') for s in bearish)}"
+            
+            # Build data context
+            data_context = f"""
+## 股票基础信息
+- 股票代码: {code}
+- 股票名称: {stock_name}
+- 分析周期: {period}天
+
+## 趋势判断
+- 当前趋势: {trend}
+- 支撑位: {support:.2f}
+- 压力位: {resistance:.2f}
+
+## 技术指标最新值
+"""
+            indicator_names = {
+                "MACD_DIF": "MACD DIF",
+                "MACD_DEA": "MACD DEA", 
+                "MACD_HIST": "MACD 柱状",
+                "RSI": "RSI",
+                "KDJ_K": "KDJ K值",
+                "KDJ_D": "KDJ D值",
+                "KDJ_J": "KDJ J值",
+                "BOLL_UPPER": "布林上轨",
+                "BOLL_MID": "布林中轨",
+                "BOLL_LOWER": "布林下轨",
+                "MA5": "5日均线",
+                "MA10": "10日均线",
+                "MA20": "20日均线",
+                "MA60": "60日均线",
+            }
+            
+            for key, display_name in indicator_names.items():
+                if key in latest_indicators:
+                    data_context += f"- {display_name}: {latest_indicators[key]}\n"
+            
+            if signal_text:
+                data_context += f"\n## 技术信号{signal_text}\n"
+            
+            query = f"""请基于以下股票数据进行专业的技术分析，给出详细的分析报告和操作建议：
+
+{data_context}
+
+请从以下几个方面进行分析：
+1. **趋势分析**: 结合均线系统和当前趋势判断后市走向
+2. **动量分析**: 结合MACD、RSI、KDJ指标判断多空力量
+3. **波动分析**: 结合布林带判断股价所处位置和波动空间
+4. **综合建议**: 给出具体的操作建议和风险提示
+
+注意：请引用具体的指标数值来支持你的分析结论。"""
+            
+            # Step 4: Stream LLM response
+            try:
+                from stock_datasource.agents import get_market_agent
+                
+                agent = get_market_agent()
+                
+                # Stream the AI response
+                async for event in agent.execute_stream(query, {"period": period}):
+                    event_type = event.get("type", "")
+                    
+                    if event_type == "content":
+                        content = event.get("content", "")
+                        if content:
+                            yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+                    elif event_type == "tool_call":
+                        tool_name = event.get("tool", "")
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'正在调用工具: {tool_name}'})}\n\n"
+                    elif event_type == "done":
+                        break
+                
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                
+            except ImportError:
+                logger.warning("MarketAgent not available, using basic analysis")
+                basic_summary = trend_data.get("summary", "AI分析模块未配置")
+                yield f"data: {json.dumps({'type': 'content', 'content': basic_summary})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            except Exception as e:
+                logger.error(f"AI stream analysis failed: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'AI分析失败: {str(e)}'})}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Analysis stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
 # =============================================================================
 # Pattern Recognition (Future)
 # =============================================================================

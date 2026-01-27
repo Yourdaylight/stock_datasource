@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import type { KLineData } from '@/types/common'
 
@@ -9,7 +9,7 @@ const props = defineProps<{
   indicatorDates?: string[]
   selectedIndicators?: string[]
   loading?: boolean
-  height?: number
+  height?: number | string
 }>()
 
 const chartRef = ref<HTMLElement | null>(null)
@@ -17,10 +17,10 @@ let chart: echarts.ECharts | null = null
 
 // Indicator colors
 const indicatorColors: Record<string, string> = {
-  MA5: '#ffaa00',
-  MA10: '#00aaff',
-  MA20: '#ff00aa',
-  MA60: '#00ff88',
+  MA5: '#ff9500',   // 橙色 - 5日均线
+  MA10: '#9b59b6',  // 紫色 - 10日均线
+  MA20: '#1e3a5f',  // 深蓝色 - 20日均线
+  MA60: '#4a4a4a',  // 深灰色 - 60日均线
   EMA12: '#ffaa00',
   EMA26: '#00aaff',
   DIF: '#ff6b6b',
@@ -44,7 +44,12 @@ const indicatorColors: Record<string, string> = {
   ATR14: '#e67e22',
 }
 
-const chartHeight = computed(() => props.height || 600)
+const chartHeight = computed(() => {
+  if (typeof props.height === 'string') {
+    return props.height
+  }
+  return props.height ? `${props.height}px` : '600px'
+})
 
 // Determine which indicators go in main chart vs sub charts
 const mainChartIndicators = ['MA5', 'MA10', 'MA20', 'MA60', 'EMA12', 'EMA26', 'BOLL_UPPER', 'BOLL_MIDDLE', 'BOLL_LOWER']
@@ -91,6 +96,15 @@ const hasATR = computed(() => {
 
 const initChart = () => {
   if (!chartRef.value) return
+  
+  // 确保容器有实际尺寸
+  const rect = chartRef.value.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) {
+    // 延迟初始化，等待容器尺寸确定
+    requestAnimationFrame(initChart)
+    return
+  }
+  
   chart = echarts.init(chartRef.value)
   updateChart()
 }
@@ -103,9 +117,22 @@ const updateChart = () => {
   const volumeData = props.data.map((d, i) => ({
     value: d.volume,
     itemStyle: {
-      color: d.close >= d.open ? '#ec0000' : '#00da3c'
+      color: d.close >= d.open ? '#ec0000' : '#228B22'
     }
   }))
+
+  // 计算缩放参数
+  const totalBars = dates.length
+  const minBars = 15   // 最少显示15根柱子
+  const maxBars = 180  // 最多显示180根柱子
+  
+  // 计算 minSpan 和 maxSpan (百分比)
+  const minSpanPercent = Math.min(100, (minBars / totalBars) * 100)
+  const maxSpanPercent = Math.min(100, (maxBars / totalBars) * 100)
+  
+  // 默认显示全部柱子
+  const zoomStart = 0
+  const zoomEnd = 100
 
   // Create a date-to-index mapping for aligning indicator data with kline data
   const dateToKlineIndex = new Map<string, number>()
@@ -152,16 +179,77 @@ const updateChart = () => {
   const subChartCount = subCharts.length
   const hasSubCharts = subChartCount > 0
   
-  // Calculate heights dynamically - adjusted for better spacing between indicator charts
-  const mainHeight = hasSubCharts ? (subChartCount > 2 ? '18%' : subChartCount > 1 ? '24%' : '28%') : '55%'
-  const volumeHeight = subChartCount > 2 ? '5%' : '7%'
-  const subChartHeight = subChartCount > 2 ? '7%' : subChartCount > 1 ? '9%' : '11%'
-  const subChartGap = subChartCount > 2 ? 5 : 6 // Gap percentage between sub-charts (increased for clearer separation)
+  // ========== 动态布局参数 ==========
+  // 主图占 50%，成交量和其他子图均分剩余 50%
+  const totalAvailable = 99  // 100% - 1% 顶部边距
+  const mainSubGap = 6       // 主图和子图区域之间的间距（增大以避免坐标重合）
+  const subChartGapVal = 2   // 子图之间的间距
   
-  // Main chart grid
-  grids.push({ left: '8%', right: '8%', top: 60, height: mainHeight, containLabel: false })
-  xAxes.push({ type: 'category', data: dates, gridIndex: 0, boundaryGap: true, axisLine: { onZero: false } })
-  yAxes.push({ type: 'value', gridIndex: 0, scale: true, splitArea: { show: true }, boundaryGap: ['5%', '5%'] })
+  // 主图固定占 48%
+  const mainHeightVal = 48
+  
+  // 成交量也算作子图，和 MACD/KDJ/RSI/CCI 等一起均分剩余空间
+  // 子图总数 = 成交量(1) + 其他子图数量
+  const totalSubChartCount = 1 + subChartCount  // 成交量 + 其他指标子图
+  
+  // 计算子图高度（包括成交量）
+  // 剩余空间 = 总可用 - 主图高度 - 主图与子图间距 - 子图之间的间距
+  const totalSubGaps = subChartGapVal * (totalSubChartCount - 1)  // 子图之间的间距数量
+  const remainingForSubs = totalAvailable - mainHeightVal - mainSubGap - totalSubGaps
+  const subChartHeightVal = Math.floor(remainingForSubs / totalSubChartCount)
+  
+  // 成交量和其他子图使用相同高度
+  const volumeHeightVal = subChartHeightVal
+  
+  const mainHeight = `${mainHeightVal}%`
+  const volumeHeight = `${volumeHeightVal}%`
+  const subChartHeight = `${subChartHeightVal}%`
+  const subChartGap = subChartGapVal
+  
+  // Chart background colors - distinct colors for each chart type
+  const chartColors = {
+    main: { bg: 'rgba(255, 255, 255, 0.95)', border: '#a0a8b0' },
+    volume: { bg: 'rgba(230, 240, 255, 0.95)', border: '#8098b8' },
+    macd: { bg: 'rgba(255, 245, 235, 0.95)', border: '#c89868' },
+    kdj: { bg: 'rgba(235, 255, 245, 0.95)', border: '#68b888' },
+    rsi: { bg: 'rgba(245, 235, 255, 0.95)', border: '#9878b8' },
+    default: { bg: 'rgba(245, 248, 252, 0.95)', border: '#a0a8b0' }
+  }
+  
+  const mainHeightNum = mainHeightVal
+  const volumeHeightNum = volumeHeightVal
+  const subChartHeightNum = subChartHeightVal
+  
+  // Main chart grid - with distinct border and shadow
+  const mainTopVal = 1 // Start at 1%
+  grids.push({ 
+    left: '8%', 
+    right: '8%', 
+    top: `${mainTopVal}%`, 
+    height: mainHeight, 
+    containLabel: false,
+    backgroundColor: chartColors.main.bg,
+    borderColor: chartColors.main.border,
+    borderWidth: 2,
+    shadowBlur: 8,
+    shadowColor: 'rgba(0, 0, 0, 0.15)',
+    shadowOffsetX: 0,
+    shadowOffsetY: 3
+  })
+  xAxes.push({ type: 'category', data: dates, gridIndex: 0, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } } })
+  yAxes.push({ type: 'value', gridIndex: 0, scale: true, splitArea: { show: true, areaStyle: { color: ['rgba(255,255,255,0.5)', 'rgba(245,245,245,0.5)'] } }, boundaryGap: ['5%', '5%'], axisLine: { lineStyle: { color: '#ccc' } } })
+  
+  // Graphic elements for chart titles
+  const graphicElements: any[] = []
+  
+  // K-line chart title - placed on left side, vertically centered
+  const mainChartCenterTop = `${mainTopVal + mainHeightNum / 2}%`
+  graphicElements.push({
+    type: 'text',
+    left: '1%',
+    top: mainChartCenterTop,
+    style: { text: 'K线图', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
+  })
   
   // K-line series
   series.push({
@@ -170,11 +258,13 @@ const updateChart = () => {
     data: klineData,
     xAxisIndex: 0,
     yAxisIndex: 0,
+    barMaxWidth: 20,  // 最大柱宽20px，保持协调比例
+    barMinWidth: 1,   // 最小柱宽1px
     itemStyle: {
       color: '#ec0000',
-      color0: '#00da3c',
+      color0: '#228B22',
       borderColor: '#ec0000',
-      borderColor0: '#00da3c'
+      borderColor0: '#228B22'
     }
   })
 
@@ -192,58 +282,88 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors[key] || '#888' }
+          lineStyle: { width: 1.5, color: indicatorColors[key] || '#888' }
         })
       }
     }
   }
 
-  // Volume grid
-  const volumeTop = hasSubCharts ? (subChartCount > 1 ? '45%' : '50%') : '70%'
-  grids.push({ left: '8%', right: '8%', top: volumeTop, height: volumeHeight, containLabel: false })
-  xAxes.push({ type: 'category', data: dates, gridIndex: 1, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-  yAxes.push({ type: 'value', gridIndex: 1, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+  // Volume grid - distinct blue-tinted background
+  // Volume top = main top + main height + mainSubGap (间距)
+  const volumeTopVal = mainTopVal + mainHeightNum + mainSubGap
+  const volumeTop = `${volumeTopVal}%`
+  grids.push({ 
+    left: '8%', 
+    right: '8%', 
+    top: volumeTop, 
+    height: volumeHeight, 
+    containLabel: false,
+    backgroundColor: chartColors.volume.bg,
+    borderColor: chartColors.volume.border,
+    borderWidth: 2,
+    shadowBlur: 6,
+    shadowColor: 'rgba(0, 0, 0, 0.12)',
+    shadowOffsetX: 0,
+    shadowOffsetY: 3
+  })
+  xAxes.push({ type: 'category', data: dates, gridIndex: 1, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+  yAxes.push({ type: 'value', gridIndex: 1, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
+  
+  // Volume chart title - placed on left side, vertically centered
+  graphicElements.push({
+    type: 'text',
+    left: '1%',
+    top: `${volumeTopVal + volumeHeightNum / 2}%`,
+    style: { text: '成交量', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
+  })
   
   series.push({
     name: '成交量',
     type: 'bar',
     data: volumeData,
     xAxisIndex: 1,
-    yAxisIndex: 1
+    yAxisIndex: 1,
+    barMaxWidth: 20,  // 与K线保持一致
+    barMinWidth: 1
   })
 
-  // Add sub-charts dynamically
-  let subChartTop = hasSubCharts ? (subChartCount > 1 ? 56 : 65) : 85
+  // Add sub-charts dynamically - start after volume chart
+  let subChartTop = volumeTopVal + volumeHeightNum + subChartGap
   
-  // Graphic elements for sub-chart titles and separators
-  const graphicElements: any[] = []
-
-  // Helper function to add separator line
-  const addSeparator = (topPercent: number) => {
-    graphicElements.push({
-      type: 'rect',
+  // Helper function to create grid with distinct background color for each sub-chart type
+  const createSubChartGrid = (top: string, chartType: string) => {
+    const colors = chartType === 'MACD' ? chartColors.macd :
+                   chartType === 'KDJ' ? chartColors.kdj :
+                   chartType === 'RSI' ? chartColors.rsi :
+                   chartColors.default
+    return {
       left: '8%',
       right: '8%',
-      top: `${topPercent - 2}%`,
-      shape: { width: 10000, height: 1 },
-      style: { fill: '#e0e0e0' }
-    })
+      top: top,
+      height: subChartHeight,
+      containLabel: false,
+      backgroundColor: colors.bg,
+      borderColor: colors.border,
+      borderWidth: 2,
+      shadowBlur: 6,
+      shadowColor: 'rgba(0, 0, 0, 0.12)',
+      shadowOffsetX: 0,
+      shadowOffsetY: 3
+    }
   }
 
   // MACD sub-chart
   if (hasMACD.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'MACD'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'MACD', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'MACD', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     if (props.indicators.DIF?.length > 0) {
@@ -257,7 +377,7 @@ const updateChart = () => {
         smooth: true,
         showSymbol: false,
         connectNulls: true,
-        lineStyle: { width: 1, color: indicatorColors.DIF }
+        lineStyle: { width: 1.5, color: indicatorColors.DIF }
       })
     }
     if (props.indicators.DEA?.length > 0) {
@@ -271,7 +391,7 @@ const updateChart = () => {
         smooth: true,
         showSymbol: false,
         connectNulls: true,
-        lineStyle: { width: 1, color: indicatorColors.DEA }
+        lineStyle: { width: 1.5, color: indicatorColors.DEA }
       })
     }
     if (props.indicators.MACD?.length > 0) {
@@ -281,29 +401,29 @@ const updateChart = () => {
         type: 'bar',
         data: alignedData.map(v => v === null ? null : ({
           value: v,
-          itemStyle: { color: v >= 0 ? '#ec0000' : '#00da3c' }
+          itemStyle: { color: v >= 0 ? '#ec0000' : '#228B22' }
         })),
         xAxisIndex: axisIndex,
-        yAxisIndex: axisIndex
+        yAxisIndex: axisIndex,
+        barMaxWidth: 20,  // 与K线保持一致
+        barMinWidth: 1
       })
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // KDJ sub-chart
   if (hasKDJ.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'KDJ'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, min: 0, max: 100 })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'KDJ', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'KDJ', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     for (const key of kdjIndicators) {
@@ -318,27 +438,25 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors[key] }
+          lineStyle: { width: 1.5, color: indicatorColors[key] }
         })
       }
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // RSI sub-chart
   if (hasRSI.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'RSI'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, min: 0, max: 100 })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'RSI', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'RSI', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     for (const [key, values] of Object.entries(props.indicators)) {
@@ -353,27 +471,25 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors.RSI14 || '#9b59b6' }
+          lineStyle: { width: 1.5, color: indicatorColors.RSI14 || '#9b59b6' }
         })
       }
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // CCI sub-chart
   if (hasCCI.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'CCI'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'CCI', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'CCI', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     for (const [key, values] of Object.entries(props.indicators)) {
@@ -388,27 +504,25 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors.CCI14 || '#e67e22' }
+          lineStyle: { width: 1.5, color: indicatorColors.CCI14 || '#e67e22' }
         })
       }
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // DMI sub-chart
   if (hasDMI.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'DMI'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'DMI', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'DMI', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     for (const key of dmiIndicators) {
@@ -423,27 +537,25 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors[key] }
+          lineStyle: { width: 1.5, color: indicatorColors[key] }
         })
       }
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // OBV sub-chart
   if (hasOBV.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'OBV'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'OBV', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'OBV', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     if (props.indicators.OBV?.length > 0) {
@@ -457,26 +569,24 @@ const updateChart = () => {
         smooth: true,
         showSymbol: false,
         connectNulls: true,
-        lineStyle: { width: 1, color: indicatorColors.OBV }
+        lineStyle: { width: 1.5, color: indicatorColors.OBV }
       })
     }
-    subChartTop += parseInt(subChartHeight) + subChartGap
+    subChartTop += subChartHeightNum + subChartGap
   }
 
   // ATR sub-chart
   if (hasATR.value && props.indicators) {
-    addSeparator(subChartTop)
-    
-    grids.push({ left: '8%', right: '8%', top: `${subChartTop}%`, height: subChartHeight, containLabel: false })
+    grids.push(createSubChartGrid(`${subChartTop}%`, 'ATR'))
     const axisIndex = grids.length - 1
-    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false }, axisTick: { show: false }, axisLabel: { show: false } })
-    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'] })
+    xAxes.push({ type: 'category', data: dates, gridIndex: axisIndex, boundaryGap: true, axisLine: { onZero: false, lineStyle: { color: '#ccc' } }, axisTick: { show: false }, axisLabel: { show: false } })
+    yAxes.push({ type: 'value', gridIndex: axisIndex, scale: true, splitNumber: 2, boundaryGap: ['5%', '5%'], splitLine: { lineStyle: { color: '#eee' } }, axisLine: { lineStyle: { color: '#ccc' } } })
     
     graphicElements.push({
       type: 'text',
-      left: '9%',
-      top: `${subChartTop}%`,
-      style: { text: 'ATR', fontSize: 11, fontWeight: 'bold', fill: '#666' }
+      left: '1%',
+      top: `${subChartTop + subChartHeightNum / 2}%`,
+      style: { text: 'ATR', fontSize: 12, fontWeight: 'bold', fill: '#333', verticalAlign: 'middle' }
     })
     
     for (const [key, values] of Object.entries(props.indicators)) {
@@ -491,11 +601,14 @@ const updateChart = () => {
           smooth: true,
           showSymbol: false,
           connectNulls: true,
-          lineStyle: { width: 1, color: indicatorColors.ATR14 || '#e67e22' }
+          lineStyle: { width: 1.5, color: indicatorColors.ATR14 || '#e67e22' }
         })
       }
     }
   }
+
+  // Calculate dataZoom slider position - not used (inside zoom only)
+  // const sliderTop = `${Math.min(subChartTop + subChartHeightNum, 92)}%`
 
   const option: echarts.EChartsOption = {
     animation: false,
@@ -532,6 +645,7 @@ const updateChart = () => {
       }
     },
     legend: {
+      show: false, // 隐藏图例以节省空间
       data: ['K线', '成交量', ...series.filter(s => !['K线', '成交量'].includes(s.name)).map(s => s.name)],
       top: 10,
       textStyle: { fontSize: 11 }
@@ -547,23 +661,13 @@ const updateChart = () => {
       {
         type: 'inside',
         xAxisIndex: xAxes.map((_, i) => i),
-        start: 50,
-        end: 100,
-        minSpan: 5,
-        maxSpan: 100,
+        start: zoomStart,
+        end: zoomEnd,
+        minSpan: minSpanPercent,
+        maxSpan: maxSpanPercent,
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         preventDefaultMouseMove: true
-      },
-      {
-        type: 'slider',
-        xAxisIndex: xAxes.map((_, i) => i),
-        start: 50,
-        end: 100,
-        top: '90%',
-        height: 20,
-        minSpan: 5,
-        maxSpan: 100
       }
     ],
     graphic: graphicElements,
@@ -574,13 +678,26 @@ const updateChart = () => {
 }
 
 const handleResize = () => {
-  chart?.resize()
+  if (chart) {
+    chart.resize()
+  }
 }
 
-watch([() => props.data, () => props.indicators], updateChart, { deep: true })
+// 监听数据和指标变化
+watch([() => props.data, () => props.indicators], () => {
+  if (chart) {
+    updateChart()
+  } else if (props.data.length > 0) {
+    // 如果图表还没初始化但有数据了，尝试初始化
+    initChart()
+  }
+}, { deep: true })
 
 onMounted(() => {
-  initChart()
+  // 使用 nextTick 确保 DOM 完全渲染
+  nextTick(() => {
+    initChart()
+  })
   window.addEventListener('resize', handleResize)
 })
 
@@ -591,13 +708,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="kline-chart-container" :style="{ height: `${chartHeight}px` }">
-    <t-loading v-if="loading" size="large" />
-    <div v-if="!data.length && !loading" class="empty-state">
+  <div class="kline-chart-container" :style="{ height: chartHeight }">
+    <!-- 加载状态：居中显示加载动画 -->
+    <div v-if="loading" class="loading-state">
+      <t-loading size="large" text="数据加载中..." />
+    </div>
+    <!-- 无数据状态 -->
+    <div v-else-if="!data.length" class="empty-state">
       <t-icon name="chart-line" size="48px" style="color: #ddd" />
       <p>暂无数据</p>
     </div>
-    <div ref="chartRef" class="chart" />
+    <!-- 图表：只有在有数据且不在加载时才显示 -->
+    <div v-show="!loading && data.length > 0" ref="chartRef" class="chart" />
   </div>
 </template>
 
@@ -606,6 +728,19 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   min-height: 400px;
+}
+
+.loading-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 10;
 }
 
 .chart {
