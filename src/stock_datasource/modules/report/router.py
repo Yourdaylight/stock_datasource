@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import logging
 
 from stock_datasource.services.financial_report_service import FinancialReportService
@@ -30,6 +30,18 @@ class FinancialData(BaseModel):
     net_margin: Optional[float] = None
     debt_ratio: Optional[float] = None
     current_ratio: Optional[float] = None
+    
+    @field_validator('revenue', 'net_profit', 'total_assets', 'total_liab', 'roe', 'roa', 
+                     'gross_margin', 'net_margin', 'debt_ratio', 'current_ratio', mode='before')
+    @classmethod
+    def parse_nullable_float(cls, v):
+        """Parse nullable float values, handling ClickHouse NULL representations."""
+        if v is None or v == '\\N' or v == 'None' or v == '':
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
 
 
 class FinancialRequest(BaseModel):
@@ -108,6 +120,23 @@ async def get_financial(request: FinancialRequest):
         summary_data = analysis.get("summary", {})
         raw_data = summary_data.get("raw_data", [])
         
+        # Helper function to clean ClickHouse NULL values
+        def clean_null_values(data):
+            """Recursively clean \\N values from dict/list structures."""
+            if isinstance(data, dict):
+                return {k: clean_null_values(v) for k, v in data.items()}
+            elif isinstance(data, list):
+                return [clean_null_values(v) for v in data]
+            elif data == '\\N' or data == 'None' or data == '':
+                return None
+            elif isinstance(data, str):
+                # Try to convert numeric strings to float
+                try:
+                    return float(data)
+                except (ValueError, TypeError):
+                    return data
+            return data
+        
         # Convert raw data to FinancialData format
         financial_data = []
         for item in raw_data:
@@ -139,6 +168,12 @@ async def get_financial(request: FinancialRequest):
         elif latest_period and not isinstance(latest_period, str):
             latest_period = str(latest_period)
         
+        # Clean null values from summary data
+        profitability = clean_null_values(summary_data.get("profitability", {}))
+        solvency = clean_null_values(summary_data.get("solvency", {}))
+        efficiency = clean_null_values(summary_data.get("efficiency", {}))
+        growth = clean_null_values(summary_data.get("growth", {}))
+        
         return FinancialResponse(
             code=normalized_code,
             name=f"股票 {normalized_code}",  # In production, get from stock basic info
@@ -146,10 +181,10 @@ async def get_financial(request: FinancialRequest):
             latest_period=latest_period,
             data=financial_data,
             summary={
-                "profitability": summary_data.get("profitability", {}),
-                "solvency": summary_data.get("solvency", {}),
-                "efficiency": summary_data.get("efficiency", {}),
-                "growth": summary_data.get("growth", {}),
+                "profitability": profitability,
+                "solvency": solvency,
+                "efficiency": efficiency,
+                "growth": growth,
                 "health_score": analysis.get("health_analysis", {}).get("health_score", 0)
             },
             status="success"

@@ -180,12 +180,15 @@ async def lifespan(app: FastAPI):
 
         # Create only the plugin tables required by the default frontend pages
         required_plugins = [
-            "tushare_ths_daily",
-            "tushare_ths_index",
-            "tushare_idx_factor_pro",
-            "tushare_index_basic",
-            "tushare_etf_fund_daily",
-            "tushare_etf_basic",
+            "tushare_ths_daily",      # 同花顺行情数据
+            "tushare_ths_index",      # 同花顺指数
+            "tushare_idx_factor_pro", # 指数因子
+            "tushare_index_basic",    # 指数基础信息
+            "tushare_etf_fund_daily", # ETF日线数据
+            "tushare_etf_basic",      # ETF基础信息
+            "tushare_cyq_chips",      # 筹码分布数据
+            "tushare_stk_surv",       # 机构调研数据
+            "tushare_report_rc",      # 研报覆盖数据
         ]
 
         for plugin_name in required_plugins:

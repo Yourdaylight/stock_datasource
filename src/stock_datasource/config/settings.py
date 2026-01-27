@@ -56,6 +56,21 @@ class Settings(BaseSettings):
     HTTP_PROXY_PORT: int = Field(default=0)
     HTTP_PROXY_USERNAME: Optional[str] = Field(default=None)
     HTTP_PROXY_PASSWORD: Optional[str] = Field(default=None)
+
+    @field_validator('HTTP_PROXY_PORT', mode='before')
+    @classmethod
+    def parse_proxy_port(cls, v):
+        """Parse HTTP_PROXY_PORT value, handle empty strings gracefully."""
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            if v.strip() == '':
+                return 0
+            try:
+                return int(v)
+            except ValueError:
+                return 0
+        return 0
     
     @property
     def http_proxy_url(self) -> Optional[str]:
