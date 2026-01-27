@@ -43,7 +43,7 @@ const indicatorGroups = [
   }
 ]
 
-const selected = ref<string[]>(props.selectedIndicators || ['MACD', 'MA'])
+const selected = ref<string[]>(props.selectedIndicators || ['MA', 'MACD', 'RSI', 'KDJ'])
 
 const handleChange = () => {
   emit('change', selected.value)
@@ -53,7 +53,7 @@ const handleChange = () => {
 const presets = [
   { name: '简洁', indicators: ['MA'] },
   { name: '标准', indicators: ['MA', 'MACD'] },
-  { name: '专业', indicators: ['MA', 'BOLL', 'MACD', 'RSI'] },
+  { name: '专业', indicators: ['MA', 'MACD', 'RSI', 'KDJ'] },
 ]
 
 const applyPreset = (preset: { name: string; indicators: string[] }) => {
@@ -123,8 +123,8 @@ const applyPreset = (preset: { name: string; indicators: string[] }) => {
 }
 
 .indicator-groups {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
@@ -138,16 +138,17 @@ const applyPreset = (preset: { name: string; indicators: string[] }) => {
   font-size: 12px;
   color: #666;
   margin-bottom: 8px;
+  font-weight: 500;
 }
 
 .indicator-items {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .indicator-item {
-  min-width: 140px;
+  width: 100%;
 }
 
 .indicator-info {
@@ -156,11 +157,11 @@ const applyPreset = (preset: { name: string; indicators: string[] }) => {
 }
 
 .indicator-label {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .indicator-desc {
-  font-size: 11px;
+  font-size: 10px;
   color: #999;
 }
 </style>

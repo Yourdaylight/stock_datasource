@@ -9,10 +9,32 @@ This agent provides AI-powered market analysis capabilities:
 
 from typing import Dict, Any, List, Callable, Optional
 import logging
+import asyncio
+import concurrent.futures
 
 from .base_agent import LangGraphAgent, AgentConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async_safely(coro):
+    """Run an async coroutine safely in any context (sync or async).
+    
+    Handles the case when called from a thread pool where there's no event loop.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    
+    if loop is not None and loop.is_running():
+        # We're in an async context, need to run in a new thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(lambda: asyncio.run(coro))
+            return future.result()
+    else:
+        # No running loop, safe to use asyncio.run
+        return asyncio.run(coro)
 
 
 # System prompt for market analysis
@@ -69,26 +91,17 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
         K线数据，包含日期、开高低收、成交量
     """
     try:
-        import asyncio
         from stock_datasource.modules.market.service import get_market_service
         from datetime import datetime, timedelta
+        
+        logger.info(f"get_kline called with code={code}, period={period}")
         
         service = get_market_service()
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=period)).strftime("%Y-%m-%d")
         
-        # Run async function in sync context
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run,
-                    service.get_kline(code, start_date, end_date)
-                )
-                result = future.result()
-        else:
-            result = asyncio.run(service.get_kline(code, start_date, end_date))
+        # Run async function safely
+        result = _run_async_safely(service.get_kline(code, start_date, end_date))
         
         # Summarize for LLM context
         data = result.get("data", [])
@@ -115,10 +128,11 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
                 "price_change": round(latest["close"] - earliest["close"], 2),
                 "price_change_pct": round((latest["close"] - earliest["close"]) / earliest["close"] * 100, 2)
             }
-        return {"error": "No data available"}
+        logger.warning(f"get_kline returned empty data for code={code}")
+        return {"message": f"暂无{code}的K线数据，请稍后重试", "code": code}
     except Exception as e:
-        logger.error(f"get_kline tool error: {e}")
-        return {"error": str(e)}
+        logger.error(f"get_kline tool error for {code}: {e}", exc_info=True)
+        return {"message": f"获取K线数据失败: {str(e)}", "code": code}
 
 
 def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[str, Any]:
@@ -132,24 +146,13 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
         各指标的最新值和信号
     """
     try:
-        import asyncio
         from stock_datasource.modules.market.service import get_market_service
         
         service = get_market_service()
         indicator_list = [i.strip().upper() for i in indicators.split(",")]
         
-        # Run async function
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run,
-                    service.get_indicators(code, indicator_list, period=60)
-                )
-                result = future.result()
-        else:
-            result = asyncio.run(service.get_indicators(code, indicator_list, period=60))
+        # Run async function safely
+        result = _run_async_safely(service.get_indicators(code, indicator_list, period=60))
         
         # Extract latest values for LLM
         indicators_data = result.get("indicators", {})
@@ -171,7 +174,7 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
         }
     except Exception as e:
         logger.error(f"calculate_indicators tool error: {e}")
-        return {"error": str(e)}
+        return {"message": f"计算技术指标失败: {str(e)}", "code": code}
 
 
 def analyze_trend(code: str) -> Dict[str, Any]:
@@ -184,28 +187,17 @@ def analyze_trend(code: str) -> Dict[str, Any]:
         趋势分析结果，包含趋势方向、支撑压力位、信号
     """
     try:
-        import asyncio
         from stock_datasource.modules.market.service import get_market_service
         
         service = get_market_service()
         
-        # Run async function
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run,
-                    service.analyze_trend(code, period=60)
-                )
-                result = future.result()
-        else:
-            result = asyncio.run(service.analyze_trend(code, period=60))
+        # Run async function safely
+        result = _run_async_safely(service.analyze_trend(code, period=60))
         
         return result
     except Exception as e:
         logger.error(f"analyze_trend tool error: {e}")
-        return {"error": str(e)}
+        return {"message": f"分析趋势失败: {str(e)}", "code": code}
 
 
 def get_market_overview() -> Dict[str, Any]:
@@ -215,28 +207,17 @@ def get_market_overview() -> Dict[str, Any]:
         市场概览数据，包含主要指数、涨跌统计
     """
     try:
-        import asyncio
         from stock_datasource.modules.market.service import get_market_service
         
         service = get_market_service()
         
-        # Run async function
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run,
-                    service.get_market_overview()
-                )
-                result = future.result()
-        else:
-            result = asyncio.run(service.get_market_overview())
+        # Run async function safely
+        result = _run_async_safely(service.get_market_overview())
         
         return result
     except Exception as e:
         logger.error(f"get_market_overview tool error: {e}")
-        return {"error": str(e)}
+        return {"message": f"获取市场概览失败: {str(e)}"}
 
 
 class MarketAgent(LangGraphAgent):

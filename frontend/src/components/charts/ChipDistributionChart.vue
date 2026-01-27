@@ -8,13 +8,18 @@ const props = defineProps<{
   stats?: ChipStats | null
   currentPrice?: number
   loading?: boolean
-  height?: number
+  height?: number | string
 }>()
 
 const chartRef = ref<HTMLElement | null>(null)
 let chart: echarts.ECharts | null = null
 
-const chartHeight = computed(() => props.height || 400)
+const chartHeight = computed(() => {
+  if (typeof props.height === 'string') {
+    return props.height
+  }
+  return props.height ? `${props.height}px` : '400px'
+})
 
 // 计算获利盘和套牢盘
 const profitData = computed(() => {
@@ -213,57 +218,81 @@ watch(() => props.loading, (loading) => {
 </script>
 
 <template>
-  <div class="chip-distribution-container">
-    <!-- 统计面板 -->
-    <div v-if="stats || profitData.profit > 0 || profitData.loss > 0" class="stats-panel">
-      <div class="stat-item profit">
-        <span class="label">获利盘</span>
-        <span class="value">{{ profitData.profit.toFixed(1) }}%</span>
-      </div>
-      <div class="stat-item loss">
-        <span class="label">套牢盘</span>
-        <span class="value">{{ profitData.loss.toFixed(1) }}%</span>
-      </div>
-      <div v-if="stats?.weighted_avg_price" class="stat-item">
-        <span class="label">平均成本</span>
-        <span class="value">¥{{ stats.weighted_avg_price.toFixed(2) }}</span>
-      </div>
-      <div v-if="currentPrice" class="stat-item">
-        <span class="label">当前价格</span>
-        <span class="value">¥{{ currentPrice.toFixed(2) }}</span>
-      </div>
+  <div class="chip-distribution-container" :style="{ height: chartHeight }">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <t-loading size="large" text="加载中..." />
     </div>
     
-    <!-- 图例 -->
-    <div class="legend">
-      <span class="legend-item">
-        <span class="legend-color profit"></span>
-        获利盘（价格 ≤ 现价）
-      </span>
-      <span class="legend-item">
-        <span class="legend-color loss"></span>
-        套牢盘（价格 > 现价）
-      </span>
-    </div>
-    
-    <!-- 图表 -->
-    <div 
-      ref="chartRef" 
-      :style="{ width: '100%', height: `${chartHeight}px` }"
-    ></div>
-    
-    <!-- 空状态 -->
-    <div v-if="!loading && !data.length" class="empty-state">
+    <!-- 空状态：居中显示 -->
+    <div v-else-if="!data.length" class="empty-state">
       <t-icon name="chart" size="48" />
       <p>暂无筹码分布数据</p>
       <p class="hint">可能原因：该股票为新股或数据尚未同步</p>
     </div>
+    
+    <!-- 有数据时显示内容 -->
+    <template v-else>
+      <!-- 统计面板 -->
+      <div v-if="stats || profitData.profit > 0 || profitData.loss > 0" class="stats-panel">
+        <div class="stat-item profit">
+          <span class="label">获利盘</span>
+          <span class="value">{{ profitData.profit.toFixed(1) }}%</span>
+        </div>
+        <div class="stat-item loss">
+          <span class="label">套牢盘</span>
+          <span class="value">{{ profitData.loss.toFixed(1) }}%</span>
+        </div>
+        <div v-if="stats?.weighted_avg_price" class="stat-item">
+          <span class="label">平均成本</span>
+          <span class="value">¥{{ stats.weighted_avg_price.toFixed(2) }}</span>
+        </div>
+        <div v-if="currentPrice" class="stat-item">
+          <span class="label">当前价格</span>
+          <span class="value">¥{{ currentPrice.toFixed(2) }}</span>
+        </div>
+      </div>
+      
+      <!-- 图例 -->
+      <div class="legend">
+        <span class="legend-item">
+          <span class="legend-color profit"></span>
+          获利盘（价格 ≤ 现价）
+        </span>
+        <span class="legend-item">
+          <span class="legend-color loss"></span>
+          套牢盘（价格 > 现价）
+        </span>
+      </div>
+      
+      <!-- 图表 -->
+      <div 
+        ref="chartRef" 
+        class="chart"
+      ></div>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .chip-distribution-container {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.loading-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 10;
 }
 
 .stats-panel {
@@ -273,6 +302,7 @@ watch(() => props.loading, (loading) => {
   background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
   border-radius: 8px;
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .stat-item {
@@ -306,6 +336,7 @@ watch(() => props.loading, (loading) => {
   padding: 8px 0;
   font-size: 12px;
   color: #666;
+  flex-shrink: 0;
 }
 
 .legend-item {
@@ -328,12 +359,22 @@ watch(() => props.loading, (loading) => {
   background: #ef5350;
 }
 
+.chart {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
 .empty-state {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 300px;
   color: #999;
 }
 
