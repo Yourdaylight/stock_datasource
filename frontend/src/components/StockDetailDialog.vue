@@ -3,11 +3,13 @@ import { ref, watch, computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { marketApi } from '@/api/market'
 import { usePortfolioStore } from '@/stores/portfolio'
+import { useScreenerStore } from '@/stores/screener'
 import KLineChart from '@/components/charts/KLineChart.vue'
 import ChipDistributionChart from '@/components/charts/ChipDistributionChart.vue'
 import IndicatorPanel from '@/views/market/components/IndicatorPanel.vue'
 import TrendAnalysis from '@/views/market/components/TrendAnalysis.vue'
 import type { KLineData, TechnicalSignal, ChipData, ChipStats } from '@/types/common'
+import type { StockProfile } from '@/api/screener'
 
 interface Props {
   visible: boolean
@@ -21,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const portfolioStore = usePortfolioStore()
+const screenerStore = useScreenerStore()
 
 // Data
 const stockInfo = ref<{ code: string; name: string } | null>(null)
@@ -39,12 +42,14 @@ const chipStats = ref<ChipStats | null>(null)
 const chipLoading = ref(false)
 const chipDate = ref<string>('')
 
+// Stock profile (十维画像)
+const stockProfile = ref<StockProfile | null>(null)
+const profileLoading = ref(false)
+
 // Chart options
-const period = ref(90) // 默认90天
+const period = ref(365) // 默认365天
 const adjustType = ref<'qfq' | 'hfq' | 'none'>('qfq')
-const selectedIndicators = ref<string[]>(['MACD', 'MA'])
-const showIndicatorPanel = ref(false)
-const activeTab = ref('chart')
+const selectedIndicators = ref<string[]>(['MA', 'MACD', 'RSI', 'KDJ'])
 
 // Add to watchlist form
 const addToWatchlistForm = ref({
@@ -73,6 +78,9 @@ const dialogVisible = computed({
   get: () => props.visible,
   set: (value) => emit('update:visible', value)
 })
+
+// 页面整体加载状态：K线数据加载完成才显示页面
+const pageLoading = computed(() => loading.value && klineData.value.length === 0)
 
 const latestPrice = computed(() => {
   if (klineData.value.length === 0) return 0
@@ -187,29 +195,86 @@ const handleAnalyze = async () => {
   }
 }
 
-const handleAIAnalyze = async () => {
+// AI Analysis with streaming
+const streamingContent = ref('')
+const analysisStatus = ref('')
+
+const handleAIAnalyze = () => {
   if (!props.stockCode) return
   
   analysisLoading.value = true
-  try {
-    const response = await marketApi.aiAnalyze({ 
-      code: props.stockCode, 
-      period: period.value 
-    })
-    trendAnalysis.value = {
-      trend: response.trend || 'AI 智能分析',  // 确保 trend 有值，否则组件不显示
-      summary: response.analysis,
-      signals: response.signals || [],
-      disclaimer: '以上分析由 AI 生成，仅供参考，不构成投资建议。'
+  streamingContent.value = ''
+  analysisStatus.value = ''
+  
+  // Initialize trendAnalysis to show component
+  trendAnalysis.value = {
+    trend: 'AI 智能分析',
+    summary: '',
+    signals: [],
+    disclaimer: '以上分析由 AI 生成，仅供参考，不构成投资建议。'
+  }
+  
+  const eventSource = marketApi.aiAnalyzeStream(props.stockCode, period.value)
+  
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      
+      switch (data.type) {
+        case 'status':
+          analysisStatus.value = data.message
+          break
+        case 'trend':
+          if (data.data) {
+            trendAnalysis.value = {
+              ...trendAnalysis.value,
+              trend: data.data.trend || 'AI 智能分析',
+              signals: data.data.signals || []
+            }
+            if (data.data.signals) {
+              signals.value = data.data.signals
+            }
+          }
+          break
+        case 'content':
+          streamingContent.value += data.content
+          trendAnalysis.value = {
+            ...trendAnalysis.value,
+            summary: streamingContent.value
+          }
+          break
+        case 'done':
+          analysisLoading.value = false
+          analysisStatus.value = ''
+          eventSource.close()
+          break
+        case 'error':
+          console.error('AI analysis error:', data.message)
+          MessagePlugin.error(data.message || 'AI分析失败')
+          analysisLoading.value = false
+          analysisStatus.value = ''
+          eventSource.close()
+          break
+      }
+    } catch (e) {
+      console.error('Failed to parse SSE data:', e)
     }
-    if (response.signals) {
-      signals.value = response.signals
+  }
+  
+  eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error)
+    
+    // EventSource 会自动重连，检查 readyState
+    // 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
+    if (eventSource.readyState === EventSource.CLOSED) {
+      analysisLoading.value = false
+      analysisStatus.value = ''
+      
+      // 如果没有收到任何内容，才显示错误
+      if (!streamingContent.value && !trendAnalysis.value?.summary) {
+        MessagePlugin.error('AI分析连接失败，请稍后重试')
+      }
     }
-  } catch (error) {
-    console.error('Failed to AI analyze stock:', error)
-    MessagePlugin.error('AI分析失败，请稍后重试')
-  } finally {
-    analysisLoading.value = false
   }
 }
 
@@ -276,6 +341,41 @@ const handleChipDateChange = () => {
   fetchChipData()
 }
 
+// Fetch stock profile (十维画像)
+const fetchStockProfile = async () => {
+  if (!props.stockCode) return
+  
+  profileLoading.value = true
+  try {
+    const result = await screenerStore.fetchProfile(props.stockCode)
+    stockProfile.value = result
+  } catch (error) {
+    console.error('Failed to fetch stock profile:', error)
+    stockProfile.value = null
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+// 评分颜色
+const scoreColor = (score: number) => {
+  if (score >= 80) return '#52c41a'
+  if (score >= 60) return '#1890ff'
+  if (score >= 40) return '#faad14'
+  return '#ff4d4f'
+}
+
+// 等级标签颜色
+const levelTheme = (level: string) => {
+  switch (level) {
+    case '优秀': return 'success'
+    case '良好': return 'primary'
+    case '中等': return 'warning'
+    case '较差': return 'danger'
+    default: return 'default'
+  }
+}
+
 const handleClose = () => {
   emit('close')
 }
@@ -291,21 +391,18 @@ watch(() => props.stockCode, (newCode) => {
     chipData.value = []
     chipStats.value = null
     chipDate.value = ''
-    activeTab.value = 'chart'
+    stockProfile.value = null
     fetchStockData()
+    fetchChipData()
+    fetchStockProfile()
   }
 })
 
 watch(() => props.visible, (visible) => {
   if (visible && props.stockCode) {
     fetchStockData()
-  }
-})
-
-// Watch for tab change to load chip data lazily
-watch(() => activeTab.value, (tab) => {
-  if (tab === 'chip' && chipData.value.length === 0 && !chipLoading.value) {
     fetchChipData()
+    fetchStockProfile()
   }
 })
 </script>
@@ -314,20 +411,26 @@ watch(() => activeTab.value, (tab) => {
   <t-dialog
     v-model:visible="dialogVisible"
     :header="`股票详情 - ${stockInfo?.name || stockCode}`"
-    width="1200px"
+    width="90vw"
+    top="4vh"
     :close-on-overlay-click="false"
+    :footer="false"
+    class="stock-detail-dialog"
     @close="handleClose"
   >
-    <div v-if="loading" class="loading-container">
+    <!-- 整页加载状态 -->
+    <div v-if="pageLoading" class="page-loading">
       <t-loading size="large" text="加载中..." />
     </div>
     
+    <!-- 主内容 -->
     <div v-else class="stock-detail">
       <!-- Stock Info Header -->
-      <t-card v-if="stockInfo" class="stock-info-card" :bordered="false">
+      <t-card class="stock-info-card" :bordered="false">
         <div class="stock-header">
           <div class="stock-basic">
-            <h3>{{ stockInfo.name }} ({{ stockInfo.code }})</h3>
+            <h3 v-if="stockInfo">{{ stockInfo.name }} ({{ stockInfo.code }})</h3>
+            <h3 v-else>{{ stockCode }}</h3>
             <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
               <span class="latest-price">{{ priceInfo.price }}</span>
               <span class="price-change">
@@ -351,113 +454,103 @@ watch(() => activeTab.value, (tab) => {
                 style="width: 100px"
                 @change="handleAdjustChange"
               />
-              <t-button 
-                variant="outline" 
-                size="small"
-                @click="showIndicatorPanel = !showIndicatorPanel"
-              >
-                <template #icon><t-icon name="setting" /></template>
-                指标设置
-              </t-button>
             </t-space>
           </div>
         </div>
       </t-card>
       
-      <!-- Indicator Panel -->
-      <div v-if="showIndicatorPanel" class="indicator-collapse">
-        <IndicatorPanel 
-          :selected-indicators="selectedIndicators"
-          @change="handleIndicatorChange"
-        />
-      </div>
-      
-      <!-- Tabs: Chart / Analysis / Add to Watchlist -->
-      <t-tabs v-model="activeTab" style="margin-top: 16px">
-        <t-tab-panel value="chart" label="K线图表">
-          <KLineChart
-            :data="klineData"
-            :indicators="indicators"
-            :indicator-dates="indicatorDates"
-            :loading="chartLoading"
-            :height="450"
+      <!-- Top Row: Indicator Panel + Chip + Profile -->
+      <div class="top-row">
+        <!-- Indicator Panel (左侧，与K线图宽度一致) -->
+        <div class="indicator-collapse">
+          <IndicatorPanel 
+            :selected-indicators="selectedIndicators"
+            @change="handleIndicatorChange"
           />
-          
-          <!-- Signals Display -->
-          <div v-if="signals.length > 0" class="signals-bar">
-            <span class="signals-label">技术信号：</span>
-            <t-tag
-              v-for="signal in signals"
-              :key="signal.signal"
-              :theme="signal.type === 'bullish' ? 'success' : signal.type === 'bearish' ? 'danger' : 'default'"
-              variant="light"
-              size="small"
-            >
-              {{ signal.signal }}
-            </t-tag>
-          </div>
-        </t-tab-panel>
+        </div>
         
-        <t-tab-panel value="analysis" label="AI 分析">
-          <div class="analysis-section">
-            <div class="analysis-actions">
-              <t-button theme="primary" @click="handleAnalyze" :loading="analysisLoading">
-                <template #icon><t-icon name="chart-analytics" /></template>
-                技术分析
-              </t-button>
-              <t-button variant="outline" @click="handleAIAnalyze" :loading="analysisLoading">
-                <template #icon><t-icon name="lightbulb" /></template>
-                AI 智能分析
-              </t-button>
-            </div>
+        <!-- 筹码峰和十维画像 (右侧，与右面板宽度一致) -->
+        <div class="top-right-cards">
+          <!-- Chip Distribution -->
+          <t-card title="筹码峰" class="chip-card-top" :bordered="false">
+            <template #actions>
+              <t-space size="small">
+                <t-date-picker
+                  v-model="chipDate"
+                  placeholder="选择日期"
+                  size="small"
+                  style="width: 100px"
+                  :disabled-date="(date: Date) => date > new Date()"
+                  @change="handleChipDateChange"
+                />
+                <t-button variant="text" size="small" @click="fetchChipData" :loading="chipLoading">
+                  <t-icon name="refresh" />
+                </t-button>
+              </t-space>
+            </template>
             
-            <TrendAnalysis
-              :trend="trendAnalysis?.trend"
-              :support="trendAnalysis?.support"
-              :resistance="trendAnalysis?.resistance"
-              :signals="trendAnalysis?.signals"
-              :summary="trendAnalysis?.summary"
-              :disclaimer="trendAnalysis?.disclaimer"
-              :loading="analysisLoading"
-              class="trend-analysis-panel"
-            />
-          </div>
-        </t-tab-panel>
-        
-        <t-tab-panel value="chip" label="筹码峰">
-          <div class="chip-section">
-            <div class="chip-controls">
-              <t-date-picker
-                v-model="chipDate"
-                placeholder="选择交易日"
-                style="width: 160px"
-                :disabled-date="(date: Date) => date > new Date()"
-                @change="handleChipDateChange"
-              />
-              <t-button variant="outline" size="small" @click="fetchChipData" :loading="chipLoading">
-                刷新
-              </t-button>
+            <div v-if="chipLoading" class="chip-loading-small">
+              <t-loading size="small" text="加载中..." />
             </div>
-            
-            <div v-if="chipLoading" class="chip-loading">
-              <t-loading size="medium" text="加载筹码数据..." />
-            </div>
-            
             <ChipDistributionChart
               v-else
               :data="chipData"
               :stats="chipStats"
               :current-price="latestPrice"
               :loading="chipLoading"
-              :height="400"
+              height="100%"
+            />
+          </t-card>
+          
+          <!-- Stock Profile (十维画像) -->
+          <t-card title="十维画像" class="profile-card-top" :bordered="false">
+            <template #actions>
+              <div v-if="stockProfile" class="total-score-mini" :style="{ color: scoreColor(stockProfile.total_score) }">
+                {{ stockProfile.total_score.toFixed(1) }}分
+              </div>
+            </template>
+            
+            <t-loading v-if="profileLoading" size="small" text="加载中..." class="profile-loading" />
+            <div v-else-if="stockProfile" class="profile-dimensions">
+              <div 
+                v-for="dim in stockProfile.dimensions" 
+                :key="dim.name"
+                class="dimension-row"
+              >
+                <span class="dim-name">{{ dim.name }}</span>
+                <t-progress
+                  :percentage="dim.score"
+                  :color="scoreColor(dim.score)"
+                  :stroke-width="4"
+                  size="small"
+                  class="dim-progress"
+                />
+                <span class="dim-score">{{ dim.score.toFixed(0) }}</span>
+                <t-tag :theme="levelTheme(dim.level)" size="small">{{ dim.level }}</t-tag>
+              </div>
+            </div>
+            <t-empty v-else description="暂无画像数据" size="small" />
+          </t-card>
+        </div>
+      </div>
+      
+      <!-- Main Content Layout -->
+      <div class="main-layout">
+        <!-- Left: K-line Chart (flex: 2) -->
+        <div class="chart-panel">
+          <div class="kline-container">
+            <KLineChart
+              :data="klineData"
+              :indicators="indicators"
+              :indicator-dates="indicatorDates"
+              :loading="chartLoading"
+              height="100%"
             />
           </div>
-        </t-tab-panel>
-        
-        <t-tab-panel value="watchlist" label="加入自选">
-          <!-- Add to Watchlist Form -->
-          <t-card :bordered="false">
-            <t-form :data="addToWatchlistForm" layout="inline">
+          
+          <!-- Add to Watchlist -->
+          <t-card title="加入自选" class="watchlist-card" :bordered="false">
+            <t-form :data="addToWatchlistForm" layout="inline" class="watchlist-form">
               <t-form-item label="股数" name="quantity">
                 <t-input-number
                   v-model="addToWatchlistForm.quantity"
@@ -473,7 +566,7 @@ watch(() => activeTab.value, (tab) => {
                   :min="0"
                   :step="0.01"
                   :decimal-places="2"
-                  style="width: 120px"
+                  style="width: 140px"
                 />
               </t-form-item>
               
@@ -488,7 +581,7 @@ watch(() => activeTab.value, (tab) => {
                 <t-input
                   v-model="addToWatchlistForm.notes"
                   placeholder="可选"
-                  style="width: 200px"
+                  style="width: 160px"
                 />
               </t-form-item>
               
@@ -498,33 +591,74 @@ watch(() => activeTab.value, (tab) => {
                   :loading="portfolioStore.loading"
                   @click="handleAddToWatchlist"
                 >
+                  <template #icon><t-icon name="star" /></template>
                   加入自选
                 </t-button>
               </t-form-item>
             </t-form>
           </t-card>
-        </t-tab-panel>
-      </t-tabs>
+        </div>
+        
+        <!-- Right: AI Analysis Panel (flex: 1) -->
+        <div class="right-panel">
+          <!-- AI Analysis -->
+          <t-card title="AI 智能分析" class="analysis-card" :bordered="false">
+            <template #actions>
+              <t-space size="small">
+                <t-button size="small" theme="primary" @click="handleAnalyze" :loading="analysisLoading">
+                  技术分析
+                </t-button>
+                <t-button size="small" variant="outline" @click="handleAIAnalyze" :loading="analysisLoading">
+                  AI 智能分析
+                </t-button>
+              </t-space>
+            </template>
+            
+            <TrendAnalysis
+              :summary="trendAnalysis?.summary"
+              :disclaimer="trendAnalysis?.disclaimer"
+              :loading="analysisLoading"
+              :status="analysisStatus"
+              class="trend-analysis-compact"
+            />
+          </t-card>
+        </div>
+      </div>
     </div>
-    
-    <template #footer>
-      <t-space>
-        <t-button variant="outline" @click="handleClose">关闭</t-button>
-      </t-space>
-    </template>
   </t-dialog>
 </template>
 
 <style scoped>
-.loading-container {
+/* Dialog body height control */
+:deep(.t-dialog) {
+  max-height: 92vh !important;
+  height: 92vh !important;
+}
+
+:deep(.t-dialog__body) {
+  padding-bottom: 12px !important;
+  height: calc(92vh - 60px) !important;
+  max-height: calc(92vh - 60px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 整页加载状态 */
+.page-loading {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 400px;
+  flex: 1;
+  height: 100%;
 }
 
 .stock-detail {
-  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
 }
 
 .stock-info-card {
@@ -594,56 +728,207 @@ watch(() => activeTab.value, (tab) => {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.indicator-collapse {
-  margin-top: 12px;
-}
-
-.signals-bar {
+/* Top Row: Indicator Panel + Chip + Profile */
+.top-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 16px;
   margin-top: 12px;
-  padding: 8px 12px;
-  background: #f5f5f5;
-  border-radius: 6px;
-  flex-wrap: wrap;
 }
 
-.signals-label {
-  font-size: 13px;
-  color: #666;
+.indicator-collapse {
+  flex: 0 0 auto;
 }
 
-.analysis-section {
+.top-right-cards {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  gap: 12px;
+}
+
+.chip-card-top,
+.profile-card-top {
+  flex: 1;
+  min-width: 0;
+  background: #fafafa;
+}
+
+.chip-card-top :deep(.t-card__body) {
+  height: 160px;
+  overflow: hidden;
+}
+
+.profile-card-top :deep(.t-card__body) {
+  height: 200px;
+  overflow: hidden;
+}
+
+/* Main Layout - K-line with right panel */
+.main-layout {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  flex: 1;
+  min-height: 0;
+  height: 0; /* 关键：让 flex: 1 生效 */
+}
+
+.chart-panel {
+  flex: 2;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px 0;
+  gap: 8px;
 }
 
-.analysis-actions {
+.kline-container {
+  flex: 1;
+  min-height: 480px;
+  height: 0; /* 关键：让 flex: 1 生效 */
+}
+
+.right-panel {
+  flex: 1;
+  min-width: 280px;
   display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.trend-analysis-panel {
-  min-height: 250px;
+/* Watchlist Card */
+.watchlist-card {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ed 100%);
+  border-radius: 8px;
+  flex-shrink: 0; /* 不被压缩 */
 }
 
-.chip-section {
-  padding: 16px 0;
+.watchlist-card :deep(.t-card__body) {
+  padding: 12px 16px;
 }
 
-.chip-controls {
+.watchlist-form {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.chip-loading {
+.watchlist-form :deep(.t-form__item) {
+  margin-bottom: 0;
+}
+
+.chip-loading-small {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 300px;
+  height: 100%;
+}
+
+.total-score-mini {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.profile-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+.profile-dimensions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  overflow: hidden;
+  height: 100%;
+  align-content: space-evenly;
+  padding: 0 8px;
+}
+
+.dimension-row {
+  display: flex;
+  align-items: center;
+}
+
+.dim-name {
+  width: 32px;
+  font-size: 12px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.dim-progress {
+  flex: 1;
+  min-width: 0;
+  margin-right: 4px;
+}
+
+.dim-progress :deep(.t-progress) {
+  display: flex;
+  align-items: center;
+}
+
+.dim-progress :deep(.t-progress__bar) {
+  flex: 1;
+  height: 5px !important;
+}
+
+.dim-progress :deep(.t-progress__info) {
+  display: none;
+}
+
+.dim-score {
+  width: 24px;
+  font-size: 11px;
+  color: #666;
+  text-align: right;
+  margin-right: 4px;
+}
+
+.dimension-row :deep(.t-tag) {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+}
+
+/* Analysis Card */
+.analysis-card {
+  background: #fafafa;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.analysis-card :deep(.t-card__body) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trend-analysis-compact {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+</style>
+
+<!-- 全局样式确保 Dialog 高度生效 -->
+<style>
+.stock-detail-dialog .t-dialog {
+  max-height: 92vh !important;
+  height: 92vh !important;
+}
+
+.stock-detail-dialog .t-dialog__body {
+  height: calc(92vh - 60px) !important;
+  max-height: calc(92vh - 60px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 </style>
