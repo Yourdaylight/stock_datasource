@@ -85,7 +85,7 @@ jobs:
           #context: .
           #file: docker/Dockerfile.frontend
           context: ./frontend
-          file: ../docker/Dockerfile.frontend
+          file: docker/Dockerfile.frontend
           target: production
           platforms: linux/amd64,linux/arm64
           push: true
