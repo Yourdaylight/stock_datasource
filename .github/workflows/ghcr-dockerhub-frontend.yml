@@ -87,7 +87,8 @@ jobs:
           context: ./frontend
           file: docker/Dockerfile.frontend
           target: production
-          platforms: linux/amd64,linux/arm64
+          #platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ steps.meta-ghcr.outputs.tags }}
