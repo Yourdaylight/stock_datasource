@@ -12,7 +12,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   # GitHub 仓库全名作为 GHCR 镜像名
-  GHCR_IMAGE_NAME: stock-backend
+  GHCR_IMAGE_NAME: ${{ github.repository_owner }}/stock-backend
   # Docker Hub 镜像名（需要根据实际情况设置）
   DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/stock-backend
 
