@@ -163,6 +163,28 @@ class FinancialReportService:
             peer_comparison = self.get_peer_comparison_analysis(code)
             trends = self.get_financial_trends(code)
             
+            # Check if any data retrieval failed
+            if comprehensive.get("status") == "error":
+                return {
+                    "code": code,
+                    "status": "error",
+                    "error": f"获取综合分析失败: {comprehensive.get('error', '未知错误')}"
+                }
+            
+            if peer_comparison.get("status") == "error":
+                return {
+                    "code": code,
+                    "status": "error",
+                    "error": f"获取同业对比失败: {peer_comparison.get('error', '未知错误')}"
+                }
+            
+            if trends.get("status") == "error":
+                return {
+                    "code": code,
+                    "status": "error",
+                    "error": f"获取趋势分析失败: {trends.get('error', '未知错误')}"
+                }
+            
             # Generate structured insights
             insights = {
                 "investment_thesis": self._generate_investment_thesis(comprehensive, peer_comparison, trends),
@@ -232,7 +254,15 @@ class FinancialReportService:
         metrics = ["roe", "roa", "net_profit_margin", "debt_to_assets", "total_revenue", "net_profit"]
         
         for metric in metrics:
-            values = [d.get(metric) for d in sorted_data if d.get(metric) is not None]
+            # Convert values to float and filter out None values
+            values = []
+            for d in sorted_data:
+                val = d.get(metric)
+                if val is not None:
+                    try:
+                        values.append(float(val))
+                    except (ValueError, TypeError):
+                        continue
             
             if len(values) >= 3:
                 # Simple trend analysis
@@ -248,9 +278,9 @@ class FinancialReportService:
                 
                 trends[metric] = {
                     "trend": trend,
-                    "recent_avg": recent_avg,
-                    "earlier_avg": earlier_avg,
-                    "change_pct": ((recent_avg - earlier_avg) / earlier_avg * 100) if earlier_avg != 0 else 0
+                    "recent_avg": round(recent_avg, 2),
+                    "earlier_avg": round(earlier_avg, 2),
+                    "change_pct": round(((recent_avg - earlier_avg) / earlier_avg * 100), 2) if earlier_avg != 0 else 0
                 }
         
         return trends

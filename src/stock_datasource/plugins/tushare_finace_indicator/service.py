@@ -163,13 +163,22 @@ class TuShareFinaceIndicatorService(BaseService):
             current = latest_data[0]
             previous = latest_data[1]
             
-            if current.get("total_revenue") and previous.get("total_revenue"):
-                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
-                                         previous["total_revenue"] * 100)
+            # 转换为浮点数进行计算
+            try:
+                curr_revenue = float(current.get("total_revenue")) if current.get("total_revenue") is not None else None
+                prev_revenue = float(previous.get("total_revenue")) if previous.get("total_revenue") is not None else None
+                if curr_revenue is not None and prev_revenue is not None and prev_revenue != 0:
+                    growth["revenue_growth"] = ((curr_revenue - prev_revenue) / prev_revenue * 100)
+            except (ValueError, TypeError):
+                pass
             
-            if current.get("net_profit") and previous.get("net_profit"):
-                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
-                                         previous["net_profit"] * 100)
+            try:
+                curr_profit = float(current.get("net_profit")) if current.get("net_profit") is not None else None
+                prev_profit = float(previous.get("net_profit")) if previous.get("net_profit") is not None else None
+                if curr_profit is not None and prev_profit is not None and prev_profit != 0:
+                    growth["profit_growth"] = ((curr_profit - prev_profit) / prev_profit * 100)
+            except (ValueError, TypeError):
+                pass
         
         return {
             "code": code,
@@ -221,8 +230,15 @@ class TuShareFinaceIndicatorService(BaseService):
                 current = historical_data[i].get(metric)
                 previous = historical_data[i + 1].get(metric)
                 
-                if current is not None and previous is not None and previous != 0:
-                    growth_rate = ((current - previous) / abs(previous)) * 100
+                # Convert to float and validate numeric types
+                try:
+                    current_val = float(current) if current is not None else None
+                    previous_val = float(previous) if previous is not None else None
+                except (ValueError, TypeError):
+                    continue
+                
+                if current_val is not None and previous_val is not None and previous_val != 0:
+                    growth_rate = ((current_val - previous_val) / abs(previous_val)) * 100
                     rates.append({
                         "period": historical_data[i].get("end_date"),
                         "rate": round(growth_rate, 2)
@@ -374,45 +390,59 @@ class TuShareFinaceIndicatorService(BaseService):
         recommendations = []
         health_score = 50  # Base score
         
+        # 辅助函数：安全获取浮点值
+        def safe_float(val):
+            if val is None:
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        
         # Profitability analysis
         prof = summary["profitability"]
-        if prof.get("roe") and prof["roe"] > 15:
-            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+        roe_val = safe_float(prof.get("roe"))
+        if roe_val is not None and roe_val > 15:
+            strengths.append(f"优秀的ROE ({roe_val:.1f}%)")
             health_score += 10
-        elif prof.get("roe") and prof["roe"] < 5:
-            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+        elif roe_val is not None and roe_val < 5:
+            weaknesses.append(f"较低的ROE ({roe_val:.1f}%)")
             health_score -= 10
         
-        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
-            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+        npm_val = safe_float(prof.get("net_profit_margin"))
+        if npm_val is not None and npm_val > 10:
+            strengths.append(f"良好的净利率 ({npm_val:.1f}%)")
             health_score += 5
-        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
-            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+        elif npm_val is not None and npm_val < 3:
+            weaknesses.append(f"净利率偏低 ({npm_val:.1f}%)")
             health_score -= 5
         
         # Solvency analysis
         solv = summary["solvency"]
-        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
-            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+        dta_val = safe_float(solv.get("debt_to_assets"))
+        if dta_val is not None and dta_val < 0.4:
+            strengths.append(f"资产负债率健康 ({dta_val:.1f}%)")
             health_score += 5
-        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
-            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+        elif dta_val is not None and dta_val > 0.7:
+            weaknesses.append(f"资产负债率较高 ({dta_val:.1f}%)")
             health_score -= 10
         
-        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
-            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+        cr_val = safe_float(solv.get("current_ratio"))
+        if cr_val is not None and cr_val > 1.5:
+            strengths.append(f"流动比率良好 ({cr_val:.1f})")
             health_score += 5
-        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
-            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+        elif cr_val is not None and cr_val < 1.0:
+            weaknesses.append(f"流动比率偏低 ({cr_val:.1f})")
             health_score -= 10
         
         # Growth analysis
         growth = summary["growth"]
-        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
-            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+        rg_val = safe_float(growth.get("revenue_growth"))
+        if rg_val is not None and rg_val > 10:
+            strengths.append(f"营收增长强劲 ({rg_val:.1f}%)")
             health_score += 10
-        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
-            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+        elif rg_val is not None and rg_val < -5:
+            weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
         # Generate recommendations
@@ -547,13 +577,22 @@ class TuShareFinaceIndicatorService(BaseService):
             current = latest_data[0]
             previous = latest_data[1]
             
-            if current.get("total_revenue") and previous.get("total_revenue"):
-                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
-                                         previous["total_revenue"] * 100)
+            # 转换为浮点数进行计算
+            try:
+                curr_revenue = float(current.get("total_revenue")) if current.get("total_revenue") is not None else None
+                prev_revenue = float(previous.get("total_revenue")) if previous.get("total_revenue") is not None else None
+                if curr_revenue is not None and prev_revenue is not None and prev_revenue != 0:
+                    growth["revenue_growth"] = ((curr_revenue - prev_revenue) / prev_revenue * 100)
+            except (ValueError, TypeError):
+                pass
             
-            if current.get("net_profit") and previous.get("net_profit"):
-                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
-                                         previous["net_profit"] * 100)
+            try:
+                curr_profit = float(current.get("net_profit")) if current.get("net_profit") is not None else None
+                prev_profit = float(previous.get("net_profit")) if previous.get("net_profit") is not None else None
+                if curr_profit is not None and prev_profit is not None and prev_profit != 0:
+                    growth["profit_growth"] = ((curr_profit - prev_profit) / prev_profit * 100)
+            except (ValueError, TypeError):
+                pass
         
         return {
             "code": code,
@@ -605,8 +644,15 @@ class TuShareFinaceIndicatorService(BaseService):
                 current = historical_data[i].get(metric)
                 previous = historical_data[i + 1].get(metric)
                 
-                if current is not None and previous is not None and previous != 0:
-                    growth_rate = ((current - previous) / abs(previous)) * 100
+                # Convert to float and validate numeric types
+                try:
+                    current_val = float(current) if current is not None else None
+                    previous_val = float(previous) if previous is not None else None
+                except (ValueError, TypeError):
+                    continue
+                
+                if current_val is not None and previous_val is not None and previous_val != 0:
+                    growth_rate = ((current_val - previous_val) / abs(previous_val)) * 100
                     rates.append({
                         "period": historical_data[i].get("end_date"),
                         "rate": round(growth_rate, 2)
@@ -758,45 +804,59 @@ class TuShareFinaceIndicatorService(BaseService):
         recommendations = []
         health_score = 50  # Base score
         
+        # 辅助函数：安全获取浮点值
+        def safe_float(val):
+            if val is None:
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        
         # Profitability analysis
         prof = summary["profitability"]
-        if prof.get("roe") and prof["roe"] > 15:
-            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+        roe_val = safe_float(prof.get("roe"))
+        if roe_val is not None and roe_val > 15:
+            strengths.append(f"优秀的ROE ({roe_val:.1f}%)")
             health_score += 10
-        elif prof.get("roe") and prof["roe"] < 5:
-            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+        elif roe_val is not None and roe_val < 5:
+            weaknesses.append(f"较低的ROE ({roe_val:.1f}%)")
             health_score -= 10
         
-        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
-            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+        npm_val = safe_float(prof.get("net_profit_margin"))
+        if npm_val is not None and npm_val > 10:
+            strengths.append(f"良好的净利率 ({npm_val:.1f}%)")
             health_score += 5
-        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
-            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+        elif npm_val is not None and npm_val < 3:
+            weaknesses.append(f"净利率偏低 ({npm_val:.1f}%)")
             health_score -= 5
         
         # Solvency analysis
         solv = summary["solvency"]
-        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
-            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+        dta_val = safe_float(solv.get("debt_to_assets"))
+        if dta_val is not None and dta_val < 0.4:
+            strengths.append(f"资产负债率健康 ({dta_val:.1f}%)")
             health_score += 5
-        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
-            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+        elif dta_val is not None and dta_val > 0.7:
+            weaknesses.append(f"资产负债率较高 ({dta_val:.1f}%)")
             health_score -= 10
         
-        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
-            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+        cr_val = safe_float(solv.get("current_ratio"))
+        if cr_val is not None and cr_val > 1.5:
+            strengths.append(f"流动比率良好 ({cr_val:.1f})")
             health_score += 5
-        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
-            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+        elif cr_val is not None and cr_val < 1.0:
+            weaknesses.append(f"流动比率偏低 ({cr_val:.1f})")
             health_score -= 10
         
         # Growth analysis
         growth = summary["growth"]
-        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
-            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+        rg_val = safe_float(growth.get("revenue_growth"))
+        if rg_val is not None and rg_val > 10:
+            strengths.append(f"营收增长强劲 ({rg_val:.1f}%)")
             health_score += 10
-        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
-            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+        elif rg_val is not None and rg_val < -5:
+            weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
         # Generate recommendations
@@ -948,13 +1008,22 @@ class TuShareFinaceIndicatorService(BaseService):
             current = latest_data[0]
             previous = latest_data[1]
             
-            if current.get("total_revenue") and previous.get("total_revenue"):
-                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
-                                         previous["total_revenue"] * 100)
+            # 转换为浮点数进行计算
+            try:
+                curr_revenue = float(current.get("total_revenue")) if current.get("total_revenue") is not None else None
+                prev_revenue = float(previous.get("total_revenue")) if previous.get("total_revenue") is not None else None
+                if curr_revenue is not None and prev_revenue is not None and prev_revenue != 0:
+                    growth["revenue_growth"] = ((curr_revenue - prev_revenue) / prev_revenue * 100)
+            except (ValueError, TypeError):
+                pass
             
-            if current.get("net_profit") and previous.get("net_profit"):
-                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
-                                         previous["net_profit"] * 100)
+            try:
+                curr_profit = float(current.get("net_profit")) if current.get("net_profit") is not None else None
+                prev_profit = float(previous.get("net_profit")) if previous.get("net_profit") is not None else None
+                if curr_profit is not None and prev_profit is not None and prev_profit != 0:
+                    growth["profit_growth"] = ((curr_profit - prev_profit) / prev_profit * 100)
+            except (ValueError, TypeError):
+                pass
         
         return {
             "code": code,
@@ -1006,8 +1075,15 @@ class TuShareFinaceIndicatorService(BaseService):
                 current = historical_data[i].get(metric)
                 previous = historical_data[i + 1].get(metric)
                 
-                if current is not None and previous is not None and previous != 0:
-                    growth_rate = ((current - previous) / abs(previous)) * 100
+                # Convert to float and validate numeric types
+                try:
+                    current_val = float(current) if current is not None else None
+                    previous_val = float(previous) if previous is not None else None
+                except (ValueError, TypeError):
+                    continue
+                
+                if current_val is not None and previous_val is not None and previous_val != 0:
+                    growth_rate = ((current_val - previous_val) / abs(previous_val)) * 100
                     rates.append({
                         "period": historical_data[i].get("end_date"),
                         "rate": round(growth_rate, 2)
@@ -1159,45 +1235,59 @@ class TuShareFinaceIndicatorService(BaseService):
         recommendations = []
         health_score = 50  # Base score
         
+        # 辅助函数：安全获取浮点值
+        def safe_float(val):
+            if val is None:
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        
         # Profitability analysis
         prof = summary["profitability"]
-        if prof.get("roe") and prof["roe"] > 15:
-            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+        roe_val = safe_float(prof.get("roe"))
+        if roe_val is not None and roe_val > 15:
+            strengths.append(f"优秀的ROE ({roe_val:.1f}%)")
             health_score += 10
-        elif prof.get("roe") and prof["roe"] < 5:
-            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+        elif roe_val is not None and roe_val < 5:
+            weaknesses.append(f"较低的ROE ({roe_val:.1f}%)")
             health_score -= 10
         
-        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
-            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+        npm_val = safe_float(prof.get("net_profit_margin"))
+        if npm_val is not None and npm_val > 10:
+            strengths.append(f"良好的净利率 ({npm_val:.1f}%)")
             health_score += 5
-        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
-            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+        elif npm_val is not None and npm_val < 3:
+            weaknesses.append(f"净利率偏低 ({npm_val:.1f}%)")
             health_score -= 5
         
         # Solvency analysis
         solv = summary["solvency"]
-        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
-            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+        dta_val = safe_float(solv.get("debt_to_assets"))
+        if dta_val is not None and dta_val < 0.4:
+            strengths.append(f"资产负债率健康 ({dta_val:.1f}%)")
             health_score += 5
-        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
-            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+        elif dta_val is not None and dta_val > 0.7:
+            weaknesses.append(f"资产负债率较高 ({dta_val:.1f}%)")
             health_score -= 10
         
-        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
-            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+        cr_val = safe_float(solv.get("current_ratio"))
+        if cr_val is not None and cr_val > 1.5:
+            strengths.append(f"流动比率良好 ({cr_val:.1f})")
             health_score += 5
-        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
-            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+        elif cr_val is not None and cr_val < 1.0:
+            weaknesses.append(f"流动比率偏低 ({cr_val:.1f})")
             health_score -= 10
         
         # Growth analysis
         growth = summary["growth"]
-        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
-            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+        rg_val = safe_float(growth.get("revenue_growth"))
+        if rg_val is not None and rg_val > 10:
+            strengths.append(f"营收增长强劲 ({rg_val:.1f}%)")
             health_score += 10
-        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
-            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+        elif rg_val is not None and rg_val < -5:
+            weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
         # Generate recommendations
@@ -1337,13 +1427,22 @@ class TuShareFinaceIndicatorService(BaseService):
             current = latest_data[0]
             previous = latest_data[1]
             
-            if current.get("total_revenue") and previous.get("total_revenue"):
-                growth["revenue_growth"] = ((current["total_revenue"] - previous["total_revenue"]) / 
-                                         previous["total_revenue"] * 100)
+            # 转换为浮点数进行计算
+            try:
+                curr_revenue = float(current.get("total_revenue")) if current.get("total_revenue") is not None else None
+                prev_revenue = float(previous.get("total_revenue")) if previous.get("total_revenue") is not None else None
+                if curr_revenue is not None and prev_revenue is not None and prev_revenue != 0:
+                    growth["revenue_growth"] = ((curr_revenue - prev_revenue) / prev_revenue * 100)
+            except (ValueError, TypeError):
+                pass
             
-            if current.get("net_profit") and previous.get("net_profit"):
-                growth["profit_growth"] = ((current["net_profit"] - previous["net_profit"]) / 
-                                         previous["net_profit"] * 100)
+            try:
+                curr_profit = float(current.get("net_profit")) if current.get("net_profit") is not None else None
+                prev_profit = float(previous.get("net_profit")) if previous.get("net_profit") is not None else None
+                if curr_profit is not None and prev_profit is not None and prev_profit != 0:
+                    growth["profit_growth"] = ((curr_profit - prev_profit) / prev_profit * 100)
+            except (ValueError, TypeError):
+                pass
         
         return {
             "code": code,
@@ -1395,8 +1494,15 @@ class TuShareFinaceIndicatorService(BaseService):
                 current = historical_data[i].get(metric)
                 previous = historical_data[i + 1].get(metric)
                 
-                if current is not None and previous is not None and previous != 0:
-                    growth_rate = ((current - previous) / abs(previous)) * 100
+                # Convert to float and validate numeric types
+                try:
+                    current_val = float(current) if current is not None else None
+                    previous_val = float(previous) if previous is not None else None
+                except (ValueError, TypeError):
+                    continue
+                
+                if current_val is not None and previous_val is not None and previous_val != 0:
+                    growth_rate = ((current_val - previous_val) / abs(previous_val)) * 100
                     rates.append({
                         "period": historical_data[i].get("end_date"),
                         "rate": round(growth_rate, 2)
@@ -1548,45 +1654,59 @@ class TuShareFinaceIndicatorService(BaseService):
         recommendations = []
         health_score = 50  # Base score
         
+        # 辅助函数：安全获取浮点值
+        def safe_float(val):
+            if val is None:
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+        
         # Profitability analysis
         prof = summary["profitability"]
-        if prof.get("roe") and prof["roe"] > 15:
-            strengths.append(f"优秀的ROE ({prof['roe']:.1f}%)")
+        roe_val = safe_float(prof.get("roe"))
+        if roe_val is not None and roe_val > 15:
+            strengths.append(f"优秀的ROE ({roe_val:.1f}%)")
             health_score += 10
-        elif prof.get("roe") and prof["roe"] < 5:
-            weaknesses.append(f"较低的ROE ({prof['roe']:.1f}%)")
+        elif roe_val is not None and roe_val < 5:
+            weaknesses.append(f"较低的ROE ({roe_val:.1f}%)")
             health_score -= 10
         
-        if prof.get("net_profit_margin") and prof["net_profit_margin"] > 10:
-            strengths.append(f"良好的净利率 ({prof['net_profit_margin']:.1f}%)")
+        npm_val = safe_float(prof.get("net_profit_margin"))
+        if npm_val is not None and npm_val > 10:
+            strengths.append(f"良好的净利率 ({npm_val:.1f}%)")
             health_score += 5
-        elif prof.get("net_profit_margin") and prof["net_profit_margin"] < 3:
-            weaknesses.append(f"净利率偏低 ({prof['net_profit_margin']:.1f}%)")
+        elif npm_val is not None and npm_val < 3:
+            weaknesses.append(f"净利率偏低 ({npm_val:.1f}%)")
             health_score -= 5
         
         # Solvency analysis
         solv = summary["solvency"]
-        if solv.get("debt_to_assets") and solv["debt_to_assets"] < 0.4:
-            strengths.append(f"资产负债率健康 ({solv['debt_to_assets']:.1f}%)")
+        dta_val = safe_float(solv.get("debt_to_assets"))
+        if dta_val is not None and dta_val < 0.4:
+            strengths.append(f"资产负债率健康 ({dta_val:.1f}%)")
             health_score += 5
-        elif solv.get("debt_to_assets") and solv["debt_to_assets"] > 0.7:
-            weaknesses.append(f"资产负债率较高 ({solv['debt_to_assets']:.1f}%)")
+        elif dta_val is not None and dta_val > 0.7:
+            weaknesses.append(f"资产负债率较高 ({dta_val:.1f}%)")
             health_score -= 10
         
-        if solv.get("current_ratio") and solv["current_ratio"] > 1.5:
-            strengths.append(f"流动比率良好 ({solv['current_ratio']:.1f})")
+        cr_val = safe_float(solv.get("current_ratio"))
+        if cr_val is not None and cr_val > 1.5:
+            strengths.append(f"流动比率良好 ({cr_val:.1f})")
             health_score += 5
-        elif solv.get("current_ratio") and solv["current_ratio"] < 1.0:
-            weaknesses.append(f"流动比率偏低 ({solv['current_ratio']:.1f})")
+        elif cr_val is not None and cr_val < 1.0:
+            weaknesses.append(f"流动比率偏低 ({cr_val:.1f})")
             health_score -= 10
         
         # Growth analysis
         growth = summary["growth"]
-        if growth.get("revenue_growth") and growth["revenue_growth"] > 10:
-            strengths.append(f"营收增长强劲 ({growth['revenue_growth']:.1f}%)")
+        rg_val = safe_float(growth.get("revenue_growth"))
+        if rg_val is not None and rg_val > 10:
+            strengths.append(f"营收增长强劲 ({rg_val:.1f}%)")
             health_score += 10
-        elif growth.get("revenue_growth") and growth["revenue_growth"] < -5:
-            weaknesses.append(f"营收出现下滑 ({growth['revenue_growth']:.1f}%)")
+        elif rg_val is not None and rg_val < -5:
+            weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
         # Generate recommendations

@@ -60,12 +60,15 @@ class ClickHouseHttpClient:
         
         req_params = {"database": self.database}
         
+        # 禁用代理，避免内网 ClickHouse 连接走代理导致 407 错误
+        no_proxy = {"http": None, "https": None}
+        
         if data:
             req_params["query"] = query
-            resp = requests.post(self._base_url, params=req_params, data=data, auth=self._auth, timeout=60)
+            resp = requests.post(self._base_url, params=req_params, data=data, auth=self._auth, timeout=60, proxies=no_proxy)
         else:
             req_params["query"] = query
-            resp = requests.get(self._base_url, params=req_params, auth=self._auth, timeout=60)
+            resp = requests.get(self._base_url, params=req_params, auth=self._auth, timeout=60, proxies=no_proxy)
         
         resp.raise_for_status()
         return resp.text.strip()
@@ -203,7 +206,7 @@ class ClickHouseClient:
                 user=self.user,
                 password=self.password,
                 database=self.database,
-                connect_timeout=10,
+                connect_timeout=3,  # Reduced from 10s for faster HTTP fallback
                 send_receive_timeout=60,
                 sync_request_timeout=60,
                 settings={
