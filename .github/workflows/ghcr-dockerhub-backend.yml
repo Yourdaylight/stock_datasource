@@ -1,4 +1,4 @@
-name: Build and Push Multi-Arch Docker Images 2026.1.26同时推送镜像至ghcr和dockerhub
+name: Build backend 2026.1.26同时推送镜像至ghcr和dockerhub
 
 on:
   workflow_dispatch:
