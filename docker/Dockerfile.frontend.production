@@ -1,6 +1,40 @@
-# Production stage
+# docker/Dockerfile.frontend
+
+# 公共依赖阶段 - 只做一次npm ci，多阶段复用
+FROM node:20-alpine AS deps
+WORKDIR /app
+# 可选：设置国内镜像加速
+RUN npm config set registry https://registry.npmmirror.com
+COPY package.json package-lock.json ./
+# 使用--ignore-scripts跳过可能耗时的构建脚本
+RUN npm ci --ignore-scripts --prefer-offline
+
+# Builder阶段
+FROM node:20-alpine AS builder
+WORKDIR /app
+# 复制node_modules
+COPY --from=deps /app/node_modules ./node_modules
+# 复制源代码
+COPY . .
+# 设置环境变量，跳过不必要的检查
+ENV NODE_ENV=production
+ENV CI=true
+# 构建应用
+RUN npm exec vite build -- --mode production
+
+# Production阶段
 FROM nginx:alpine AS production
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY /docker/nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /usr/share/nginx/html
+RUN rm -rf ./*
+COPY --from=builder /app/dist .
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 6666
 CMD ["nginx", "-g", "daemon off;"]
+
+# Development阶段 - 如果需要的话
+FROM node:20-alpine AS development
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+EXPOSE 3001
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3001"]
