@@ -2,6 +2,9 @@ __pycache__/
 .env
 .venv/
 data/exports/
+data/news/**/*.json
+!data/news/.gitkeep
+!data/news/cache/.gitkeep
 logs/
 *.log
 .python-version
