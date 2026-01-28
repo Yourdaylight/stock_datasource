@@ -38,8 +38,9 @@ NEWS_CACHE_TTL_HOT_TOPICS = 600  # 热点缓存10分钟
 def _get_redis():
     """Get Redis client."""
     try:
-        from stock_datasource.models.database import redis_client
-        return redis_client
+        from stock_datasource.services.cache_service import get_cache_service
+        cache = get_cache_service()
+        return cache._get_redis() if cache.available else None
     except Exception as e:
         logger.warning(f"Failed to get Redis client: {e}")
         return None
@@ -392,10 +393,11 @@ class NewsService:
         
         try:
             if self.llm_client:
-                response = await self.llm_client.chat_async(
+                result = await self.llm_client.chat(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                 )
+                response = result.get("content", "") if isinstance(result, dict) else str(result)
                 
                 # 解析结果
                 results = self._parse_sentiment_response(response, news_items)
@@ -470,10 +472,11 @@ class NewsService:
         
         try:
             if self.llm_client:
-                response = await self.llm_client.chat_async(
+                result = await self.llm_client.chat(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.5,
                 )
+                response = result.get("content", "") if isinstance(result, dict) else str(result)
                 return self._parse_summary_response(response)
             else:
                 # 降级：简单摘要
@@ -852,10 +855,11 @@ class NewsService:
         
         try:
             if self.llm_client:
-                response = await self.llm_client.chat_async(
+                result = await self.llm_client.chat(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.5,
                 )
+                response = result.get("content", "") if isinstance(result, dict) else str(result)
                 return self._parse_hot_topics_response(response, limit)
         except Exception as e:
             logger.warning(f"LLM hot topics extraction failed: {e}")
