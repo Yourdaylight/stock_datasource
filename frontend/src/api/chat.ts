@@ -9,6 +9,8 @@ export interface ChatMessage {
     intent?: string
     agent?: string
     stock_codes?: string[]
+    tool_calls?: string[]
+    rationale?: string
     [key: string]: any
   }
 }
@@ -23,6 +25,19 @@ export interface ChatHistoryResponse {
   session_id: string
 }
 
+export interface ChatSessionSummary {
+  session_id: string
+  title: string
+  created_at: string
+  last_message_at: string
+  message_count: number
+}
+
+export interface SessionListResponse {
+  sessions: ChatSessionSummary[]
+  total: number
+}
+
 // SSE event types
 export interface ThinkingEvent {
   type: 'thinking'
@@ -31,6 +46,8 @@ export interface ThinkingEvent {
   stock_codes: string[]
   tool?: string
   status?: string
+  plan?: string[]
+  rationale?: string
 }
 
 export interface ToolEvent {
@@ -53,6 +70,9 @@ export interface DoneEvent {
     agent: string
     stock_codes: string[]
     tool_calls?: string[]
+    rationale?: string
+    react_steps?: Array<{ thought: string; action: string }>
+    sub_agents?: string[]
   }
 }
 
@@ -74,6 +94,21 @@ export const chatApi = {
 
   createSession(): Promise<{ session_id: string }> {
     return request.post('/api/chat/session')
+  },
+
+  // Get user's chat sessions
+  getSessions(limit = 50, offset = 0): Promise<SessionListResponse> {
+    return request.get(`/api/chat/sessions?limit=${limit}&offset=${offset}`)
+  },
+
+  // Delete a session
+  deleteSession(sessionId: string): Promise<{ success: boolean; message: string }> {
+    return request.delete(`/api/chat/session/${sessionId}`)
+  },
+
+  // Update session title
+  updateSessionTitle(sessionId: string, title: string): Promise<{ success: boolean; message: string }> {
+    return request.put(`/api/chat/session/${sessionId}/title?title=${encodeURIComponent(title)}`)
   },
 
   // Stream message via EventSource (GET)
