@@ -37,6 +37,60 @@ def _run_async_safely(coro):
         return asyncio.run(coro)
 
 
+def _normalize_stock_code(code: str) -> str:
+    """Normalize stock code to standard format (e.g., 600519.SH).
+    
+    Handles various input formats:
+    - .SH600519 -> 600519.SH
+    - SH600519 -> 600519.SH  
+    - 600519 -> 600519.SH (assumes SH for 6 prefix, SZ for 0/3 prefix)
+    - 600519.sh -> 600519.SH (uppercase)
+    
+    Args:
+        code: Stock code in any format
+        
+    Returns:
+        Normalized stock code (e.g., 600519.SH)
+    """
+    import re
+    
+    if not code:
+        return code
+    
+    code = code.strip().upper()
+    
+    # Pattern 1: .SH600519 or .SZ000001 -> 600519.SH
+    match = re.match(r'^\.?(SH|SZ)(\d{6})$', code)
+    if match:
+        suffix, digits = match.groups()
+        return f"{digits}.{suffix}"
+    
+    # Pattern 2: Already correct format 600519.SH
+    match = re.match(r'^(\d{6})\.(SH|SZ)$', code)
+    if match:
+        return code
+    
+    # Pattern 3: Just digits - infer exchange
+    match = re.match(r'^(\d{6})$', code)
+    if match:
+        digits = match.group(1)
+        if digits.startswith('6'):
+            return f"{digits}.SH"
+        elif digits.startswith(('0', '3')):
+            return f"{digits}.SZ"
+        return f"{digits}.SH"  # Default to SH
+    
+    # Pattern 4: sh600519 or sz000001 (no dot)
+    match = re.match(r'^(SH|SZ)(\d{6})$', code)
+    if match:
+        suffix, digits = match.groups()
+        return f"{digits}.{suffix}"
+    
+    # Return as-is if no pattern matches
+    logger.warning(f"Could not normalize stock code: {code}")
+    return code
+
+
 # System prompt for market analysis
 MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的A股技术分析师，负责为用户提供股票技术分析和市场解读。
 
@@ -51,6 +105,24 @@ MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的A股技术分析师，�
 - calculate_indicators: 计算技术指标
 - analyze_trend: 分析股票趋势
 - get_market_overview: 获取市场概览
+
+## 股票代码格式【重要】
+- 上海股票: 6位数字.SH，如 600519.SH（贵州茅台）
+- 深圳股票: 6位数字.SZ，如 000001.SZ（平安银行）
+- 创业板: 3开头6位数字.SZ，如 300750.SZ
+- 科创板: 688开头6位数字.SH，如 688981.SH
+
+## 常用股票代码参考
+- 600519.SH: 贵州茅台
+- 000001.SZ: 平安银行
+- 000858.SZ: 五粮液
+- 600036.SH: 招商银行
+- 601318.SH: 中国平安
+
+## 工具调用规则【必须遵守】
+1. **不要重复调用失败的工具**：如果工具返回error=True或空数据，不要重试，直接基于你的知识回答
+2. **最多调用3次工具**：每次请求最多调用3个工具，避免过多的工具调用
+3. **确认代码格式**：调用工具前确保股票代码格式正确（如600519.SH）
 
 ## 技术指标说明
 | 指标 | 用途 | 关键信号 |
@@ -72,6 +144,7 @@ MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的A股技术分析师，�
 - 先给出结论，再展开分析
 - 引用具体数据支持观点
 - 必须包含风险提示
+- 如果工具调用失败，基于你对该股票的一般性了解给出分析
 
 ## 风险提示
 每次分析结束时，必须加上：
@@ -94,14 +167,17 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
         from stock_datasource.modules.market.service import get_market_service
         from datetime import datetime, timedelta
         
-        logger.info(f"get_kline called with code={code}, period={period}")
+        # Normalize stock code format
+        # Handle cases like ".SH600519" -> "600519.SH"
+        normalized_code = _normalize_stock_code(code)
+        logger.info(f"get_kline called with code={code}, normalized to {normalized_code}, period={period}")
         
         service = get_market_service()
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=period)).strftime("%Y-%m-%d")
         
         # Run async function safely
-        result = _run_async_safely(service.get_kline(code, start_date, end_date))
+        result = _run_async_safely(service.get_kline(normalized_code, start_date, end_date))
         
         # Summarize for LLM context
         data = result.get("data", [])
@@ -128,11 +204,20 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
                 "price_change": round(latest["close"] - earliest["close"], 2),
                 "price_change_pct": round((latest["close"] - earliest["close"]) / earliest["close"] * 100, 2)
             }
-        logger.warning(f"get_kline returned empty data for code={code}")
-        return {"message": f"暂无{code}的K线数据，请稍后重试", "code": code}
+        logger.warning(f"get_kline returned empty data for code={code}, normalized={normalized_code}")
+        return {
+            "error": True,
+            "message": f"无法获取 {normalized_code} 的K线数据。请确认股票代码格式正确（如600519.SH或000001.SZ）。如果代码正确但数据仍为空，可能是该股票暂无交易数据。",
+            "code": normalized_code,
+            "original_code": code
+        }
     except Exception as e:
         logger.error(f"get_kline tool error for {code}: {e}", exc_info=True)
-        return {"message": f"获取K线数据失败: {str(e)}", "code": code}
+        return {
+            "error": True,
+            "message": f"获取K线数据失败: {str(e)}。请勿重试相同的请求，尝试直接使用其他方式回答用户。",
+            "code": code
+        }
 
 
 def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[str, Any]:
@@ -148,11 +233,14 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
     try:
         from stock_datasource.modules.market.service import get_market_service
         
+        # Normalize stock code format
+        normalized_code = _normalize_stock_code(code)
+        
         service = get_market_service()
         indicator_list = [i.strip().upper() for i in indicators.split(",")]
         
         # Run async function safely
-        result = _run_async_safely(service.get_indicators(code, indicator_list, period=60))
+        result = _run_async_safely(service.get_indicators(normalized_code, indicator_list, period=60))
         
         # Extract latest values for LLM
         indicators_data = result.get("indicators", {})
@@ -174,7 +262,11 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
         }
     except Exception as e:
         logger.error(f"calculate_indicators tool error: {e}")
-        return {"message": f"计算技术指标失败: {str(e)}", "code": code}
+        return {
+            "error": True,
+            "message": f"计算技术指标失败: {str(e)}。请勿重复调用，尝试基于已有信息回答用户。",
+            "code": code
+        }
 
 
 def analyze_trend(code: str) -> Dict[str, Any]:
@@ -189,15 +281,22 @@ def analyze_trend(code: str) -> Dict[str, Any]:
     try:
         from stock_datasource.modules.market.service import get_market_service
         
+        # Normalize stock code format
+        normalized_code = _normalize_stock_code(code)
+        
         service = get_market_service()
         
         # Run async function safely
-        result = _run_async_safely(service.analyze_trend(code, period=60))
+        result = _run_async_safely(service.analyze_trend(normalized_code, period=60))
         
         return result
     except Exception as e:
         logger.error(f"analyze_trend tool error: {e}")
-        return {"message": f"分析趋势失败: {str(e)}", "code": code}
+        return {
+            "error": True,
+            "message": f"分析趋势失败: {str(e)}。请勿重复调用，尝试基于已有信息回答用户。",
+            "code": code
+        }
 
 
 def get_market_overview() -> Dict[str, Any]:

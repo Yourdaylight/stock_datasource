@@ -2,6 +2,14 @@
 
 Uses LangGraph to create a multi-agent workflow that routes user requests
 to the appropriate specialized agent.
+
+Features:
+- Plan-to-do thinking: Shows the execution plan before routing
+- ReAct mode: Progressive reasoning when using MCP fallback
+- Streaming events: Real-time thinking/tool/content updates
+- Concurrent agent execution: Parallel execution of independent agents
+- Agent handoff: Transfer control between agents with shared context
+- Shared cache: Redis-based data sharing between agents
 """
 
 import re
@@ -22,6 +30,7 @@ from .base_agent import (
     get_langfuse_handler,
 )
 from stock_datasource.services.mcp_client import MCPClient
+from stock_datasource.services.agent_cache import get_agent_cache, AgentSharedCache
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +38,33 @@ logger = logging.getLogger(__name__)
 AGENT_MODULE_SUFFIX = "_agent"
 AGENT_EXCLUDE_CLASS_NAMES = {"OrchestratorAgent", "StockDeepAgent"}
 
+# Agents that can run concurrently (independent, no data dependencies)
+CONCURRENT_AGENT_GROUPS = [
+    # Market + Report can run together for comprehensive stock analysis
+    {"MarketAgent", "ReportAgent"},
+    # Index + ETF can run together for market overview
+    {"IndexAgent", "EtfAgent"},
+    # Overview + TopList for market trends
+    {"OverviewAgent", "TopListAgent"},
+]
+
+# Agent handoff configurations: agent_from -> [possible handoff targets]
+AGENT_HANDOFF_MAP = {
+    "MarketAgent": ["ReportAgent", "BacktestAgent"],  # After market analysis, can do financials or backtest
+    "ScreenerAgent": ["MarketAgent", "ReportAgent"],  # After screening, can analyze individual stocks
+    "ReportAgent": ["BacktestAgent", "MarketAgent"],  # After financial analysis, can backtest or check market
+    "OverviewAgent": ["MarketAgent", "IndexAgent"],  # After overview, can drill down
+}
+
 
 class OrchestratorAgent:
     """Orchestrator for routing requests to specialized LangGraph agents.
     
     This orchestrator:
-    1. Uses LLM to select intent + agent
+    1. Uses LLM to analyze intent and create execution plan
     2. Extracts stock codes from the query
     3. Routes to the appropriate specialized agent
-    4. Falls back to MCP tools when no agent matches
+    4. Falls back to MCP tools with ReAct reasoning when no agent matches
     """
     
     def __init__(self):
@@ -45,6 +72,7 @@ class OrchestratorAgent:
         self._agent_classes: Dict[str, type] = {}
         self._agent_descriptions: Dict[str, str] = {}
         self._discovered = False
+        self._cache: AgentSharedCache = get_agent_cache()
     
     def _discover_agents(self) -> None:
         if self._discovered:
@@ -109,19 +137,29 @@ class OrchestratorAgent:
                     return {}
         return {}
 
-    async def _classify_with_llm(self, query: str) -> Tuple[str, Optional[str]]:
+    async def _classify_with_llm(self, query: str) -> Tuple[str, Optional[str], str]:
+        """Classify user intent and select appropriate agent.
+        
+        Returns:
+            Tuple of (intent, agent_name, rationale)
+        """
         self._discover_agents()
         agents = self._list_available_agents()
         if not agents:
-            return "unknown", None
+            return "unknown", None, "没有可用的Agent"
         system_prompt = (
-            "你是一个协调Agent。你的任务是从提供的Agent列表中选择最合适的agent_name，"
-            "并给出intent。仅输出JSON，格式: {\"intent\": string, \"agent_name\": string, \"rationale\": string}。"
-            "如果没有匹配的Agent，请将agent_name设为空字符串。"
+            "你是一个智能协调Agent。你的任务是：\n"
+            "1. 理解用户的意图\n"
+            "2. 从提供的Agent列表中选择最合适的agent_name\n"
+            "3. 给出简短的推理说明\n\n"
+            "仅输出JSON，格式: {\"intent\": string, \"agent_name\": string, \"rationale\": string}。\n"
+            "如果没有匹配的Agent，请将agent_name设为空字符串。\n\n"
+            "intent的可选值: market_analysis, stock_screening, financial_report, portfolio_management, "
+            "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, general_chat"
         )
         user_prompt = (
-            f"User query: {query}\n"
-            f"Agents: {json.dumps(agents, ensure_ascii=False)}"
+            f"User query: {query}\n\n"
+            f"可用Agents: {json.dumps(agents, ensure_ascii=False)}"
         )
         try:
             model = get_langchain_model()
@@ -140,13 +178,14 @@ class OrchestratorAgent:
             parsed = self._parse_json_from_text(content)
             intent = parsed.get("intent") or "unknown"
             agent_name = parsed.get("agent_name") or ""
+            rationale = parsed.get("rationale") or ""
             if agent_name not in self._agent_classes:
                 agent_name = None
-            return intent, agent_name
+            return intent, agent_name, rationale
         except Exception as e:
             logger.warning(f"LLM classify failed: {e}")
             fallback_agent = "ChatAgent" if "ChatAgent" in self._agent_classes else None
-            return ("general_chat" if fallback_agent else "unknown"), fallback_agent
+            return ("general_chat" if fallback_agent else "unknown"), fallback_agent, "使用默认处理"
     
     def _extract_stock_codes(self, query: str) -> List[str]:
         """Extract stock codes from query."""
@@ -177,19 +216,142 @@ class OrchestratorAgent:
         return unique_codes
 
     def _build_multi_agent_plan(self, primary_agent: Optional[str], stock_codes: List[str]) -> List[str]:
+        """Build execution plan with optional concurrent agents.
+        
+        Args:
+            primary_agent: The main agent to handle the request
+            stock_codes: Extracted stock codes from query
+            
+        Returns:
+            List of agent names to execute (in order, concurrent ones grouped)
+        """
         self._discover_agents()
         if not primary_agent:
             return []
         plan = [primary_agent]
+        
+        # Check if we can add concurrent agents for richer analysis
         if stock_codes and primary_agent == "MarketAgent" and "ReportAgent" in self._agent_classes:
             if "ReportAgent" not in plan:
                 plan.append("ReportAgent")
+        
         return plan
 
+    def _can_run_concurrently(self, agents: List[str]) -> bool:
+        """Check if agents can run concurrently.
+        
+        Args:
+            agents: List of agent names
+            
+        Returns:
+            True if all agents in the list can run concurrently
+        """
+        agent_set = set(agents)
+        for concurrent_group in CONCURRENT_AGENT_GROUPS:
+            if agent_set.issubset(concurrent_group):
+                return True
+        return False
+
+    def _get_handoff_targets(self, agent_name: str) -> List[str]:
+        """Get possible handoff targets for an agent.
+        
+        Args:
+            agent_name: Source agent name
+            
+        Returns:
+            List of possible target agent names
+        """
+        return AGENT_HANDOFF_MAP.get(agent_name, [])
+
     def _build_agent_query(self, agent_name: str, query: str, stock_codes: List[str]) -> str:
+        """Build query for a specific agent.
+        
+        Args:
+            agent_name: Target agent name
+            query: Original user query
+            stock_codes: Extracted stock codes
+            
+        Returns:
+            Query string tailored for the agent
+        """
         if agent_name == "ReportAgent" and stock_codes:
             return f"请对{stock_codes[0]}进行财务分析"
         return query
+
+    def _share_data_to_next_agent(
+        self,
+        session_id: str,
+        from_agent: str,
+        to_agent: str,
+        data: Dict[str, Any]
+    ) -> bool:
+        """Share data from one agent to another via cache.
+        
+        Args:
+            session_id: Session ID
+            from_agent: Source agent name
+            to_agent: Target agent name
+            data: Data to share
+            
+        Returns:
+            True if successful
+        """
+        return self._cache.share_data_between_agents(session_id, from_agent, to_agent, data)
+
+    def _receive_shared_data(
+        self,
+        session_id: str,
+        from_agent: str,
+        to_agent: str
+    ) -> Optional[Dict[str, Any]]:
+        """Receive data shared from another agent.
+        
+        Args:
+            session_id: Session ID
+            from_agent: Source agent name
+            to_agent: Target agent name
+            
+        Returns:
+            Shared data or None
+        """
+        return self._cache.receive_shared_data(session_id, from_agent, to_agent)
+
+    def _cache_stock_data(self, ts_code: str, data_type: str, data: Any) -> bool:
+        """Cache stock data for sharing between agents.
+        
+        Args:
+            ts_code: Stock code
+            data_type: Type of data (info, daily, etc.)
+            data: Data to cache
+            
+        Returns:
+            True if successful
+        """
+        if data_type == "info":
+            return self._cache.cache_stock_info(ts_code, data)
+        elif data_type == "daily":
+            # For daily data, we need start/end dates
+            return False
+        elif data_type == "financial":
+            # For financial, we need period
+            return False
+        return False
+
+    def _get_cached_stock_data(self, ts_code: str, data_type: str) -> Optional[Any]:
+        """Get cached stock data.
+        
+        Args:
+            ts_code: Stock code
+            data_type: Type of data
+            
+        Returns:
+            Cached data or None
+        """
+        if data_type == "info":
+            return self._cache.get_stock_info(ts_code)
+        elif data_type == "realtime":
+            return self._cache.get_stock_realtime(ts_code)
+        return None
 
     def _parse_tool_call_from_query(self, query: str) -> Tuple[Optional[str], Dict[str, Any]]:
         if not query:
@@ -382,6 +544,197 @@ class OrchestratorAgent:
             }
         finally:
             await client.disconnect()
+
+    async def _execute_with_mcp_react_stream(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        intent: str,
+        stock_codes: List[str],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute MCP tools using ReAct (Reasoning + Acting) pattern.
+        
+        This method progressively reasons about the query and selects appropriate
+        MCP tools, showing the thinking process to the user.
+        """
+        client = MCPClient(server_url=os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp"))
+        tool_calls = []
+        react_steps = []
+        
+        try:
+            await client.connect()
+            
+            # Step 1: List available tools
+            yield {
+                "type": "thinking",
+                "agent": "MCPFallback",
+                "status": "🔍 正在分析可用工具...",
+                "intent": intent,
+                "stock_codes": stock_codes,
+            }
+            
+            tools = await client.list_tools()
+            tool_summaries = []
+            for tool in tools[:20]:  # Limit to first 20 tools for context
+                name, desc, _ = self._normalize_tool(tool)
+                if name:
+                    tool_summaries.append(f"- {name}: {desc[:100]}")
+            
+            # Step 2: Use LLM to reason about which tool to use (ReAct Thought)
+            yield {
+                "type": "thinking",
+                "agent": "MCPFallback",
+                "status": "💭 正在推理最佳处理方案...",
+                "intent": intent,
+                "stock_codes": stock_codes,
+            }
+            
+            react_prompt = f"""你是一个使用ReAct模式的智能助手。你需要逐步思考并选择合适的工具。
+
+用户问题: {query}
+
+可用工具:
+{chr(10).join(tool_summaries[:15])}
+
+请使用以下格式回答:
+Thought: [你的思考过程]
+Action: [选择的工具名称]
+Action Input: [工具参数，JSON格式]
+
+如果无法找到合适的工具，请回答:
+Thought: [说明为什么没有合适的工具]
+Action: none
+Action Input: {{}}
+"""
+            
+            try:
+                model = get_langchain_model()
+                callbacks = []
+                handler = get_langfuse_handler()
+                if handler:
+                    callbacks.append(handler)
+                
+                response = await model.ainvoke(
+                    [{"role": "user", "content": react_prompt}],
+                    config={"callbacks": callbacks} if callbacks else None,
+                )
+                
+                react_response = response.content if hasattr(response, "content") else str(response)
+                
+                # Parse ReAct response
+                thought_match = re.search(r"Thought:\s*(.+?)(?=Action:|$)", react_response, re.S)
+                action_match = re.search(r"Action:\s*(\S+)", react_response)
+                input_match = re.search(r"Action Input:\s*(\{.*?\})", react_response, re.S)
+                
+                thought = thought_match.group(1).strip() if thought_match else ""
+                action = action_match.group(1).strip() if action_match else ""
+                action_input = {}
+                
+                if input_match:
+                    try:
+                        action_input = json.loads(input_match.group(1))
+                    except:
+                        pass
+                
+                # Step 3: Show the thought process
+                if thought:
+                    react_steps.append({"thought": thought, "action": action})
+                    yield {
+                        "type": "thinking",
+                        "agent": "MCPFallback",
+                        "status": f"💡 {thought[:100]}..." if len(thought) > 100 else f"💡 {thought}",
+                        "intent": intent,
+                        "stock_codes": stock_codes,
+                    }
+                
+                # Step 4: Execute the action
+                if action and action.lower() != "none":
+                    # Find the tool
+                    tool_name = None
+                    tool_schema = {}
+                    for tool in tools:
+                        name, _, schema = self._normalize_tool(tool)
+                        if name.lower() == action.lower() or action.lower() in name.lower():
+                            tool_name = name
+                            tool_schema = schema
+                            break
+                    
+                    if tool_name:
+                        yield {
+                            "type": "tool",
+                            "tool": tool_name,
+                            "args": action_input,
+                            "agent": "MCPFallback",
+                            "status": f"⚡ 执行: {tool_name}",
+                        }
+                        
+                        # Execute the tool
+                        result = await client.call_tool(tool_name, **action_input)
+                        tool_calls.append({"name": tool_name, "args": action_input})
+                        
+                        # Use LLM to summarize the result
+                        compressed = compress_tool_result(result)
+                        
+                        summary_prompt = f"""用户问题: {query}
+
+工具 {tool_name} 返回结果:
+{str(compressed)[:2000]}
+
+请用中文简洁地总结上述结果，帮助用户理解。如果结果是数据，请提取关键信息。"""
+                        
+                        summary_response = await model.ainvoke(
+                            [{"role": "user", "content": summary_prompt}],
+                            config={"callbacks": callbacks} if callbacks else None,
+                        )
+                        
+                        summary = summary_response.content if hasattr(summary_response, "content") else str(compressed)
+                        
+                        yield {
+                            "type": "content",
+                            "content": summary,
+                        }
+                    else:
+                        yield {
+                            "type": "content",
+                            "content": f"抱歉，找不到名为 '{action}' 的工具。请尝试更具体的描述。",
+                        }
+                else:
+                    # No suitable tool found
+                    yield {
+                        "type": "content",
+                        "content": "抱歉，当前没有找到合适的工具来处理您的请求。请尝试使用以下方式提问：\n"
+                                   "- 查询股票行情时请提供股票代码（如：600519）\n"
+                                   "- 需要K线数据时请说明时间范围\n"
+                                   "- 需要财务数据时请指定具体的财务指标",
+                    }
+                    
+            except Exception as e:
+                logger.warning(f"ReAct reasoning failed: {e}")
+                # Fallback to simple tool selection
+                async for event in self._execute_with_mcp_stream(query, context, intent, stock_codes):
+                    yield event
+                return
+            
+            yield {
+                "type": "done",
+                "metadata": {
+                    "agent": "MCPFallback",
+                    "intent": intent,
+                    "stock_codes": stock_codes,
+                    "tool_calls": tool_calls,
+                    "react_steps": react_steps,
+                    "routed_by": "OrchestratorAgent",
+                },
+            }
+            
+        except Exception as e:
+            logger.error(f"MCP ReAct fallback failed: {e}")
+            yield {
+                "type": "error",
+                "error": str(e),
+            }
+        finally:
+            await client.disconnect()
     
     async def execute(self, query: str, context: Dict[str, Any] = None) -> AgentResult:
         """Execute query by routing to appropriate agent.
@@ -396,7 +749,7 @@ class OrchestratorAgent:
         context = context or {}
         
         # Classify intent + agent via LLM
-        intent, agent_name = await self._classify_with_llm(query)
+        intent, agent_name, rationale = await self._classify_with_llm(query)
         
         # Extract stock codes
         stock_codes = self._extract_stock_codes(query)
@@ -474,6 +827,8 @@ class OrchestratorAgent:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute query with streaming response.
         
+        Shows Plan-To-Do thinking process before execution.
+        
         Args:
             query: User's query
             context: Optional context
@@ -482,22 +837,74 @@ class OrchestratorAgent:
             Event dicts from the specialized agent
         """
         context = context or {}
+        session_id = context.get("session_id", "")
+        
+        # Try to get cached stock data if available
+        if session_id:
+            cached_context = self._cache.get_session_data(session_id, "orchestrator_context")
+            if cached_context:
+                context.update(cached_context)
+        
+        # Step 1: Emit initial thinking status
+        yield {
+            "type": "thinking",
+            "agent": "OrchestratorAgent",
+            "status": "正在理解您的需求...",
+            "intent": "",
+            "stock_codes": [],
+        }
         
         # Classify intent + agent via LLM
-        intent, agent_name = await self._classify_with_llm(query)
+        intent, agent_name, rationale = await self._classify_with_llm(query)
         
         # Extract stock codes
         stock_codes = self._extract_stock_codes(query)
+        
+        # Step 2: Emit plan thinking status with intent and rationale
+        yield {
+            "type": "thinking",
+            "agent": "OrchestratorAgent",
+            "status": f"意图分析: {rationale}" if rationale else "正在选择合适的处理方案...",
+            "intent": intent,
+            "stock_codes": stock_codes,
+        }
         
         # Update context
         context["intent"] = intent
         if stock_codes:
             context["stock_codes"] = stock_codes
+            
+            # Pre-cache stock info for sharing between agents
+            if session_id:
+                # Cache stock codes for this session
+                self._cache.set_session_data(session_id, "current_stock_codes", stock_codes)
+                
+                # Try to get cached stock info to speed up agents
+                for ts_code in stock_codes[:3]:  # Limit to first 3 stocks
+                    cached_info = self._cache.get_stock_info(ts_code)
+                    if cached_info:
+                        context.setdefault("cached_stock_info", {})[ts_code] = cached_info
+        
+        # Save orchestrator context for future reference
+        if session_id:
+            self._cache.set_session_data(session_id, "orchestrator_context", {
+                "intent": intent,
+                "agent_name": agent_name,
+                "stock_codes": stock_codes,
+            })
         
         plan = self._build_multi_agent_plan(agent_name, stock_codes)
         if not plan:
             logger.info(f"No agent available for intent: {intent}, fallback to MCP")
-            async for event in self._execute_with_mcp_stream(query, context, intent, stock_codes):
+            # Emit status about using ReAct mode with MCP
+            yield {
+                "type": "thinking",
+                "agent": "MCPFallback",
+                "status": "使用ReAct模式逐步分析...",
+                "intent": intent,
+                "stock_codes": stock_codes,
+            }
+            async for event in self._execute_with_mcp_react_stream(query, context, intent, stock_codes):
                 yield event
             return
         
@@ -509,22 +916,48 @@ class OrchestratorAgent:
                     yield event
                 return
             logger.info(f"Streaming via {plan[0]} for intent: {intent}")
-            async for event in agent.execute_stream(query, context):
-                event_type = event.get("type")
-                if event_type == "thinking":
-                    event.setdefault("agent", agent.config.name)
-                    event["routed_by"] = "OrchestratorAgent"
-                    event["intent"] = intent
-                    event["stock_codes"] = stock_codes
-                elif event_type == "done":
-                    metadata = event.get("metadata", {})
-                    metadata["agent"] = metadata.get("agent", agent.config.name)
-                    metadata["intent"] = intent
-                    metadata["stock_codes"] = stock_codes
-                    metadata["routed_by"] = "OrchestratorAgent"
-                    metadata["available_agents"] = self._list_available_agents()
-                    event["metadata"] = metadata
-                yield event
+            has_error = False
+            error_msg = ""
+            try:
+                async for event in agent.execute_stream(query, context):
+                    event_type = event.get("type")
+                    if event_type == "thinking":
+                        event.setdefault("agent", agent.config.name)
+                        event["routed_by"] = "OrchestratorAgent"
+                        event["intent"] = intent
+                        event["stock_codes"] = stock_codes
+                    elif event_type == "done":
+                        metadata = event.get("metadata", {})
+                        metadata["agent"] = metadata.get("agent", agent.config.name)
+                        metadata["intent"] = intent
+                        metadata["stock_codes"] = stock_codes
+                        metadata["routed_by"] = "OrchestratorAgent"
+                        metadata["available_agents"] = self._list_available_agents()
+                        event["metadata"] = metadata
+                    elif event_type == "error":
+                        has_error = True
+                        error_msg = event.get("error", "Unknown error")
+                    yield event
+            except Exception as e:
+                has_error = True
+                error_msg = str(e)
+                logger.error(f"Agent {plan[0]} execution failed: {e}")
+                # Emit error event
+                yield {
+                    "type": "error",
+                    "error": f"{plan[0]} 执行出错: {error_msg}",
+                    "agent": plan[0],
+                }
+            
+            # If agent failed, try to provide a graceful response
+            if has_error:
+                yield {
+                    "type": "content",
+                    "content": f"\n\n> ⚠️ {plan[0]} 在处理过程中遇到问题: {error_msg}\n\n我正在尝试其他方式为您解答...",
+                }
+                # Fallback to MCP ReAct mode
+                async for event in self._execute_with_mcp_react_stream(query, context, intent, stock_codes):
+                    yield event
             return
         
         logger.info(f"Streaming via multi-agent plan: {plan}")
@@ -538,6 +971,7 @@ class OrchestratorAgent:
             agent = self._get_agent(agent_name)
             if not agent:
                 await queue.put((agent_name, {"type": "error", "error": f"Agent not found: {agent_name}"}))
+                await queue.put((agent_name, {"type": "content", "content": f"\n> ⚠️ Agent {agent_name} 未找到\n"}))
                 await queue.put((agent_name, None))
                 return
             agent_query = self._build_agent_query(agent_name, query, stock_codes)
@@ -545,7 +979,13 @@ class OrchestratorAgent:
                 async for event in agent.execute_stream(agent_query, context):
                     await queue.put((agent_name, event))
             except Exception as e:
+                logger.error(f"Agent {agent_name} failed: {e}")
                 await queue.put((agent_name, {"type": "error", "error": str(e)}))
+                # Provide a graceful message instead of breaking
+                await queue.put((agent_name, {
+                    "type": "content", 
+                    "content": f"\n> ⚠️ {agent_name} 处理过程中遇到问题: {str(e)[:100]}\n\n请稍后重试或换个问题。\n"
+                }))
             finally:
                 await queue.put((agent_name, None))
 

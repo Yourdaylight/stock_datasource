@@ -28,6 +28,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '研究数据', icon: 'file-search', public: true }
   },
   {
+    path: '/news',
+    name: 'News',
+    component: () => import('@/views/news/NewsView.vue'),
+    meta: { title: '新闻资讯', icon: 'notification', requiresAuth: true }
+  },
+  {
     path: '/chat',
     name: 'Chat',
     component: () => import('@/views/chat/ChatView.vue'),

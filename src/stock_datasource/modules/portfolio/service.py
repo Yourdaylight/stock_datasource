@@ -77,17 +77,37 @@ class PortfolioService:
         """Get all positions for a user."""
         try:
             if self.db is not None:
-                # Try to get from database first
-                query = """
-                    SELECT 
-                        id, ts_code, stock_name, quantity, cost_price, 
-                        buy_date, current_price, market_value, profit_loss, 
-                        profit_rate, notes
-                    FROM user_positions 
-                    WHERE user_id = %(user_id)s
-                    ORDER BY buy_date DESC
-                """
-                df = self.db.execute_query(query, {'user_id': user_id})
+                # First check if user_id column exists
+                try:
+                    desc_df = self.db.execute_query("DESCRIBE user_positions")
+                    has_user_id = 'user_id' in desc_df['name'].values if not desc_df.empty else False
+                except:
+                    has_user_id = False
+                
+                # Build query based on table schema
+                if has_user_id:
+                    query = """
+                        SELECT 
+                            id, ts_code, stock_name, quantity, cost_price, 
+                            buy_date, current_price, market_value, profit_loss, 
+                            profit_rate, notes
+                        FROM user_positions 
+                        WHERE user_id = %(user_id)s
+                        ORDER BY buy_date DESC
+                    """
+                    df = self.db.execute_query(query, {'user_id': user_id})
+                else:
+                    # No user_id column - get all positions (for backward compatibility)
+                    query = """
+                        SELECT 
+                            id, ts_code, stock_name, quantity, cost_price, 
+                            buy_date, current_price, market_value, profit_loss, 
+                            profit_rate, notes
+                        FROM user_positions 
+                        ORDER BY buy_date DESC
+                    """
+                    df = self.db.execute_query(query)
+                    logger.info(f"user_positions table has no user_id column, returning all positions")
                 
                 if not df.empty:
                     positions = []
