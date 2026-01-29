@@ -27,3 +27,35 @@
 #### Scenario: 处理对话并流式返回
 - **WHEN** chat入口处理用户消息
 - **THEN** 前端流式输出包含至少 thinking/tool/content/done/error 事件
+
+### Requirement: Agent与API数据一致性
+系统 MUST 确保Agent分析使用的数据与API返回的数据保持一致。
+
+#### Scenario: 持仓分析数据一致性
+- **WHEN** 用户通过智能对话查询持仓
+- **THEN** 返回的持仓数据与 `/api/portfolio/positions` 接口一致
+
+#### Scenario: 数据库多用户支持
+- **GIVEN** user_positions 表包含 user_id 字段
+- **WHEN** Agent查询用户持仓
+- **THEN** 仅返回该用户的持仓数据
+
+### Requirement: LLM调用追踪（Langfuse）
+系统 SHOULD 集成Langfuse记录LLM调用追踪信息。
+
+#### Scenario: 对话追踪记录
+- **WHEN** 用户进行智能对话
+- **THEN** Langfuse记录包含用户ID、会话ID、Agent名称的trace
+
+#### Scenario: Langfuse配置
+- **GIVEN** 环境变量 LANGFUSE_HOST/LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY 已配置
+- **WHEN** 系统启动
+- **THEN** Langfuse CallbackHandler 可正常创建
+
+### Requirement: 服务层兼容性
+系统 MUST 在数据库表结构变更时保持向后兼容。
+
+#### Scenario: user_id字段兼容性
+- **GIVEN** user_positions 表可能不包含 user_id 字段（旧版本）
+- **WHEN** PortfolioService 查询持仓
+- **THEN** 自动检测字段存在性并降级处理（返回所有持仓）

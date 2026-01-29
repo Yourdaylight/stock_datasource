@@ -119,31 +119,51 @@ def get_langchain_model():
     return _langchain_model
 
 
-def get_langfuse_handler():
-    """Get Langfuse callback handler for LangChain."""
-    global _langfuse_handler
-    if _langfuse_handler is None:
-        try:
-            from langfuse.langchain import CallbackHandler
-            
-            public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
-            secret_key = os.getenv("LANGFUSE_SECRET_KEY")
-            host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
-            enabled = os.getenv("LANGFUSE_ENABLED", "true").lower() == "true"
-            
-            if enabled and public_key and secret_key:
-                os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
-                os.environ["LANGFUSE_SECRET_KEY"] = secret_key
-                os.environ["LANGFUSE_HOST"] = host
-                
-                _langfuse_handler = CallbackHandler()
-                logger.info(f"Langfuse handler initialized: {host}")
-            else:
-                logger.info("Langfuse disabled or not configured")
-        except Exception as e:
-            logger.warning(f"Failed to initialize Langfuse handler: {e}")
+def get_langfuse_handler(
+    user_id: str = None,
+    session_id: str = None,
+    trace_name: str = None,
+    tags: list = None,
+    metadata: dict = None
+):
+    """Get Langfuse callback handler for LangChain.
     
-    return _langfuse_handler
+    Note: In Langfuse 3.x, user_id and session_id should be passed via
+    LangChain config metadata (langfuse_user_id, langfuse_session_id),
+    not via CallbackHandler constructor.
+    
+    Args:
+        user_id: User identifier (for logging only in 3.x)
+        session_id: Session identifier (for logging only in 3.x)
+        trace_name: Custom name for the trace
+        tags: List of tags to attach to the trace
+        metadata: Additional metadata to attach
+    
+    Returns:
+        Langfuse CallbackHandler instance or None
+    """
+    try:
+        from langfuse.langchain import CallbackHandler
+        
+        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+        enabled = os.getenv("LANGFUSE_ENABLED", "true").lower() == "true"
+        
+        if not enabled or not public_key or not secret_key:
+            logger.debug("Langfuse disabled or not configured")
+            return None
+        
+        # Langfuse 3.x: user_id and session_id are passed via LangChain config metadata
+        # CallbackHandler now only needs update_trace flag
+        handler = CallbackHandler(update_trace=True)
+        
+        logger.info(f"Langfuse handler created for user={user_id}, session={session_id}, trace={trace_name}")
+        return handler
+        
+    except Exception as e:
+        logger.warning(f"Failed to create Langfuse handler: {e}")
+        return None
 
 
 def get_memory_saver():
@@ -430,10 +450,33 @@ class LangGraphAgent(ABC):
             self._checkpointer = get_memory_saver()
         return self._checkpointer
     
-    def _get_callbacks(self, session_id: str = None) -> List:
-        """Get callback handlers including Langfuse."""
+    def _get_callbacks(self, session_id: str = None, user_id: str = None, context: Dict[str, Any] = None) -> List:
+        """Get callback handlers including Langfuse with user context.
+        
+        Args:
+            session_id: Session identifier
+            user_id: User identifier for Langfuse tracking
+            context: Additional context for metadata
+        
+        Returns:
+            List of callback handlers
+        """
         callbacks = []
-        handler = get_langfuse_handler()
+        
+        # Build metadata from context
+        metadata = {}
+        if context:
+            metadata["intent"] = context.get("intent", "")
+            metadata["stock_codes"] = context.get("stock_codes", [])
+        
+        handler = get_langfuse_handler(
+            user_id=user_id,
+            session_id=session_id,
+            trace_name=self.config.name,
+            tags=[self.config.name],
+            metadata=metadata if metadata else None
+        )
+        
         if handler:
             callbacks.append(handler)
         return callbacks
@@ -547,7 +590,7 @@ class LangGraphAgent(ABC):
             # Get checkpointer for LangGraph memory
             checkpointer = self._get_checkpointer()
             agent = self._init_agent(checkpointer)
-            callbacks = self._get_callbacks(session_id)
+            callbacks = self._get_callbacks(session_id, user_id=user_id, context=context)
             
             # Build messages with history
             messages = self._build_messages(task, session_id, context)
@@ -651,7 +694,7 @@ class LangGraphAgent(ABC):
         try:
             checkpointer = self._get_checkpointer()
             agent = self._init_agent(checkpointer)
-            callbacks = self._get_callbacks(session_id)
+            callbacks = self._get_callbacks(session_id, user_id=user_id, context=context)
             
             # Build messages with history
             messages = self._build_messages(task, session_id, context)
@@ -673,7 +716,13 @@ class LangGraphAgent(ABC):
             # Execute with streaming
             config = {
                 "recursion_limit": self.config.recursion_limit,
-                "configurable": {"thread_id": session_id}
+                "configurable": {"thread_id": session_id},
+                # Pass Langfuse metadata for user/session tracking
+                "metadata": {
+                    "langfuse_user_id": user_id,
+                    "langfuse_session_id": session_id,
+                    "langfuse_tags": [self.config.name],
+                }
             }
             if callbacks:
                 config["callbacks"] = callbacks
@@ -716,34 +765,9 @@ class LangGraphAgent(ABC):
                                 }
                     
                     elif event_type == "on_chain_end":
-                        output = event.get("data", {}).get("output")
-                        if output and isinstance(output, dict) and "messages" in output:
-                            msgs = output["messages"]
-                            if msgs:
-                                last_msg = msgs[-1]
-                                if hasattr(last_msg, "content") and last_msg.content:
-                                    final_content = last_msg.content
-                                    if not full_response:
-                                        full_response = final_content
-                                        yield {
-                                            "type": "content",
-                                            "content": final_content,
-                                        }
-                                    elif final_content != full_response:
-                                        if final_content.startswith(full_response):
-                                            delta = final_content[len(full_response):]
-                                            if delta:
-                                                full_response += delta
-                                                yield {
-                                                    "type": "content",
-                                                    "content": delta,
-                                                }
-                                        else:
-                                            full_response += final_content
-                                            yield {
-                                                "type": "content",
-                                                "content": final_content,
-                                            }
+                        # Skip on_chain_end content to avoid duplication
+                        # The content has already been streamed via on_chat_model_stream
+                        pass
                 except Exception as e:
                     logger.debug(f"Error processing event {event_type}: {e}")
             
