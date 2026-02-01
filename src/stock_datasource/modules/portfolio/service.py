@@ -77,37 +77,17 @@ class PortfolioService:
         """Get all positions for a user."""
         try:
             if self.db is not None:
-                # First check if user_id column exists
-                try:
-                    desc_df = self.db.execute_query("DESCRIBE user_positions")
-                    has_user_id = 'user_id' in desc_df['name'].values if not desc_df.empty else False
-                except:
-                    has_user_id = False
-                
-                # Build query based on table schema
-                if has_user_id:
-                    query = """
-                        SELECT 
-                            id, ts_code, stock_name, quantity, cost_price, 
-                            buy_date, current_price, market_value, profit_loss, 
-                            profit_rate, notes
-                        FROM user_positions 
-                        WHERE user_id = %(user_id)s
-                        ORDER BY buy_date DESC
-                    """
-                    df = self.db.execute_query(query, {'user_id': user_id})
-                else:
-                    # No user_id column - get all positions (for backward compatibility)
-                    query = """
-                        SELECT 
-                            id, ts_code, stock_name, quantity, cost_price, 
-                            buy_date, current_price, market_value, profit_loss, 
-                            profit_rate, notes
-                        FROM user_positions 
-                        ORDER BY buy_date DESC
-                    """
-                    df = self.db.execute_query(query)
-                    logger.info(f"user_positions table has no user_id column, returning all positions")
+                # Always filter by user_id for security
+                query = """
+                    SELECT 
+                        id, ts_code, stock_name, quantity, cost_price, 
+                        buy_date, current_price, market_value, profit_loss, 
+                        profit_rate, notes
+                    FROM user_positions 
+                    WHERE user_id = %(user_id)s
+                    ORDER BY buy_date DESC
+                """
+                df = self.db.execute_query(query, {'user_id': user_id})
                 
                 if not df.empty:
                     positions = []
@@ -350,7 +330,7 @@ class PortfolioService:
             position.profit_loss = position.market_value - cost_total
             position.profit_rate = (position.profit_loss / cost_total * 100) if cost_total > 0 else 0
     
-    async def _batch_update_positions(self, positions: List[Position]):
+    async def _batch_update_positions(self, positions: List[Position], user_id: str = "default_user"):
         """Batch update positions in database with latest prices."""
         if not self.db or not positions:
             return
@@ -361,14 +341,15 @@ class PortfolioService:
             for position in positions:
                 query = """
                     INSERT INTO user_positions 
-                    (id, ts_code, stock_name, quantity, cost_price, buy_date, 
+                    (id, user_id, ts_code, stock_name, quantity, cost_price, buy_date, 
                      current_price, market_value, profit_loss, profit_rate, notes, updated_at)
-                    VALUES (%(id)s, %(ts_code)s, %(stock_name)s, %(quantity)s, %(cost_price)s, 
+                    VALUES (%(id)s, %(user_id)s, %(ts_code)s, %(stock_name)s, %(quantity)s, %(cost_price)s, 
                             %(buy_date)s, %(current_price)s, %(market_value)s, 
                             %(profit_loss)s, %(profit_rate)s, %(notes)s, %(updated_at)s)
                 """
                 params = {
                     'id': position.id,
+                    'user_id': user_id,
                     'ts_code': position.ts_code,
                     'stock_name': position.stock_name,
                     'quantity': position.quantity,
@@ -383,7 +364,7 @@ class PortfolioService:
                 }
                 self.db.execute(query, params)
             
-            logger.info(f"Batch updated {len(positions)} positions")
+            logger.info(f"Batch updated {len(positions)} positions for user {user_id}")
             
         except Exception as e:
             logger.warning(f"Failed to batch update positions: {e}")
