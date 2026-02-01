@@ -22,6 +22,11 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "stock-datasource-secret-key-change
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
+# Default admin credentials
+DEFAULT_ADMIN_EMAIL = "admin@localhost"
+DEFAULT_ADMIN_PASSWORD = "Admin1234"
+DEFAULT_ADMIN_USERNAME = "admin"
+
 
 class AuthService:
     """Authentication service for user management."""
@@ -29,6 +34,7 @@ class AuthService:
     def __init__(self):
         self.client = db_client
         self._tables_initialized = False
+        self._default_admin_created = False
     
     def _ensure_tables(self) -> None:
         """Ensure auth tables exist (lazy initialization).
@@ -57,6 +63,51 @@ class AuthService:
                             logger.warning(f"Failed to execute schema statement on backup: {e}")
         
         self._tables_initialized = True
+        
+        # Initialize default admin user after tables are created
+        self._ensure_default_admin()
+    
+    def _ensure_default_admin(self) -> None:
+        """Ensure default admin user exists.
+        
+        Creates the default admin user (admin@localhost / Admin1234) if it doesn't exist.
+        This provides a fallback for first-time setup.
+        """
+        if self._default_admin_created:
+            return
+        
+        try:
+            # Check if default admin already exists
+            existing_admin = self.get_user_by_email(DEFAULT_ADMIN_EMAIL)
+            if existing_admin:
+                logger.debug(f"Default admin user already exists: {DEFAULT_ADMIN_EMAIL}")
+                self._default_admin_created = True
+                return
+            
+            # Create default admin user
+            user_id = str(uuid.uuid4())
+            password_hash = self.hash_password(DEFAULT_ADMIN_PASSWORD)
+            now = datetime.now()
+            
+            insert_query = """
+                INSERT INTO users (id, email, username, password_hash, is_active, is_admin, created_at, updated_at)
+                VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, 1, %(created_at)s, %(updated_at)s)
+            """
+            
+            self.client.execute(insert_query, {
+                "id": user_id,
+                "email": DEFAULT_ADMIN_EMAIL,
+                "username": DEFAULT_ADMIN_USERNAME,
+                "password_hash": password_hash,
+                "created_at": now,
+                "updated_at": now,
+            })
+            
+            logger.info(f"Default admin user created: {DEFAULT_ADMIN_EMAIL}")
+            self._default_admin_created = True
+            
+        except Exception as e:
+            logger.warning(f"Failed to create default admin user: {e}")
     
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt."""

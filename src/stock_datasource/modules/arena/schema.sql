@@ -4,6 +4,7 @@
 -- Table: arenas - Main arena entity
 CREATE TABLE IF NOT EXISTS arenas (
     id String,
+    user_id String,  -- User who created this arena (for data isolation)
     name String,
     description String,
     config String,  -- JSON configuration
@@ -21,12 +22,13 @@ CREATE TABLE IF NOT EXISTS arenas (
     completed_at Nullable(DateTime64(3)),
     updated_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
-ORDER BY (id, created_at);
+ORDER BY (user_id, id, created_at);
 
 -- Table: arena_strategies - Individual strategies
 CREATE TABLE IF NOT EXISTS arena_strategies (
     id String,
     arena_id String,
+    user_id String,  -- User who owns this strategy (for data isolation)
     agent_id String,
     agent_role String,
     name String,
@@ -46,12 +48,13 @@ CREATE TABLE IF NOT EXISTS arena_strategies (
     created_at DateTime64(3) DEFAULT now64(3),
     updated_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
-ORDER BY (arena_id, id, created_at);
+ORDER BY (user_id, arena_id, id, created_at);
 
 -- Table: arena_thinking_messages - Thinking stream messages
 CREATE TABLE IF NOT EXISTS arena_thinking_messages (
     id String,
     arena_id String,
+    user_id String,  -- User who owns this message (for data isolation)
     agent_id String,
     agent_role String,
     round_id String,
@@ -60,13 +63,14 @@ CREATE TABLE IF NOT EXISTS arena_thinking_messages (
     metadata String,  -- JSON
     timestamp DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
-ORDER BY (arena_id, timestamp)
+ORDER BY (user_id, arena_id, timestamp)
 TTL timestamp + INTERVAL 30 DAY;
 
 -- Table: arena_discussions - Discussion rounds
 CREATE TABLE IF NOT EXISTS arena_discussions (
     id String,
     arena_id String,
+    user_id String,  -- User who owns this discussion (for data isolation)
     round_number UInt32,
     mode String,
     participants Array(String),
@@ -75,13 +79,14 @@ CREATE TABLE IF NOT EXISTS arena_discussions (
     completed_at Nullable(DateTime64(3)),
     created_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
-ORDER BY (arena_id, round_number);
+ORDER BY (user_id, arena_id, round_number);
 
 -- Table: arena_evaluations - Strategy evaluations
 CREATE TABLE IF NOT EXISTS arena_evaluations (
     id String,
     strategy_id String,
     arena_id String,
+    user_id String,  -- User who owns this evaluation (for data isolation)
     period String,
     score_return Float64,
     score_risk Float64,
@@ -92,7 +97,7 @@ CREATE TABLE IF NOT EXISTS arena_evaluations (
     eliminated UInt8 DEFAULT 0,
     evaluated_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
-ORDER BY (arena_id, evaluated_at);
+ORDER BY (user_id, arena_id, evaluated_at);
 
 -- Index for common queries
 -- Note: ClickHouse creates implicit indexes on ORDER BY columns

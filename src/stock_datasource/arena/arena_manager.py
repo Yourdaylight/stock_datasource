@@ -51,8 +51,8 @@ class MultiAgentArena:
     - Pause/resume capability
     """
     
-    def __init__(self, config: ArenaConfig):
-        self.arena = Arena.from_config(config)
+    def __init__(self, config: ArenaConfig, user_id: str = ""):
+        self.arena = Arena.from_config(config, user_id=user_id)
         self.stream_processor = ThinkingStreamProcessor(self.arena.id)
         
         # Sub-components
@@ -75,6 +75,11 @@ class MultiAgentArena:
     def id(self) -> str:
         """Get arena ID."""
         return self.arena.id
+    
+    @property
+    def user_id(self) -> str:
+        """Get arena user ID."""
+        return self.arena.user_id
     
     @property
     def state(self) -> ArenaState:
@@ -436,6 +441,7 @@ class MultiAgentArena:
         """Get arena status."""
         return {
             "id": self.arena.id,
+            "user_id": self.arena.user_id,
             "name": self.arena.config.name,
             "state": self.arena.state.value,
             "active_strategies": self.arena.active_strategy_count,
@@ -487,16 +493,17 @@ class MultiAgentArena:
 _active_arenas: Dict[str, MultiAgentArena] = {}
 
 
-def create_arena(config: ArenaConfig) -> MultiAgentArena:
+def create_arena(config: ArenaConfig, user_id: str = "") -> MultiAgentArena:
     """Create a new arena.
     
     Args:
         config: Arena configuration
+        user_id: User ID who creates this arena (for data isolation)
         
     Returns:
         Created MultiAgentArena instance
     """
-    arena = MultiAgentArena(config)
+    arena = MultiAgentArena(config, user_id=user_id)
     _active_arenas[arena.id] = arena
     return arena
 
@@ -518,13 +525,19 @@ def get_arena(arena_id: str) -> MultiAgentArena:
     return _active_arenas[arena_id]
 
 
-def list_arenas() -> List[Dict[str, Any]]:
+def list_arenas(user_id: str = None) -> List[Dict[str, Any]]:
     """List all active arenas.
     
+    Args:
+        user_id: If provided, only return arenas belonging to this user.
+        
     Returns:
         List of arena status dictionaries
     """
-    return [arena.get_status() for arena in _active_arenas.values()]
+    arenas = _active_arenas.values()
+    if user_id:
+        arenas = [a for a in arenas if a.user_id == user_id]
+    return [arena.get_status() for arena in arenas]
 
 
 def delete_arena(arena_id: str) -> bool:

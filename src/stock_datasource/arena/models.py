@@ -188,6 +188,7 @@ class ThinkingMessage:
     """A single message in the thinking stream."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     arena_id: str = ""
+    user_id: str = ""  # User who owns this message (for data isolation)
     agent_id: str = ""
     agent_role: str = ""
     round_id: str = ""
@@ -201,6 +202,7 @@ class ThinkingMessage:
         return {
             "id": self.id,
             "arena_id": self.arena_id,
+            "user_id": self.user_id,
             "agent_id": self.agent_id,
             "agent_role": self.agent_role,
             "round_id": self.round_id,
@@ -216,6 +218,7 @@ class ThinkingMessage:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             arena_id=data.get("arena_id", ""),
+            user_id=data.get("user_id", ""),
             agent_id=data.get("agent_id", ""),
             agent_role=data.get("agent_role", ""),
             round_id=data.get("round_id", ""),
@@ -231,6 +234,7 @@ class DiscussionRound:
     """A complete discussion round."""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     arena_id: str = ""
+    user_id: str = ""  # User who owns this discussion round (for data isolation)
     round_number: int = 0
     mode: DiscussionMode = DiscussionMode.DEBATE
     messages: List[ThinkingMessage] = field(default_factory=list)
@@ -255,6 +259,7 @@ class DiscussionRound:
         return {
             "id": self.id,
             "arena_id": self.arena_id,
+            "user_id": self.user_id,
             "round_number": self.round_number,
             "mode": self.mode.value if isinstance(self.mode, DiscussionMode) else self.mode,
             "messages": [m.to_dict() for m in self.messages],
@@ -325,6 +330,7 @@ class StrategyEvaluation:
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     strategy_id: str = ""
     arena_id: str = ""
+    user_id: str = ""  # User who owns this evaluation (for data isolation)
     period: EvaluationPeriod = EvaluationPeriod.DAILY
     score: ComprehensiveScore = field(default_factory=ComprehensiveScore)
     rank: int = 0
@@ -337,6 +343,7 @@ class StrategyEvaluation:
             "id": self.id,
             "strategy_id": self.strategy_id,
             "arena_id": self.arena_id,
+            "user_id": self.user_id,
             "period": self.period.value if isinstance(self.period, EvaluationPeriod) else self.period,
             "score": self.score.to_dict(),
             "rank": self.rank,
@@ -350,6 +357,7 @@ class ArenaStrategy:
     """A strategy in the arena competition."""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     arena_id: str = ""
+    user_id: str = ""  # User who owns this strategy (for data isolation)
     agent_id: str = ""
     agent_role: str = ""
     
@@ -387,6 +395,7 @@ class ArenaStrategy:
         return {
             "id": self.id,
             "arena_id": self.arena_id,
+            "user_id": self.user_id,
             "agent_id": self.agent_id,
             "agent_role": self.agent_role,
             "name": self.name,
@@ -413,6 +422,7 @@ class ArenaStrategy:
 class Arena:
     """The main arena entity."""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    user_id: str = ""  # User who created this arena (for data isolation)
     config: ArenaConfig = field(default_factory=lambda: ArenaConfig(name="Default Arena"))
     state: ArenaState = ArenaState.CREATED
     
@@ -465,6 +475,7 @@ class Arena:
         """Convert to dictionary."""
         return {
             "id": self.id,
+            "user_id": self.user_id,
             "config": self.config.model_dump() if hasattr(self.config, 'model_dump') else dict(self.config),
             "state": self.state.value if isinstance(self.state, ArenaState) else self.state,
             "strategies": [s.to_dict() for s in self.strategies],
@@ -485,6 +496,11 @@ class Arena:
         }
     
     @classmethod
-    def from_config(cls, config: ArenaConfig) -> "Arena":
-        """Create arena from configuration."""
-        return cls(config=config)
+    def from_config(cls, config: ArenaConfig, user_id: str = "") -> "Arena":
+        """Create arena from configuration.
+        
+        Args:
+            config: Arena configuration
+            user_id: User ID who creates this arena (for data isolation)
+        """
+        return cls(config=config, user_id=user_id)

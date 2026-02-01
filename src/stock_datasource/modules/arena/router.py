@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,7 @@ from stock_datasource.arena.arena_manager import (
 )
 from stock_datasource.arena.stream_processor import generate_sse_stream
 from stock_datasource.arena.exceptions import ArenaNotFoundError, ArenaStateError
+from stock_datasource.modules.auth.dependencies import get_current_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
 
@@ -116,11 +117,13 @@ class TriggerDiscussionRequest(BaseModel):
 async def create_arena_endpoint(
     request: CreateArenaRequest,
     background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
 ):
     """Create a new multi-agent arena.
     
     Creates an arena with the specified configuration and initializes
     all agents. The arena will be ready to start after creation.
+    Requires authentication - arena will be owned by the current user.
     """
     try:
         # Build configuration
@@ -140,8 +143,8 @@ async def create_arena_endpoint(
             ),
         )
         
-        # Create arena
-        arena = create_arena(config)
+        # Create arena with user_id for data isolation
+        arena = create_arena(config, user_id=current_user["id"])
         
         # Initialize in background
         background_tasks.add_task(arena.initialize)
@@ -154,13 +157,20 @@ async def create_arena_endpoint(
 
 
 @router.get("/{arena_id}/status", response_model=ArenaResponse)
-async def get_arena_status(arena_id: str):
+async def get_arena_status(
+    arena_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     """Get arena status.
     
     Returns current state, strategy counts, and evaluation info.
+    Only returns arenas owned by the current user.
     """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         return ArenaResponse(**arena.get_status())
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
@@ -170,14 +180,22 @@ async def get_arena_status(arena_id: str):
 
 
 @router.post("/{arena_id}/start")
-async def start_arena(arena_id: str, background_tasks: BackgroundTasks):
+async def start_arena(
+    arena_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
     """Start arena competition.
     
     Begins the competition process in the background.
     Use the thinking-stream endpoint to monitor progress.
+    Only arena owner can start it.
     """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         background_tasks.add_task(arena.start)
         return {"status": "started", "arena_id": arena_id}
     except ArenaNotFoundError:
@@ -190,10 +208,18 @@ async def start_arena(arena_id: str, background_tasks: BackgroundTasks):
 
 
 @router.post("/{arena_id}/pause")
-async def pause_arena(arena_id: str):
-    """Pause arena competition."""
+async def pause_arena(
+    arena_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Pause arena competition.
+    Only arena owner or admin can pause it.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         await arena.pause()
         return {"status": "paused", "arena_id": arena_id}
     except ArenaNotFoundError:
@@ -206,10 +232,19 @@ async def pause_arena(arena_id: str):
 
 
 @router.post("/{arena_id}/resume")
-async def resume_arena(arena_id: str, background_tasks: BackgroundTasks):
-    """Resume paused arena."""
+async def resume_arena(
+    arena_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Resume paused arena.
+    Only arena owner or admin can resume it.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         background_tasks.add_task(arena.resume)
         return {"status": "resumed", "arena_id": arena_id}
     except ArenaNotFoundError:
@@ -222,10 +257,18 @@ async def resume_arena(arena_id: str, background_tasks: BackgroundTasks):
 
 
 @router.delete("/{arena_id}")
-async def delete_arena_endpoint(arena_id: str):
-    """Delete an arena."""
+async def delete_arena_endpoint(
+    arena_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete an arena.
+    Only arena owner or admin can delete it.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权删除此竞技场")
         await arena.stop()
         delete_arena(arena_id)
         return {"status": "deleted", "arena_id": arena_id}
@@ -240,10 +283,15 @@ async def delete_arena_endpoint(arena_id: str):
 async def list_arenas_endpoint(
     state: Optional[str] = Query(None, description="Filter by state"),
     limit: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
 ):
-    """List all arenas."""
+    """List all arenas owned by the current user.
+    Admins can see all arenas.
+    """
     try:
-        arenas = list_arenas()
+        # Filter by user unless admin
+        user_id_filter = None if current_user.get("is_admin", False) else current_user["id"]
+        arenas = list_arenas(user_id=user_id_filter)
         
         if state:
             arenas = [a for a in arenas if a["state"] == state]
@@ -265,15 +313,19 @@ async def list_arenas_endpoint(
 async def thinking_stream(
     arena_id: str,
     round_id: Optional[str] = Query(None, description="Filter by round"),
+    current_user: dict = Depends(get_current_user),
 ):
     """SSE endpoint for real-time thinking stream.
     
     Returns a Server-Sent Events stream of agent thinking messages.
     Use this to display real-time progress in the UI.
+    Only arena owner or admin can access.
     """
     try:
-        # Verify arena exists
-        get_arena(arena_id)
+        # Verify arena exists and user has access
+        arena = get_arena(arena_id)
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         
         return StreamingResponse(
             generate_sse_stream(arena_id=arena_id, round_id=round_id),
@@ -295,10 +347,14 @@ async def thinking_stream(
 async def get_discussions(
     arena_id: str,
     limit: int = Query(10, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Get discussion history."""
+    """Get discussion history. Only arena owner or admin can access."""
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         history = arena.get_discussion_history()
         return {
             "total": len(history),
@@ -312,10 +368,19 @@ async def get_discussions(
 
 
 @router.get("/{arena_id}/discussions/{round_id}")
-async def get_discussion_detail(arena_id: str, round_id: str):
-    """Get details of a specific discussion round."""
+async def get_discussion_detail(
+    arena_id: str,
+    round_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get details of a specific discussion round.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         history = arena.get_discussion_history()
         
         for discussion in history:
@@ -338,10 +403,14 @@ async def get_discussion_detail(arena_id: str, round_id: str):
 async def get_strategies(
     arena_id: str,
     active_only: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Get strategies in the arena."""
+    """Get strategies in the arena. Only arena owner or admin can access."""
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies(active_only=active_only)
         return {
             "total": len(strategies),
@@ -355,10 +424,19 @@ async def get_strategies(
 
 
 @router.get("/{arena_id}/strategies/{strategy_id}")
-async def get_strategy_detail(arena_id: str, strategy_id: str):
-    """Get details of a specific strategy."""
+async def get_strategy_detail(
+    arena_id: str,
+    strategy_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get details of a specific strategy.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies()
         
         for strategy in strategies:
@@ -377,10 +455,16 @@ async def get_strategy_detail(arena_id: str, strategy_id: str):
 async def get_leaderboard(
     arena_id: str,
     limit: int = Query(10, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Get current strategy leaderboard."""
+    """Get current strategy leaderboard.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         leaderboard = arena.get_leaderboard()
         return {
             "total": len(leaderboard),
@@ -402,13 +486,18 @@ async def trigger_evaluation(
     arena_id: str,
     request: TriggerEvaluationRequest,
     background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
 ):
     """Trigger manual evaluation.
     
     Manually trigger a periodic evaluation (daily/weekly/monthly).
+    Only arena owner or admin can trigger evaluation.
     """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         
         period_map = {
             "daily": EvaluationPeriod.DAILY,
@@ -438,10 +527,16 @@ async def trigger_evaluation(
 async def get_competition_history(
     arena_id: str,
     limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Get full competition history including evaluations."""
+    """Get full competition history including evaluations.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         arena_dict = arena.to_dict()
         
         return {
@@ -468,10 +563,16 @@ async def start_discussion(
     arena_id: str,
     request: TriggerDiscussionRequest,
     background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
 ):
-    """Manually trigger a discussion round."""
+    """Manually trigger a discussion round.
+    Only arena owner or admin can start discussion.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         
         mode_map = {
             "debate": DiscussionMode.DEBATE,
@@ -507,10 +608,18 @@ async def start_discussion(
 
 
 @router.get("/{arena_id}/discussion/current")
-async def get_current_discussion(arena_id: str):
-    """Get current discussion status."""
+async def get_current_discussion(
+    arena_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get current discussion status.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         current_round_id = arena.arena.current_round_id
         
         if not current_round_id:
@@ -551,6 +660,7 @@ async def intervention(
     arena_id: str,
     request: InterventionRequest,
     background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
 ):
     """Human intervention in arena discussion.
     
@@ -559,9 +669,14 @@ async def intervention(
     - adjust_score: Manually adjust a strategy's score
     - eliminate_strategy: Force eliminate a strategy
     - add_strategy: Add a new strategy to the arena
+    
+    Only arena owner or admin can intervene.
     """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权操作此竞技场")
         
         result = {
             "status": "intervention_applied",
@@ -675,10 +790,16 @@ async def intervention(
 async def get_elimination_history(
     arena_id: str,
     limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Get elimination history timeline events."""
+    """Get elimination history timeline events.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         arena_dict = arena.to_dict()
         
         events = []
@@ -723,10 +844,19 @@ async def get_elimination_history(
 
 
 @router.get("/{arena_id}/strategies/{strategy_id}/score-breakdown")
-async def get_strategy_score_breakdown(arena_id: str, strategy_id: str):
-    """Get detailed score breakdown for a strategy."""
+async def get_strategy_score_breakdown(
+    arena_id: str,
+    strategy_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get detailed score breakdown for a strategy.
+    Only arena owner or admin can access.
+    """
     try:
         arena = get_arena(arena_id)
+        # Check user ownership
+        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies()
         
         for strategy in strategies:

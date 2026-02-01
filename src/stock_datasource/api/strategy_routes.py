@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from ..strategies.registry import StrategyRegistry
 from ..strategies.init import get_strategy_registry
+from ..modules.auth.dependencies import get_current_user, get_current_user_optional
 # 延迟导入避免依赖问题
 # from ..strategies.ai_generator import AIStrategyGenerator
 # from ..strategies.optimizer import StrategyOptimizer
@@ -85,16 +86,23 @@ class CreateStrategyRequest(BaseModel):
 
 
 # 存储用户创建的策略（内存存储，生产环境应使用数据库）
+# 结构: {strategy_id: {"user_id": str, "strategy": Dict}}
 _user_strategies: Dict[str, Dict[str, Any]] = {}
 
 
 @router.post("/")
-async def create_strategy(request: CreateStrategyRequest):
-    """创建新策略"""
+async def create_strategy(
+    request: CreateStrategyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """创建新策略（需要登录，策略将绑定到当前用户）"""
     import uuid
     from datetime import datetime
     
     try:
+        # 获取当前用户ID
+        user_id = current_user["id"]
+        
         # 从 strategy_data 中获取基本信息
         strategy_data = request.strategy_data
         strategy_id = strategy_data.get("id", f"user_{uuid.uuid4().hex[:8]}")
@@ -102,10 +110,11 @@ async def create_strategy(request: CreateStrategyRequest):
         # 构建完整的策略信息
         strategy = {
             "id": strategy_id,
+            "user_id": user_id,  # Add user ownership
             "name": request.name,
             "description": request.description or strategy_data.get("description", ""),
             "category": strategy_data.get("category", "custom"),
-            "author": strategy_data.get("author", "User"),
+            "author": strategy_data.get("author", current_user.get("username", "User")),
             "version": strategy_data.get("version", "1.0.0"),
             "tags": strategy_data.get("tags", []),
             "risk_level": strategy_data.get("risk_level", "medium"),
@@ -119,8 +128,11 @@ async def create_strategy(request: CreateStrategyRequest):
             "confidence_score": strategy_data.get("confidence_score", 0)
         }
         
-        # 存储策略
-        _user_strategies[strategy_id] = strategy
+        # 存储策略（带有user_id）
+        _user_strategies[strategy_id] = {
+            "user_id": user_id,
+            "strategy": strategy
+        }
         
         return {"data": strategy}
         
@@ -129,12 +141,15 @@ async def create_strategy(request: CreateStrategyRequest):
 
 
 @router.get("/", response_model=StrategyListResponse)
-async def get_strategies():
-    """获取所有可用策略列表"""
+async def get_strategies(
+    current_user: dict = Depends(get_current_user_optional),
+):
+    """获取所有可用策略列表（内置策略 + 当前用户的自定义策略）"""
     try:
         registry = get_strategy_registry()
         strategies = []
         
+        # 获取内置策略
         for strategy_id, strategy_info in registry._strategies.items():
             metadata = strategy_info.metadata
             
@@ -164,6 +179,29 @@ async def get_strategies():
                     for param in registry.get_strategy_class(strategy_id)().get_parameter_schema()
                 ]
             ))
+        
+        # 添加当前用户的自定义策略（如果已登录）
+        if current_user:
+            user_id = current_user["id"]
+            for strategy_id, strategy_data in _user_strategies.items():
+                # 只返回属于当前用户的策略，或管理员可以看到所有策略
+                if strategy_data.get("user_id") == user_id or current_user.get("is_admin", False):
+                    strategy = strategy_data.get("strategy", strategy_data)
+                    strategies.append(StrategyResponse(
+                        id=strategy["id"],
+                        name=strategy["name"],
+                        description=strategy.get("description", ""),
+                        category=strategy.get("category", "custom"),
+                        author=strategy.get("author", "User"),
+                        version=strategy.get("version", "1.0.0"),
+                        tags=strategy.get("tags", []),
+                        risk_level=strategy.get("risk_level", "medium"),
+                        created_at=strategy.get("created_at", ""),
+                        updated_at=strategy.get("updated_at", ""),
+                        usage_count=strategy.get("usage_count", 0),
+                        is_ai_generated=strategy.get("is_ai_generated", False),
+                        parameter_schema=strategy.get("parameter_schema", [])
+                    ))
         
         return StrategyListResponse(strategies=strategies)
     except Exception as e:
@@ -310,12 +348,18 @@ async def get_backtest_result(backtest_id: str):
 
 
 @router.post("/ai-generate")
-async def generate_ai_strategy(request: AIStrategyRequest):
-    """AI生成策略"""
+async def generate_ai_strategy(
+    request: AIStrategyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """AI生成策略（需要登录，生成的策略将绑定到当前用户）"""
     import uuid
     from datetime import datetime
     
     try:
+        # 获取当前用户ID
+        user_id = current_user["id"]
+        
         # 根据用户描述生成策略
         strategy_id = f"ai_{uuid.uuid4().hex[:8]}"
         
@@ -366,10 +410,11 @@ async def generate_ai_strategy(request: AIStrategyRequest):
         # 构建生成的策略响应
         generated_strategy = {
             "id": strategy_id,
+            "user_id": user_id,  # Add user ownership
             "name": strategy_name,
             "description": f"基于用户描述自动生成: {description}",
             "category": "ai_generated",
-            "author": "AI Generator",
+            "author": current_user.get("username", "AI Generator"),
             "version": "1.0.0",
             "tags": ["AI生成", market_type, risk_level, time_frame],
             "risk_level": risk_level,
