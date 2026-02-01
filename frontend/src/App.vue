@@ -22,7 +22,8 @@ import {
   SearchIcon,
   TimeIcon,
   SettingIcon,
-  NotificationIcon
+  NotificationIcon,
+  DataDisplayIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -52,9 +53,18 @@ const menuItems: MenuItem[] = [
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
   { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true },
   { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
-  { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
+  {
+    path: '/strategy',
+    title: '策略系统',
+    icon: ToolsIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
+      { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
+      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true }
+    ]
+  },
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
-  { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
   {
     path: '/system-logs',

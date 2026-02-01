@@ -49,6 +49,7 @@ class AIStrategyRequest(BaseModel):
     market_type: str = "stock"
     risk_level: str = "medium"
     time_frame: str = "daily"
+    additional_requirements: Optional[str] = None
 
 class TradingConfig(BaseModel):
     initial_capital: float = 100000.0
@@ -74,6 +75,58 @@ class BacktestRequest(BaseModel):
     trading_config: Optional[TradingConfig] = None
     parameters: Dict[str, Any] = {}
     intelligent_config: Optional[IntelligentConfig] = None
+
+class CreateStrategyRequest(BaseModel):
+    """创建策略请求"""
+    name: str
+    strategy_data: Dict[str, Any]
+    parameters: Dict[str, Any] = {}
+    description: Optional[str] = None
+
+
+# 存储用户创建的策略（内存存储，生产环境应使用数据库）
+_user_strategies: Dict[str, Dict[str, Any]] = {}
+
+
+@router.post("/")
+async def create_strategy(request: CreateStrategyRequest):
+    """创建新策略"""
+    import uuid
+    from datetime import datetime
+    
+    try:
+        # 从 strategy_data 中获取基本信息
+        strategy_data = request.strategy_data
+        strategy_id = strategy_data.get("id", f"user_{uuid.uuid4().hex[:8]}")
+        
+        # 构建完整的策略信息
+        strategy = {
+            "id": strategy_id,
+            "name": request.name,
+            "description": request.description or strategy_data.get("description", ""),
+            "category": strategy_data.get("category", "custom"),
+            "author": strategy_data.get("author", "User"),
+            "version": strategy_data.get("version", "1.0.0"),
+            "tags": strategy_data.get("tags", []),
+            "risk_level": strategy_data.get("risk_level", "medium"),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "usage_count": 0,
+            "is_ai_generated": strategy_data.get("is_ai_generated", False),
+            "generation_prompt": strategy_data.get("generation_prompt", ""),
+            "parameter_schema": strategy_data.get("parameter_schema", []),
+            "parameters": request.parameters,
+            "confidence_score": strategy_data.get("confidence_score", 0)
+        }
+        
+        # 存储策略
+        _user_strategies[strategy_id] = strategy
+        
+        return {"data": strategy}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建策略失败: {str(e)}")
+
 
 @router.get("/", response_model=StrategyListResponse)
 async def get_strategies():
@@ -254,6 +307,158 @@ async def get_backtest_result(backtest_id: str):
             "created_at": datetime.now().isoformat()
         }
     }
+
+
+@router.post("/ai-generate")
+async def generate_ai_strategy(request: AIStrategyRequest):
+    """AI生成策略"""
+    import uuid
+    from datetime import datetime
+    
+    try:
+        # 根据用户描述生成策略
+        strategy_id = f"ai_{uuid.uuid4().hex[:8]}"
+        
+        # 解析用户描述，生成策略名称
+        description = request.description
+        market_type = request.market_type
+        risk_level = request.risk_level
+        time_frame = request.time_frame
+        
+        # 根据描述生成策略名称
+        strategy_name = f"AI策略-{strategy_id[-8:]}"
+        if "均线" in description or "ma" in description.lower():
+            strategy_name = "AI均线交叉策略"
+        elif "动量" in description or "momentum" in description.lower():
+            strategy_name = "AI动量策略"
+        elif "趋势" in description or "trend" in description.lower():
+            strategy_name = "AI趋势跟踪策略"
+        elif "反转" in description or "reversal" in description.lower():
+            strategy_name = "AI均值回归策略"
+        elif "突破" in description or "breakout" in description.lower():
+            strategy_name = "AI突破策略"
+        
+        # 根据风险等级设置参数
+        if risk_level == "low":
+            stop_loss = 0.03
+            take_profit = 0.06
+        elif risk_level == "high":
+            stop_loss = 0.08
+            take_profit = 0.20
+        else:  # medium
+            stop_loss = 0.05
+            take_profit = 0.10
+        
+        # 根据时间周期设置参数
+        if time_frame == "1min":
+            short_period = 5
+            long_period = 20
+        elif time_frame == "5min":
+            short_period = 10
+            long_period = 30
+        elif time_frame == "weekly":
+            short_period = 4
+            long_period = 12
+        else:  # daily
+            short_period = 10
+            long_period = 30
+        
+        # 构建生成的策略响应
+        generated_strategy = {
+            "id": strategy_id,
+            "name": strategy_name,
+            "description": f"基于用户描述自动生成: {description}",
+            "category": "ai_generated",
+            "author": "AI Generator",
+            "version": "1.0.0",
+            "tags": ["AI生成", market_type, risk_level, time_frame],
+            "risk_level": risk_level,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "usage_count": 0,
+            "is_ai_generated": True,
+            "generation_prompt": description,
+            "confidence_score": 0.85,  # AI confidence score
+            "parameter_schema": [
+                {
+                    "name": "short_period",
+                    "type": "int",
+                    "default": short_period,
+                    "min_value": 2,
+                    "max_value": 50,
+                    "description": "短期周期",
+                    "required": True
+                },
+                {
+                    "name": "long_period",
+                    "type": "int",
+                    "default": long_period,
+                    "min_value": 10,
+                    "max_value": 200,
+                    "description": "长期周期",
+                    "required": True
+                },
+                {
+                    "name": "stop_loss",
+                    "type": "float",
+                    "default": stop_loss,
+                    "min_value": 0.01,
+                    "max_value": 0.2,
+                    "description": "止损比例",
+                    "required": False
+                },
+                {
+                    "name": "take_profit",
+                    "type": "float",
+                    "default": take_profit,
+                    "min_value": 0.02,
+                    "max_value": 0.5,
+                    "description": "止盈比例",
+                    "required": False
+                }
+            ]
+        }
+        
+        # Generate explanation based on strategy type
+        explanation = f"根据您的描述，AI生成了一个{strategy_name}。"
+        if "均线" in description or "ma" in description.lower():
+            explanation += "该策略基于移动平均线的交叉信号，当短期均线上穿长期均线时产生买入信号，下穿时产生卖出信号。"
+        elif "动量" in description or "momentum" in description.lower():
+            explanation += "该策略追踪市场动量，在趋势形成初期入场，捕捉价格惯性带来的收益。"
+        elif "趋势" in description or "trend" in description.lower():
+            explanation += "该策略专注于识别和跟踪市场主要趋势，在趋势延续时持有仓位。"
+        else:
+            explanation += "该策略结合了技术指标分析，通过参数优化来适应不同的市场环境。"
+        
+        # Generate risk warnings based on risk level
+        risk_warnings = []
+        if risk_level == "high":
+            risk_warnings = [
+                "高风险策略可能导致较大的资金回撤",
+                "建议使用较小的仓位进行测试",
+                "在实盘前请务必进行充分的回测验证"
+            ]
+        elif risk_level == "medium":
+            risk_warnings = [
+                "中等风险策略需要关注市场波动",
+                "建议设置合理的止损止盈参数"
+            ]
+        else:
+            risk_warnings = [
+                "低风险策略收益可能相对有限",
+                "适合长期稳健投资"
+            ]
+        
+        return {
+            "data": {
+                "strategy": generated_strategy,
+                "explanation": explanation,
+                "risk_warnings": risk_warnings
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI策略生成失败: {str(e)}")
 
 
 @router.get("/{strategy_id}/backtest-history")
