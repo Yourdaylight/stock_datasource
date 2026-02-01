@@ -129,6 +129,24 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/workflow/WorkflowEditor.vue'),
     meta: { title: '编辑工作流', requiresAuth: true }
   },
+  {
+    path: '/arena',
+    name: 'Arena',
+    component: () => import('@/views/arena/ArenaManagement.vue'),
+    meta: { title: '多Agent竞技场', icon: 'data-analysis', requiresAuth: true }
+  },
+{
+    path: '/arena/:id',
+    name: 'ArenaDetail',
+    component: () => import('@/views/arena/ArenaDetail.vue'),
+    meta: { title: '竞技场详情', requiresAuth: true }
+  },
+  {
+    path: '/arena/:arenaId/strategy/:strategyId',
+    name: 'ArenaStrategyDetail',
+    component: () => import('@/views/arena/ArenaStrategyDetail.vue'),
+    meta: { title: '策略详情', requiresAuth: true }
+  },
   // Legacy routes redirect
   {
     path: '/toplist',
