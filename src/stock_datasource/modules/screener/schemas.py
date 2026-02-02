@@ -21,6 +21,7 @@ class ScreenerRequest(BaseModel):
     sort_by: Optional[str] = None
     sort_order: str = "desc"
     limit: int = 100
+    trade_date: Optional[str] = Field(None, description="交易日期，格式 YYYY-MM-DD，默认最新日期")
 
 
 class NLScreenerRequest(BaseModel):

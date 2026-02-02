@@ -50,7 +50,8 @@ async def get_stocks(
     page_size: int = Query(20, ge=1, le=100),
     sort_by: str = "pct_chg",
     sort_order: str = "desc",
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    trade_date: Optional[str] = Query(None, description="交易日期，格式 YYYY-MM-DD，默认最新日期")
 ):
     """获取分页股票列表（含最新行情）"""
     try:
@@ -60,7 +61,8 @@ async def get_stocks(
             page_size=page_size,
             sort_by=sort_by,
             sort_order=sort_order,
-            search=search
+            search=search,
+            trade_date=trade_date
         )
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -95,7 +97,8 @@ async def filter_stocks(
             sort_by=request.sort_by or "pct_chg",
             sort_order=request.sort_order,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            trade_date=request.trade_date
         )
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -477,7 +480,7 @@ async def get_market_summary():
         else:
             latest_date = str(latest_date_raw).split()[0].split('T')[0]
         
-        # Get summary statistics
+        # Get summary statistics - 使用子查询先去重再聚合
         summary_query = f"""
             SELECT 
                 count(*) as total_stocks,
@@ -487,8 +490,12 @@ async def get_market_summary():
                 sum(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up,
                 sum(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down,
                 avg(pct_chg) as avg_change
-            FROM ods_daily
-            WHERE trade_date = '{latest_date}'
+            FROM (
+                SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
+                FROM ods_daily
+                WHERE trade_date = '{latest_date}'
+                GROUP BY ts_code
+            )
         """
         
         df = db.execute_query(summary_query)

@@ -30,6 +30,9 @@ export const useScreenerStore = defineStore('screener', () => {
   // 搜索
   const searchQuery = ref('')
   
+  // 日期筛选
+  const tradeDate = ref<string | null>(null)
+  
   // 市场概况
   const summary = ref<MarketSummary | null>(null)
   
@@ -86,6 +89,7 @@ export const useScreenerStore = defineStore('screener', () => {
     sortBy?: string
     sortOrder?: 'asc' | 'desc'
     search?: string
+    tradeDate?: string | null
   } = {}) => {
     loading.value = true
     try {
@@ -95,6 +99,7 @@ export const useScreenerStore = defineStore('screener', () => {
         sort_by: options.sortBy || sortBy.value,
         sort_order: options.sortOrder || sortOrder.value,
         search: options.search ?? searchQuery.value,
+        trade_date: options.tradeDate !== undefined ? (options.tradeDate || undefined) : (tradeDate.value || undefined),
       })
       
       stocks.value = response.items
@@ -141,12 +146,18 @@ export const useScreenerStore = defineStore('screener', () => {
     await fetchStocks({ page: 1, search: query })
   }
 
+  const changeTradeDate = async (date: string | null) => {
+    tradeDate.value = date
+    page.value = 1
+    await fetchStocks({ page: 1, tradeDate: date })
+  }
+
   const filter = async (conds: ScreenerCondition[]) => {
     loading.value = true
     conditions.value = conds
     try {
       const response = await screenerApi.filter(
-        { conditions: conds, sort_by: sortBy.value, sort_order: sortOrder.value },
+        { conditions: conds, sort_by: sortBy.value, sort_order: sortOrder.value, trade_date: tradeDate.value || undefined },
         1,
         pageSize.value
       )
@@ -196,10 +207,11 @@ export const useScreenerStore = defineStore('screener', () => {
   const clearFilters = async () => {
     conditions.value = []
     searchQuery.value = ''
+    tradeDate.value = null
     nlExplanation.value = ''
     parsedConditions.value = []
     page.value = 1
-    await fetchStocks({ page: 1, search: '' })
+    await fetchStocks({ page: 1, search: '', tradeDate: null })
   }
 
   // =============================================================================
@@ -317,6 +329,7 @@ export const useScreenerStore = defineStore('screener', () => {
     sortBy,
     sortOrder,
     searchQuery,
+    tradeDate,
     summary,
     conditions,
     
@@ -344,6 +357,7 @@ export const useScreenerStore = defineStore('screener', () => {
     changePage,
     changePageSize,
     changeSort,
+    changeTradeDate,
     search,
     filter,
     nlScreener,

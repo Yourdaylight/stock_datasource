@@ -1,8 +1,12 @@
-"""Portfolio module router."""
+"""Portfolio module router.
 
-from fastapi import APIRouter, Query, HTTPException, Depends
+All endpoints require authentication via JWT token.
+User isolation is enforced by extracting user_id from the authenticated token.
+"""
+
+from fastapi import APIRouter, Query, HTTPException, Depends, Path, Body
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 from .service import get_portfolio_service
 from ..auth.dependencies import get_current_user
@@ -40,6 +44,7 @@ class Position(BaseModel):
     market_value: float = None
     profit_loss: float = None
     profit_rate: float = None
+    notes: Optional[str] = None
 
 
 class AddPositionRequest(BaseModel):
@@ -48,6 +53,13 @@ class AddPositionRequest(BaseModel):
     cost_price: float
     buy_date: str
     notes: str = None
+
+
+class UpdatePositionRequest(BaseModel):
+    """Request model for updating a position."""
+    quantity: Optional[int] = Field(None, gt=0, description="持仓数量")
+    cost_price: Optional[float] = Field(None, gt=0, description="成本价")
+    notes: Optional[str] = Field(None, description="备注")
 
 
 class PortfolioSummary(BaseModel):
@@ -69,8 +81,14 @@ class DailyAnalysis(BaseModel):
 
 
 @router.get("/positions", response_model=List[Position])
-async def get_positions(current_user: dict = Depends(get_current_user)):
-    """Get user positions."""
+async def get_positions(
+    include_inactive: bool = Query(False, description="是否包含已删除的持仓"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user positions.
+    
+    User isolation: Only returns positions belonging to the authenticated user.
+    """
     service = get_portfolio_service()
     positions = await service.get_positions(user_id=current_user["id"])
     
@@ -86,14 +104,18 @@ async def get_positions(current_user: dict = Depends(get_current_user)):
             current_price=p.current_price,
             market_value=p.market_value,
             profit_loss=p.profit_loss,
-            profit_rate=p.profit_rate
+            profit_rate=p.profit_rate,
+            notes=p.notes
         ) for p in positions
     ]
 
 
 @router.post("/positions", response_model=Position)
 async def add_position(request: AddPositionRequest, current_user: dict = Depends(get_current_user)):
-    """Add a new position."""
+    """Add a new position.
+    
+    User isolation: Position is created under the authenticated user's account.
+    """
     service = get_portfolio_service()
     
     try:
@@ -116,7 +138,8 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
             current_price=position.current_price,
             market_value=position.market_value,
             profit_loss=position.profit_loss,
-            profit_rate=position.profit_rate
+            profit_rate=position.profit_rate,
+            notes=position.notes
         )
     except Exception as e:
         logger.error(f"Failed to add position: {e}")
@@ -124,49 +147,97 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
 
 
 @router.put("/positions/{position_id}", response_model=Position)
-async def update_position(position_id: str, request: AddPositionRequest, current_user: dict = Depends(get_current_user)):
-    """Update a position."""
-    return Position(
-        id=position_id,
-        ts_code=request.ts_code,
-        stock_name="更新股票",
-        quantity=request.quantity,
-        cost_price=request.cost_price,
-        buy_date=request.buy_date
-    )
+async def update_position(
+    position_id: str = Path(..., description="持仓ID"),
+    request: UpdatePositionRequest = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a position.
+    
+    User isolation: Only updates position if it belongs to the authenticated user.
+    """
+    try:
+        enhanced_service = get_enhanced_portfolio_service()
+        if enhanced_service:
+            # Build update dict from request
+            updates = {}
+            if request.quantity is not None:
+                updates['quantity'] = request.quantity
+            if request.cost_price is not None:
+                updates['cost_price'] = request.cost_price
+            if request.notes is not None:
+                updates['notes'] = request.notes
+            
+            position = await enhanced_service.update_position(
+                position_id, 
+                current_user["id"],  # Ensure user owns the position
+                **updates
+            )
+            
+            if not position:
+                raise HTTPException(status_code=404, detail="Position not found or not owned by user")
+            
+            return Position(
+                id=position.id,
+                ts_code=position.ts_code,
+                stock_name=position.stock_name,
+                quantity=position.quantity,
+                cost_price=position.cost_price,
+                buy_date=position.buy_date,
+                current_price=position.current_price,
+                market_value=position.market_value,
+                profit_loss=position.profit_loss,
+                profit_rate=position.profit_rate,
+                notes=position.notes
+            )
+        else:
+            raise HTTPException(status_code=503, detail="Enhanced service not available")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update position: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/positions/{position_id}")
 async def delete_position(position_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a position."""
+    """Delete a position.
+    
+    User isolation: Only deletes position if it belongs to the authenticated user.
+    """
     service = get_portfolio_service()
     
     try:
         success = await service.delete_position(position_id, user_id=current_user["id"])
         if success:
-            return {"success": True}
+            return {"success": True, "message": "Position deleted successfully"}
         else:
-            raise HTTPException(status_code=404, detail="Position not found")
+            raise HTTPException(status_code=404, detail="Position not found or not owned by user")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete position: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/summary", response_model=PortfolioSummary)
+@router.get("/summary")
 async def get_summary(current_user: dict = Depends(get_current_user)):
-    """Get portfolio summary."""
+    """Get portfolio summary.
+    
+    User isolation: Only calculates summary for the authenticated user's positions.
+    """
     service = get_portfolio_service()
     summary = await service.get_summary(user_id=current_user["id"])
     
-    return PortfolioSummary(
-        total_value=summary.total_value,
-        total_cost=summary.total_cost,
-        total_profit=summary.total_profit,
-        profit_rate=summary.profit_rate,
-        daily_change=summary.daily_change,
-        daily_change_rate=summary.daily_change_rate,
-        position_count=summary.position_count
-    )
+    return {
+        "total_value": summary.total_value,
+        "total_cost": summary.total_cost,
+        "total_profit": summary.total_profit,
+        "profit_rate": summary.profit_rate,
+        "daily_change": summary.daily_change,
+        "daily_change_rate": summary.daily_change_rate,
+        "position_count": summary.position_count
+    }
 
 
 @router.get("/profit-history")
@@ -302,7 +373,10 @@ async def create_alert(alert_data: dict, current_user: dict = Depends(get_curren
 
 @router.get("/alerts")
 async def get_alerts(current_user: dict = Depends(get_current_user)):
-    """Get position alerts."""
+    """Get position alerts.
+    
+    User isolation: Only returns alerts belonging to the authenticated user.
+    """
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
@@ -313,3 +387,57 @@ async def get_alerts(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Failed to get alerts: {e}")
         return {"data": [], "success": False, "error": str(e)}
+
+
+@router.get("/alerts/check")
+async def check_alerts(current_user: dict = Depends(get_current_user)):
+    """Check for triggered alerts.
+    
+    User isolation: Only checks alerts belonging to the authenticated user.
+    """
+    try:
+        enhanced_service = get_enhanced_portfolio_service()
+        if enhanced_service:
+            triggered_alerts = await enhanced_service.check_alerts(user_id=current_user["id"])
+            return {
+                "triggered_count": len(triggered_alerts) if triggered_alerts else 0,
+                "alerts": [
+                    {
+                        "id": alert.id,
+                        "ts_code": alert.ts_code,
+                        "alert_type": alert.alert_type,
+                        "condition_value": alert.condition_value,
+                        "current_value": alert.current_value,
+                        "message": alert.message
+                    }
+                    for alert in (triggered_alerts or [])
+                ],
+                "success": True
+            }
+        else:
+            return {"triggered_count": 0, "alerts": [], "success": True, "message": "Enhanced service not available"}
+    except Exception as e:
+        logger.error(f"Failed to check alerts: {e}")
+        return {"triggered_count": 0, "alerts": [], "success": False, "error": str(e)}
+
+
+@router.post("/batch/update-prices")
+async def batch_update_prices(current_user: dict = Depends(get_current_user)):
+    """Batch update position prices.
+    
+    User isolation: Only updates prices for the authenticated user's positions.
+    """
+    try:
+        enhanced_service = get_enhanced_portfolio_service()
+        if enhanced_service:
+            updated_count = await enhanced_service.batch_update_prices(user_id=current_user["id"])
+            return {
+                "message": f"Updated prices for {updated_count} positions",
+                "updated_count": updated_count,
+                "success": True
+            }
+        else:
+            return {"message": "Enhanced service not available", "updated_count": 0, "success": True}
+    except Exception as e:
+        logger.error(f"Failed to batch update prices: {e}")
+        return {"message": str(e), "updated_count": 0, "success": False, "error": str(e)}
