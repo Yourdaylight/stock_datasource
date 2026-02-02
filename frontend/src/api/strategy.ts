@@ -84,7 +84,7 @@ export const strategyApi = {
 
   // 创建新策略
   async createStrategy(strategy: Partial<StrategyMetadata>): Promise<{ data: StrategyMetadata }> {
-    return request.post('/api/strategies', strategy)
+    return request.post('/api/strategies/', strategy)
   },
 
   // 更新策略
