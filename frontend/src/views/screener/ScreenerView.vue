@@ -14,6 +14,7 @@ const portfolioStore = usePortfolioStore()
 const nlQuery = ref('')
 const activeTab = ref('condition')
 const searchInput = ref('')
+const selectedDate = ref<string | null>(null)
 
 // Stock detail dialog
 const showDetailDialog = ref(false)
@@ -102,19 +103,22 @@ const handleSearch = () => {
   screenerStore.search(searchInput.value)
 }
 
+const handleDateChange = (date: string | null) => {
+  selectedDate.value = date
+  screenerStore.changeTradeDate(date)
+}
+
 const handleClearFilters = () => {
   conditions.value = [{ field: 'pe', operator: 'lt', value: 30 }]
   searchInput.value = ''
+  selectedDate.value = null
   nlQuery.value = ''
   screenerStore.clearFilters()
 }
 
-const handlePageChange = (pageInfo: { current: number; pageSize: number }) => {
-  if (pageInfo.current !== screenerStore.page) {
-    screenerStore.changePage(pageInfo.current)
-  }
-  if (pageInfo.pageSize !== screenerStore.pageSize) {
-    screenerStore.changePageSize(pageInfo.pageSize)
+const handlePageChange = (current: number) => {
+  if (current !== screenerStore.page) {
+    screenerStore.changePage(current)
   }
 }
 
@@ -346,10 +350,19 @@ onMounted(() => {
         <t-card title="股票列表">
           <template #actions>
             <t-space>
+              <t-date-picker
+                v-model="selectedDate"
+                placeholder="选择日期"
+                style="width: 150px"
+                :clearable="true"
+                format="YYYY-MM-DD"
+                value-type="YYYY-MM-DD"
+                @change="handleDateChange"
+              />
               <t-input
                 v-model="searchInput"
                 placeholder="搜索代码/名称"
-                style="width: 200px"
+                style="width: 160px"
                 @enter="handleSearch"
               >
                 <template #suffix-icon>

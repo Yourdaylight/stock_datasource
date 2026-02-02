@@ -138,24 +138,25 @@ class TuShareDailyBasicService(BaseService):
         SELECT 
             ts_code,
             trade_date,
-            close,
-            turnover_rate,
-            turnover_rate_f,
-            volume_ratio,
-            pe,
-            pe_ttm,
-            pb,
-            ps,
-            ps_ttm,
-            dv_ratio,
-            dv_ttm,
-            total_share,
-            float_share,
-            free_share,
-            total_mv,
-            circ_mv
+            argMax(close, _ingested_at) as close,
+            argMax(turnover_rate, _ingested_at) as turnover_rate,
+            argMax(turnover_rate_f, _ingested_at) as turnover_rate_f,
+            argMax(volume_ratio, _ingested_at) as volume_ratio,
+            argMax(pe, _ingested_at) as pe,
+            argMax(pe_ttm, _ingested_at) as pe_ttm,
+            argMax(pb, _ingested_at) as pb,
+            argMax(ps, _ingested_at) as ps,
+            argMax(ps_ttm, _ingested_at) as ps_ttm,
+            argMax(dv_ratio, _ingested_at) as dv_ratio,
+            argMax(dv_ttm, _ingested_at) as dv_ttm,
+            argMax(total_share, _ingested_at) as total_share,
+            argMax(float_share, _ingested_at) as float_share,
+            argMax(free_share, _ingested_at) as free_share,
+            argMax(total_mv, _ingested_at) as total_mv,
+            argMax(circ_mv, _ingested_at) as circ_mv
         FROM ods_daily_basic
         WHERE trade_date = '{trade_date}'
+        GROUP BY ts_code, trade_date
         """
         return self.db.execute_query(query)
     
@@ -262,23 +263,24 @@ class TuShareDailyBasicService(BaseService):
         SELECT 
             ts_code,
             trade_date,
-            close,
-            turnover_rate,
-            turnover_rate_f,
-            volume_ratio,
-            pe,
-            pe_ttm,
-            pb,
-            ps,
-            ps_ttm,
-            dv_ratio,
-            dv_ttm,
-            total_share,
-            float_share,
-            free_share,
-            total_mv,
-            circ_mv
+            argMax(close, _ingested_at) as close,
+            argMax(turnover_rate, _ingested_at) as turnover_rate,
+            argMax(turnover_rate_f, _ingested_at) as turnover_rate_f,
+            argMax(volume_ratio, _ingested_at) as volume_ratio,
+            argMax(pe, _ingested_at) as pe,
+            argMax(pe_ttm, _ingested_at) as pe_ttm,
+            argMax(pb, _ingested_at) as pb,
+            argMax(ps, _ingested_at) as ps,
+            argMax(ps_ttm, _ingested_at) as ps_ttm,
+            argMax(dv_ratio, _ingested_at) as dv_ratio,
+            argMax(dv_ttm, _ingested_at) as dv_ttm,
+            argMax(total_share, _ingested_at) as total_share,
+            argMax(float_share, _ingested_at) as float_share,
+            argMax(free_share, _ingested_at) as free_share,
+            argMax(total_mv, _ingested_at) as total_mv,
+            argMax(circ_mv, _ingested_at) as circ_mv
         FROM ods_daily_basic
         WHERE trade_date = '{trade_date}'
+        GROUP BY ts_code, trade_date
         """
         return self.db.execute_query(query)

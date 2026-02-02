@@ -220,7 +220,8 @@ class ScreenerService:
         sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
-        include_name: bool = True
+        include_name: bool = True,
+        trade_date: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
         """
         多条件筛选股票 - 使用 Plugin Services
@@ -232,16 +233,17 @@ class ScreenerService:
             page: 页码
             page_size: 每页数量
             include_name: 是否包含股票名称
+            trade_date: 交易日期，默认使用最新日期
             
         Returns:
             (股票列表, 总数量)
         """
-        latest_date = self.get_latest_trade_date()
-        if not latest_date:
+        target_date = trade_date or self.get_latest_trade_date()
+        if not target_date:
             return [], 0
         
         # 获取合并后的数据
-        merged_df = self._get_merged_data(latest_date)
+        merged_df = self._get_merged_data(target_date)
         if merged_df.empty:
             return [], 0
         
@@ -278,15 +280,20 @@ class ScreenerService:
         page_size: int = 20,
         sort_by: str = "pct_chg",
         sort_order: str = "desc",
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        trade_date: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
-        """获取股票列表（带分页）- 使用 Plugin Services"""
-        latest_date = self.get_latest_trade_date()
-        if not latest_date:
+        """获取股票列表（带分页）- 使用 Plugin Services
+        
+        Args:
+            trade_date: 交易日期，默认使用最新日期
+        """
+        target_date = trade_date or self.get_latest_trade_date()
+        if not target_date:
             return [], 0
         
         # 获取合并后的数据
-        merged_df = self._get_merged_data(latest_date)
+        merged_df = self._get_merged_data(target_date)
         if merged_df.empty:
             return [], 0
         

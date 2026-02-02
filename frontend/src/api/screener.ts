@@ -12,6 +12,7 @@ export interface ScreenerRequest {
   sort_by?: string
   sort_order?: 'asc' | 'desc'
   limit?: number
+  trade_date?: string  // 交易日期，格式 YYYY-MM-DD
 }
 
 export interface StockItem {
@@ -141,6 +142,7 @@ export const screenerApi = {
     sort_by?: string
     sort_order?: 'asc' | 'desc'
     search?: string
+    trade_date?: string  // 交易日期，格式 YYYY-MM-DD
   } = {}): Promise<StockListResponse> {
     const queryParams = new URLSearchParams()
     if (params.page) queryParams.append('page', params.page.toString())
@@ -148,6 +150,7 @@ export const screenerApi = {
     if (params.sort_by) queryParams.append('sort_by', params.sort_by)
     if (params.sort_order) queryParams.append('sort_order', params.sort_order)
     if (params.search) queryParams.append('search', params.search)
+    if (params.trade_date) queryParams.append('trade_date', params.trade_date)
     
     const query = queryParams.toString()
     return request.get(`/api/screener/stocks${query ? '?' + query : ''}`)
