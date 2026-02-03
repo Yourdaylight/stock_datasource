@@ -146,6 +146,7 @@ class OrchestratorAgent:
         self._discover_agents()
         agents = self._list_available_agents()
         if not agents:
+            logger.warning("[Orchestrator] No agents available for classification")
             return "unknown", None, "没有可用的Agent"
         system_prompt = (
             "你是一个智能协调Agent。你的任务是：\n"
@@ -162,6 +163,7 @@ class OrchestratorAgent:
             f"可用Agents: {json.dumps(agents, ensure_ascii=False)}"
         )
         try:
+            logger.debug(f"[Orchestrator] Classifying query: {query[:100]}...")
             model = get_langchain_model()
             callbacks = []
             handler = get_langfuse_handler()
@@ -175,15 +177,19 @@ class OrchestratorAgent:
                 config={"callbacks": callbacks} if callbacks else None,
             )
             content = response.content if hasattr(response, "content") else str(response)
+            logger.debug(f"[Orchestrator] LLM response: {content[:200]}")
             parsed = self._parse_json_from_text(content)
             intent = parsed.get("intent") or "unknown"
             agent_name = parsed.get("agent_name") or ""
             rationale = parsed.get("rationale") or ""
             if agent_name not in self._agent_classes:
+                logger.debug(f"[Orchestrator] Agent '{agent_name}' not found, will fallback")
                 agent_name = None
+            logger.info(f"[Orchestrator] Classified: intent={intent}, agent={agent_name}, rationale={rationale[:50]}...")
             return intent, agent_name, rationale
         except Exception as e:
-            logger.warning(f"LLM classify failed: {e}")
+            import traceback
+            logger.warning(f"[Orchestrator] LLM classify failed: {e}\n{traceback.format_exc()}")
             fallback_agent = "ChatAgent" if "ChatAgent" in self._agent_classes else None
             return ("general_chat" if fallback_agent else "unknown"), fallback_agent, "使用默认处理"
     

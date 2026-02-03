@@ -46,10 +46,29 @@ const exampleQueries = [
 const renderMarkdown = (content: string): string => {
   if (!content) return ''
   try {
+    // Clean content before rendering
+    let cleanContent = content
+    
     // Remove chart markers before rendering
-    const cleanContent = content.replace(/\[KLINE_CHART\][\s\S]*?\[\/KLINE_CHART\]/g, '')
+    cleanContent = cleanContent.replace(/\[KLINE_CHART\][\s\S]*?\[\/KLINE_CHART\]/g, '')
+    
+    // Filter out obvious garbage/partial data (like incomplete JSON fragments)
+    // This helps prevent displaying "0 {" or similar fragments
+    if (cleanContent.match(/^\s*\d+\s*[{\[]\s*$/)) {
+      return '<span class="text-gray-400">正在生成回复...</span>'
+    }
+    
+    // Remove control characters that might have slipped through
+    cleanContent = cleanContent.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    
+    // If content is too short and looks like partial JSON, don't render
+    if (cleanContent.length < 10 && /^[\d\s{}\[\]"':,]+$/.test(cleanContent)) {
+      return ''
+    }
+    
     return marked.parse(cleanContent) as string
   } catch (e) {
+    console.warn('Markdown render error:', e)
     return content
   }
 }

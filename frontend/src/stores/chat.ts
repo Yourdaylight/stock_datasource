@@ -378,6 +378,9 @@ export const useChatStore = defineStore('chat', () => {
         sessionId.value,
         content,
         (event: StreamEvent) => {
+          // Debug log for event tracking
+          console.debug('[Chat] Received event:', event.type, event)
+          
           switch (event.type) {
             case 'thinking':
               thinking.value = true
@@ -432,11 +435,18 @@ export const useChatStore = defineStore('chat', () => {
 
             case 'content':
               thinking.value = false
-              streamingContent.value += event.content
-              // Update message content
-              const contentMsg = messages.value.find(m => m.id === assistantMessageId)
-              if (contentMsg) {
-                contentMsg.content = streamingContent.value
+              // Validate content before appending - prevent displaying partial/garbage data
+              if (event.content && typeof event.content === 'string') {
+                // Filter out obvious garbage like partial JSON or control characters
+                const cleanContent = event.content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+                if (cleanContent.length > 0) {
+                  streamingContent.value += cleanContent
+                  // Update message content
+                  const contentMsg = messages.value.find(m => m.id === assistantMessageId)
+                  if (contentMsg) {
+                    contentMsg.content = streamingContent.value
+                  }
+                }
               }
               break
               
@@ -444,36 +454,58 @@ export const useChatStore = defineStore('chat', () => {
               thinking.value = false
               loading.value = false
               currentTool.value = ''
+              currentStatus.value = ''
               // Final metadata update
               const doneMsg = messages.value.find(m => m.id === assistantMessageId)
               if (doneMsg) {
                 doneMsg.metadata = event.metadata
+                // If no content was received but we have metadata, show a fallback message
+                if (!doneMsg.content && event.metadata) {
+                  doneMsg.content = '处理完成，但未生成回复内容。'
+                }
               }
+              console.debug('[Chat] Stream completed with metadata:', event.metadata)
               break
               
             case 'error':
               thinking.value = false
               loading.value = false
               currentTool.value = ''
+              currentStatus.value = ''
               const errorMsg = messages.value.find(m => m.id === assistantMessageId)
               if (errorMsg) {
-                errorMsg.content = `抱歉，处理请求时出现错误: ${event.error}`
+                // Show more user-friendly error messages
+                const errorDetail = event.error || '未知错误'
+                console.error('[Chat] Stream error:', errorDetail)
+                errorMsg.content = `抱歉，处理请求时出现错误: ${errorDetail}`
               }
               break
+              
+            default:
+              console.warn('[Chat] Unknown event type:', (event as any).type)
           }
         },
         (error: Error) => {
+          console.error('[Chat] Stream connection error:', error)
           thinking.value = false
           loading.value = false
+          currentStatus.value = ''
           const errorMsg = messages.value.find(m => m.id === assistantMessageId)
           if (errorMsg) {
-            errorMsg.content = `抱歉，处理您的请求时出现了问题: ${error.message}`
+            // If we have some content, keep it and add error note
+            if (errorMsg.content && errorMsg.content.length > 10) {
+              errorMsg.content += '\n\n> ⚠️ 响应可能不完整，连接中断。'
+            } else {
+              errorMsg.content = `抱歉，处理您的请求时出现了问题: ${error.message}`
+            }
           }
         }
       )
     } catch (e) {
+      console.error('[Chat] Unexpected error:', e)
       thinking.value = false
       loading.value = false
+      currentStatus.value = ''
       const errorMsg = messages.value.find(m => m.id === assistantMessageId)
       if (errorMsg) {
         errorMsg.content = '抱歉，处理您的请求时出现了问题，请稍后重试。'
