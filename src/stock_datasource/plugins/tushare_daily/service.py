@@ -247,16 +247,17 @@ class TuShareDailyService(BaseService):
         SELECT 
             ts_code,
             trade_date,
-            open,
-            high,
-            low,
-            close,
-            pre_close,
-            change,
-            pct_chg,
-            vol,
-            amount
+            argMax(open, _ingested_at) as open,
+            argMax(high, _ingested_at) as high,
+            argMax(low, _ingested_at) as low,
+            argMax(close, _ingested_at) as close,
+            argMax(pre_close, _ingested_at) as pre_close,
+            argMax(change, _ingested_at) as change,
+            argMax(pct_chg, _ingested_at) as pct_chg,
+            argMax(vol, _ingested_at) as vol,
+            argMax(amount, _ingested_at) as amount
         FROM ods_daily
         WHERE trade_date = '{trade_date}'
+        GROUP BY ts_code, trade_date
         """
         return self.db.execute_query(query)
