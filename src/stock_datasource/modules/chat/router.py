@@ -173,6 +173,7 @@ async def stream_message_post(
 async def _stream_response(session_id: str, content: str, current_user: dict):
     """Internal function to handle streaming response using OrchestratorAgent."""
     import json
+    import traceback
     from stock_datasource.agents.orchestrator import get_orchestrator
     
     service = get_chat_service()
@@ -193,6 +194,10 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
         )
     
     user_id = current_user["id"]
+    
+    # Log incoming request
+    logger.info(f"[Chat] New message from user {user_id}, session {session_id}: {content[:100]}...")
+    
     service.add_message(session_id, user_id, "user", content)
     
     orchestrator = get_orchestrator()
@@ -205,10 +210,15 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
     async def generate():
         full_response = ""
         tool_calls = []
+        event_count = 0
         
         try:
             async for event in orchestrator.execute_stream(content, context):
                 event_type = event.get("type", "")
+                event_count += 1
+                
+                # Log each event for debugging
+                logger.debug(f"[Chat] Event #{event_count}: type={event_type}, agent={event.get('agent')}, status={event.get('status', '')[:50]}")
                 
                 if event_type == "thinking":
                     if event.get("tool"):
@@ -259,6 +269,8 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     metadata = event.get("metadata", {})
                     metadata.setdefault("tool_calls", tool_calls)
                     
+                    logger.info(f"[Chat] Completed - events: {event_count}, response length: {len(full_response)}, tools: {tool_calls}")
+                    
                     done_data = json.dumps({
                         "type": "done",
                         "metadata": metadata
@@ -266,20 +278,25 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     yield f"data: {done_data}\n\n"
                 
                 elif event_type == "error":
+                    error_msg = event.get("error", "未知错误")
+                    logger.error(f"[Chat] Agent error: {error_msg}")
                     error_data = json.dumps({
                         "type": "error",
-                        "error": event.get("error", "未知错误")
+                        "error": error_msg
                     }, ensure_ascii=False)
                     yield f"data: {error_data}\n\n"
                     
         except Exception as e:
-            logger.error(f"Streaming error: {e}")
+            # Log full traceback for debugging
+            error_traceback = traceback.format_exc()
+            logger.error(f"[Chat] Streaming error for session {session_id}:\n{error_traceback}")
+            
             if full_response:
                 service.add_message(session_id, user_id, "assistant", full_response)
             
             error_data = json.dumps({
                 "type": "error",
-                "error": str(e)
+                "error": f"处理请求时发生错误: {str(e)}"
             }, ensure_ascii=False)
             yield f"data: {error_data}\n\n"
     
