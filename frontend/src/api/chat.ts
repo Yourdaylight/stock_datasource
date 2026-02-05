@@ -125,6 +125,8 @@ export const chatApi = {
     onError?: (error: Error) => void
   ): Promise<void> {
     let terminalReceived = false
+    let jsonBuffer = '' // Buffer for incomplete JSON data
+    
     try {
       const token = localStorage.getItem('token')
       const headers: Record<string, string> = {
@@ -155,42 +157,116 @@ export const chatApi = {
       const decoder = new TextDecoder()
       let buffer = ''
 
+      // Helper function to safely parse JSON with incomplete data handling
+      const tryParseJSON = (data: string): StreamEvent | null => {
+        try {
+          return JSON.parse(data) as StreamEvent
+        } catch (e) {
+          return null
+        }
+      }
+
+      // Helper function to check if JSON is complete
+      const isCompleteJSON = (str: string): boolean => {
+        let depth = 0
+        let inString = false
+        let escape = false
+        
+        for (const char of str) {
+          if (escape) {
+            escape = false
+            continue
+          }
+          if (char === '\\') {
+            escape = true
+            continue
+          }
+          if (char === '"') {
+            inString = !inString
+            continue
+          }
+          if (inString) continue
+          
+          if (char === '{' || char === '[') depth++
+          if (char === '}' || char === ']') depth--
+        }
+        
+        return depth === 0 && str.trim().length > 0
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
         
-        // Parse SSE events
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        // Parse SSE events - split by double newline (SSE event separator)
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || '' // Keep incomplete event in buffer
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim()
-            if (data && data !== '[DONE]') {
-              try {
-                const event = JSON.parse(data) as StreamEvent
+        for (const eventBlock of events) {
+          const lines = eventBlock.split('\n')
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim()
+              if (!data || data === '[DONE]') continue
+              
+              // Combine with any previous incomplete JSON
+              const fullData = jsonBuffer + data
+              jsonBuffer = ''
+              
+              // Check if we have complete JSON
+              if (!isCompleteJSON(fullData)) {
+                // Incomplete JSON, buffer it for next iteration
+                jsonBuffer = fullData
+                console.debug('[SSE] Buffering incomplete JSON:', fullData.substring(0, 50) + '...')
+                continue
+              }
+              
+              const event = tryParseJSON(fullData)
+              if (event) {
                 if (event.type === 'done' || event.type === 'error') {
                   terminalReceived = true
                 }
                 onEvent(event)
-              } catch (e) {
-                console.warn('Failed to parse SSE data:', data)
+              } else {
+                console.warn('[SSE] Failed to parse complete JSON:', fullData.substring(0, 100))
               }
             }
           }
         }
       }
+      
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        const lines = buffer.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim()
+            if (data && data !== '[DONE]') {
+              const fullData = jsonBuffer + data
+              const event = tryParseJSON(fullData)
+              if (event) {
+                if (event.type === 'done' || event.type === 'error') {
+                  terminalReceived = true
+                }
+                onEvent(event)
+              }
+            }
+          }
+        }
+      }
+      
       if (!terminalReceived) {
-        const err = new Error('SSE stream closed without terminal event')
+        console.warn('[SSE] Stream closed without terminal event')
+        // Don't throw error, just notify via error callback
         if (onError) {
-          onError(err)
-        } else {
-          throw err
+          onError(new Error('SSE stream closed without terminal event'))
         }
       }
     } catch (error) {
+      console.error('[SSE] Stream error:', error)
       if (onError) {
         onError(error as Error)
       } else {
