@@ -830,9 +830,14 @@ async def trigger_schedule_now(current_user: dict = Depends(require_admin)):
     """立即触发一次调度执行.
     
     不等待 cron 时间，立即按依赖顺序创建同步任务。
+    启用智能补数：检测最近30天内缺失数据并自动补全。
     如果是非交易日且配置了跳过非交易日，会返回 skipped 状态。
     """
-    record = schedule_service.trigger_now(is_manual=True)
+    record = schedule_service.trigger_now(
+        is_manual=True,
+        smart_backfill=True,
+        auto_backfill_max_days=30,
+    )
     return ScheduleExecutionRecord(**record)
 
 
@@ -1436,119 +1441,99 @@ async def delete_explorer_template(
 
 
 # ============ Data Sync Scheduler (定时数据同步调度器) ============
+# NOTE: The old /scheduler/* endpoints are DEPRECATED.
+# Use /schedule/config and /schedule/scheduler-status instead.
 
 from .schemas import SchedulerStatus, SchedulerConfigUpdate, SchedulerRunResult
 
 
-@router.get("/scheduler/status", response_model=SchedulerStatus)
+@router.get("/schedule/scheduler-status")
+async def get_unified_scheduler_status(current_user: dict = Depends(require_admin)):
+    """获取统一调度器状态（新版）.
+
+    返回 UnifiedScheduler 运行状态、已注册的定时任务、下次执行时间等。
+    """
+    from ...tasks.unified_scheduler import get_unified_scheduler
+
+    scheduler = get_unified_scheduler()
+    return scheduler.get_status()
+
+
+@router.get("/scheduler/status", response_model=SchedulerStatus, deprecated=True)
 async def get_scheduler_status(current_user: dict = Depends(require_admin)):
-    """获取数据同步调度器状态.
-    
-    返回调度器是否启用、是否运行、下次执行时间等状态信息。
+    """[DEPRECATED] 获取数据同步调度器状态.
+
+    请使用 GET /schedule/scheduler-status 替代。
     """
     from ...tasks.data_sync_scheduler import get_data_sync_scheduler
-    
+
     scheduler = get_data_sync_scheduler()
     status = scheduler.get_status()
     return SchedulerStatus(**status)
 
 
-@router.put("/scheduler/config", response_model=SchedulerStatus)
+@router.put("/scheduler/config", response_model=SchedulerStatus, deprecated=True)
 async def update_scheduler_config(
     request: SchedulerConfigUpdate,
     current_user: dict = Depends(require_admin)
 ):
-    """更新数据同步调度器配置.
-    
-    可配置项：
-    - enabled: 是否启用调度器
-    - data_sync_time: 数据同步时间（HH:MM格式）
-    - analysis_time: 分析任务时间（HH:MM格式）
+    """[DEPRECATED] 更新数据同步调度器配置.
+
+    请使用 PUT /schedule/config 替代。
     """
     from ...tasks.data_sync_scheduler import get_data_sync_scheduler
-    from ...config.runtime_config import save_runtime_config
-    
+
     scheduler = get_data_sync_scheduler()
-    
-    # Update config and persist
-    updates = {}
-    if request.enabled is not None:
-        scheduler.enabled = request.enabled
-        updates["enabled"] = request.enabled
-    if request.data_sync_time:
-        scheduler.update_data_sync_time(request.data_sync_time)
-        updates["data_sync_time"] = request.data_sync_time
-    if request.analysis_time:
-        scheduler.update_analysis_time(request.analysis_time)
-        updates["analysis_time"] = request.analysis_time
-    
-    # Persist to runtime config
-    if updates:
-        save_runtime_config(scheduler=updates)
-        logger.info(f"Scheduler config updated: {updates}")
-    
-    # Restart scheduler if config changed
-    if scheduler._is_running:
-        scheduler.start()  # Idempotent, will reload config
-    
     status = scheduler.get_status()
     return SchedulerStatus(**status)
 
 
-@router.post("/scheduler/start", response_model=SchedulerStatus)
+@router.post("/scheduler/start", deprecated=True)
 async def start_scheduler(current_user: dict = Depends(require_admin)):
-    """启动数据同步调度器.
-    
-    启动后，调度器会在指定时间自动执行数据同步和分析任务。
+    """[DEPRECATED] 启动数据同步调度器.
+
+    调度器现在随应用自动启动，无需手动调用。
+    请使用 PUT /schedule/config { "enabled": true } 启用调度。
     """
-    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
-    
-    scheduler = get_data_sync_scheduler()
-    scheduler.start()
-    logger.info("Scheduler started by user")
-    
-    status = scheduler.get_status()
-    return SchedulerStatus(**status)
+    return {
+        "deprecated": True,
+        "message": "Use PUT /api/datamanage/schedule/config to manage scheduler. Scheduler now auto-starts with the application.",
+    }
 
 
-@router.post("/scheduler/stop", response_model=SchedulerStatus)
+@router.post("/scheduler/stop", deprecated=True)
 async def stop_scheduler(current_user: dict = Depends(require_admin)):
-    """停止数据同步调度器.
-    
-    停止后，调度任务将不再自动执行。
+    """[DEPRECATED] 停止数据同步调度器.
+
+    请使用 PUT /schedule/config { "enabled": false } 禁用调度。
     """
-    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
-    
-    scheduler = get_data_sync_scheduler()
-    scheduler.stop()
-    logger.info("Scheduler stopped by user")
-    
-    status = scheduler.get_status()
-    return SchedulerStatus(**status)
+    return {
+        "deprecated": True,
+        "message": "Use PUT /api/datamanage/schedule/config { 'enabled': false } to disable scheduler.",
+    }
 
 
-@router.post("/scheduler/run", response_model=SchedulerRunResult)
+@router.post("/scheduler/run", response_model=SchedulerRunResult, deprecated=True)
 async def run_scheduler_task(
     task_type: str = Query(..., description="任务类型: data_sync 或 analysis"),
     current_user: dict = Depends(require_admin)
 ):
-    """立即执行指定类型的调度任务.
-    
-    Args:
-        task_type: 任务类型，支持 data_sync（数据同步）和 analysis（分析任务）
+    """[DEPRECATED] 立即执行指定类型的调度任务.
+
+    请使用 POST /schedule/trigger 替代。
     """
     from ...tasks.data_sync_scheduler import get_data_sync_scheduler
-    
+
     scheduler = get_data_sync_scheduler()
-    
+
     if task_type == "data_sync":
         scheduler.run_data_sync_now()
         message = "数据同步任务已触发，正在后台执行"
     elif task_type == "analysis":
         scheduler.run_analysis_now()
-        message = "分析任务已触发，正在后台执行"
+        message = "分析任务已触发（已弃用，无实际效果）"
     else:
         raise HTTPException(status_code=400, detail="无效的任务类型，支持: data_sync, analysis")
-    
+
     logger.info(f"Manual scheduler task triggered: {task_type}")
     return SchedulerRunResult(success=True, message=message, task_type=task_type)
