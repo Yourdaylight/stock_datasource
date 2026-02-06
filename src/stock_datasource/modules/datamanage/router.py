@@ -1433,3 +1433,122 @@ async def delete_explorer_template(
     if not success:
         raise HTTPException(status_code=404, detail="模板不存在或无权删除")
     return {"success": True, "message": "删除成功"}
+
+
+# ============ Data Sync Scheduler (定时数据同步调度器) ============
+
+from .schemas import SchedulerStatus, SchedulerConfigUpdate, SchedulerRunResult
+
+
+@router.get("/scheduler/status", response_model=SchedulerStatus)
+async def get_scheduler_status(current_user: dict = Depends(require_admin)):
+    """获取数据同步调度器状态.
+    
+    返回调度器是否启用、是否运行、下次执行时间等状态信息。
+    """
+    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
+    
+    scheduler = get_data_sync_scheduler()
+    status = scheduler.get_status()
+    return SchedulerStatus(**status)
+
+
+@router.put("/scheduler/config", response_model=SchedulerStatus)
+async def update_scheduler_config(
+    request: SchedulerConfigUpdate,
+    current_user: dict = Depends(require_admin)
+):
+    """更新数据同步调度器配置.
+    
+    可配置项：
+    - enabled: 是否启用调度器
+    - data_sync_time: 数据同步时间（HH:MM格式）
+    - analysis_time: 分析任务时间（HH:MM格式）
+    """
+    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
+    from ...config.runtime_config import save_runtime_config
+    
+    scheduler = get_data_sync_scheduler()
+    
+    # Update config and persist
+    updates = {}
+    if request.enabled is not None:
+        scheduler.enabled = request.enabled
+        updates["enabled"] = request.enabled
+    if request.data_sync_time:
+        scheduler.update_data_sync_time(request.data_sync_time)
+        updates["data_sync_time"] = request.data_sync_time
+    if request.analysis_time:
+        scheduler.update_analysis_time(request.analysis_time)
+        updates["analysis_time"] = request.analysis_time
+    
+    # Persist to runtime config
+    if updates:
+        save_runtime_config(scheduler=updates)
+        logger.info(f"Scheduler config updated: {updates}")
+    
+    # Restart scheduler if config changed
+    if scheduler._is_running:
+        scheduler.start()  # Idempotent, will reload config
+    
+    status = scheduler.get_status()
+    return SchedulerStatus(**status)
+
+
+@router.post("/scheduler/start", response_model=SchedulerStatus)
+async def start_scheduler(current_user: dict = Depends(require_admin)):
+    """启动数据同步调度器.
+    
+    启动后，调度器会在指定时间自动执行数据同步和分析任务。
+    """
+    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
+    
+    scheduler = get_data_sync_scheduler()
+    scheduler.start()
+    logger.info("Scheduler started by user")
+    
+    status = scheduler.get_status()
+    return SchedulerStatus(**status)
+
+
+@router.post("/scheduler/stop", response_model=SchedulerStatus)
+async def stop_scheduler(current_user: dict = Depends(require_admin)):
+    """停止数据同步调度器.
+    
+    停止后，调度任务将不再自动执行。
+    """
+    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
+    
+    scheduler = get_data_sync_scheduler()
+    scheduler.stop()
+    logger.info("Scheduler stopped by user")
+    
+    status = scheduler.get_status()
+    return SchedulerStatus(**status)
+
+
+@router.post("/scheduler/run", response_model=SchedulerRunResult)
+async def run_scheduler_task(
+    task_type: str = Query(..., description="任务类型: data_sync 或 analysis"),
+    current_user: dict = Depends(require_admin)
+):
+    """立即执行指定类型的调度任务.
+    
+    Args:
+        task_type: 任务类型，支持 data_sync（数据同步）和 analysis（分析任务）
+    """
+    from ...tasks.data_sync_scheduler import get_data_sync_scheduler
+    
+    scheduler = get_data_sync_scheduler()
+    
+    if task_type == "data_sync":
+        scheduler.run_data_sync_now()
+        message = "数据同步任务已触发，正在后台执行"
+    elif task_type == "analysis":
+        scheduler.run_analysis_now()
+        message = "分析任务已触发，正在后台执行"
+    else:
+        raise HTTPException(status_code=400, detail="无效的任务类型，支持: data_sync, analysis")
+    
+    logger.info(f"Manual scheduler task triggered: {task_type}")
+    return SchedulerRunResult(success=True, message=message, task_type=task_type)

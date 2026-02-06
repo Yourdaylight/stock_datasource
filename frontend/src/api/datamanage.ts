@@ -282,6 +282,35 @@ export interface ScheduleConfigRequest {
   skip_non_trading_days?: boolean
 }
 
+// ============================================
+// Data Sync Scheduler Types (定时数据同步调度器)
+// ============================================
+
+export interface SchedulerStatus {
+  enabled: boolean
+  is_running: boolean
+  data_sync_time: string
+  analysis_time: string
+  next_data_sync?: string
+  next_analysis?: string
+  last_data_sync?: string
+  last_analysis?: string
+  current_task?: string
+  thread_alive: boolean
+}
+
+export interface SchedulerConfigUpdate {
+  enabled?: boolean
+  data_sync_time?: string
+  analysis_time?: string
+}
+
+export interface SchedulerRunResult {
+  success: boolean
+  message: string
+  task_type: string
+}
+
 export interface PluginScheduleConfig {
   plugin_name: string
   schedule_enabled: boolean
@@ -820,5 +849,32 @@ export const datamanageApi = {
   // Delete SQL template
   deleteExplorerTemplate(templateId: number): Promise<void> {
     return request.delete(`/api/datamanage/explorer/sql/templates/${templateId}`)
+  },
+
+  // ============ Data Sync Scheduler API (定时数据同步调度器) ============
+
+  // Get scheduler status
+  getSchedulerStatus(): Promise<SchedulerStatus> {
+    return request.get('/api/datamanage/scheduler/status')
+  },
+
+  // Update scheduler config
+  updateSchedulerConfig(config: SchedulerConfigUpdate): Promise<SchedulerStatus> {
+    return request.put('/api/datamanage/scheduler/config', config)
+  },
+
+  // Start scheduler
+  startScheduler(): Promise<SchedulerStatus> {
+    return request.post('/api/datamanage/scheduler/start')
+  },
+
+  // Stop scheduler
+  stopScheduler(): Promise<SchedulerStatus> {
+    return request.post('/api/datamanage/scheduler/stop')
+  },
+
+  // Run scheduler task now
+  runSchedulerNow(taskType: 'data_sync' | 'analysis'): Promise<SchedulerRunResult> {
+    return request.post(`/api/datamanage/scheduler/run?task_type=${taskType}`)
   }
 }

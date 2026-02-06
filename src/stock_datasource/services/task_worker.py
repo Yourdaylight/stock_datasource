@@ -20,6 +20,7 @@ import sys
 import time
 import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, Any
 
 from stock_datasource.services.task_queue import task_queue, TaskPriority
@@ -27,10 +28,18 @@ from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
 
 # Configure logging
+LOG_DIR = Path("/data/log")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+log_file = LOG_DIR / "task_worker.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger("task_worker")
 
