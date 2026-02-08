@@ -132,6 +132,9 @@ class ScheduleService:
         frequency: Optional[str] = None,
         include_optional_deps: Optional[bool] = None,
         skip_non_trading_days: Optional[bool] = None,
+        missing_check_time: Optional[str] = None,
+        smart_backfill_enabled: Optional[bool] = None,
+        auto_backfill_max_days: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Update global schedule configuration."""
         updates = {}
@@ -154,10 +157,25 @@ class ScheduleService:
             updates["include_optional_deps"] = include_optional_deps
         if skip_non_trading_days is not None:
             updates["skip_non_trading_days"] = skip_non_trading_days
+        if missing_check_time is not None:
+            updates["missing_check_time"] = missing_check_time
+        if smart_backfill_enabled is not None:
+            updates["smart_backfill_enabled"] = smart_backfill_enabled
+        if auto_backfill_max_days is not None:
+            updates["auto_backfill_max_days"] = max(1, min(30, auto_backfill_max_days))
         
         if updates:
             save_runtime_config(schedule=updates)
             logger.info(f"Schedule config updated: {updates}")
+        
+        # Notify UnifiedScheduler to reschedule with new config
+        try:
+            from ...tasks.unified_scheduler import get_unified_scheduler
+            scheduler = get_unified_scheduler()
+            if scheduler._running:
+                scheduler.reschedule()
+        except Exception as e:
+            logger.debug(f"Could not notify UnifiedScheduler: {e}")
         
         return self.get_config()
     
@@ -296,8 +314,20 @@ class ScheduleService:
     
     # ============ Schedule Execution ============
     
-    def trigger_now(self, is_manual: bool = True) -> Dict[str, Any]:
+    def trigger_now(
+        self,
+        is_manual: bool = True,
+        smart_backfill: bool = False,
+        auto_backfill_max_days: int = 3,
+    ) -> Dict[str, Any]:
         """Trigger schedule execution immediately.
+        
+        Args:
+            is_manual: True if triggered by user, False if triggered by scheduler.
+            smart_backfill: When True, detect missing data first and create
+                           targeted backfill tasks instead of plain incremental.
+            auto_backfill_max_days: Max missing days for automatic backfill.
+                                   Plugins exceeding this are skipped with a warning.
         
         Returns:
             ScheduleExecutionRecord dict
@@ -344,6 +374,16 @@ class ScheduleService:
         plugin_configs = self.get_plugin_configs()
         enabled_plugins = [p for p in plugin_configs if p["schedule_enabled"]]
         
+        # Also filter out plugins that are disabled at plugin level (config.json enabled=false)
+        actually_enabled = []
+        for p in enabled_plugins:
+            plugin = plugin_manager.get_plugin(p["plugin_name"])
+            if plugin and plugin.is_enabled():
+                actually_enabled.append(p)
+            else:
+                logger.info(f"Skipping disabled plugin: {p['plugin_name']}")
+        enabled_plugins = actually_enabled
+        
         if not enabled_plugins:
             record["status"] = "completed"
             record["completed_at"] = datetime.now().isoformat()
@@ -369,31 +409,73 @@ class ScheduleService:
         record["total_plugins"] = len(execution_order)
         update_schedule_execution(execution_id, {"total_plugins": len(execution_order)})
         
+        # ---- Smart backfill: detect missing data per plugin ----
+        missing_map: Dict[str, list] = {}  # plugin_name -> list of missing dates
+        if smart_backfill:
+            try:
+                from .service import data_manage_service
+                summary = data_manage_service.detect_missing_data(days=30, force_refresh=True)
+                for pinfo in summary.plugins:
+                    if pinfo.missing_dates:
+                        missing_map[pinfo.plugin_name] = pinfo.missing_dates
+                logger.info(
+                    f"Smart backfill: {len(missing_map)} plugins with missing data detected"
+                )
+            except Exception as e:
+                logger.warning(f"Smart backfill detection failed, falling back to incremental: {e}")
+        
         # Create sync tasks
         task_ids = []
+        skipped_plugins = []
         from .schemas import TaskType
         
         for plugin_name in execution_order:
             # Get plugin config for full_scan setting
             plugin_cfg = next((p for p in enabled_plugins if p["plugin_name"] == plugin_name), None)
-            task_type = TaskType.FULL if plugin_cfg and plugin_cfg.get("full_scan_enabled") else TaskType.INCREMENTAL
+            
+            # Determine task type and trade_dates based on smart backfill
+            task_type = TaskType.INCREMENTAL
+            trade_dates = None
+            
+            if plugin_cfg and plugin_cfg.get("full_scan_enabled"):
+                task_type = TaskType.FULL
+            elif smart_backfill and plugin_name in missing_map:
+                missing_days = missing_map[plugin_name]
+                if len(missing_days) > auto_backfill_max_days:
+                    # Excessive missing – skip with warning
+                    logger.warning(
+                        "%s missing %d days (exceeds threshold %d), requires manual intervention",
+                        plugin_name, len(missing_days), auto_backfill_max_days,
+                    )
+                    skipped_plugins.append(plugin_name)
+                    continue
+                else:
+                    # Targeted backfill for missing dates
+                    task_type = TaskType.BACKFILL
+                    trade_dates = missing_days
+                    logger.info(
+                        "Auto backfill: %s, %d missing days",
+                        plugin_name, len(missing_days),
+                    )
             
             try:
                 task = sync_task_manager.create_task(
                     plugin_name=plugin_name,
                     task_type=task_type,
-                    trade_dates=None,
+                    trade_dates=trade_dates,
                     user_id="system",
                     username="scheduler",
                 )
                 task_ids.append(task.task_id)
-                logger.info(f"Created task {task.task_id} for {plugin_name}")
+                logger.info(f"Created task {task.task_id} for {plugin_name} ({task_type.value})")
             except Exception as e:
                 logger.error(f"Failed to create task for {plugin_name}: {e}")
                 record["failed_plugins"] += 1
         
         record["task_ids"] = task_ids
         record["status"] = "running"
+        if skipped_plugins:
+            record["skipped_excessive_missing"] = skipped_plugins
         
         # Update last_run_at
         save_runtime_config(schedule={"last_run_at": started_at.isoformat()})

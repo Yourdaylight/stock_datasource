@@ -227,6 +227,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"SyncTaskManager start failed: {e}")
 
+    # Start UnifiedScheduler (delayed to ensure SyncTaskManager is ready)
+    try:
+        from stock_datasource.tasks.unified_scheduler import get_unified_scheduler
+        import threading, time as _time
+        def _delayed_scheduler_start():
+            try:
+                _time.sleep(15)
+                scheduler = get_unified_scheduler()
+                scheduler.start()
+                logger.info("UnifiedScheduler started (delayed)")
+            except Exception as inner_e:
+                logger.warning(f"UnifiedScheduler delayed start failed: {inner_e}")
+        threading.Thread(target=_delayed_scheduler_start, daemon=True).start()
+    except Exception as e:
+        logger.warning(f"UnifiedScheduler start failed: {e}")
+
     # Start background workers in local dev mode
     try:
         if _is_local_dev():
@@ -242,6 +258,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down application...")
+
+    # Stop UnifiedScheduler
+    try:
+        from stock_datasource.tasks.unified_scheduler import get_unified_scheduler
+        scheduler = get_unified_scheduler()
+        scheduler.stop()
+        logger.info("UnifiedScheduler stopped")
+    except Exception as e:
+        logger.warning(f"UnifiedScheduler stop failed: {e}")
 
     # Stop background workers (local dev mode only)
     try:

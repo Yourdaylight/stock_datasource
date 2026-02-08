@@ -683,3 +683,35 @@ class SqlTemplateListResponse(BaseModel):
     """SQL template list response."""
     items: List[SqlTemplate]
     total: int
+
+
+# ============================================
+# Data Sync Scheduler Models (定时数据同步调度器)
+# ============================================
+
+class SchedulerStatus(BaseModel):
+    """数据同步调度器状态."""
+    enabled: bool = False                        # 是否启用
+    is_running: bool = False                     # 调度线程是否运行
+    data_sync_time: str = "18:00"                # 数据同步时间
+    analysis_time: str = "18:30"                 # 分析任务时间
+    next_data_sync: Optional[str] = None         # 下次数据同步时间
+    next_analysis: Optional[str] = None          # 下次分析时间
+    last_data_sync: Optional[str] = None         # 上次数据同步时间
+    last_analysis: Optional[str] = None          # 上次分析时间
+    current_task: Optional[str] = None           # 当前运行的任务类型
+    thread_alive: bool = False                   # 调度线程是否存活
+
+
+class SchedulerConfigUpdate(BaseModel):
+    """更新调度器配置请求."""
+    enabled: Optional[bool] = None
+    data_sync_time: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+    analysis_time: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+
+
+class SchedulerRunResult(BaseModel):
+    """手动运行任务的结果."""
+    success: bool
+    message: str
+    task_type: str
