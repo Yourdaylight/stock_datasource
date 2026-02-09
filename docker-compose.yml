@@ -18,6 +18,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # Timezone
+      TZ: Asia/Shanghai
       # ClickHouse (默认用宿主机，通过 host.docker.internal)
       CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-host.docker.internal}
       CLICKHOUSE_PORT: ${CLICKHOUSE_PORT:-9000}
@@ -83,6 +85,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # Timezone
+      TZ: Asia/Shanghai
       # ClickHouse
       CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-host.docker.internal}
       CLICKHOUSE_PORT: ${CLICKHOUSE_PORT:-9000}

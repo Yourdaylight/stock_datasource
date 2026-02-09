@@ -184,16 +184,42 @@ const handleViewBatchDetail = async (row: ScheduleExecutionRecord) => {
   }
 }
 
+// Copy text to clipboard with fallback for non-HTTPS environments
+const copyToClipboard = async (text: string): Promise<void> => {
+  // Try modern Clipboard API first (requires HTTPS or localhost)
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Fallback: use textarea + execCommand for HTTP environments
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    const success = document.execCommand('copy');
+    if (!success) {
+      throw new Error('execCommand copy failed');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+};
+
 // Copy error summary to clipboard
 const handleCopyErrorSummary = async () => {
-  if (!selectedBatchDetail.value?.error_summary) return
+  if (!selectedBatchDetail.value?.error_summary) return;
   try {
-    await navigator.clipboard.writeText(selectedBatchDetail.value.error_summary)
-    MessagePlugin.success('错误信息已复制到剪贴板')
+    await copyToClipboard(selectedBatchDetail.value.error_summary);
+    MessagePlugin.success('错误信息已复制到剪贴板');
   } catch (e) {
-    MessagePlugin.error('复制失败')
+    MessagePlugin.error('复制失败');
   }
-}
+};
 
 // Stop batch execution
 const handleStopExecution = async (executionId: string) => {

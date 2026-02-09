@@ -37,6 +37,7 @@ services:
       --maxmemory-policy allkeys-lru
       --appendonly yes
       --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD:-Stock_datasource666}
     ports:
       - "${REDIS_EXPOSE_PORT:-16379}:6379"
     volumes:
@@ -44,7 +45,7 @@ services:
     networks:
       - stock_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-Stock_datasource666}", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10
