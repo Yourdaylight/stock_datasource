@@ -137,7 +137,7 @@ class OrchestratorAgent:
                     return {}
         return {}
 
-    async def _classify_with_llm(self, query: str) -> Tuple[str, Optional[str], str]:
+    async def _classify_with_llm(self, query: str, context: Optional[Dict[str, Any]] = None) -> Tuple[str, Optional[str], str]:
         """Classify user intent and select appropriate agent.
         
         Returns:
@@ -162,6 +162,10 @@ class OrchestratorAgent:
             f"User query: {query}\n\n"
             f"可用Agents: {json.dumps(agents, ensure_ascii=False)}"
         )
+        context = context or {}
+        user_id = context.get("user_id", "")
+        session_id = context.get("session_id", "")
+
         try:
             logger.debug(f"[Orchestrator] Classifying query: {query[:100]}...")
             model = get_langchain_model()
@@ -174,7 +178,20 @@ class OrchestratorAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                config={"callbacks": callbacks} if callbacks else None,
+                config={
+                    "callbacks": callbacks,
+                    "metadata": {
+                        "langfuse_user_id": user_id,
+                        "langfuse_session_id": session_id,
+                        "langfuse_tags": ["OrchestratorAgent"],
+                    },
+                } if callbacks else {
+                    "metadata": {
+                        "langfuse_user_id": user_id,
+                        "langfuse_session_id": session_id,
+                        "langfuse_tags": ["OrchestratorAgent"],
+                    }
+                },
             )
             content = response.content if hasattr(response, "content") else str(response)
             logger.debug(f"[Orchestrator] LLM response: {content[:200]}")
@@ -613,6 +630,9 @@ Action: none
 Action Input: {{}}
 """
             
+            user_id = context.get("user_id", "")
+            session_id = context.get("session_id", "")
+
             try:
                 model = get_langchain_model()
                 callbacks = []
@@ -622,7 +642,20 @@ Action Input: {{}}
                 
                 response = await model.ainvoke(
                     [{"role": "user", "content": react_prompt}],
-                    config={"callbacks": callbacks} if callbacks else None,
+                    config={
+                        "callbacks": callbacks,
+                        "metadata": {
+                            "langfuse_user_id": user_id,
+                            "langfuse_session_id": session_id,
+                            "langfuse_tags": ["MCPFallback"],
+                        },
+                    } if callbacks else {
+                        "metadata": {
+                            "langfuse_user_id": user_id,
+                            "langfuse_session_id": session_id,
+                            "langfuse_tags": ["MCPFallback"],
+                        }
+                    },
                 )
                 
                 react_response = response.content if hasattr(response, "content") else str(response)
@@ -690,7 +723,20 @@ Action Input: {{}}
                         
                         summary_response = await model.ainvoke(
                             [{"role": "user", "content": summary_prompt}],
-                            config={"callbacks": callbacks} if callbacks else None,
+                            config={
+                                "callbacks": callbacks,
+                                "metadata": {
+                                    "langfuse_user_id": user_id,
+                                    "langfuse_session_id": session_id,
+                                    "langfuse_tags": ["MCPFallback"],
+                                },
+                            } if callbacks else {
+                                "metadata": {
+                                    "langfuse_user_id": user_id,
+                                    "langfuse_session_id": session_id,
+                                    "langfuse_tags": ["MCPFallback"],
+                                }
+                            },
                         )
                         
                         summary = summary_response.content if hasattr(summary_response, "content") else str(compressed)
@@ -755,7 +801,7 @@ Action Input: {{}}
         context = context or {}
         
         # Classify intent + agent via LLM
-        intent, agent_name, rationale = await self._classify_with_llm(query)
+        intent, agent_name, rationale = await self._classify_with_llm(query, context)
         
         # Extract stock codes
         stock_codes = self._extract_stock_codes(query)
@@ -861,7 +907,7 @@ Action Input: {{}}
         }
         
         # Classify intent + agent via LLM
-        intent, agent_name, rationale = await self._classify_with_llm(query)
+        intent, agent_name, rationale = await self._classify_with_llm(query, context)
         
         # Extract stock codes
         stock_codes = self._extract_stock_codes(query)
