@@ -53,12 +53,8 @@ def get_langfuse_handler():
         
         if enabled and public_key and secret_key:
             try:
-                from langfuse.callback import CallbackHandler
-                _langfuse_handler = CallbackHandler(
-                    public_key=public_key,
-                    secret_key=secret_key,
-                    host=host
-                )
+                from langfuse.langchain import CallbackHandler
+                _langfuse_handler = CallbackHandler(update_trace=True)
                 logger.info("Langfuse CallbackHandler initialized")
             except ImportError:
                 logger.warning("langfuse package not installed")
@@ -316,15 +312,30 @@ class OpenAIClient(BaseLLMClient):
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+
+            response = None
             if functions:
-                kwargs["functions"] = functions
-                kwargs["function_call"] = "auto"
-            
-            response = await self.client.chat.completions.create(**kwargs)
+                tools = [{"type": "function", "function": fn} for fn in functions]
+                kwargs_tools = {**kwargs, "tools": tools, "tool_choice": "auto"}
+                try:
+                    response = await self.client.chat.completions.create(**kwargs_tools)
+                except TypeError:
+                    kwargs_legacy = {**kwargs, "functions": functions, "function_call": "auto"}
+                    response = await self.client.chat.completions.create(**kwargs_legacy)
+            else:
+                response = await self.client.chat.completions.create(**kwargs)
+
             message = response.choices[0].message
             
             result = {"role": "assistant", "content": message.content}
-            if hasattr(message, "function_call") and message.function_call:
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                first_call = message.tool_calls[0]
+                if getattr(first_call, "function", None):
+                    result["function_call"] = {
+                        "name": first_call.function.name,
+                        "arguments": first_call.function.arguments
+                    }
+            elif hasattr(message, "function_call") and message.function_call:
                 result["function_call"] = {
                     "name": message.function_call.name,
                     "arguments": message.function_call.arguments

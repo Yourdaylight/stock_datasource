@@ -58,6 +58,8 @@ class PluginManager:
             package_path_obj = Path(package.__file__).parent
             
             self.logger.info(f"Discovering plugins in {package_path}")
+            discovered = 0
+            failed = 0
             
             for finder, name, ispkg in pkgutil.iter_modules([str(package_path_obj)]):
                 if name.startswith('_'):
@@ -75,10 +77,16 @@ class PluginManager:
                             
                             plugin_instance = attr()
                             self.register_plugin(plugin_instance)
-                            self.logger.info(f"Discovered plugin: {plugin_instance.name}")
+                            discovered += 1
+                            self.logger.debug(f"Discovered plugin: {plugin_instance.name}")
                             
                 except Exception as e:
+                    failed += 1
                     self.logger.error(f"Failed to load plugin module {name}: {e}")
+            
+            self.logger.info(
+                f"Plugin discovery completed: {discovered} discovered, {len(self.plugins)} registered, {failed} failed"
+            )
                     
         except Exception as e:
             self.logger.error(f"Failed to discover plugins: {e}")
@@ -89,7 +97,7 @@ class PluginManager:
             self.logger.warning(f"Plugin {plugin.name} already registered, overwriting")
         
         self.plugins[plugin.name] = plugin
-        self.logger.info(f"Registered plugin: {plugin.name}")
+        self.logger.debug(f"Registered plugin: {plugin.name}")
     
     def get_plugin(self, name: str) -> Optional[BasePlugin]:
         """Get a plugin by name."""

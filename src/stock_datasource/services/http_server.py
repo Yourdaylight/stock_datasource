@@ -25,6 +25,10 @@ _services_cache = {}
 
 # Global list to track worker processes
 _worker_processes: list[multiprocessing.Process] = []
+# Worker supervision state
+_worker_meta: dict[int, dict] = {}
+_supervisor_thread = None
+_shutdown_event = None
 
 
 def _is_local_dev() -> bool:
@@ -56,24 +60,94 @@ def _start_background_workers(num_workers: int = 10):
     """
     from stock_datasource.services.task_worker import run_worker
 
-    global _worker_processes
+    import threading
+    import time
+
+    global _worker_processes, _worker_meta, _supervisor_thread, _shutdown_event
 
     logger.info(f"Starting {num_workers} background workers (local dev mode)")
 
-    for worker_id in range(num_workers):
+    # Supervisor settings
+    restart_enabled = os.getenv("WORKER_RESTART_ENABLED", "true").lower() == "true"
+    max_restarts = int(os.getenv("WORKER_MAX_RESTARTS", "3"))
+    backoff_seconds = float(os.getenv("WORKER_RESTART_BACKOFF_SECONDS", "5"))
+    backoff_max = float(os.getenv("WORKER_RESTART_BACKOFF_MAX_SECONDS", "60"))
+    supervisor_interval = float(os.getenv("WORKER_SUPERVISOR_INTERVAL_SECONDS", "2"))
+
+    if _shutdown_event is None:
+        _shutdown_event = threading.Event()
+
+    def _spawn_worker(worker_id: int) -> multiprocessing.Process:
         worker = multiprocessing.Process(
             target=run_worker,
             args=(worker_id,),
             daemon=False
         )
         worker.start()
+        return worker
+
+    for worker_id in range(num_workers):
+        worker = _spawn_worker(worker_id)
         _worker_processes.append(worker)
+        _worker_meta[worker_id] = {
+            "process": worker,
+            "restarts": 0,
+            "last_restart_at": time.time(),
+        }
         logger.info(f"Started worker {worker_id} with PID {worker.pid}")
+
+    def _supervise():
+        logger.info("Worker supervisor started")
+        while not _shutdown_event.is_set():
+            for worker_id, meta in list(_worker_meta.items()):
+                proc = meta.get("process")
+                if not proc:
+                    continue
+                if proc.is_alive():
+                    continue
+
+                exit_code = proc.exitcode
+                if _shutdown_event.is_set():
+                    continue
+
+                if not restart_enabled:
+                    logger.warning(f"Worker {worker_id} exited (code={exit_code}), restart disabled")
+                    continue
+
+                if meta["restarts"] >= max_restarts:
+                    logger.warning(
+                        f"Worker {worker_id} exited (code={exit_code}), reached max restarts ({max_restarts})"
+                    )
+                    continue
+
+                meta["restarts"] += 1
+                delay = min(backoff_seconds * (2 ** (meta["restarts"] - 1)), backoff_max)
+                logger.warning(
+                    f"Worker {worker_id} exited (code={exit_code}), restarting in {delay:.1f}s "
+                    f"(attempt {meta['restarts']}/{max_restarts})"
+                )
+                time.sleep(delay)
+                if _shutdown_event.is_set():
+                    break
+                new_proc = _spawn_worker(worker_id)
+                meta["process"] = new_proc
+                meta["last_restart_at"] = time.time()
+                logger.info(f"Restarted worker {worker_id} with PID {new_proc.pid}")
+
+            time.sleep(supervisor_interval)
+        logger.info("Worker supervisor stopped")
+
+    if restart_enabled:
+        _supervisor_thread = threading.Thread(target=_supervise, daemon=True)
+        _supervisor_thread.start()
 
 
 def _stop_background_workers():
     """Stop all background worker processes gracefully."""
-    global _worker_processes
+    global _worker_processes, _worker_meta, _supervisor_thread, _shutdown_event
+
+    if _shutdown_event is not None:
+        _shutdown_event.set()
 
     if not _worker_processes:
         return
@@ -92,6 +166,11 @@ def _stop_background_workers():
                 worker.join(timeout=5)
 
     _worker_processes.clear()
+    _worker_meta.clear()
+    if _supervisor_thread and _supervisor_thread.is_alive():
+        _supervisor_thread.join(timeout=5)
+    _supervisor_thread = None
+    _shutdown_event = None
     logger.info("All background workers stopped")
 
 

@@ -586,6 +586,9 @@ class LangGraphAgent(ABC):
             self._memory.clear_session(session_id)
             logger.info(f"Cleared session {session_id}")
         
+        # Opportunistic cleanup to avoid unbounded memory growth
+        self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
+
         try:
             # Get checkpointer for LangGraph memory
             checkpointer = self._get_checkpointer()
@@ -604,7 +607,12 @@ class LangGraphAgent(ABC):
             # Execute agent
             config = {
                 "recursion_limit": self.config.recursion_limit,
-                "configurable": {"thread_id": session_id}  # For LangGraph checkpoint
+                "configurable": {"thread_id": session_id},  # For LangGraph checkpoint
+                "metadata": {
+                    "langfuse_user_id": user_id,
+                    "langfuse_session_id": session_id,
+                    "langfuse_tags": [self.config.name],
+                }
             }
             if callbacks:
                 config["callbacks"] = callbacks
@@ -691,6 +699,9 @@ class LangGraphAgent(ABC):
         if context.get("clear_history"):
             self._memory.clear_session(session_id)
         
+        # Opportunistic cleanup to avoid unbounded memory growth
+        self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
+
         try:
             checkpointer = self._get_checkpointer()
             agent = self._init_agent(checkpointer)
