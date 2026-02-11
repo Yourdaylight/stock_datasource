@@ -503,6 +503,7 @@ class GroupCategory(str, Enum):
     """组合分类枚举."""
     SYSTEM = "system"        # 系统维护
     CN_STOCK = "cn_stock"    # A股相关
+    HK_STOCK = "hk_stock"    # 港股相关
     INDEX = "index"          # 指数相关
     ETF_FUND = "etf_fund"    # ETF基金相关
     DAILY = "daily"          # 每日更新

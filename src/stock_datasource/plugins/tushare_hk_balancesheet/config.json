@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare HK balance sheet data plugin (EAV model)",
+  "schedule": {
+    "frequency": "quarterly",
+    "time": "21:00"
+  },
+  "parameters_schema": {
+    "ts_code": {"type": "string", "required": false, "description": "港股代码 (e.g., 00700.HK)"},
+    "period": {"type": "string", "required": false, "description": "报告期 YYYYMMDD"},
+    "report_type": {"type": "string", "required": false, "description": "报告期类型 Q1/Q2/Q3/Q4"},
+    "start_date": {"type": "string", "format": "date", "required": false},
+    "end_date": {"type": "string", "format": "date", "required": false}
+  }
+}

@@ -445,17 +445,48 @@ class TuShareFinaceIndicatorService(BaseService):
             weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
-        # Generate recommendations
+        # Generate personalized recommendations based on specific metrics
         if weaknesses:
-            if any("ROE" in w for w in weaknesses):
-                recommendations.append("关注公司盈利能力改善措施")
-            if any("负债率" in w for w in weaknesses):
-                recommendations.append("关注债务结构优化和偿债能力")
-            if any("增长" in w or "下滑" in w for w in weaknesses):
-                recommendations.append("关注业务增长策略和市场竞争力")
+            for w in weaknesses:
+                if "ROE" in w:
+                    roe_v = safe_float(prof.get("roe"))
+                    if roe_v is not None and roe_v < 0:
+                        recommendations.append(f"ROE为{roe_v:.1f}%，公司处于亏损，重点关注扭亏为盈的时间表和战略规划")
+                    elif roe_v is not None:
+                        recommendations.append(f"ROE仅{roe_v:.1f}%，建议关注管理层提升资本回报率的具体措施")
+                    break
+            for w in weaknesses:
+                if "负债率" in w:
+                    dta_v = safe_float(solv.get("debt_to_assets"))
+                    if dta_v is not None:
+                        recommendations.append(f"资产负债率达{dta_v:.1f}%，建议关注偿债压力和融资成本变化")
+                    break
+            for w in weaknesses:
+                if "下滑" in w:
+                    rg_v = safe_float(growth.get("revenue_growth"))
+                    if rg_v is not None:
+                        recommendations.append(f"营收增速{rg_v:.1f}%，建议关注行业竞争格局和公司新增长点")
+                    else:
+                        recommendations.append("业绩出现下滑，建议关注是行业周期性波动还是公司竞争力下降")
+                    break
+            for w in weaknesses:
+                if "净利率" in w:
+                    recommendations.append("净利率偏低可能反映费用管控不力或竞争加剧，关注公司降本增效举措")
+                    break
+            for w in weaknesses:
+                if "流动比率" in w:
+                    recommendations.append("短期偿债能力偏弱，关注公司现金流状况和短期债务到期安排")
+                    break
         
-        if not strengths:
-            recommendations.append("建议深入分析公司基本面和行业前景")
+        if not recommendations:
+            if health_score >= 75:
+                recommendations.append("财务基本面优秀，可重点关注估值是否合理以及行业景气度")
+            elif health_score >= 60:
+                recommendations.append("财务状况总体良好，建议结合行业趋势和公司战略综合判断")
+            elif strengths:
+                recommendations.append("公司有一定亮点但也存在不足，建议持续跟踪后续财报变化")
+            else:
+                recommendations.append("基本面数据较为平淡，建议深入分析公司战略定位和行业前景")
         
         # Ensure health score is within bounds
         health_score = max(0, min(100, health_score))
@@ -859,17 +890,48 @@ class TuShareFinaceIndicatorService(BaseService):
             weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
-        # Generate recommendations
+        # Generate personalized recommendations based on specific metrics
         if weaknesses:
-            if any("ROE" in w for w in weaknesses):
-                recommendations.append("关注公司盈利能力改善措施")
-            if any("负债率" in w for w in weaknesses):
-                recommendations.append("关注债务结构优化和偿债能力")
-            if any("增长" in w or "下滑" in w for w in weaknesses):
-                recommendations.append("关注业务增长策略和市场竞争力")
+            for w in weaknesses:
+                if "ROE" in w:
+                    roe_v = safe_float(prof.get("roe"))
+                    if roe_v is not None and roe_v < 0:
+                        recommendations.append(f"ROE为{roe_v:.1f}%，公司处于亏损，重点关注扭亏为盈的时间表和战略规划")
+                    elif roe_v is not None:
+                        recommendations.append(f"ROE仅{roe_v:.1f}%，建议关注管理层提升资本回报率的具体措施")
+                    break
+            for w in weaknesses:
+                if "负债率" in w:
+                    dta_v = safe_float(solv.get("debt_to_assets"))
+                    if dta_v is not None:
+                        recommendations.append(f"资产负债率达{dta_v:.1f}%，建议关注偿债压力和融资成本变化")
+                    break
+            for w in weaknesses:
+                if "下滑" in w:
+                    rg_v = safe_float(growth.get("revenue_growth"))
+                    if rg_v is not None:
+                        recommendations.append(f"营收增速{rg_v:.1f}%，建议关注行业竞争格局和公司新增长点")
+                    else:
+                        recommendations.append("业绩出现下滑，建议关注是行业周期性波动还是公司竞争力下降")
+                    break
+            for w in weaknesses:
+                if "净利率" in w:
+                    recommendations.append("净利率偏低可能反映费用管控不力或竞争加剧，关注公司降本增效举措")
+                    break
+            for w in weaknesses:
+                if "流动比率" in w:
+                    recommendations.append("短期偿债能力偏弱，关注公司现金流状况和短期债务到期安排")
+                    break
         
-        if not strengths:
-            recommendations.append("建议深入分析公司基本面和行业前景")
+        if not recommendations:
+            if health_score >= 75:
+                recommendations.append("财务基本面优秀，可重点关注估值是否合理以及行业景气度")
+            elif health_score >= 60:
+                recommendations.append("财务状况总体良好，建议结合行业趋势和公司战略综合判断")
+            elif strengths:
+                recommendations.append("公司有一定亮点但也存在不足，建议持续跟踪后续财报变化")
+            else:
+                recommendations.append("基本面数据较为平淡，建议深入分析公司战略定位和行业前景")
         
         # Ensure health score is within bounds
         health_score = max(0, min(100, health_score))
@@ -1290,17 +1352,48 @@ class TuShareFinaceIndicatorService(BaseService):
             weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
-        # Generate recommendations
+        # Generate personalized recommendations based on specific metrics
         if weaknesses:
-            if any("ROE" in w for w in weaknesses):
-                recommendations.append("关注公司盈利能力改善措施")
-            if any("负债率" in w for w in weaknesses):
-                recommendations.append("关注债务结构优化和偿债能力")
-            if any("增长" in w or "下滑" in w for w in weaknesses):
-                recommendations.append("关注业务增长策略和市场竞争力")
+            for w in weaknesses:
+                if "ROE" in w:
+                    roe_v = safe_float(prof.get("roe"))
+                    if roe_v is not None and roe_v < 0:
+                        recommendations.append(f"ROE为{roe_v:.1f}%，公司处于亏损，重点关注扭亏为盈的时间表和战略规划")
+                    elif roe_v is not None:
+                        recommendations.append(f"ROE仅{roe_v:.1f}%，建议关注管理层提升资本回报率的具体措施")
+                    break
+            for w in weaknesses:
+                if "负债率" in w:
+                    dta_v = safe_float(solv.get("debt_to_assets"))
+                    if dta_v is not None:
+                        recommendations.append(f"资产负债率达{dta_v:.1f}%，建议关注偿债压力和融资成本变化")
+                    break
+            for w in weaknesses:
+                if "下滑" in w:
+                    rg_v = safe_float(growth.get("revenue_growth"))
+                    if rg_v is not None:
+                        recommendations.append(f"营收增速{rg_v:.1f}%，建议关注行业竞争格局和公司新增长点")
+                    else:
+                        recommendations.append("业绩出现下滑，建议关注是行业周期性波动还是公司竞争力下降")
+                    break
+            for w in weaknesses:
+                if "净利率" in w:
+                    recommendations.append("净利率偏低可能反映费用管控不力或竞争加剧，关注公司降本增效举措")
+                    break
+            for w in weaknesses:
+                if "流动比率" in w:
+                    recommendations.append("短期偿债能力偏弱，关注公司现金流状况和短期债务到期安排")
+                    break
         
-        if not strengths:
-            recommendations.append("建议深入分析公司基本面和行业前景")
+        if not recommendations:
+            if health_score >= 75:
+                recommendations.append("财务基本面优秀，可重点关注估值是否合理以及行业景气度")
+            elif health_score >= 60:
+                recommendations.append("财务状况总体良好，建议结合行业趋势和公司战略综合判断")
+            elif strengths:
+                recommendations.append("公司有一定亮点但也存在不足，建议持续跟踪后续财报变化")
+            else:
+                recommendations.append("基本面数据较为平淡，建议深入分析公司战略定位和行业前景")
         
         # Ensure health score is within bounds
         health_score = max(0, min(100, health_score))
@@ -1709,17 +1802,48 @@ class TuShareFinaceIndicatorService(BaseService):
             weaknesses.append(f"营收出现下滑 ({rg_val:.1f}%)")
             health_score -= 15
         
-        # Generate recommendations
+        # Generate personalized recommendations based on specific metrics
         if weaknesses:
-            if any("ROE" in w for w in weaknesses):
-                recommendations.append("关注公司盈利能力改善措施")
-            if any("负债率" in w for w in weaknesses):
-                recommendations.append("关注债务结构优化和偿债能力")
-            if any("增长" in w or "下滑" in w for w in weaknesses):
-                recommendations.append("关注业务增长策略和市场竞争力")
+            for w in weaknesses:
+                if "ROE" in w:
+                    roe_v = safe_float(prof.get("roe"))
+                    if roe_v is not None and roe_v < 0:
+                        recommendations.append(f"ROE为{roe_v:.1f}%，公司处于亏损，重点关注扭亏为盈的时间表和战略规划")
+                    elif roe_v is not None:
+                        recommendations.append(f"ROE仅{roe_v:.1f}%，建议关注管理层提升资本回报率的具体措施")
+                    break
+            for w in weaknesses:
+                if "负债率" in w:
+                    dta_v = safe_float(solv.get("debt_to_assets"))
+                    if dta_v is not None:
+                        recommendations.append(f"资产负债率达{dta_v:.1f}%，建议关注偿债压力和融资成本变化")
+                    break
+            for w in weaknesses:
+                if "下滑" in w:
+                    rg_v = safe_float(growth.get("revenue_growth"))
+                    if rg_v is not None:
+                        recommendations.append(f"营收增速{rg_v:.1f}%，建议关注行业竞争格局和公司新增长点")
+                    else:
+                        recommendations.append("业绩出现下滑，建议关注是行业周期性波动还是公司竞争力下降")
+                    break
+            for w in weaknesses:
+                if "净利率" in w:
+                    recommendations.append("净利率偏低可能反映费用管控不力或竞争加剧，关注公司降本增效举措")
+                    break
+            for w in weaknesses:
+                if "流动比率" in w:
+                    recommendations.append("短期偿债能力偏弱，关注公司现金流状况和短期债务到期安排")
+                    break
         
-        if not strengths:
-            recommendations.append("建议深入分析公司基本面和行业前景")
+        if not recommendations:
+            if health_score >= 75:
+                recommendations.append("财务基本面优秀，可重点关注估值是否合理以及行业景气度")
+            elif health_score >= 60:
+                recommendations.append("财务状况总体良好，建议结合行业趋势和公司战略综合判断")
+            elif strengths:
+                recommendations.append("公司有一定亮点但也存在不足，建议持续跟踪后续财报变化")
+            else:
+                recommendations.append("基本面数据较为平淡，建议深入分析公司战略定位和行业前景")
         
         # Ensure health score is within bounds
         health_score = max(0, min(100, health_score))

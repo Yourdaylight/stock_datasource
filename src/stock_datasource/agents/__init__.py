@@ -34,6 +34,7 @@ from .chat_agent import ChatAgent
 from .market_agent import MarketAgent, get_market_agent
 from .screener_agent import ScreenerAgent, get_screener_agent
 from .report_agent import ReportAgent
+from .hk_report_agent import HKReportAgent
 from .memory_agent import MemoryAgent
 from .datamanage_agent import DataManageAgent
 from .portfolio_agent import PortfolioAgent
@@ -72,6 +73,7 @@ __all__ = [
     "ScreenerAgent",
     "get_screener_agent",
     "ReportAgent",
+    "HKReportAgent",
     "MemoryAgent",
     "DataManageAgent",
     "PortfolioAgent",

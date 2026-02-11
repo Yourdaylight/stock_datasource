@@ -347,6 +347,61 @@ df = pro.cashflow_vip(period='20231231', report_type='1')
 └─────────────┴─────────────┴─────────────┴─────────────────────────────────────┘
 ```
 
+## 利润表完整字段前端展示
+
+### 背景
+
+`ods_income_statement` 表包含约 95 个字段，但前端 `FinancialReportPanel.vue` 仅展示了极少一部分（revenue、net_profit、gross_margin、net_margin）。后端 `get_profitability_metrics` 查询了一部分字段但未完全透传。
+
+### 改动范围
+
+#### 1. 后端 income service (`tushare_income/service.py`)
+
+`get_profitability_metrics` 新增查询字段：
+- `oper_cost`（营业成本）、`income_tax`（所得税）、`biz_tax_surchg`（税金及附加）
+- `minority_gain`（少数股东损益）、`invest_income`（投资收益）
+- `non_oper_income`/`non_oper_exp`（营业外收支）
+- `t_compr_income`（综合收益）、`fin_exp_int_exp`/`fin_exp_int_inc`（利息收支）
+- `diluted_eps`（稀释每股收益）
+
+新增计算衍生指标（占营收比例）：
+- `sell_exp_ratio`（销售费用率）、`admin_exp_ratio`（管理费用率）
+- `fin_exp_ratio`（财务费用率）、`rd_exp_ratio`（研发费用率）
+
+添加 `_safe_float` 函数处理 ClickHouse NULL 值。
+
+#### 2. 后端 router (`modules/report/router.py`)
+
+`FinancialData` Pydantic model 新增 25+ 字段：
+
+| 分类 | 新增字段 |
+|------|----------|
+| 利润结构 | `net_profit_attr_p`, `operate_profit`, `total_profit`, `operating_margin` |
+| 每股/估值 | `basic_eps`, `diluted_eps`, `ebit`, `ebitda` |
+| 成本费用 | `oper_cost`, `sell_exp`, `admin_exp`, `fin_exp`, `rd_exp`, `total_cogs` |
+| 费用率 | `sell_exp_ratio`, `admin_exp_ratio`, `fin_exp_ratio`, `rd_exp_ratio` |
+| 税务及其他 | `income_tax`, `biz_tax_surchg`, `minority_gain`, `invest_income`, `non_oper_income`, `non_oper_exp` |
+
+`field_validator` 改为通配符 `'*'` 模式，统一处理所有 float 字段的 NULL 值解析。
+
+#### 3. 前端 API 类型 (`api/report.ts`)
+
+`FinancialData` TypeScript 接口同步新增所有字段定义。
+
+#### 4. 前端 Vue 组件 (`FinancialReportPanel.vue`)
+
+**概览卡片**：
+- 新增「利润结构（最新期）」卡片：营业收入、营业成本、营业利润、利润总额、归母净利润、基本EPS、EBITDA
+- 新增「费用分析（最新期）」卡片：四项费用（销售/管理/研发/财务）+ 费用率标签 + 所得税
+
+**财务指标表格**：
+- 从单一表格改为 4 个子 Tab（综合/利润结构/费用分析/其他指标），通过 `RadioGroup` 切换
+- 各子 Tab 展示对应分类的字段
+
+**趋势图表**：
+- 新增「利润结构」图表：营业收入/营业利润/利润总额/净利润分组柱状图
+- 新增「费用率分析」图表：销售/管理/研发/财务费用率堆叠柱状图
+
 ### FinancialAuditService
 
 提供财务审计意见查询服务：

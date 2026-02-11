@@ -125,7 +125,7 @@ class TaskQueue:
             "max_attempts": 3,
             "next_run_at": "",
             "last_error_type": "",
-            "timeout_seconds": 900,
+            "timeout_seconds": 14400,
             "deadline_at": "",
         }
         

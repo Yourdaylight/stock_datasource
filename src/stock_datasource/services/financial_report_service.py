@@ -41,6 +41,9 @@ class FinancialReportService:
             # Get financial summary
             summary = self.finace_service.get_financial_summary(code, periods)
             
+            # Supplement revenue/net_profit from income statement into raw_data & growth
+            self._supplement_income_data(summary, code, periods)
+            
             # Get growth analysis
             growth_analysis = self.finace_service.calculate_growth_rates(code, periods * 2)
             
@@ -63,6 +66,88 @@ class FinancialReportService:
                 "status": "error",
                 "error": str(e)
             }
+    
+    @staticmethod
+    def _is_valid_value(v) -> bool:
+        """Check if a value is valid (not None, not ClickHouse NULL '\\N', not empty)."""
+        return v is not None and v != '\\N' and v != 'None' and v != ''
+
+    def _supplement_income_data(self, summary: Dict[str, Any], code: str, periods: int) -> None:
+        """Supplement fina_indicator data with revenue/net_profit from income statement.
+        
+        TuShare fina_indicator API only provides ratio-type metrics (ROE, ROA, margins, etc.)
+        but does NOT provide absolute amounts (total_revenue, net_profit).
+        We fetch these from the income statement and merge them in.
+        """
+        try:
+            # Fetch more income periods to ensure date coverage with fina_indicator
+            income_result = self.income_service.get_profitability_metrics(code, periods * 3)
+            if not income_result or income_result.get("periods", 0) == 0:
+                return
+            
+            # Build lookup by end_date
+            income_map = {}
+            for m in income_result.get("metrics", []):
+                ed = m.get("end_date", "")
+                if ed:
+                    income_map[ed] = m
+            
+            if not income_map:
+                return
+            
+            # Patch raw_data entries
+            raw_data = summary.get("raw_data", [])
+            for item in raw_data:
+                ed = item.get("end_date", "")
+                if hasattr(ed, 'strftime'):
+                    ed = ed.strftime('%Y-%m-%d')
+                elif ed and not isinstance(ed, str):
+                    ed = str(ed)
+                
+                inc = income_map.get(ed, {})
+                if not self._is_valid_value(item.get("total_revenue")) and inc.get("total_revenue"):
+                    item["total_revenue"] = inc["total_revenue"]
+                if not self._is_valid_value(item.get("net_profit")) and inc.get("net_income"):
+                    item["net_profit"] = inc["net_income"]
+            
+            # Also supplement gross_margin and net_margin from income if missing
+            for item in raw_data:
+                ed = item.get("end_date", "")
+                if hasattr(ed, 'strftime'):
+                    ed = ed.strftime('%Y-%m-%d')
+                elif ed and not isinstance(ed, str):
+                    ed = str(ed)
+                
+                inc = income_map.get(ed, {})
+                if not self._is_valid_value(item.get("gross_profit_margin")) and inc.get("gross_margin"):
+                    item["gross_profit_margin"] = inc["gross_margin"]
+                if not self._is_valid_value(item.get("net_profit_margin")) and inc.get("net_margin"):
+                    item["net_profit_margin"] = inc["net_margin"]
+            
+            # Recalculate growth if missing
+            growth = summary.get("growth", {})
+            if not growth.get("revenue_growth") and len(raw_data) >= 2:
+                try:
+                    curr_rev = float(raw_data[0].get("total_revenue")) if self._is_valid_value(raw_data[0].get("total_revenue")) else None
+                    prev_rev = float(raw_data[1].get("total_revenue")) if self._is_valid_value(raw_data[1].get("total_revenue")) else None
+                    if curr_rev is not None and prev_rev is not None and prev_rev != 0:
+                        growth["revenue_growth"] = (curr_rev - prev_rev) / prev_rev * 100
+                except (ValueError, TypeError):
+                    pass
+            
+            if not growth.get("profit_growth") and len(raw_data) >= 2:
+                try:
+                    curr_np = float(raw_data[0].get("net_profit")) if self._is_valid_value(raw_data[0].get("net_profit")) else None
+                    prev_np = float(raw_data[1].get("net_profit")) if self._is_valid_value(raw_data[1].get("net_profit")) else None
+                    if curr_np is not None and prev_np is not None and prev_np != 0:
+                        growth["profit_growth"] = (curr_np - prev_np) / prev_np * 100
+                except (ValueError, TypeError):
+                    pass
+            
+            summary["growth"] = growth
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to supplement income data for {code}: {e}")
     
     def get_peer_comparison_analysis(self, code: str, end_date: Optional[str] = None) -> Dict[str, Any]:
         """Get peer comparison analysis for industry benchmarking.

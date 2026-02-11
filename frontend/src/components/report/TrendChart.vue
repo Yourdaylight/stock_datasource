@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import type { FinancialData, CompareResponse } from '@/api/report'
+import type { FinancialData } from '@/api/report'
 
 interface Props {
   data: FinancialData[]
-  comparisonData?: CompareResponse
   loading?: boolean
 }
 
@@ -13,232 +12,336 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false
 })
 
-const trendChartRef = ref<HTMLElement>()
-const radarChartRef = ref<HTMLElement>()
-const activeTab = ref('trend')
+// Chart refs
+const profitabilityChartRef = ref<HTMLElement>()
+const marginChartRef = ref<HTMLElement>()
+const debtChartRef = ref<HTMLElement>()
+const revenueChartRef = ref<HTMLElement>()
 
-let trendChart: echarts.ECharts | null = null
-let radarChart: echarts.ECharts | null = null
+let charts: echarts.ECharts[] = []
 
-// Prepare trend chart data
-const trendChartData = computed(() => {
-  if (!props.data.length) return null
-  
-  // Sort data by period
-  const sortedData = [...props.data].sort((a, b) => a.period.localeCompare(b.period))
-  
-  const periods = sortedData.map(item => item.period)
-  const roe = sortedData.map(item => item.roe || 0)
-  const roa = sortedData.map(item => item.roa || 0)
-  const grossMargin = sortedData.map(item => item.gross_margin || 0)
-  const netMargin = sortedData.map(item => item.net_margin || 0)
-  const debtRatio = sortedData.map(item => item.debt_ratio || 0)
-  
-  return {
-    periods,
-    series: [
-      { name: 'ROE(%)', data: roe, color: '#1890ff' },
-      { name: 'ROA(%)', data: roa, color: '#52c41a' },
-      { name: '毛利率(%)', data: grossMargin, color: '#faad14' },
-      { name: '净利率(%)', data: netMargin, color: '#f5222d' },
-      { name: '资产负债率(%)', data: debtRatio, color: '#722ed1' }
-    ]
+// Sorted data (ascending by period)
+const sortedData = computed(() => {
+  if (!props.data.length) return []
+  return [...props.data].sort((a, b) => a.period.localeCompare(b.period))
+})
+
+const periods = computed(() => sortedData.value.map(item => item.period))
+
+const hasAnyData = computed(() => sortedData.value.length > 0)
+
+// Check if a metric has meaningful data (not all null/zero)
+const hasMetricData = (values: (number | null | undefined)[]) => {
+  return values.some(v => v !== null && v !== undefined && v !== 0)
+}
+
+// Format large numbers (亿/万)
+const formatAmount = (val: number | null | undefined): string => {
+  if (val === null || val === undefined) return '-'
+  const abs = Math.abs(val)
+  if (abs >= 1e8) return (val / 1e8).toFixed(2) + '亿'
+  if (abs >= 1e4) return (val / 1e4).toFixed(2) + '万'
+  return val.toFixed(2)
+}
+
+// Common chart options
+const baseOption = (title: string): echarts.EChartsOption => ({
+  title: {
+    text: title,
+    left: 'center',
+    textStyle: { fontSize: 14, fontWeight: 500 }
+  },
+  tooltip: {
+    trigger: 'axis',
+    axisPointer: { type: 'cross' }
+  },
+  grid: {
+    left: '3%',
+    right: '4%',
+    bottom: '3%',
+    top: 60,
+    containLabel: true
+  },
+  xAxis: {
+    type: 'category',
+    data: periods.value,
+    axisLabel: { rotate: 30, fontSize: 11 }
   }
 })
 
-// Prepare radar chart data
-const radarChartData = computed(() => {
-  if (!props.comparisonData?.comparison) return null
-  
-  const comparison = props.comparisonData.comparison
-  const indicators = []
-  const targetData = []
-  const industryData = []
-  
-  const metricsMap = {
-    roe: 'ROE',
-    roa: 'ROA',
-    gross_profit_margin: '毛利率',
-    net_profit_margin: '净利率',
-    debt_to_assets: '资产负债率',
-    current_ratio: '流动比率'
-  }
-  
-  for (const [key, data] of Object.entries(comparison)) {
-    const name = metricsMap[key as keyof typeof metricsMap]
-    if (name && data.target_value !== undefined && data.industry_median !== undefined) {
-      indicators.push({ name, max: Math.max(data.target_value, data.industry_median) * 1.2 })
-      targetData.push(data.target_value)
-      industryData.push(data.industry_median)
-    }
-  }
-  
-  return {
-    indicators,
-    series: [
-      { name: '公司数值', data: targetData, color: '#1890ff' },
-      { name: '行业中位数', data: industryData, color: '#52c41a' }
-    ]
-  }
-})
+// 1. Revenue & Net Profit (bar chart)
+const initRevenueChart = () => {
+  if (!revenueChartRef.value) return
+  const revenue = sortedData.value.map(item => item.revenue)
+  const netProfit = sortedData.value.map(item => item.net_profit)
 
-// Initialize trend chart
-const initTrendChart = () => {
-  if (!trendChartRef.value || !trendChartData.value) return
-  
-  trendChart = echarts.init(trendChartRef.value)
-  
-  const option = {
-    title: {
-      text: '财务指标趋势',
-      left: 'center',
-      textStyle: { fontSize: 16 }
-    },
+  if (!hasMetricData(revenue) && !hasMetricData(netProfit)) return
+
+  const chart = echarts.init(revenueChartRef.value)
+  charts.push(chart)
+
+  chart.setOption({
+    ...baseOption('营业收入 & 净利润'),
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' }
+      axisPointer: { type: 'shadow' },
+      formatter: (params: any) => {
+        let result = params[0]?.axisValue + '<br/>'
+        for (const p of params) {
+          result += `${p.marker} ${p.seriesName}: ${formatAmount(p.value)}<br/>`
+        }
+        return result
+      }
     },
     legend: {
-      data: trendChartData.value.series.map(s => s.name),
-      top: 30
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      top: 80,
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: trendChartData.value.periods,
-      axisLabel: { rotate: 45 }
+      data: ['营业收入', '净利润'],
+      top: 28
     },
     yAxis: {
       type: 'value',
-      name: '百分比(%)',
+      axisLabel: {
+        formatter: (val: number) => {
+          if (Math.abs(val) >= 1e8) return (val / 1e8).toFixed(0) + '亿'
+          if (Math.abs(val) >= 1e4) return (val / 1e4).toFixed(0) + '万'
+          return val.toString()
+        }
+      }
+    },
+    series: [
+      {
+        name: '营业收入',
+        type: 'bar',
+        data: revenue,
+        itemStyle: { color: '#1890ff', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 40
+      },
+      {
+        name: '净利润',
+        type: 'bar',
+        data: netProfit,
+        itemStyle: { color: '#52c41a', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 40
+      }
+    ]
+  })
+}
+
+// 2. ROE & ROA (profitability line chart)
+const initProfitabilityChart = () => {
+  if (!profitabilityChartRef.value) return
+  const roe = sortedData.value.map(item => item.roe ?? null)
+  const roa = sortedData.value.map(item => item.roa ?? null)
+
+  if (!hasMetricData(roe) && !hasMetricData(roa)) return
+
+  const chart = echarts.init(profitabilityChartRef.value)
+  charts.push(chart)
+
+  chart.setOption({
+    ...baseOption('盈利能力：ROE & ROA'),
+    legend: {
+      data: ['ROE(%)', 'ROA(%)'],
+      top: 28
+    },
+    yAxis: {
+      type: 'value',
+      name: '%',
       axisLabel: { formatter: '{value}%' }
     },
-    series: trendChartData.value.series.map(s => ({
-      name: s.name,
-      type: 'line',
-      data: s.data,
-      smooth: true,
-      lineStyle: { color: s.color },
-      itemStyle: { color: s.color },
-      symbol: 'circle',
-      symbolSize: 6
-    }))
-  }
-  
-  trendChart.setOption(option)
+    series: [
+      {
+        name: 'ROE(%)',
+        type: 'line',
+        data: roe,
+        smooth: true,
+        lineStyle: { color: '#1890ff', width: 2 },
+        itemStyle: { color: '#1890ff' },
+        symbol: 'circle',
+        symbolSize: 6,
+        areaStyle: { color: 'rgba(24,144,255,0.08)' }
+      },
+      {
+        name: 'ROA(%)',
+        type: 'line',
+        data: roa,
+        smooth: true,
+        lineStyle: { color: '#52c41a', width: 2 },
+        itemStyle: { color: '#52c41a' },
+        symbol: 'circle',
+        symbolSize: 6,
+        areaStyle: { color: 'rgba(82,196,26,0.08)' }
+      }
+    ]
+  })
 }
 
-// Initialize radar chart
-const initRadarChart = () => {
-  if (!radarChartRef.value || !radarChartData.value) return
-  
-  radarChart = echarts.init(radarChartRef.value)
-  
-  const option = {
-    title: {
-      text: '同业对比雷达图',
-      left: 'center',
-      textStyle: { fontSize: 16 }
-    },
-    tooltip: {
-      trigger: 'item'
-    },
+// 3. Gross Margin & Net Margin (line chart)
+const initMarginChart = () => {
+  if (!marginChartRef.value) return
+  const grossMargin = sortedData.value.map(item => item.gross_margin ?? null)
+  const netMargin = sortedData.value.map(item => item.net_margin ?? null)
+
+  if (!hasMetricData(grossMargin) && !hasMetricData(netMargin)) return
+
+  const chart = echarts.init(marginChartRef.value)
+  charts.push(chart)
+
+  chart.setOption({
+    ...baseOption('利润率：毛利率 & 净利率'),
     legend: {
-      data: radarChartData.value.series.map(s => s.name),
-      top: 30
+      data: ['毛利率(%)', '净利率(%)'],
+      top: 28
     },
-    radar: {
-      indicator: radarChartData.value.indicators,
-      center: ['50%', '60%'],
-      radius: '60%'
+    yAxis: {
+      type: 'value',
+      name: '%',
+      axisLabel: { formatter: '{value}%' }
     },
-    series: [{
-      type: 'radar',
-      data: radarChartData.value.series.map(s => ({
-        name: s.name,
-        value: s.data,
-        itemStyle: { color: s.color },
-        lineStyle: { color: s.color },
-        areaStyle: { color: s.color, opacity: 0.1 }
-      }))
-    }]
-  }
-  
-  radarChart.setOption(option)
+    series: [
+      {
+        name: '毛利率(%)',
+        type: 'line',
+        data: grossMargin,
+        smooth: true,
+        lineStyle: { color: '#faad14', width: 2 },
+        itemStyle: { color: '#faad14' },
+        symbol: 'circle',
+        symbolSize: 6,
+        areaStyle: { color: 'rgba(250,173,20,0.08)' }
+      },
+      {
+        name: '净利率(%)',
+        type: 'line',
+        data: netMargin,
+        smooth: true,
+        lineStyle: { color: '#f5222d', width: 2 },
+        itemStyle: { color: '#f5222d' },
+        symbol: 'circle',
+        symbolSize: 6,
+        areaStyle: { color: 'rgba(245,34,45,0.08)' }
+      }
+    ]
+  })
 }
 
-// Handle tab change
-const handleTabChange = (tab: string) => {
-  activeTab.value = tab
-  
-  // Wait for DOM update
-  setTimeout(() => {
-    if (tab === 'trend') {
-      initTrendChart()
-    } else if (tab === 'radar') {
-      initRadarChart()
-    }
-  }, 100)
+// 4. Debt Ratio & Current Ratio (combined axis)
+const initDebtChart = () => {
+  if (!debtChartRef.value) return
+  const debtRatio = sortedData.value.map(item => item.debt_ratio ?? null)
+  const currentRatio = sortedData.value.map(item => item.current_ratio ?? null)
+
+  if (!hasMetricData(debtRatio) && !hasMetricData(currentRatio)) return
+
+  const chart = echarts.init(debtChartRef.value)
+  charts.push(chart)
+
+  chart.setOption({
+    ...baseOption('偿债能力：资产负债率 & 流动比率'),
+    legend: {
+      data: ['资产负债率(%)', '流动比率'],
+      top: 28
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '%',
+        position: 'left',
+        axisLabel: { formatter: '{value}%' }
+      },
+      {
+        type: 'value',
+        name: '倍',
+        position: 'right',
+        axisLabel: { formatter: '{value}' },
+        splitLine: { show: false }
+      }
+    ],
+    series: [
+      {
+        name: '资产负债率(%)',
+        type: 'bar',
+        yAxisIndex: 0,
+        data: debtRatio,
+        itemStyle: { color: '#722ed1', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 40
+      },
+      {
+        name: '流动比率',
+        type: 'line',
+        yAxisIndex: 1,
+        data: currentRatio,
+        smooth: true,
+        lineStyle: { color: '#13c2c2', width: 2 },
+        itemStyle: { color: '#13c2c2' },
+        symbol: 'circle',
+        symbolSize: 6
+      }
+    ]
+  })
+}
+
+// Initialize all charts
+const initAllCharts = async () => {
+  disposeCharts()
+  await nextTick()
+  if (!hasAnyData.value) return
+  initRevenueChart()
+  initProfitabilityChart()
+  initMarginChart()
+  initDebtChart()
+}
+
+// Dispose all charts
+const disposeCharts = () => {
+  charts.forEach(c => c.dispose())
+  charts = []
 }
 
 // Handle window resize
 const handleResize = () => {
-  trendChart?.resize()
-  radarChart?.resize()
+  charts.forEach(c => c.resize())
 }
 
 onMounted(() => {
   window.addEventListener('resize', handleResize)
-  
-  // Initialize default chart
-  if (trendChartData.value) {
-    setTimeout(initTrendChart, 100)
+  if (hasAnyData.value) {
+    setTimeout(initAllCharts, 100)
   }
 })
 
-watch(() => props.data, () => {
-  if (activeTab.value === 'trend') {
-    setTimeout(initTrendChart, 100)
-  }
-}, { deep: true })
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  disposeCharts()
+})
 
-watch(() => props.comparisonData, () => {
-  if (activeTab.value === 'radar') {
-    setTimeout(initRadarChart, 100)
-  }
+watch(() => props.data, () => {
+  setTimeout(initAllCharts, 100)
 }, { deep: true })
 </script>
 
 <template>
   <div class="trend-chart">
     <t-card title="数据可视化">
-      <t-tabs v-model="activeTab" @change="handleTabChange">
-        <t-tab-panel value="trend" label="趋势图表">
-          <div v-if="loading" class="loading-container">
-            <t-loading size="large" text="加载图表数据..." />
-          </div>
-          <div v-else-if="!trendChartData" class="empty-container">
-            <t-empty description="暂无趋势数据" />
-          </div>
-          <div v-else ref="trendChartRef" class="chart-container" />
-        </t-tab-panel>
-        
-        <t-tab-panel value="radar" label="同业对比">
-          <div v-if="loading" class="loading-container">
-            <t-loading size="large" text="加载对比数据..." />
-          </div>
-          <div v-else-if="!radarChartData" class="empty-container">
-            <t-empty description="暂无对比数据" />
-          </div>
-          <div v-else ref="radarChartRef" class="chart-container" />
-        </t-tab-panel>
-      </t-tabs>
+      <div v-if="loading" class="loading-container">
+        <t-loading size="large" text="加载图表数据..." />
+      </div>
+      <div v-else-if="!hasAnyData" class="empty-container">
+        <t-empty description="暂无趋势数据" />
+      </div>
+      <div v-else class="charts-grid">
+        <div class="chart-item">
+          <div ref="revenueChartRef" class="chart-container" />
+        </div>
+        <div class="chart-item">
+          <div ref="profitabilityChartRef" class="chart-container" />
+        </div>
+        <div class="chart-item">
+          <div ref="marginChartRef" class="chart-container" />
+        </div>
+        <div class="chart-item">
+          <div ref="debtChartRef" class="chart-container" />
+        </div>
+      </div>
     </t-card>
   </div>
 </template>
@@ -248,9 +351,22 @@ watch(() => props.comparisonData, () => {
   height: 100%;
 }
 
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.chart-item {
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 6px;
+  padding: 8px;
+}
+
 .chart-container {
   width: 100%;
-  height: 400px;
+  height: 320px;
 }
 
 .loading-container,
@@ -261,7 +377,9 @@ watch(() => props.comparisonData, () => {
   height: 400px;
 }
 
-:deep(.t-tabs__content) {
-  padding: 16px 0;
+@media (max-width: 960px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

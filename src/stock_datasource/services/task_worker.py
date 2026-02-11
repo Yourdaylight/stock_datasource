@@ -27,8 +27,8 @@ from stock_datasource.services.task_queue import task_queue, TaskPriority
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
 
-# Configure logging
-LOG_DIR = Path("/data/log")
+# Configure logging - use /data/log in Docker, local logs/ dir otherwise
+LOG_DIR = Path("/data/log") if Path("/data").exists() and os.access("/data", os.W_OK) else Path(__file__).resolve().parents[3] / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 log_file = LOG_DIR / "task_worker.log"
 

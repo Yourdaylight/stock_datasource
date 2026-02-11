@@ -38,12 +38,17 @@ class ClickHouseHttpClient:
         self._lock = threading.Lock()
         self._base_url = f"http://{host}:{port}/"
         self._auth = (user, password) if password else None
+        # Use a Session with trust_env=False to completely bypass OS-level proxy
+        # env vars (HTTP_PROXY/HTTPS_PROXY) that may be set by plugin discovery.
+        import requests as _requests
+        self._session = _requests.Session()
+        self._session.trust_env = False
+        if self._auth:
+            self._session.auth = self._auth
         logger.info(f"Initialized ClickHouse HTTP client [{name}]: {host}:{port}")
     
     def _request(self, query: str, params: Optional[Dict] = None, data: str = None) -> str:
         """Execute HTTP request to ClickHouse."""
-        import requests
-        
         # Handle parameterized queries by substituting params
         if params:
             for key, value in params.items():
@@ -60,16 +65,19 @@ class ClickHouseHttpClient:
         
         req_params = {"database": self.database}
         
-        # 禁用代理，避免内网 ClickHouse 连接走代理导致 407 错误
-        no_proxy = {"http": None, "https": None}
-        
         if data:
             req_params["query"] = query
-            resp = requests.post(self._base_url, params=req_params, data=data, auth=self._auth, timeout=60, proxies=no_proxy)
+            resp = self._session.post(self._base_url, params=req_params, data=data, timeout=60)
         else:
-            req_params["query"] = query
-            resp = requests.get(self._base_url, params=req_params, auth=self._auth, timeout=60, proxies=no_proxy)
+            # Use POST with query in body to avoid URL length limits (e.g., long PIVOT queries with CJK)
+            resp = self._session.post(self._base_url, params=req_params, data=query.encode('utf-8'), timeout=60,
+                                      headers={'Content-Type': 'text/plain; charset=utf-8'})
         
+        if resp.status_code != 200:
+            logger.error(
+                f"ClickHouse HTTP error [{self.name}]: status={resp.status_code}, "
+                f"url={resp.url}, body={resp.text[:300]}"
+            )
         resp.raise_for_status()
         return resp.text.strip()
     
@@ -126,7 +134,8 @@ class ClickHouseHttpClient:
         with self._lock:
             try:
                 # Convert DataFrame to TabSeparated format
-                data = df.to_csv(sep="\t", index=False, header=False)
+                # Use na_rep='\\N' so NaN/None becomes \N (ClickHouse NULL in TSV)
+                data = df.to_csv(sep="\t", index=False, header=False, na_rep='\\N')
                 columns = ", ".join(df.columns)
                 query = f"INSERT INTO {table_name} ({columns}) FORMAT TabSeparated"
                 self._request(query, data=data)
@@ -447,7 +456,7 @@ class DualWriteClient:
     
     def __init__(self):
         """Initialize dual write client with primary and optional backup."""
-        self.primary = ClickHouseClient(name="primary")
+        self.primary = ClickHouseClient(name="primary", prefer_http=True)
         self.backup = None
         
         # Initialize backup client if configured

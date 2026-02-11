@@ -667,7 +667,7 @@ onMounted(() => {
                 <t-icon name="add" style="margin-right: 4px" />
                 创建组合
               </t-button>
-              <t-button theme="default" variant="outline" @click="dataStore.fetchPluginGroups">
+              <t-button theme="default" variant="outline" @click="() => dataStore.fetchPluginGroups()">
                 <t-icon name="refresh" style="margin-right: 4px" />
                 刷新
               </t-button>

@@ -4,14 +4,42 @@ export interface FinancialData {
   period: string
   revenue?: number
   net_profit?: number
+  net_profit_attr_p?: number
   total_assets?: number
   total_liab?: number
   roe?: number
   roa?: number
   gross_margin?: number
   net_margin?: number
+  operating_margin?: number
   debt_ratio?: number
   current_ratio?: number
+  // Income statement details
+  operate_profit?: number
+  total_profit?: number
+  basic_eps?: number
+  diluted_eps?: number
+  ebit?: number
+  ebitda?: number
+  // Cost & expense
+  oper_cost?: number
+  sell_exp?: number
+  admin_exp?: number
+  fin_exp?: number
+  rd_exp?: number
+  total_cogs?: number
+  // Expense ratios (% of revenue)
+  sell_exp_ratio?: number
+  admin_exp_ratio?: number
+  fin_exp_ratio?: number
+  rd_exp_ratio?: number
+  // Tax & other
+  income_tax?: number
+  biz_tax_surchg?: number
+  minority_gain?: number
+  invest_income?: number
+  non_oper_income?: number
+  non_oper_exp?: number
 }
 
 export interface FinancialSummary {
