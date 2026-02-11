@@ -119,6 +119,22 @@
 - [x] 12.3 更新 Agent 系统提示词，添加审计意见相关工具说明
 - [ ] 12.4 更新 FinancialReportService 集成审计意见分析
 
+## Phase 13: 利润表完整字段前端展示
+
+- [x] 13.1 后端 `tushare_income/service.py`：`get_profitability_metrics` 新增 10+ 查询字段（oper_cost, income_tax, biz_tax_surchg, minority_gain, invest_income, non_oper_income/exp, diluted_eps 等）
+- [x] 13.2 后端 `tushare_income/service.py`：新增 4 个费用率衍生指标计算（sell_exp_ratio, admin_exp_ratio, fin_exp_ratio, rd_exp_ratio）
+- [x] 13.3 后端 `tushare_income/service.py`：添加 `_safe_float` 函数处理 ClickHouse NULL 值
+- [x] 13.4 后端 `modules/report/router.py`：`FinancialData` model 新增 25+ 字段（利润结构、每股指标、成本费用、费用率、税务等）
+- [x] 13.5 后端 `modules/report/router.py`：数据组装逻辑透传 income service 所有新字段
+- [x] 13.6 前端 `api/report.ts`：`FinancialData` TypeScript 接口同步新增所有字段
+- [x] 13.7 前端 `FinancialReportPanel.vue`：新增「利润结构（最新期）」概览卡片
+- [x] 13.8 前端 `FinancialReportPanel.vue`：新增「费用分析（最新期）」概览卡片（含费用率标签）
+- [x] 13.9 前端 `FinancialReportPanel.vue`：财务指标表格改为 4 子 Tab（综合/利润结构/费用分析/其他指标）
+- [x] 13.10 前端 `FinancialReportPanel.vue`：新增「利润结构」趋势图表（分组柱状图）
+- [x] 13.11 前端 `FinancialReportPanel.vue`：新增「费用率分析」趋势图表（堆叠柱状图）
+- [x] 13.12 验证：后端 API 返回所有新字段（000858.SZ 测试通过，30+ 字段有值）
+- [x] 13.13 验证：前后端联调通过
+
 ## Dependencies
 
 - Phase 1-5 可并行开发（已完成）
@@ -127,6 +143,7 @@
 - **Phase 8 (财务审计意见) 可独立开发**
 - **Phase 9-11 (VIP 接口) 可并行开发，依赖积分 >= 5000**
 - **Phase 12 依赖 Phase 8-11 完成**
+- **Phase 13 依赖 Phase 1 (tushare_income) 和 Phase 7 (Agent 集成) 完成**（已完成）
 
 ## Verification Criteria
 

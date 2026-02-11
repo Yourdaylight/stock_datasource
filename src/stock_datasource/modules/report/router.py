@@ -22,20 +22,49 @@ class FinancialData(BaseModel):
     period: str
     revenue: Optional[float] = None
     net_profit: Optional[float] = None
+    net_profit_attr_p: Optional[float] = None
     total_assets: Optional[float] = None
     total_liab: Optional[float] = None
     roe: Optional[float] = None
     roa: Optional[float] = None
     gross_margin: Optional[float] = None
     net_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
     debt_ratio: Optional[float] = None
     current_ratio: Optional[float] = None
+    # Income statement detail fields
+    operate_profit: Optional[float] = None
+    total_profit: Optional[float] = None
+    basic_eps: Optional[float] = None
+    diluted_eps: Optional[float] = None
+    ebit: Optional[float] = None
+    ebitda: Optional[float] = None
+    # Cost & expense
+    oper_cost: Optional[float] = None
+    sell_exp: Optional[float] = None
+    admin_exp: Optional[float] = None
+    fin_exp: Optional[float] = None
+    rd_exp: Optional[float] = None
+    total_cogs: Optional[float] = None
+    # Expense ratios (% of revenue)
+    sell_exp_ratio: Optional[float] = None
+    admin_exp_ratio: Optional[float] = None
+    fin_exp_ratio: Optional[float] = None
+    rd_exp_ratio: Optional[float] = None
+    # Tax & other
+    income_tax: Optional[float] = None
+    biz_tax_surchg: Optional[float] = None
+    minority_gain: Optional[float] = None
+    invest_income: Optional[float] = None
+    non_oper_income: Optional[float] = None
+    non_oper_exp: Optional[float] = None
     
-    @field_validator('revenue', 'net_profit', 'total_assets', 'total_liab', 'roe', 'roa', 
-                     'gross_margin', 'net_margin', 'debt_ratio', 'current_ratio', mode='before')
+    @field_validator('*', mode='before')
     @classmethod
-    def parse_nullable_float(cls, v):
+    def parse_nullable_float(cls, v, info):
         """Parse nullable float values, handling ClickHouse NULL representations."""
+        if info.field_name == 'period':
+            return v
         if v is None or v == '\\N' or v == 'None' or v == '':
             return None
         try:
@@ -137,6 +166,24 @@ async def get_financial(request: FinancialRequest):
                     return data
             return data
         
+        # Helper: check if a value is valid (not None, not ClickHouse NULL '\N')
+        def _valid(v):
+            return v is not None and v != '\\N' and v != 'None' and v != ''
+        
+        # Supplement revenue / net_profit from income statement as fallback
+        # (service layer already tries this, but router provides a second pass)
+        income_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            income_data = financial_service.income_service.get_profitability_metrics(
+                normalized_code, request.periods * 3  # fetch more periods to cover date gaps
+            )
+            for m in income_data.get("metrics", []):
+                ed = m.get("end_date", "")
+                if ed:
+                    income_map[ed] = m
+        except Exception as e:
+            logger.warning(f"Failed to get income data for {normalized_code}: {e}")
+        
         # Convert raw data to FinancialData format
         financial_data = []
         for item in raw_data:
@@ -147,18 +194,60 @@ async def get_financial(request: FinancialRequest):
             elif end_date and not isinstance(end_date, str):
                 end_date = str(end_date)
             
+            # Try to get revenue / net_profit from income statement
+            income_item = income_map.get(end_date, {})
+            
+            raw_revenue = item.get("total_revenue")
+            raw_net_profit = item.get("net_profit")
+            revenue = raw_revenue if _valid(raw_revenue) else income_item.get("total_revenue")
+            net_profit = raw_net_profit if _valid(raw_net_profit) else income_item.get("net_income")
+            
+            # Also fallback gross_margin / net_margin from income
+            raw_gross_margin = item.get("gross_profit_margin")
+            raw_net_margin = item.get("net_profit_margin")
+            gross_margin = raw_gross_margin if _valid(raw_gross_margin) else income_item.get("gross_margin")
+            net_margin = raw_net_margin if _valid(raw_net_margin) else income_item.get("net_margin")
+            
             financial_data.append(FinancialData(
                 period=end_date,
-                revenue=item.get("total_revenue"),
-                net_profit=item.get("net_profit"),
+                revenue=revenue,
+                net_profit=net_profit,
+                net_profit_attr_p=income_item.get("net_income_attr_parent"),
                 total_assets=item.get("total_assets"),
                 total_liab=item.get("total_liab"),
                 roe=item.get("roe"),
                 roa=item.get("roa"),
-                gross_margin=item.get("gross_profit_margin"),
-                net_margin=item.get("net_profit_margin"),
+                gross_margin=gross_margin,
+                net_margin=net_margin,
+                operating_margin=income_item.get("operating_margin"),
                 debt_ratio=item.get("debt_to_assets"),
-                current_ratio=item.get("current_ratio")
+                current_ratio=item.get("current_ratio"),
+                # Income statement details
+                operate_profit=income_item.get("operate_profit"),
+                total_profit=income_item.get("total_profit"),
+                basic_eps=income_item.get("basic_eps"),
+                diluted_eps=income_item.get("diluted_eps"),
+                ebit=income_item.get("ebit"),
+                ebitda=income_item.get("ebitda"),
+                # Cost & expense
+                oper_cost=income_item.get("oper_cost"),
+                sell_exp=income_item.get("sell_exp"),
+                admin_exp=income_item.get("admin_exp"),
+                fin_exp=income_item.get("fin_exp"),
+                rd_exp=income_item.get("rd_exp"),
+                total_cogs=income_item.get("total_cogs"),
+                # Expense ratios
+                sell_exp_ratio=income_item.get("sell_exp_ratio"),
+                admin_exp_ratio=income_item.get("admin_exp_ratio"),
+                fin_exp_ratio=income_item.get("fin_exp_ratio"),
+                rd_exp_ratio=income_item.get("rd_exp_ratio"),
+                # Tax & other
+                income_tax=income_item.get("income_tax"),
+                biz_tax_surchg=income_item.get("biz_tax_surchg"),
+                minority_gain=income_item.get("minority_gain"),
+                invest_income=income_item.get("invest_income"),
+                non_oper_income=income_item.get("non_oper_income"),
+                non_oper_exp=income_item.get("non_oper_exp"),
             ))
         
         # Convert latest_period to string if needed

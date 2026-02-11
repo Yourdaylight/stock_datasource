@@ -94,9 +94,6 @@
           </el-row>
         </el-tab-pane>
         
-        <el-tab-pane label="龙虎榜分析" name="toplist">
-          <PortfolioTopListAnalysis />
-        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -116,7 +113,7 @@ import PositionList from '@/components/PositionList.vue'
 import ProfitChart from '@/components/ProfitChart.vue'
 import DailyAnalysis from '@/components/DailyAnalysis.vue'
 import AddPositionModal from '@/components/AddPositionModal.vue'
-import PortfolioTopListAnalysis from '@/components/PortfolioTopListAnalysis.vue'
+// PortfolioTopListAnalysis removed - 龙虎榜功能已移除
 import { portfolioApi } from '@/api/portfolio'
 import type { Position, PortfolioSummary } from '@/types/portfolio'
 

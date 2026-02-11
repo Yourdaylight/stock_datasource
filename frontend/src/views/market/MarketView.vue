@@ -9,7 +9,7 @@ import SectorRankingTable from '@/components/market/SectorRankingTable.vue'
 import IndexCompareChart from '@/components/market/IndexCompareChart.vue'
 import MarketAiFloatButton from '@/components/market/MarketAiFloatButton.vue'
 import MarketAiDialog from '@/components/market/MarketAiDialog.vue'
-import TopListPanel from './components/TopListPanel.vue'
+// TopListPanel removed - 龙虎榜功能已移除
 
 // 热门股票数据类型
 interface HotStockItem {
@@ -296,11 +296,6 @@ onUnmounted(() => {
         </template>
       </t-tab-panel>
 
-      <t-tab-panel value="toplist" label="龙虎榜">
-        <template v-if="activeMainTab === 'toplist'">
-          <TopListPanel />
-        </template>
-      </t-tab-panel>
     </t-tabs>
 
     <!-- Sector Detail Dialog -->

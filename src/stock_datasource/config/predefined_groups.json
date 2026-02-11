@@ -117,13 +117,54 @@
       ],
       "default_task_type": "incremental",
       "category": "daily"
+    },
+    {
+      "group_id": "predefined_hk_stock_daily",
+      "name": "港股日线行情",
+      "description": "港股日线行情数据（含港股列表基础信息），使用AKShare数据源",
+      "plugin_names": [
+        "akshare_hk_stock_list",
+        "akshare_hk_daily"
+      ],
+      "default_task_type": "full",
+      "category": "hk_stock"
+    },
+    {
+      "group_id": "predefined_hk_financial",
+      "name": "港股财务报表",
+      "description": "港股三大财务报表（利润表、资产负债表、现金流量表）+财务指标，使用TuShare数据源",
+      "plugin_names": [
+        "akshare_hk_stock_list",
+        "tushare_hk_fina_indicator",
+        "tushare_hk_balancesheet",
+        "tushare_hk_income",
+        "tushare_hk_cashflow"
+      ],
+      "default_task_type": "full",
+      "category": "hk_stock"
+    },
+    {
+      "group_id": "predefined_hk_full",
+      "name": "港股完整数据",
+      "description": "港股全部数据（日线行情+三大财务报表+财务指标）",
+      "plugin_names": [
+        "akshare_hk_stock_list",
+        "akshare_hk_daily",
+        "tushare_hk_fina_indicator",
+        "tushare_hk_balancesheet",
+        "tushare_hk_income",
+        "tushare_hk_cashflow"
+      ],
+      "default_task_type": "full",
+      "category": "hk_stock"
     }
   ],
   "categories": [
     {"key": "system", "label": "系统维护", "order": 0},
     {"key": "daily", "label": "每日更新", "order": 1},
     {"key": "cn_stock", "label": "A股", "order": 2},
-    {"key": "index", "label": "指数", "order": 3},
-    {"key": "etf_fund", "label": "ETF基金", "order": 4}
+    {"key": "hk_stock", "label": "港股", "order": 3},
+    {"key": "index", "label": "指数", "order": 4},
+    {"key": "etf_fund", "label": "ETF基金", "order": 5}
   ]
 }

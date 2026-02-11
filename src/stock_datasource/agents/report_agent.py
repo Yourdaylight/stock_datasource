@@ -8,42 +8,29 @@ import re
 from .base_agent import LangGraphAgent, AgentConfig
 from .tools import get_stock_info, get_stock_valuation
 from ..services.financial_report_service import FinancialReportService
+from ..utils.stock_code import validate_cn_stock_code as _validate_and_normalize_stock_code
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_and_normalize_stock_code(ts_code: str) -> Tuple[bool, str, Optional[str]]:
-    """Validate and normalize stock code.
-    
-    Args:
-        ts_code: Raw stock code input
-        
-    Returns:
-        Tuple of (is_valid, normalized_code, error_message)
-    """
-    if not ts_code:
-        return False, "", "股票代码不能为空"
-    
-    # Strip whitespace
-    ts_code = ts_code.strip().upper()
-    
-    # Check if already in valid format (e.g., 600519.SH)
-    if re.match(r'^\d{6}\.(SH|SZ|BJ)$', ts_code):
-        return True, ts_code, None
-    
-    # Check if it's a 6-digit code without suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            return True, f"{ts_code}.SH", None
-        elif ts_code.startswith(('0', '3')):
-            return True, f"{ts_code}.SZ", None
-        elif ts_code.startswith(('4', '8')):
-            return True, f"{ts_code}.BJ", None
-        else:
-            return False, ts_code, f"无法识别的股票代码前缀: {ts_code}"
-    
-    # Invalid format
-    return False, ts_code, f"无效的股票代码格式: {ts_code}。请使用6位数字代码(如600519)或完整代码(如600519.SH)"
+def _fmt_pct(val, fallback='N/A') -> str:
+    """Format a percentage value, handling \\N and None."""
+    if val is None or val == '\\N' or val == 'None' or val == '':
+        return fallback
+    try:
+        return f"{float(val):.2f}%"
+    except (ValueError, TypeError):
+        return fallback
+
+
+def _fmt_num(val, fallback='N/A') -> str:
+    """Format a numeric value, handling \\N and None."""
+    if val is None or val == '\\N' or val == 'None' or val == '':
+        return fallback
+    try:
+        return f"{float(val):.2f}"
+    except (ValueError, TypeError):
+        return fallback
 
 
 def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
@@ -97,19 +84,19 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         prof = summary.get("profitability", {})
         report += f"""
 ### 📈 盈利能力指标
-- ROE (净资产收益率): {prof.get('roe', 'N/A')}%
-- ROA (总资产收益率): {prof.get('roa', 'N/A')}%
-- 毛利率: {prof.get('gross_profit_margin', 'N/A')}%
-- 净利率: {prof.get('net_profit_margin', 'N/A')}%
+- ROE (净资产收益率): {_fmt_pct(prof.get('roe'))}
+- ROA (总资产收益率): {_fmt_pct(prof.get('roa'))}
+- 毛利率: {_fmt_pct(prof.get('gross_profit_margin'))}
+- 净利率: {_fmt_pct(prof.get('net_profit_margin'))}
 """
         
         # Solvency metrics
         solv = summary.get("solvency", {})
         report += f"""
 ### 🛡️ 偿债能力指标
-- 资产负债率: {solv.get('debt_to_assets', 'N/A')}%
-- 流动比率: {solv.get('current_ratio', 'N/A')}
-- 速动比率: {solv.get('quick_ratio', 'N/A')}
+- 资产负债率: {_fmt_pct(solv.get('debt_to_assets'))}
+- 流动比率: {_fmt_num(solv.get('current_ratio'))}
+- 速动比率: {_fmt_num(solv.get('quick_ratio'))}
 """
         
         # Growth analysis
@@ -117,8 +104,8 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         if growth_data:
             report += f"""
 ### 🚀 成长性分析
-- 营收增长率: {growth_data.get('revenue_growth', 'N/A')}%
-- 净利润增长率: {growth_data.get('profit_growth', 'N/A')}%
+- 营收增长率: {_fmt_pct(growth_data.get('revenue_growth'))}
+- 净利润增长率: {_fmt_pct(growth_data.get('profit_growth'))}
 """
         
         # Recommendations

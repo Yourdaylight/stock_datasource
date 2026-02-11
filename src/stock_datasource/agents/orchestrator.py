@@ -46,14 +46,17 @@ CONCURRENT_AGENT_GROUPS = [
     {"IndexAgent", "EtfAgent"},
     # Overview + TopList for market trends
     {"OverviewAgent", "TopListAgent"},
+    # HK Report can run alongside Market for cross-market analysis
+    {"MarketAgent", "HKReportAgent"},
 ]
 
 # Agent handoff configurations: agent_from -> [possible handoff targets]
 AGENT_HANDOFF_MAP = {
-    "MarketAgent": ["ReportAgent", "BacktestAgent"],  # After market analysis, can do financials or backtest
-    "ScreenerAgent": ["MarketAgent", "ReportAgent"],  # After screening, can analyze individual stocks
-    "ReportAgent": ["BacktestAgent", "MarketAgent"],  # After financial analysis, can backtest or check market
-    "OverviewAgent": ["MarketAgent", "IndexAgent"],  # After overview, can drill down
+    "MarketAgent": ["ReportAgent", "HKReportAgent", "BacktestAgent"],
+    "ScreenerAgent": ["MarketAgent", "ReportAgent"],
+    "ReportAgent": ["BacktestAgent", "MarketAgent", "HKReportAgent"],
+    "HKReportAgent": ["MarketAgent", "ReportAgent"],
+    "OverviewAgent": ["MarketAgent", "IndexAgent"],
 }
 
 
@@ -155,7 +158,7 @@ class OrchestratorAgent:
             "3. 给出简短的推理说明\n\n"
             "仅输出JSON，格式: {\"intent\": string, \"agent_name\": string, \"rationale\": string}。\n"
             "如果没有匹配的Agent，请将agent_name设为空字符串。\n\n"
-            "intent的可选值: market_analysis, stock_screening, financial_report, portfolio_management, "
+            "intent的可选值: market_analysis, stock_screening, financial_report, hk_financial_report, portfolio_management, "
             "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, general_chat"
         )
         user_prompt = (
@@ -211,15 +214,20 @@ class OrchestratorAgent:
             return ("general_chat" if fallback_agent else "unknown"), fallback_agent, "使用默认处理"
     
     def _extract_stock_codes(self, query: str) -> List[str]:
-        """Extract stock codes from query."""
+        """Extract stock codes from query (supports A-share and HK)."""
         codes = []
         
-        # Pattern: 600519.SH or 000001.SZ
+        # Pattern: HK code with suffix (00700.HK)
+        hk_pattern1 = r'(\d{5}\.HK)'
+        matches = re.findall(hk_pattern1, query, re.IGNORECASE)
+        codes.extend([m.upper() for m in matches])
+        
+        # Pattern: A-share code with suffix (600519.SH or 000001.SZ)
         pattern1 = r'(\d{6}\.[A-Za-z]{2})'
         matches = re.findall(pattern1, query)
         codes.extend([m.upper() for m in matches])
         
-        # Pattern: 6-digit code
+        # Pattern: 6-digit A-share code
         pattern2 = r'(?<!\d)(\d{6})(?!\d)'
         matches = re.findall(pattern2, query)
         for code in matches:
@@ -227,6 +235,17 @@ class OrchestratorAgent:
                 codes.append(f"{code}.SH")
             elif code.startswith(('0', '3')):
                 codes.append(f"{code}.SZ")
+        
+        # Pattern: 5-digit HK code (only if query contains HK-related keywords)
+        hk_keywords = ['港股', '港交所', 'HK', '香港', '恒生']
+        has_hk_context = any(kw in query.upper() for kw in [k.upper() for k in hk_keywords])
+        if has_hk_context:
+            hk_pattern2 = r'(?<!\d)(\d{5})(?!\d)'
+            matches = re.findall(hk_pattern2, query)
+            for code in matches:
+                formatted = f"{code}.HK"
+                if formatted not in codes:
+                    codes.append(formatted)
         
         # Remove duplicates while preserving order
         seen = set()
@@ -299,6 +318,10 @@ class OrchestratorAgent:
         """
         if agent_name == "ReportAgent" and stock_codes:
             return f"请对{stock_codes[0]}进行财务分析"
+        if agent_name == "HKReportAgent" and stock_codes:
+            hk_codes = [c for c in stock_codes if c.endswith('.HK')]
+            if hk_codes:
+                return f"请对{hk_codes[0]}进行港股财务分析"
         return query
 
     def _share_data_to_next_agent(

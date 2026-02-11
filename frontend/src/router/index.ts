@@ -149,10 +149,6 @@ const routes: RouteRecordRaw[] = [
   },
   // Legacy routes redirect
   {
-    path: '/toplist',
-    redirect: '/market'
-  },
-  {
     path: '/report',
     redirect: '/research'
   }

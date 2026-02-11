@@ -226,6 +226,10 @@ class DataManageService:
             "tushare_ths_index",        # dim table - uses list_date
             "tushare_etf_basic",        # dim table - uses list_date
             "akshare_hk_stock_list",    # dim table - uses list_date
+            "tushare_stock_company",    # dim table - company info
+            "tushare_index_member",     # dim table - index members
+            "tushare_ths_member",       # dim table - THS index members
+            "tushare_etf_index",        # dim table - ETF index info
         }
         if plugin_name in dim_tables:
             return None
@@ -243,6 +247,16 @@ class DataManageService:
             "tushare_balancesheet": "ann_date",  # balance sheet uses ann_date
             "tushare_cashflow": "ann_date",  # cash flow uses ann_date
             "tushare_stk_surv": "surv_date",  # stock survey uses surv_date
+            "tushare_report_rc": "report_date",  # report recommendations use report_date
+            # VIP financial statement plugins (use ann_date or end_date)
+            "tushare_balancesheet_vip": "ann_date",
+            "tushare_cashflow_vip": "ann_date",
+            "tushare_income_vip": "ann_date",
+            # Hong Kong financial statement plugins (use end_date)
+            "tushare_hk_balancesheet": "end_date",
+            "tushare_hk_cashflow": "end_date",
+            "tushare_hk_income": "end_date",
+            "tushare_hk_fina_indicator": "end_date",
 
         }
         return date_column_map.get(plugin_name, "trade_date")
@@ -349,6 +363,79 @@ class DataManageService:
         self.logger.info(f"Missing data detection complete: {plugins_with_missing}/{len(plugins_info)} plugins have missing data")
         return summary
     
+    def _batch_get_latest_dates(self, table_date_map: Dict[str, str]) -> Dict[str, Optional[str]]:
+        """Batch query latest dates for multiple tables in a single SQL.
+
+        Args:
+            table_date_map: {table_name: date_column} for tables that have date columns
+
+        Returns:
+            {table_name: latest_date_str or None}
+        """
+        if not table_date_map:
+            return {}
+
+        results: Dict[str, Optional[str]] = {t: None for t in table_date_map}
+        db_name = db_client.primary.database if hasattr(db_client, 'primary') else db_client.database
+
+        try:
+            # Step 1: Verify which (table, column) pairs actually exist via system.columns
+            table_names = list(table_date_map.keys())
+            placeholders = ", ".join(f"'{t}'" for t in table_names)
+            col_check_query = f"""
+            SELECT table, name
+            FROM system.columns
+            WHERE database = '{db_name}'
+            AND table IN ({placeholders})
+            """
+            col_df = db_client.execute_query(col_check_query)
+
+            if col_df.empty:
+                return results
+
+            # Build set of existing (table, column) pairs
+            existing_cols = set()
+            for _, row in col_df.iterrows():
+                existing_cols.add((row['table'], row['name']))
+
+            # Step 2: Build UNION ALL only for validated (table, date_column) pairs
+            union_parts = []
+            for table_name, date_col in table_date_map.items():
+                if (table_name, date_col) in existing_cols:
+                    union_parts.append(
+                        f"SELECT '{table_name}' AS tbl, max({date_col}) AS latest_date FROM {table_name}"
+                    )
+
+            if not union_parts:
+                return results
+
+            batch_query = " UNION ALL ".join(union_parts)
+            batch_df = db_client.execute_query(batch_query)
+
+            if not batch_df.empty:
+                for _, row in batch_df.iterrows():
+                    tbl = row['tbl']
+                    latest = row['latest_date']
+                    if latest is None:
+                        continue
+                    latest_str = str(latest).strip()
+                    if latest_str in ('', 'NaT', 'None', '\\N'):
+                        continue
+                    # Format as YYYY-MM-DD
+                    if hasattr(latest, 'strftime'):
+                        latest_str = latest.strftime('%Y-%m-%d')
+                    else:
+                        latest_str = latest_str[:10]  # Trim time part
+                    if latest_str.startswith('1970'):
+                        continue
+                    results[tbl] = latest_str
+
+        except Exception as e:
+            self.logger.warning(f"Batch latest date query failed, skipping latest dates: {e}")
+            # Don't fallback to per-plugin queries — that would be even slower.
+
+        return results
+
     def get_plugin_list(self) -> List[PluginInfo]:
         """Get list of all plugins with status info.
         
@@ -356,78 +443,101 @@ class DataManageService:
             List of plugin info
         """
         plugins: List[PluginInfo] = []
-        
+
+        # Phase 1: Collect plugin metadata (no DB queries)
+        plugin_metas = []
+        table_date_map: Dict[str, str] = {}  # {table_name: date_column}
+        table_to_plugin: Dict[str, str] = {}  # {table_name: plugin_name}
+
         for plugin_name in plugin_manager.list_plugins():
             try:
                 plugin = plugin_manager.get_plugin(plugin_name)
                 if not plugin:
                     continue
-                
-                # Get schedule
+
                 schedule = plugin.get_schedule()
                 frequency = schedule.get("frequency", "daily")
                 time = schedule.get("time", "18:00")
-                
-                # Get schema for table name
+
                 schema = plugin.get_schema()
                 table_name = schema.get("table_name", f"ods_{plugin_name}")
                 date_column = self._get_plugin_date_column(plugin_name)
-                
-                # Get status - skip date-based queries for dimension tables (no date column)
-                latest_date = None
-                if date_column:
-                    try:
-                        latest_date = self.get_table_latest_date(table_name, date_column)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to get latest date for plugin {plugin_name}: {e}")
-                
-                # Calculate missing count (simple check against today)
-                # Skip for dimension tables (no date column)
-                missing_count = 0
-                if date_column and frequency == "daily" and latest_date:
-                    try:
-                        # Check if latest date is today
-                        today = date.today().strftime('%Y-%m-%d')
-                        if latest_date < today:
-                            # Count trading days between latest and today
-                            trading_days = self.get_trading_days(30)
-                            for td in trading_days:
-                                if td > latest_date:
-                                    missing_count += 1
-                                else:
-                                    break
-                    except Exception as e:
-                        self.logger.warning(f"Failed to calculate missing count for plugin {plugin_name}: {e}")
-                
-                # Get category and role
+
                 category = plugin.get_category().value
                 role = plugin.get_role().value
-                
-                # Get dependencies
                 dependencies = plugin.get_dependencies()
                 optional_dependencies = plugin.get_optional_dependencies()
-                
+
+                plugin_metas.append({
+                    "plugin_name": plugin_name,
+                    "plugin": plugin,
+                    "frequency": frequency,
+                    "time": time,
+                    "table_name": table_name,
+                    "date_column": date_column,
+                    "category": category,
+                    "role": role,
+                    "dependencies": dependencies,
+                    "optional_dependencies": optional_dependencies,
+                })
+
+                if date_column:
+                    table_date_map[table_name] = date_column
+                    table_to_plugin[table_name] = plugin_name
+
+            except Exception as e:
+                self.logger.error(f"Failed to get plugin info for {plugin_name}: {e}")
+                continue
+
+        # Phase 2: Batch query latest dates (1~2 DB queries instead of 63*3)
+        latest_dates = self._batch_get_latest_dates(table_date_map)
+
+        # Pre-fetch trading days once (not per-plugin)
+        trading_days = None
+        today_str = date.today().strftime('%Y-%m-%d')
+        try:
+            trading_days = self.get_trading_days(30)
+        except Exception:
+            pass
+
+        # Phase 3: Assemble results
+        for meta in plugin_metas:
+            try:
+                table_name = meta["table_name"]
+                date_column = meta["date_column"]
+                frequency = meta["frequency"]
+
+                latest_date = latest_dates.get(table_name) if date_column else None
+
+                missing_count = 0
+                if date_column and frequency == "daily" and latest_date and trading_days:
+                    if latest_date < today_str:
+                        for td in trading_days:
+                            if td > latest_date:
+                                missing_count += 1
+                            else:
+                                break
+
                 info = PluginInfo(
-                    name=plugin_name,
-                    version=plugin.version,
-                    description=plugin.description,
+                    name=meta["plugin_name"],
+                    version=meta["plugin"].version,
+                    description=meta["plugin"].description,
                     type="data_source",
-                    category=category,
-                    role=role,
-                    is_enabled=plugin.is_enabled(),
+                    category=meta["category"],
+                    role=meta["role"],
+                    is_enabled=meta["plugin"].is_enabled(),
                     schedule_frequency=frequency,
-                    schedule_time=time,
+                    schedule_time=meta["time"],
                     latest_date=latest_date,
                     missing_count=missing_count,
-                    last_run_at=None,  # TODO: Get from task history
+                    last_run_at=None,
                     last_run_status=None,
-                    dependencies=dependencies,
-                    optional_dependencies=optional_dependencies
+                    dependencies=meta["dependencies"],
+                    optional_dependencies=meta["optional_dependencies"],
                 )
                 plugins.append(info)
             except Exception as e:
-                # Log error but continue with other plugins - one plugin failure shouldn't break others
-                self.logger.error(f"Failed to get plugin info for {plugin_name}: {e}")
+                self.logger.error(f"Failed to assemble plugin info for {meta.get('plugin_name', '?')}: {e}")
                 continue
         
         return plugins
