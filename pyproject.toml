@@ -34,6 +34,8 @@ dependencies = [
     "redis>=5.0.0",
     "apscheduler>=3.10,<4.0",
     "schedule>=1.1.0",
+    "yfinance>=0.2.0",
+    "finnhub-python>=2.4.27",
 ]
 
 [project.optional-dependencies]
