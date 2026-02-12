@@ -4,7 +4,7 @@ import logging
 import threading
 import io
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 import pandas as pd
 from clickhouse_driver import Client
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -60,6 +60,8 @@ class ClickHouseHttpClient:
                     query = query.replace(placeholder, str(value))
                 elif isinstance(value, datetime):
                     query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'")
+                elif isinstance(value, date):
+                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d')}'")
                 else:
                     query = query.replace(placeholder, str(value))
         
@@ -123,7 +125,7 @@ class ClickHouseHttpClient:
                 if not result:
                     return pd.DataFrame()
                 
-                return pd.read_csv(io.StringIO(result), sep="\t")
+                return pd.read_csv(io.StringIO(result), sep="\t", na_values=["\\N"])
             except Exception as e:
                 logger.error(f"HTTP query execution failed [{self.name}]: {e}")
                 raise
@@ -133,6 +135,20 @@ class ClickHouseHttpClient:
         """Insert DataFrame into table via HTTP."""
         with self._lock:
             try:
+                # Truncate datetime columns to second precision for ClickHouse DateTime compatibility
+                # ClickHouse DateTime type does not accept microsecond-precision timestamps in TSV
+                df = df.copy()
+                for col in df.columns:
+                    if pd.api.types.is_datetime64_any_dtype(df[col]):
+                        df[col] = df[col].dt.floor('s')
+                    elif df[col].dtype == object and len(df) > 0:
+                        # Check if column contains Python datetime objects
+                        sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+                        if isinstance(sample, datetime):
+                            df[col] = df[col].apply(
+                                lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, datetime) else x
+                            )
+                
                 # Convert DataFrame to TabSeparated format
                 # Use na_rep='\\N' so NaN/None becomes \N (ClickHouse NULL in TSV)
                 data = df.to_csv(sep="\t", index=False, header=False, na_rep='\\N')

@@ -18,11 +18,6 @@ const selectedDate = ref<string | null>(null)
 
 // 市场类型筛选
 const marketType = ref<'a_share' | 'hk_stock' | 'all'>('a_share')
-const marketTypeOptions = [
-  { value: 'a_share', label: 'A 股' },
-  { value: 'hk_stock', label: '港股' },
-  { value: 'all', label: '全部' }
-]
 
 // Stock detail dialog
 const showDetailDialog = ref(false)
@@ -249,6 +244,34 @@ onMounted(() => {
 
 <template>
   <div class="screener-view">
+    <!-- Market Type TAB -->
+    <div class="market-tab-bar">
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'a_share' }" 
+        @click="handleMarketTypeChange('a_share')"
+      >
+        <span class="market-tab-icon">🇨🇳</span>
+        <span class="market-tab-label">A 股</span>
+      </div>
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'hk_stock' }" 
+        @click="handleMarketTypeChange('hk_stock')"
+      >
+        <span class="market-tab-icon">🇭🇰</span>
+        <span class="market-tab-label">港股</span>
+      </div>
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'all' }" 
+        @click="handleMarketTypeChange('all')"
+      >
+        <span class="market-tab-icon">🌐</span>
+        <span class="market-tab-label">全部</span>
+      </div>
+    </div>
+
     <!-- Market Summary -->
     <t-card v-if="screenerStore.summary" class="summary-card" :bordered="false">
       <t-row :gutter="16">
@@ -395,12 +418,6 @@ onMounted(() => {
         <t-card title="股票列表">
           <template #actions>
             <t-space>
-              <t-select
-                v-model="marketType"
-                :options="marketTypeOptions"
-                style="width: 90px"
-                @change="handleMarketTypeChange"
-              />
               <t-date-picker
                 v-model="selectedDate"
                 placeholder="选择日期"
@@ -509,6 +526,52 @@ onMounted(() => {
 <style scoped>
 .screener-view {
   height: 100%;
+}
+
+.market-tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  background: var(--td-bg-color-container);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.market-tab-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--td-text-color-secondary);
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.market-tab-item:hover {
+  color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+}
+
+.market-tab-item.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-hover) 100%);
+  box-shadow: 0 2px 8px rgba(0, 82, 217, 0.3);
+}
+
+.market-tab-icon {
+  font-size: 18px;
+}
+
+.market-tab-label {
+  font-size: 15px;
+  letter-spacing: 1px;
 }
 
 .summary-card {

@@ -121,12 +121,13 @@
     {
       "group_id": "predefined_hk_stock_daily",
       "name": "港股日线行情",
-      "description": "港股日线行情数据（含港股列表基础信息），使用AKShare数据源",
+      "description": "港股日线行情数据（含基础信息和复权因子），使用TuShare数据源",
       "plugin_names": [
-        "akshare_hk_stock_list",
-        "akshare_hk_daily"
+        "tushare_hk_basic",
+        "tushare_hk_daily",
+        "tushare_hk_adjfactor"
       ],
-      "default_task_type": "full",
+      "default_task_type": "incremental",
       "category": "hk_stock"
     },
     {
@@ -134,7 +135,7 @@
       "name": "港股财务报表",
       "description": "港股三大财务报表（利润表、资产负债表、现金流量表）+财务指标，使用TuShare数据源",
       "plugin_names": [
-        "akshare_hk_stock_list",
+        "tushare_hk_basic",
         "tushare_hk_fina_indicator",
         "tushare_hk_balancesheet",
         "tushare_hk_income",
@@ -146,10 +147,13 @@
     {
       "group_id": "predefined_hk_full",
       "name": "港股完整数据",
-      "description": "港股全部数据（日线行情+三大财务报表+财务指标）",
+      "description": "港股全部数据（基础信息+交易日历+日线行情+复权因子+复权行情+三大财务报表+财务指标）",
       "plugin_names": [
-        "akshare_hk_stock_list",
-        "akshare_hk_daily",
+        "tushare_hk_basic",
+        "tushare_hk_tradecal",
+        "tushare_hk_daily",
+        "tushare_hk_adjfactor",
+        "tushare_hk_daily_adj",
         "tushare_hk_fina_indicator",
         "tushare_hk_balancesheet",
         "tushare_hk_income",

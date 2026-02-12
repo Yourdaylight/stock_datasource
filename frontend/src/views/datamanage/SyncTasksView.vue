@@ -87,7 +87,20 @@ const fetchBatchExecutions = async () => {
       taskStatusFilter.value || undefined,
       triggerTypeFilter.value || undefined
     )
-    batchExecutions.value = response.items || []
+    // Filter out empty scheduled records (0/0 plugins, no real work done)
+    const items = (response.items || []).filter((item: ScheduleExecutionRecord) => {
+      // Keep all non-skipped records
+      if (item.status !== 'skipped') return true
+      // Keep skipped records that have a meaningful skip_reason (e.g. 非交易日)
+      // but hide auto-scheduled ones that had no plugins
+      if (item.trigger_type === 'scheduled' && (item.total_plugins || 0) === 0) {
+        const reason = (item as any).skip_reason || ''
+        // Show "非交易日" skips, hide "no plugins" skips
+        return reason === '非交易日'
+      }
+      return true
+    })
+    batchExecutions.value = items
     selectedRowKeys.value = []
     // Clear cache to ensure fresh data when expanding rows
     batchTasksCache.value = {}
@@ -352,6 +365,10 @@ const getTaskName = (row: ScheduleExecutionRecord | BatchExecutionDetail) => {
   // 优先使用 group_name（组合名称或插件名称）
   if (row.group_name) {
     return row.group_name
+  }
+  // 跳过的任务显示跳过原因
+  if (row.status === 'skipped' && (row as any).skip_reason) {
+    return (row as any).skip_reason
   }
   // 没有 group_name 时，根据 trigger_type 和插件数生成通用名称
   const pluginCount = row.total_plugins || 0

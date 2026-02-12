@@ -10,6 +10,7 @@ Provides tools for:
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import math
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,17 +22,33 @@ def _get_db():
     return db_client
 
 
-def _execute_query(query: str) -> List[Dict[str, Any]]:
+def _sanitize_value(v):
+    """Replace inf/NaN with None for JSON compatibility."""
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    return v
+
+
+def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Sanitize a dict row to be JSON-serializable."""
+    return {k: _sanitize_value(v) for k, v in row.items()}
+
+
+def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Execute query and return results as list of dicts."""
     db = _get_db()
-    df = db.execute_query(query)
-    if df is None or df.empty:
+    try:
+        df = db.execute_query(query, params or {})
+        if df is None or df.empty:
+            return []
+        return [_sanitize_row(r) for r in df.to_dict('records')]
+    except Exception as e:
+        logger.warning(f"ClickHouse query failed: {e}")
         return []
-    return df.to_dict('records')
 
 
 def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> Optional[str]:
-    """Get latest trade date from table."""
+    """Get latest trade date from table. Returns YYYYMMDD format string."""
     query = f"""
     SELECT max(trade_date) as latest_date
     FROM {table}
@@ -40,9 +57,21 @@ def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> Optional[str]:
     if result and result[0].get('latest_date'):
         latest = result[0]['latest_date']
         if hasattr(latest, 'strftime'):
-            return latest.strftime('%Y%m%d')
-        return str(latest).replace('-', '')
+            date_str = latest.strftime('%Y%m%d')
+        else:
+            date_str = str(latest).replace('-', '')
+        # ClickHouse max(Date) on empty table returns 1970-01-01
+        if date_str in {"19700101", "1970-01-01"}:
+            return None
+        return date_str
     return None
+
+
+def _to_ch_date(date_yyyymmdd: str) -> str:
+    """Convert YYYYMMDD string to YYYY-MM-DD for ClickHouse Date comparison."""
+    if len(date_yyyymmdd) == 8 and '-' not in date_yyyymmdd:
+        return f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:8]}"
+    return date_yyyymmdd
 
 
 # Major indices
@@ -76,6 +105,7 @@ def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
     indices_codes = [f"'{code}'" for code, _ in MAJOR_INDICES]
     indices_str = ", ".join(indices_codes)
     
+    ch_date = _to_ch_date(date)
     query = f"""
     SELECT 
         f.ts_code,
@@ -88,7 +118,7 @@ def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
     FROM ods_idx_factor_pro f
     LEFT JOIN dim_index_basic b ON f.ts_code = b.ts_code
     WHERE f.ts_code IN ({indices_str})
-    AND f.trade_date = '{date}'
+    AND f.trade_date = '{ch_date}'
     """
     
     result = _execute_query(query)
@@ -134,6 +164,7 @@ def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
     if not date:
         return {"error": "无法获取交易日期"}
     
+    ch_date = _to_ch_date(date)
     query = f"""
     SELECT 
         SUM(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
@@ -144,9 +175,9 @@ def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
         SUM(CASE WHEN pct_chg >= 19.9 THEN 1 ELSE 0 END) as limit_up_20_count,
         SUM(CASE WHEN pct_chg <= -19.9 THEN 1 ELSE 0 END) as limit_down_20_count,
         COUNT(*) as total_count,
-        ROUND(SUM(amount) / 100000000, 2) as total_amount_yi
+        ROUND(SUM(amount) / 100000, 2) as total_amount_yi
     FROM fact_daily_bar
-    WHERE trade_date = '{date}'
+    WHERE trade_date = '{ch_date}'
     """
     
     result = _execute_query(query)
@@ -206,6 +237,7 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
     if not date:
         return {"error": "无法获取交易日期"}
     
+    ch_date = _to_ch_date(date)
     # Query sector indices (category contains '行业' or index_type is 'sector')
     query = f"""
     SELECT 
@@ -216,7 +248,7 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
         f.amount
     FROM ods_idx_factor_pro f
     JOIN dim_index_basic b ON f.ts_code = b.ts_code
-    WHERE f.trade_date = '{date}'
+    WHERE f.trade_date = '{ch_date}'
     AND (b.category LIKE '%行业%' OR b.index_type = '行业指数')
     AND f.close IS NOT NULL
     AND f.pre_close IS NOT NULL
@@ -237,7 +269,7 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
             f.amount
         FROM ods_idx_factor_pro f
         JOIN dim_index_basic b ON f.ts_code = b.ts_code
-        WHERE f.trade_date = '{date}'
+        WHERE f.trade_date = '{ch_date}'
         AND b.category LIKE '%主题%'
         AND f.close IS NOT NULL
         AND f.pre_close IS NOT NULL
@@ -276,6 +308,7 @@ def get_hot_etfs_analysis(date: Optional[str] = None, sort_by: str = "amount", l
     
     order_field = "amount" if sort_by == "amount" else "pct_chg"
     order_dir = "DESC"
+    ch_date = _to_ch_date(date)
     
     query = f"""
     SELECT 
@@ -288,7 +321,7 @@ def get_hot_etfs_analysis(date: Optional[str] = None, sort_by: str = "amount", l
         d.vol
     FROM ods_etf_fund_daily d
     LEFT JOIN ods_etf_basic b ON d.ts_code = b.ts_code
-    WHERE d.trade_date = '{date}'
+    WHERE d.trade_date = '{ch_date}'
     AND d.{order_field} IS NOT NULL
     ORDER BY d.{order_field} {order_dir}
     LIMIT {limit}
