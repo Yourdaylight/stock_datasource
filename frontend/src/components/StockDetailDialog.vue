@@ -79,6 +79,9 @@ const dialogVisible = computed({
   set: (value) => emit('update:visible', value)
 })
 
+// 检测是否为港股
+const isHKStock = computed(() => props.stockCode?.toUpperCase().endsWith('.HK'))
+
 // 页面整体加载状态：K线数据加载完成才显示页面
 const pageLoading = computed(() => loading.value && klineData.value.length === 0)
 
@@ -100,6 +103,9 @@ const priceInfo = computed(() => {
     isUp: change >= 0
   }
 })
+
+// 货币符号：港股显示 HKD，A 股显示 CNY
+const currencySymbol = computed(() => isHKStock.value ? 'HKD' : 'CNY')
 
 // Methods
 const fetchStockData = async () => {
@@ -393,16 +399,22 @@ watch(() => props.stockCode, (newCode) => {
     chipDate.value = ''
     stockProfile.value = null
     fetchStockData()
-    fetchChipData()
-    fetchStockProfile()
+    // 港股不加载筹码峰和十维画像
+    if (!newCode.toUpperCase().endsWith('.HK')) {
+      fetchChipData()
+      fetchStockProfile()
+    }
   }
 })
 
 watch(() => props.visible, (visible) => {
   if (visible && props.stockCode) {
     fetchStockData()
-    fetchChipData()
-    fetchStockProfile()
+    // 港股不加载筹码峰和十维画像
+    if (!props.stockCode.toUpperCase().endsWith('.HK')) {
+      fetchChipData()
+      fetchStockProfile()
+    }
   }
 })
 </script>
@@ -426,13 +438,17 @@ watch(() => props.visible, (visible) => {
     <!-- 主内容 -->
     <div v-else class="stock-detail">
       <!-- Stock Info Header -->
-      <t-card class="stock-info-card" :bordered="false">
+      <t-card class="stock-info-card" :class="{ 'hk-stock-card': isHKStock }" :bordered="false">
         <div class="stock-header">
           <div class="stock-basic">
-            <h3 v-if="stockInfo">{{ stockInfo.name }} ({{ stockInfo.code }})</h3>
+            <h3 v-if="stockInfo">
+              {{ stockInfo.name }} ({{ stockInfo.code }})
+              <t-tag v-if="isHKStock" theme="warning" size="small" style="margin-left: 8px;">港股</t-tag>
+            </h3>
             <h3 v-else>{{ stockCode }}</h3>
             <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
               <span class="latest-price">{{ priceInfo.price }}</span>
+              <span class="currency-label">{{ currencySymbol }}</span>
               <span class="price-change">
                 {{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.change }} 
                 ({{ priceInfo.isUp ? '+' : '' }}{{ priceInfo.changePct }}%)
@@ -469,8 +485,8 @@ watch(() => props.visible, (visible) => {
           />
         </div>
         
-        <!-- 筹码峰和十维画像 (右侧，与右面板宽度一致) -->
-        <div class="top-right-cards">
+        <!-- 筹码峰和十维画像 (右侧，与右面板宽度一致) - 仅 A 股显示 -->
+        <div v-if="!isHKStock" class="top-right-cards">
           <!-- Chip Distribution -->
           <t-card title="筹码峰" class="chip-card-top" :bordered="false">
             <template #actions>
@@ -530,6 +546,21 @@ watch(() => props.visible, (visible) => {
               </div>
             </div>
             <t-empty v-else description="暂无画像数据" size="small" />
+          </t-card>
+        </div>
+        
+        <!-- 港股提示信息 -->
+        <div v-else class="top-right-cards hk-notice">
+          <t-card title="港股说明" class="hk-notice-card" :bordered="false">
+            <t-alert theme="info" :close="false">
+              <template #message>
+                <div>当前查看的是港股，以下功能暂不支持：</div>
+                <ul style="margin: 8px 0 0 16px; padding: 0;">
+                  <li>筹码峰分布（港股无数据源）</li>
+                  <li>十维画像评分（暂未适配港股）</li>
+                </ul>
+              </template>
+            </t-alert>
           </t-card>
         </div>
       </div>
@@ -666,6 +697,11 @@ watch(() => props.visible, (visible) => {
   color: white;
 }
 
+/* 港股使用不同的渐变色 */
+.stock-info-card.hk-stock-card {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
 .stock-header {
   display: flex;
   justify-content: space-between;
@@ -689,6 +725,12 @@ watch(() => props.visible, (visible) => {
 .latest-price {
   font-size: 28px;
   font-weight: bold;
+}
+
+.currency-label {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-left: -8px;
 }
 
 .price-change {
@@ -761,6 +803,23 @@ watch(() => props.visible, (visible) => {
 .profile-card-top :deep(.t-card__body) {
   height: 200px;
   overflow: hidden;
+}
+
+/* HK Stock Notice */
+.hk-notice {
+  flex-direction: column;
+}
+
+.hk-notice-card {
+  flex: 1;
+  background: #fafafa;
+}
+
+.hk-notice-card :deep(.t-card__body) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
 }
 
 /* Main Layout - K-line with right panel */

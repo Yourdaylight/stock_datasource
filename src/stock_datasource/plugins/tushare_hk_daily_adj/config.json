@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "港股复权行情数据，包含复权因子、股本、市值、换手率等指标",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters": {
+    "max_empty_days": 5,
+    "validate_prices": true
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期，格式 YYYYMMDD"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "股票代码，如 00001.HK"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期，格式 YYYYMMDD"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期，格式 YYYYMMDD"
+    }
+  }
+}

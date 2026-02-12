@@ -1,0 +1,16 @@
+{
+  "table_name": "ods_hk_trade_calendar",
+  "table_type": "ods",
+  "columns": [
+    {"name": "cal_date", "data_type": "Date", "nullable": false, "comment": "日历日期"},
+    {"name": "is_open", "data_type": "UInt8", "nullable": false, "comment": "是否交易(0休市1交易)"},
+    {"name": "pretrade_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "上一个交易日"},
+    {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+    {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
+  ],
+  "partition_by": "toYYYYMM(cal_date)",
+  "order_by": ["cal_date"],
+  "engine": "ReplacingMergeTree",
+  "engine_params": ["version"],
+  "comment": "港股交易日历 from TuShare hk_tradecal API"
+}

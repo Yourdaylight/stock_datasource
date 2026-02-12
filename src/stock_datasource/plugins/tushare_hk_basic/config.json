@@ -1,0 +1,10 @@
+{
+    "plugin_name": "tushare_hk_basic",
+    "api_name": "hk_basic",
+    "description": "港股列表基础信息",
+    "rate_limit": 120,
+    "min_points": 2000,
+    "max_records_per_call": null,
+    "update_frequency": "daily",
+    "data_start_date": null
+}

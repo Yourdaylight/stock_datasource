@@ -22,6 +22,7 @@ class ScreenerRequest(BaseModel):
     sort_order: str = "desc"
     limit: int = 100
     trade_date: Optional[str] = Field(None, description="交易日期，格式 YYYY-MM-DD，默认最新日期")
+    market_type: Optional[str] = Field(None, description="市场类型: a_share, hk_stock, all (默认 a_share)")
 
 
 class NLScreenerRequest(BaseModel):

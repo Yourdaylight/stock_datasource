@@ -1,0 +1,15 @@
+{
+  "table_name": "ods_hk_adjfactor",
+  "columns": [
+    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "股票代码"},
+    {"name": "trade_date", "type": "Date", "comment": "交易日期"},
+    {"name": "cum_adjfactor", "type": "Nullable(Float64)", "comment": "累计复权因子"},
+    {"name": "close_price", "type": "Nullable(Float64)", "comment": "收盘价"},
+    {"name": "version", "type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "type": "DateTime", "default": "now()", "comment": "入库时间"}
+  ],
+  "engine": "ReplacingMergeTree(version)",
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "comment": "港股复权因子 from TuShare hk_adjfactor API"
+}

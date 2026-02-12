@@ -1,0 +1,33 @@
+{
+  "enabled": true,
+  "rate_limit": 120,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "TuShare Hong Kong Stock trade calendar plugin (hk_tradecal API)",
+  "schedule_enabled": false,
+  "schedule_note": "港股交易日历数据变化不频繁，建议每半年手动执行一次更新",
+  "parameters": {
+    "default_years_back": 2,
+    "default_years_forward": 2
+  },
+  "parameters_schema": {
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format (e.g., 20200101)"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format (e.g., 20200708)"
+    },
+    "is_open": {
+      "type": "string",
+      "enum": ["0", "1"],
+      "required": false,
+      "description": "Filter by trading status: 0=closed, 1=open"
+    }
+  }
+}
