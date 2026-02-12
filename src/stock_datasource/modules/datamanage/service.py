@@ -230,6 +230,7 @@ class DataManageService:
             "tushare_index_member",     # dim table - index members
             "tushare_ths_member",       # dim table - THS index members
             "tushare_etf_index",        # dim table - ETF index info
+            "tushare_hk_basic",         # dim table - HK stock basic info, no trade_date
         }
         if plugin_name in dim_tables:
             return None

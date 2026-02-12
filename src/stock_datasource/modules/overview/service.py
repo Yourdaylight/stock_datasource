@@ -16,6 +16,14 @@ def _get_db():
     return db_client
 
 
+def _sanitize_value(v):
+    """Replace inf/NaN with None for JSON compatibility."""
+    import math
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    return v
+
+
 def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Execute query and return results as list of dicts.
 
@@ -33,7 +41,7 @@ def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[
 
     if df is None or df.empty:
         return []
-    return df.to_dict('records')
+    return [{k: _sanitize_value(v) for k, v in r.items()} for r in df.to_dict('records')]
 
 
 # Major indices to track
@@ -126,15 +134,16 @@ class OverviewService:
         query = f"""
         SELECT
             f.ts_code,
-            b.name,
-            f.close,
-            ROUND((f.close - f.pre_close) / f.pre_close * 100, 2) as pct_chg,
-            f.vol,
-            f.amount
+            any(b.name) as name,
+            any(f.close) as close,
+            ROUND((any(f.close) - any(f.pre_close)) / any(f.pre_close) * 100, 2) as pct_chg,
+            any(f.vol) as vol,
+            any(f.amount) as amount
         FROM ods_idx_factor_pro f
         LEFT JOIN dim_index_basic b ON f.ts_code = b.ts_code
         WHERE f.ts_code IN ({indices_str})
         AND f.trade_date = %(trade_date)s
+        GROUP BY f.ts_code
         """
 
         result = _execute_query(query, {"trade_date": trade_date})
@@ -148,6 +157,7 @@ class OverviewService:
     def _get_market_stats(self, trade_date, date_str: str) -> Optional[Dict[str, Any]]:
         """Get market statistics for a date."""
         # Use fact_daily_bar which has pct_chg field
+        # amount is in 千元, convert to 亿 in SQL
         query = """
         SELECT
             trade_date,
@@ -156,7 +166,7 @@ class OverviewService:
             SUM(CASE WHEN pct_chg = 0 OR pct_chg IS NULL THEN 1 ELSE 0 END) as flat_count,
             SUM(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up_count,
             SUM(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down_count,
-            SUM(amount) as total_amount,
+            ROUND(SUM(amount) / 100000, 2) as total_amount,
             SUM(vol) as total_vol
         FROM fact_daily_bar
         WHERE trade_date = %(trade_date)s
