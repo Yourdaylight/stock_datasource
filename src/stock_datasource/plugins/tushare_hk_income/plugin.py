@@ -54,13 +54,13 @@ class TuShareHKIncomePlugin(BasePlugin):
                 return []
             
             df = self.db.execute_query(
-                "SELECT DISTINCT symbol FROM ods_hk_stock_list ORDER BY symbol"
+                "SELECT DISTINCT code FROM ods_hk_stock_list ORDER BY code"
             )
             if df.empty:
                 self.logger.warning("No HK stock codes found in ods_hk_stock_list")
                 return []
             
-            codes = df['symbol'].tolist()
+            codes = df['code'].tolist()
             self.logger.info(f"Found {len(codes)} HK stock codes")
             return codes
         except Exception as e:

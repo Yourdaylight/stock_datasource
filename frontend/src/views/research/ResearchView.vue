@@ -1,25 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import InstitutionalSurveyPanel from './components/InstitutionalSurveyPanel.vue'
-import ResearchReportPanel from './components/ResearchReportPanel.vue'
 import FinancialReportPanel from './components/FinancialReportPanel.vue'
 import HKFinancialReportPanel from './components/HKFinancialReportPanel.vue'
 
-const activeTab = ref('survey')
+const activeTab = ref('financial')
 </script>
 
 <template>
   <div class="research-view">
     <t-card :bordered="false">
       <t-tabs v-model="activeTab" size="large">
-        <t-tab-panel value="survey" label="机构调研">
-          <InstitutionalSurveyPanel />
-        </t-tab-panel>
-        
-        <t-tab-panel value="report" label="研报数据">
-          <ResearchReportPanel />
-        </t-tab-panel>
-        
         <t-tab-panel value="financial" label="A股财报">
           <FinancialReportPanel />
         </t-tab-panel>

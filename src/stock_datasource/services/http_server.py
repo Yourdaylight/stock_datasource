@@ -331,6 +331,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to start background workers: {e}")
 
+    # Warm up Langfuse in a thread (avoid blocking event loop on first LLM call)
+    try:
+        import asyncio as _asyncio
+        from stock_datasource.llm.client import get_langfuse
+
+        _asyncio.create_task(_asyncio.to_thread(get_langfuse))
+    except Exception as e:
+        logger.debug(f"Langfuse warmup skipped: {e}")
+
     logger.info("Application initialization completed")
     
     yield  # Application runs here
