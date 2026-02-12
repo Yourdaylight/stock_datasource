@@ -11,6 +11,7 @@ import re
 import json
 import hashlib
 import logging
+import asyncio
 import httpx
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -154,12 +155,11 @@ class NewsService:
         # 限制返回数量
         news_items = news_items[:limit]
         
-        # 补齐情绪分析
-        sentiments = await self.analyze_news_sentiment(
+        # 异步补齐情绪分析（不阻塞返回）
+        self._schedule_sentiment_analysis(
             news_items,
             stock_context=f"股票代码: {stock_code}"
         )
-        self._apply_sentiments_to_news(news_items, sentiments)
         
         # 缓存结果
         self._set_cache(
@@ -208,8 +208,7 @@ class NewsService:
                         news_items = [n for n in news_items if n.category == category]
                     
                     news_items = news_items[:limit]
-                    sentiments = await self.analyze_news_sentiment(news_items)
-                    self._apply_sentiments_to_news(news_items, sentiments)
+                    self._schedule_sentiment_analysis(news_items)
                     
                     return news_items
             except Exception as e:
@@ -221,7 +220,9 @@ class NewsService:
             cached = self._get_cache(cache_key)
             if cached:
                 logger.debug(f"Redis cache hit for market news: {category}")
-                return [NewsItem(**item) for item in cached]
+                news_items = [NewsItem(**item) for item in cached]
+                self._schedule_sentiment_analysis(news_items)
+                return news_items
         
         # 3. 从外部 API 获取
         logger.info("Fetching news from external API...")
@@ -245,8 +246,7 @@ class NewsService:
         # 限制返回数量
         news_items = news_items[:limit]
         
-        sentiments = await self.analyze_news_sentiment(news_items)
-        self._apply_sentiments_to_news(news_items, sentiments)
+        self._schedule_sentiment_analysis(news_items)
         
         # 缓存到 Redis
         self._set_cache(
@@ -285,6 +285,33 @@ class NewsService:
                 
         except Exception as e:
             logger.warning(f"Failed to save news to storage: {e}")
+
+    def _schedule_sentiment_analysis(
+        self,
+        news_items: List[NewsItem],
+        stock_context: Optional[str] = None,
+    ) -> None:
+        """后台异步分析情绪（不阻塞请求）"""
+        missing = [item for item in news_items if item.sentiment is None]
+        if not missing:
+            return
+        try:
+            asyncio.create_task(self._background_analyze_sentiment(missing, stock_context))
+        except Exception as e:
+            logger.warning(f"Failed to schedule sentiment analysis: {e}")
+
+    async def _background_analyze_sentiment(
+        self,
+        news_items: List[NewsItem],
+        stock_context: Optional[str] = None,
+    ) -> None:
+        """后台执行情绪分析并持久化结果"""
+        try:
+            sentiments = await self.analyze_news_sentiment(news_items, stock_context)
+            self._apply_sentiments_to_news(news_items, sentiments)
+            self._save_news_to_storage(news_items)
+        except Exception as e:
+            logger.warning(f"Background sentiment analysis failed: {e}")
 
     async def backfill_cached_news_sentiment(
         self,
@@ -413,38 +440,56 @@ class NewsService:
     async def get_hot_topics(
         self,
         limit: int = 10,
+        stock_code: Optional[str] = None,
+        days: int = 7,
     ) -> List[HotTopic]:
         """获取当前市场热点话题
         
         Args:
             limit: 返回数量
+            stock_code: 股票代码（可选）
+            days: 查询天数（仅股票模式）
             
         Returns:
             热点话题列表
         """
-        # 尝试从缓存获取
-        cache_key = f"hot_topics:{limit}"
+        cache_key = f"hot_topics:{stock_code or 'market'}:{days}:{limit}"
         cached = self._get_cache(cache_key)
         if cached:
             logger.debug("Cache hit for hot topics")
             return [HotTopic(**item) for item in cached]
         
         # 获取最近新闻
-        recent_news = await self.get_market_news(NewsCategory.ALL, limit=50)
+        if stock_code:
+            fetch_limit = min(max(limit * 5, 30), 100)
+            recent_news = await self.get_news_by_stock(stock_code, days, fetch_limit)
+        else:
+            recent_news = await self.get_market_news(NewsCategory.ALL, limit=50)
         
         if not recent_news:
             return []
         
-        # 使用 LLM 提取热点
-        topics = await self._extract_hot_topics(recent_news, limit)
-        
+        # 使用 LLM 提取热点（加硬超时，避免接口阻塞）
+        timeout_s = float(os.getenv("NEWS_HOT_TOPICS_TIMEOUT", "4.0"))
+        try:
+            topics = await asyncio.wait_for(
+                self._extract_hot_topics(recent_news, limit),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Hot topics extraction timed out after {timeout_s}s, fallback to simple mode")
+            topics = self._simple_hot_topics(recent_news, limit)
+        except Exception as e:
+            logger.warning(f"Hot topics extraction failed: {e}")
+            topics = self._simple_hot_topics(recent_news, limit)
+
         # 缓存结果
         self._set_cache(
             cache_key,
             [topic.model_dump() for topic in topics],
             NEWS_CACHE_TTL_HOT_TOPICS
         )
-        
+
         return topics
     
     async def summarize_news(

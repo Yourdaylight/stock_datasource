@@ -27,6 +27,13 @@ export interface NewsListResponse {
   has_more: boolean
 }
 
+export interface SimpleNewsListResponse {
+  success: boolean
+  total: number
+  data: NewsItem[]
+  message?: string
+}
+
 export interface HotTopicsResponse {
   data: HotTopic[]
   update_time: string
@@ -39,7 +46,7 @@ export interface SentimentAnalysisResponse {
 
 export const newsAPI = {
   // 获取股票相关新闻
-  getNewsByStock(params: GetNewsByStockParams): Promise<NewsListResponse> {
+  getNewsByStock(params: GetNewsByStockParams): Promise<SimpleNewsListResponse> {
     const queryParams = new URLSearchParams()
     if (params.days) queryParams.append('days', params.days.toString())
     if (params.limit) queryParams.append('limit', params.limit.toString())
@@ -62,11 +69,11 @@ export const newsAPI = {
         return response
       },
       { showError: true }
-    ) as Promise<NewsListResponse>
+    ) as Promise<SimpleNewsListResponse>
   },
 
   // 获取市场新闻
-  getMarketNews(params: GetMarketNewsParams = {}): Promise<NewsListResponse> {
+  getMarketNews(params: GetMarketNewsParams = {}): Promise<SimpleNewsListResponse> {
     const queryParams = new URLSearchParams()
     if (params.category) queryParams.append('category', params.category)
     if (params.limit) queryParams.append('limit', params.limit.toString())
@@ -88,15 +95,17 @@ export const newsAPI = {
       },
       { 
         showError: true,
-        fallbackValue: { total: 0, page: 1, page_size: 20, data: [], has_more: false }
+        fallbackValue: { success: false, total: 0, data: [], message: '' }
       }
-    ) as Promise<NewsListResponse>
+    ) as Promise<SimpleNewsListResponse>
   },
 
   // 获取热点话题
   getHotTopics(params: GetHotTopicsParams = {}): Promise<HotTopicsResponse> {
     const queryParams = new URLSearchParams()
     if (params.limit) queryParams.append('limit', params.limit.toString())
+    if (params.stock_code) queryParams.append('stock_code', params.stock_code)
+    if (params.days) queryParams.append('days', params.days.toString())
     
     const queryString = queryParams.toString()
     const url = `/api/news/hot-topics${queryString ? '?' + queryString : ''}`
@@ -201,12 +210,12 @@ export const newsAPI = {
   },
 
   // 获取新闻分类列表
-  getCategories(): Promise<string[]> {
+  getCategories(): Promise<{ success: boolean; data: Array<{ value: string; label: string }>; message: string }> {
     return request.get('/api/news/categories')
   },
 
   // 获取新闻来源列表
-  getSources(): Promise<string[]> {
+  getSources(): Promise<{ success: boolean; data: Array<{ value: string; label: string }>; message: string }> {
     return request.get('/api/news/sources')
   },
 

@@ -90,22 +90,32 @@ class NewsFileStorage:
         
         # 加载已有数据
         existing = self._load_json(file_path) or []
-        existing_ids = {n.get("id") for n in existing if n.get("id")}
+        existing_by_id = {n.get("id"): n for n in existing if n.get("id")}
         
-        # 去重合并
+        # 去重合并（支持情绪字段更新）
         new_items = []
+        updated_items = 0
         for item in news_list:
             news_id = item.get("id")
-            if news_id and news_id not in existing_ids:
-                # 确保数据格式正确
-                item = self._normalize_news_item(item)
-                new_items.append(item)
-                existing_ids.add(news_id)
+            if not news_id:
+                continue
+            # 确保数据格式正确
+            item = self._normalize_news_item(item)
+            existing_item = existing_by_id.get(news_id)
+            if existing_item:
+                if self._merge_sentiment_fields(existing_item, item):
+                    updated_items += 1
+                continue
+            new_items.append(item)
+            existing_by_id[news_id] = item
         
-        if new_items:
+        if new_items or updated_items:
             merged = existing + new_items
             self._save_json(file_path, merged)
-            logger.info(f"Saved {len(new_items)} new {source} news to {file_path}")
+            logger.info(
+                f"Saved {len(new_items)} new {source} news to {file_path}; "
+                f"updated {updated_items} items"
+            )
             
             # 更新缓存
             self._update_cache()
@@ -371,6 +381,22 @@ class NewsFileStorage:
         item.setdefault("url", None)
         
         return item
+
+    def _merge_sentiment_fields(
+        self,
+        target: Dict[str, Any],
+        source: Dict[str, Any],
+    ) -> bool:
+        """将来源数据中的情绪字段合并到目标数据"""
+        updated = False
+        if not target.get("sentiment") and source.get("sentiment"):
+            target["sentiment"] = source.get("sentiment")
+            updated = True
+        for field in ["sentiment_score", "sentiment_reasoning", "impact_level"]:
+            if target.get(field) in (None, "") and source.get(field) not in (None, ""):
+                target[field] = source.get(field)
+                updated = True
+        return updated
     
     def _load_json(self, file_path: Path) -> Optional[Any]:
         """加载 JSON 文件"""

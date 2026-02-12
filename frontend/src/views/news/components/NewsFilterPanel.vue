@@ -32,9 +32,10 @@ const stockCodeInput = ref('')
 // 预设的新闻类型选项
 const categoryOptions = [
   { label: '公告', value: 'announcement' },
-  { label: '快讯', value: 'news' },
+  { label: '快讯', value: 'flash' },
   { label: '分析', value: 'analysis' },
-  { label: '研报', value: 'research' }
+  { label: '政策', value: 'policy' },
+  { label: '行业', value: 'industry' }
 ]
 
 // 情绪选项
@@ -52,16 +53,24 @@ const dateRangePresets = [
   { label: '最近30天', value: 30 }
 ]
 
+const availableCategoriesSafe = computed(() =>
+  Array.isArray(props.availableCategories) ? props.availableCategories : []
+)
+const availableSourcesSafe = computed(() =>
+  Array.isArray(props.availableSources) ? props.availableSources : []
+)
+
 // 计算属性
 const availableCategoryOptions = computed(() => {
-  return categoryOptions.filter(option => 
-    props.availableCategories.length === 0 || 
-    props.availableCategories.includes(option.value)
+  return categoryOptions.filter(
+    (option) =>
+      availableCategoriesSafe.value.length === 0 ||
+      availableCategoriesSafe.value.includes(option.value)
   )
 })
 
 const availableSourceOptions = computed(() => {
-  return props.availableSources.map(source => ({
+  return availableSourcesSafe.value.map((source) => ({
     label: source,
     value: source
   }))

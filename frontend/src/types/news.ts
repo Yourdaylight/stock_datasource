@@ -65,6 +65,8 @@ export interface GetMarketNewsParams {
 
 export interface GetHotTopicsParams {
   limit?: number
+  stock_code?: string
+  days?: number
 }
 
 export interface AnalyzeSentimentParams {
