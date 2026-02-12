@@ -378,6 +378,26 @@ def calculate_indicators(
     return result
 
 
+def _safe_compare(val1, val2, op: str) -> bool:
+    """Safely compare two values, returning False if either is None or NaN."""
+    if val1 is None or val2 is None:
+        return False
+    if isinstance(val1, float) and (np.isnan(val1) or np.isinf(val1)):
+        return False
+    if isinstance(val2, float) and (np.isnan(val2) or np.isinf(val2)):
+        return False
+    
+    if op == '>':
+        return val1 > val2
+    elif op == '<':
+        return val1 < val2
+    elif op == '>=':
+        return val1 >= val2
+    elif op == '<=':
+        return val1 <= val2
+    return False
+
+
 def detect_signals(
     df: pd.DataFrame,
     indicators_data: Dict[str, List[float]]
@@ -402,43 +422,45 @@ def detect_signals(
         dif = indicators_data["DIF"]
         dea = indicators_data["DEA"]
         
-        # Golden cross (DIF crosses above DEA)
-        if dif[-1] > dea[-1] and dif[-2] <= dea[-2]:
-            signals.append({
-                "type": "bullish",
-                "indicator": "MACD",
-                "signal": "MACD金叉",
-                "description": "DIF上穿DEA，买入信号"
-            })
-        
-        # Death cross (DIF crosses below DEA)
-        if dif[-1] < dea[-1] and dif[-2] >= dea[-2]:
-            signals.append({
-                "type": "bearish",
-                "indicator": "MACD",
-                "signal": "MACD死叉",
-                "description": "DIF下穿DEA，卖出信号"
-            })
+        if len(dif) >= 2 and len(dea) >= 2:
+            # Golden cross (DIF crosses above DEA)
+            if _safe_compare(dif[-1], dea[-1], '>') and _safe_compare(dif[-2], dea[-2], '<='):
+                signals.append({
+                    "type": "bullish",
+                    "indicator": "MACD",
+                    "signal": "MACD金叉",
+                    "description": "DIF上穿DEA，买入信号"
+                })
+            
+            # Death cross (DIF crosses below DEA)
+            if _safe_compare(dif[-1], dea[-1], '<') and _safe_compare(dif[-2], dea[-2], '>='):
+                signals.append({
+                    "type": "bearish",
+                    "indicator": "MACD",
+                    "signal": "MACD死叉",
+                    "description": "DIF下穿DEA，卖出信号"
+                })
     
     # RSI signals
     rsi_keys = [k for k in indicators_data.keys() if k.startswith("RSI")]
     for rsi_key in rsi_keys:
         rsi = indicators_data[rsi_key]
         
-        if rsi[-1] > 80:
-            signals.append({
-                "type": "bearish",
-                "indicator": "RSI",
-                "signal": "RSI超买",
-                "description": f"{rsi_key}={rsi[-1]:.1f}，处于超买区间"
-            })
-        elif rsi[-1] < 20:
-            signals.append({
-                "type": "bullish",
-                "indicator": "RSI",
-                "signal": "RSI超卖",
-                "description": f"{rsi_key}={rsi[-1]:.1f}，处于超卖区间"
-            })
+        if rsi and len(rsi) > 0 and rsi[-1] is not None:
+            if _safe_compare(rsi[-1], 80, '>'):
+                signals.append({
+                    "type": "bearish",
+                    "indicator": "RSI",
+                    "signal": "RSI超买",
+                    "description": f"{rsi_key}={rsi[-1]:.1f}，处于超买区间"
+                })
+            elif _safe_compare(rsi[-1], 20, '<'):
+                signals.append({
+                    "type": "bullish",
+                    "indicator": "RSI",
+                    "signal": "RSI超卖",
+                    "description": f"{rsi_key}={rsi[-1]:.1f}，处于超卖区间"
+                })
     
     # KDJ signals
     if "K" in indicators_data and "D" in indicators_data:
@@ -446,39 +468,41 @@ def detect_signals(
         d = indicators_data["D"]
         j = indicators_data.get("J", [])
         
-        # Golden cross
-        if k[-1] > d[-1] and k[-2] <= d[-2]:
-            signals.append({
-                "type": "bullish",
-                "indicator": "KDJ",
-                "signal": "KDJ金叉",
-                "description": "K线上穿D线，买入信号"
-            })
-        
-        # Death cross
-        if k[-1] < d[-1] and k[-2] >= d[-2]:
-            signals.append({
-                "type": "bearish",
-                "indicator": "KDJ",
-                "signal": "KDJ死叉",
-                "description": "K线下穿D线，卖出信号"
-            })
+        if len(k) >= 2 and len(d) >= 2:
+            # Golden cross
+            if _safe_compare(k[-1], d[-1], '>') and _safe_compare(k[-2], d[-2], '<='):
+                signals.append({
+                    "type": "bullish",
+                    "indicator": "KDJ",
+                    "signal": "KDJ金叉",
+                    "description": "K线上穿D线，买入信号"
+                })
+            
+            # Death cross
+            if _safe_compare(k[-1], d[-1], '<') and _safe_compare(k[-2], d[-2], '>='):
+                signals.append({
+                    "type": "bearish",
+                    "indicator": "KDJ",
+                    "signal": "KDJ死叉",
+                    "description": "K线下穿D线，卖出信号"
+                })
         
         # J overbought/oversold
-        if j and j[-1] > 100:
-            signals.append({
-                "type": "bearish",
-                "indicator": "KDJ",
-                "signal": "J线超买",
-                "description": f"J={j[-1]:.1f}，处于超买区间"
-            })
-        elif j and j[-1] < 0:
-            signals.append({
-                "type": "bullish",
-                "indicator": "KDJ",
-                "signal": "J线超卖",
-                "description": f"J={j[-1]:.1f}，处于超卖区间"
-            })
+        if j and len(j) > 0 and j[-1] is not None:
+            if _safe_compare(j[-1], 100, '>'):
+                signals.append({
+                    "type": "bearish",
+                    "indicator": "KDJ",
+                    "signal": "J线超买",
+                    "description": f"J={j[-1]:.1f}，处于超买区间"
+                })
+            elif _safe_compare(j[-1], 0, '<'):
+                signals.append({
+                    "type": "bullish",
+                    "indicator": "KDJ",
+                    "signal": "J线超卖",
+                    "description": f"J={j[-1]:.1f}，处于超卖区间"
+                })
     
     # BOLL signals
     if "BOLL_UPPER" in indicators_data and "BOLL_LOWER" in indicators_data:
@@ -486,20 +510,21 @@ def detect_signals(
         lower = indicators_data["BOLL_LOWER"]
         close = df['close'].tolist()
         
-        if close[-1] > upper[-1]:
-            signals.append({
-                "type": "bearish",
-                "indicator": "BOLL",
-                "signal": "突破上轨",
-                "description": "股价突破布林带上轨，可能回调"
-            })
-        elif close[-1] < lower[-1]:
-            signals.append({
-                "type": "bullish",
-                "indicator": "BOLL",
-                "signal": "突破下轨",
-                "description": "股价突破布林带下轨，可能反弹"
-            })
+        if close and upper and lower and len(close) > 0 and len(upper) > 0 and len(lower) > 0:
+            if _safe_compare(close[-1], upper[-1], '>'):
+                signals.append({
+                    "type": "bearish",
+                    "indicator": "BOLL",
+                    "signal": "突破上轨",
+                    "description": "股价突破布林带上轨，可能回调"
+                })
+            elif _safe_compare(close[-1], lower[-1], '<'):
+                signals.append({
+                    "type": "bullish",
+                    "indicator": "BOLL",
+                    "signal": "突破下轨",
+                    "description": "股价突破布林带下轨，可能反弹"
+                })
     
     return signals
 
@@ -514,6 +539,15 @@ def calculate_support_resistance(df: pd.DataFrame, window: int = 20) -> Dict[str
     Returns:
         Dict with support and resistance levels
     """
+    if len(df) < 1:
+        return {
+            "resistance": 0.0,
+            "support": 0.0,
+            "fib_382": 0.0,
+            "fib_618": 0.0,
+            "mean": 0.0
+        }
+    
     if len(df) < window:
         window = len(df)
     
@@ -523,21 +557,29 @@ def calculate_support_resistance(df: pd.DataFrame, window: int = 20) -> Dict[str
     low_min = recent['low'].min()
     close_mean = recent['close'].mean()
     
+    # Handle NaN values
+    if pd.isna(high_max):
+        high_max = recent['close'].max() if not recent['close'].empty else 0.0
+    if pd.isna(low_min):
+        low_min = recent['close'].min() if not recent['close'].empty else 0.0
+    if pd.isna(close_mean):
+        close_mean = (high_max + low_min) / 2 if (high_max + low_min) > 0 else 0.0
+    
     # Simple support/resistance calculation
-    resistance = round(high_max, 2)
-    support = round(low_min, 2)
+    resistance = round(float(high_max), 2)
+    support = round(float(low_min), 2)
     
     # Calculate fibonacci levels
     diff = high_max - low_min
-    fib_382 = round(high_max - diff * 0.382, 2)
-    fib_618 = round(high_max - diff * 0.618, 2)
+    fib_382 = round(float(high_max - diff * 0.382), 2) if diff > 0 else resistance
+    fib_618 = round(float(high_max - diff * 0.618), 2) if diff > 0 else support
     
     return {
         "resistance": resistance,
         "support": support,
         "fib_382": fib_382,
         "fib_618": fib_618,
-        "mean": round(close_mean, 2)
+        "mean": round(float(close_mean), 2)
     }
 
 

@@ -1,0 +1,29 @@
+{
+  "table_name": "ods_hk_daily_adj",
+  "columns": [
+    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "股票代码"},
+    {"name": "trade_date", "type": "Date", "comment": "交易日期"},
+    {"name": "open", "type": "Nullable(Float64)", "comment": "开盘价"},
+    {"name": "high", "type": "Nullable(Float64)", "comment": "最高价"},
+    {"name": "low", "type": "Nullable(Float64)", "comment": "最低价"},
+    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价"},
+    {"name": "pre_close", "type": "Nullable(Float64)", "comment": "昨收价"},
+    {"name": "change", "type": "Nullable(Float64)", "comment": "涨跌额"},
+    {"name": "pct_change", "type": "Nullable(Float64)", "comment": "涨跌幅"},
+    {"name": "vol", "type": "Nullable(Float64)", "comment": "成交量"},
+    {"name": "amount", "type": "Nullable(Float64)", "comment": "成交额"},
+    {"name": "vwap", "type": "Nullable(Float64)", "comment": "平均价"},
+    {"name": "adj_factor", "type": "Nullable(Float64)", "comment": "复权因子"},
+    {"name": "turnover_ratio", "type": "Nullable(Float64)", "comment": "换手率(基于总股本)"},
+    {"name": "free_share", "type": "Nullable(Float64)", "comment": "流通股本"},
+    {"name": "total_share", "type": "Nullable(Float64)", "comment": "总股本"},
+    {"name": "free_mv", "type": "Nullable(Float64)", "comment": "流通市值"},
+    {"name": "total_mv", "type": "Nullable(Float64)", "comment": "总市值"},
+    {"name": "version", "type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号"},
+    {"name": "_ingested_at", "type": "DateTime", "default": "now()", "comment": "入库时间"}
+  ],
+  "engine": "ReplacingMergeTree(version)",
+  "partition_by": "toYYYYMM(trade_date)",
+  "order_by": ["ts_code", "trade_date"],
+  "comment": "港股复权行情 from TuShare hk_daily_adj API"
+}

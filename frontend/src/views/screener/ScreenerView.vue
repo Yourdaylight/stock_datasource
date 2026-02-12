@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useScreenerStore } from '@/stores/screener'
 import { usePortfolioStore } from '@/stores/portfolio'
@@ -15,6 +15,14 @@ const nlQuery = ref('')
 const activeTab = ref('condition')
 const searchInput = ref('')
 const selectedDate = ref<string | null>(null)
+
+// 市场类型筛选
+const marketType = ref<'a_share' | 'hk_stock' | 'all'>('a_share')
+const marketTypeOptions = [
+  { value: 'a_share', label: 'A 股' },
+  { value: 'hk_stock', label: '港股' },
+  { value: 'all', label: '全部' }
+]
 
 // Stock detail dialog
 const showDetailDialog = ref(false)
@@ -34,10 +42,11 @@ const presetStrategies = [
 ]
 
 const conditions = ref<ScreenerCondition[]>([
-  { field: 'pe', operator: 'lt', value: 30 }
+  { field: 'pct_chg', operator: 'gt', value: 3 }
 ])
 
-const fieldOptions = [
+// A股支持的全部字段
+const aShareFieldOptions = [
   { value: 'pe', label: 'PE (市盈率)', defaultValue: 30 },
   { value: 'pb', label: 'PB (市净率)', defaultValue: 3 },
   { value: 'ps', label: 'PS (市销率)', defaultValue: 5 },
@@ -52,11 +61,39 @@ const fieldOptions = [
   { value: 'amount', label: '成交额 (千元)', defaultValue: 50000 },
 ]
 
+// 港股支持的字段（基于 ods_hk_daily 表结构）
+const hkFieldOptions = [
+  { value: 'pct_chg', label: '涨跌幅 (%)', defaultValue: 3 },
+  { value: 'close', label: '收盘价', defaultValue: 50 },
+  { value: 'open', label: '开盘价', defaultValue: 50 },
+  { value: 'high', label: '最高价', defaultValue: 50 },
+  { value: 'low', label: '最低价', defaultValue: 50 },
+  { value: 'vol', label: '成交量 (股)', defaultValue: 1000000 },
+  { value: 'amount', label: '成交额 (元)', defaultValue: 10000000 },
+]
+
+// 根据市场类型返回可用字段
+const fieldOptions = computed(() => {
+  if (marketType.value === 'hk_stock') {
+    return hkFieldOptions
+  }
+  return aShareFieldOptions
+})
+
 // 获取字段默认值
 const getFieldDefaultValue = (field: string): number => {
-  const option = fieldOptions.find(opt => opt.value === field)
+  const options = marketType.value === 'hk_stock' ? hkFieldOptions : aShareFieldOptions
+  const option = options.find(opt => opt.value === field)
   return option?.defaultValue ?? 0
 }
+
+// 监听市场类型变化，重置筛选条件
+watch(marketType, (newType) => {
+  // 重置为该市场支持的默认条件
+  const defaultField = newType === 'hk_stock' ? 'pct_chg' : 'pct_chg'
+  const defaultValue = getFieldDefaultValue(defaultField)
+  conditions.value = [{ field: defaultField, operator: 'gt', value: defaultValue }]
+})
 
 const operatorOptions = [
   { value: 'gt', label: '>' },
@@ -67,7 +104,8 @@ const operatorOptions = [
 ]
 
 const addCondition = () => {
-  const defaultField = 'pe'
+  // 根据市场类型选择默认字段
+  const defaultField = marketType.value === 'hk_stock' ? 'pct_chg' : 'pe'
   conditions.value.push({ 
     field: defaultField, 
     operator: 'lt', 
@@ -108,8 +146,15 @@ const handleDateChange = (date: string | null) => {
   screenerStore.changeTradeDate(date)
 }
 
+const handleMarketTypeChange = (value: 'a_share' | 'hk_stock' | 'all') => {
+  marketType.value = value
+  screenerStore.changeMarketType(value)
+}
+
 const handleClearFilters = () => {
-  conditions.value = [{ field: 'pe', operator: 'lt', value: 30 }]
+  // 重置为当前市场的默认条件
+  const defaultField = marketType.value === 'hk_stock' ? 'pct_chg' : 'pct_chg'
+  conditions.value = [{ field: defaultField, operator: 'gt', value: getFieldDefaultValue(defaultField) }]
   searchInput.value = ''
   selectedDate.value = null
   nlQuery.value = ''
@@ -350,10 +395,16 @@ onMounted(() => {
         <t-card title="股票列表">
           <template #actions>
             <t-space>
+              <t-select
+                v-model="marketType"
+                :options="marketTypeOptions"
+                style="width: 90px"
+                @change="handleMarketTypeChange"
+              />
               <t-date-picker
                 v-model="selectedDate"
                 placeholder="选择日期"
-                style="width: 150px"
+                style="width: 130px"
                 :clearable="true"
                 format="YYYY-MM-DD"
                 value-type="YYYY-MM-DD"
@@ -362,14 +413,14 @@ onMounted(() => {
               <t-input
                 v-model="searchInput"
                 placeholder="搜索代码/名称"
-                style="width: 160px"
+                style="width: 140px"
                 @enter="handleSearch"
               >
                 <template #suffix-icon>
                   <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
                 </template>
               </t-input>
-              <span class="result-count">共 {{ screenerStore.total }} 只股票</span>
+              <span class="result-count">共 {{ screenerStore.total }} 只{{ marketType === 'hk_stock' ? '港股' : (marketType === 'all' ? '股票' : 'A股') }}</span>
             </t-space>
           </template>
           

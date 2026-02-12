@@ -1,0 +1,24 @@
+{
+    "table_name": "ods_hk_basic",
+    "columns": [
+        {"name": "ts_code", "data_type": "LowCardinality(String)", "comment": "TS代码"},
+        {"name": "name", "data_type": "Nullable(String)", "comment": "股票简称"},
+        {"name": "fullname", "data_type": "Nullable(String)", "comment": "公司全称"},
+        {"name": "enname", "data_type": "Nullable(String)", "comment": "英文名称"},
+        {"name": "cn_spell", "data_type": "Nullable(String)", "comment": "拼音"},
+        {"name": "market", "data_type": "Nullable(String)", "comment": "市场类别"},
+        {"name": "list_status", "data_type": "LowCardinality(String)", "comment": "上市状态(L上市/D退市/P暂停上市)"},
+        {"name": "list_date", "data_type": "Nullable(Date)", "comment": "上市日期"},
+        {"name": "delist_date", "data_type": "Nullable(Date)", "comment": "退市日期"},
+        {"name": "trade_unit", "data_type": "Nullable(Float64)", "comment": "交易单位"},
+        {"name": "isin", "data_type": "Nullable(String)", "comment": "ISIN代码"},
+        {"name": "curr_type", "data_type": "Nullable(String)", "comment": "货币代码"},
+        {"name": "version", "data_type": "UInt32", "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
+        {"name": "_ingested_at", "data_type": "DateTime", "default": "now()", "comment": "数据入库时间"}
+    ],
+    "engine": "ReplacingMergeTree",
+    "engine_params": ["version"],
+    "partition_by": "",
+    "order_by": ["ts_code"],
+    "comment": "港股列表基础信息 from TuShare hk_basic API"
+}
