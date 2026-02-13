@@ -1,6 +1,7 @@
 """Financial Report Service for comprehensive financial analysis."""
 
 import logging
+import math
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
@@ -12,6 +13,18 @@ from stock_datasource.plugins.tushare_forecast.service import TuShareForecastSer
 from stock_datasource.plugins.tushare_express.service import TuShareExpressService
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_json_data(data):
+    """Recursively replace NaN/inf float values with None for JSON compatibility."""
+    if isinstance(data, dict):
+        return {k: _sanitize_json_data(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_sanitize_json_data(v) for v in data]
+    elif isinstance(data, float):
+        if math.isnan(data) or math.isinf(data):
+            return None
+    return data
 
 
 class FinancialReportService:
@@ -50,14 +63,14 @@ class FinancialReportService:
             # Get financial health analysis
             health_analysis = self.finace_service.analyze_financial_health(code, periods)
             
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "analysis_date": datetime.now().isoformat(),
                 "summary": summary,
                 "growth_analysis": growth_analysis,
                 "health_analysis": health_analysis,
                 "status": "success"
-            }
+            })
             
         except Exception as e:
             self.logger.error(f"Error in comprehensive analysis for {code}: {e}")
@@ -508,15 +521,15 @@ class FinancialReportService:
         """
         try:
             data = self.income_service.get_income_statement(
-                ts_code=code, report_type=report_type, limit=periods
+                code=code, periods=periods, report_type=str(report_type)
             )
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "report_type": report_type,
                 "periods": len(data),
                 "data": data,
                 "status": "success"
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting income statement for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}
@@ -534,15 +547,15 @@ class FinancialReportService:
         """
         try:
             data = self.balancesheet_service.get_balance_sheet(
-                ts_code=code, report_type=report_type, limit=periods
+                code=code, periods=periods, report_type=str(report_type)
             )
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "report_type": report_type,
                 "periods": len(data),
                 "data": data,
                 "status": "success"
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting balance sheet for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}
@@ -560,15 +573,15 @@ class FinancialReportService:
         """
         try:
             data = self.cashflow_service.get_cashflow(
-                ts_code=code, report_type=report_type, limit=periods
+                code=code, periods=periods, report_type=str(report_type)
             )
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "report_type": report_type,
                 "periods": len(data),
                 "data": data,
                 "status": "success"
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting cash flow for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}

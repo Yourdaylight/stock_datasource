@@ -158,10 +158,17 @@ async def get_financial(request: FinancialRequest):
                 return [clean_null_values(v) for v in data]
             elif data == '\\N' or data == 'None' or data == '':
                 return None
+            elif isinstance(data, float):
+                import math
+                if math.isnan(data) or math.isinf(data):
+                    return None
+                return data
             elif isinstance(data, str):
                 # Try to convert numeric strings to float
                 try:
-                    return float(data)
+                    f = float(data)
+                    import math
+                    return None if (math.isnan(f) or math.isinf(f)) else f
                 except (ValueError, TypeError):
                     return data
             return data

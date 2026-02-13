@@ -1,8 +1,17 @@
 """Query service for TuShare HK financial indicators data."""
 
 import re
+import math
+import numpy as np
 from typing import List, Dict, Any, Optional
 from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+
+def _sanitize_for_json(val):
+    """Replace NaN/inf float values with None for JSON compatibility."""
+    if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+        return None
+    return val
 
 
 class TuShareHKFinaIndicatorService(BaseService):
@@ -69,6 +78,7 @@ class TuShareHKFinaIndicatorService(BaseService):
             elif hasattr(df[col].dtype, 'name') and 'date' in df[col].dtype.name.lower():
                 df[col] = df[col].astype(str)
         
+        df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
         return df.to_dict('records')
     
     @query_method(
@@ -126,6 +136,7 @@ class TuShareHKFinaIndicatorService(BaseService):
                 "pb_ttm": row.get('pb_ttm'),
                 "total_market_cap": row.get('total_market_cap'),
             }
+            metric = {k: _sanitize_for_json(v) for k, v in metric.items()}
             metrics.append(metric)
         
         return {
