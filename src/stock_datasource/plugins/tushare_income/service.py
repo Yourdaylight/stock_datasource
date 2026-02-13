@@ -1,6 +1,7 @@
 """Query service for TuShare income statement data."""
 
 import re
+import numpy as np
 from typing import List, Dict, Any, Optional
 from stock_datasource.core.base_service import BaseService, query_method, QueryParam
 
@@ -81,6 +82,7 @@ class TuShareIncomeService(BaseService):
             elif hasattr(df[col].dtype, 'name') and 'date' in df[col].dtype.name.lower():
                 df[col] = df[col].astype(str)
         
+        df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
         return df.to_dict('records')
     
     @query_method(

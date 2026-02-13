@@ -1,6 +1,7 @@
 """HK Financial Report Service for comprehensive Hong Kong stock financial analysis."""
 
 import logging
+import math
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -10,6 +11,18 @@ from stock_datasource.plugins.tushare_hk_balancesheet.service import TuShareHKBa
 from stock_datasource.plugins.tushare_hk_cashflow.service import TuShareHKCashflowService
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_json_data(data):
+    """Recursively replace NaN/inf float values with None for JSON compatibility."""
+    if isinstance(data, dict):
+        return {k: _sanitize_json_data(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_sanitize_json_data(v) for v in data]
+    elif isinstance(data, float):
+        if math.isnan(data) or math.isinf(data):
+            return None
+    return data
 
 
 class HKFinancialReportService:
@@ -49,7 +62,7 @@ class HKFinancialReportService:
             health = self._analyze_health(indicators, balance_data)
             growth = self._analyze_growth(indicators)
 
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "analysis_date": datetime.now().isoformat(),
                 "summary": summary,
@@ -62,7 +75,7 @@ class HKFinancialReportService:
                     "cashflow": cashflow_data,
                 },
                 "status": "success",
-            }
+            })
 
         except Exception as e:
             self.logger.error(f"Error in HK comprehensive analysis for {code}: {e}")
@@ -74,12 +87,12 @@ class HKFinancialReportService:
         """获取港股财务指标数据（宽表）"""
         try:
             data = self.fina_service.get_financial_indicators(code, periods)
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "periods": len(data),
                 "data": data,
                 "status": "success",
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting HK fina indicators for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}
@@ -90,13 +103,13 @@ class HKFinancialReportService:
         """获取港股利润表数据（PIVOT 宽表格式）"""
         try:
             data = self.income_service.get_income_pivot(code, period=period, periods_count=periods)
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "periods": data.get("periods", 0),
                 "indicators": data.get("indicators", []),
                 "data": data.get("data", []),
                 "status": "success",
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting HK income for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}
@@ -105,13 +118,13 @@ class HKFinancialReportService:
         """获取港股资产负债表数据（PIVOT 宽表格式）"""
         try:
             data = self.balancesheet_service.get_balancesheet_pivot(code, period=period, periods_count=periods)
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "periods": data.get("periods", 0),
                 "indicators": data.get("indicators", []),
                 "data": data.get("data", []),
                 "status": "success",
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting HK balance sheet for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}
@@ -120,13 +133,13 @@ class HKFinancialReportService:
         """获取港股现金流量表数据（PIVOT 宽表格式）"""
         try:
             data = self.cashflow_service.get_cashflow_pivot(code, period=period, periods_count=periods)
-            return {
+            return _sanitize_json_data({
                 "code": code,
                 "periods": data.get("periods", 0),
                 "indicators": data.get("indicators", []),
                 "data": data.get("data", []),
                 "status": "success",
-            }
+            })
         except Exception as e:
             self.logger.error(f"Error getting HK cash flow for {code}: {e}")
             return {"code": code, "status": "error", "error": str(e)}

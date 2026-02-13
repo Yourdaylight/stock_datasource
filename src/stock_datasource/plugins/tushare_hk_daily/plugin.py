@@ -1,4 +1,4 @@
-"""TuShare Hong Kong Stock Daily data plugin implementation."""
+"""Hong Kong Stock Daily data plugin implementation using yfinance."""
 
 import pandas as pd
 from typing import Dict, Any, Optional, List
@@ -12,7 +12,13 @@ from .extractor import extractor
 
 
 class TuShareHKDailyPlugin(BasePlugin):
-    """TuShare Hong Kong Stock daily data plugin."""
+    """Hong Kong Stock daily data plugin using yfinance.
+    
+    This plugin has been migrated from TuShare to yfinance to solve permission issues.
+    Data format is kept compatible with TuShare format for backward compatibility.
+    
+    Note: The 'amount' (成交额) field is not available from yfinance and will be set to null.
+    """
     
     @property
     def name(self) -> str:
@@ -20,18 +26,18 @@ class TuShareHKDailyPlugin(BasePlugin):
     
     @property
     def version(self) -> str:
-        return "1.0.0"
+        return "2.0.0"
     
     @property
     def description(self) -> str:
-        return "TuShare Hong Kong Stock daily price data"
+        return "Hong Kong Stock daily price data using yfinance (TuShare format compatible)"
     
     @property
     def api_rate_limit(self) -> int:
         config_file = Path(__file__).parent / "config.json"
         with open(config_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        return config.get("rate_limit", 120)
+        return config.get("rate_limit", 60)
     
     def get_schema(self) -> Dict[str, Any]:
         """Get table schema from separate JSON file."""
@@ -50,9 +56,9 @@ class TuShareHKDailyPlugin(BasePlugin):
     def get_dependencies(self) -> List[str]:
         """Get plugin dependencies.
         
-        This plugin has no required dependencies.
+        This plugin depends on tushare_hk_basic for getting stock list.
         """
-        return []
+        return ["tushare_hk_basic"]
     
     def get_optional_dependencies(self) -> List[str]:
         """Get optional plugin dependencies.
@@ -62,33 +68,62 @@ class TuShareHKDailyPlugin(BasePlugin):
         return []
     
     def extract_data(self, **kwargs) -> pd.DataFrame:
-        """Extract HK daily data from TuShare.
+        """Extract HK daily data from yfinance.
         
         Supports:
-        - trade_date: Get all HK stocks for a specific date
         - ts_code + start_date + end_date: Get a specific stock for a date range
+        - start_date + end_date: Get all HK stocks for a date range (batch mode)
+        - max_stocks: Limit number of stocks for testing
+        
+        Note: trade_date parameter is not recommended for yfinance.
         """
         trade_date = kwargs.get('trade_date')
         ts_code = kwargs.get('ts_code')
         start_date = kwargs.get('start_date')
         end_date = kwargs.get('end_date')
+        max_stocks = kwargs.get('max_stocks')
         
-        if trade_date:
-            self.logger.info(f"Extracting HK daily data for trade_date: {trade_date}")
-            data = extractor.extract(trade_date=trade_date)
-        elif ts_code and start_date and end_date:
-            self.logger.info(f"Extracting HK daily data for {ts_code} from {start_date} to {end_date}")
-            data = extractor.extract_by_date_range(ts_code, start_date, end_date)
-        elif start_date and end_date:
-            # Get all stocks for a date range (may require multiple API calls)
-            self.logger.info(f"Extracting HK daily data from {start_date} to {end_date}")
-            data = extractor.extract(start_date=start_date, end_date=end_date)
+        if trade_date and not ts_code:
+            self.logger.warning("Using trade_date without ts_code is not efficient for yfinance")
+            self.logger.info("Consider using ts_code + start_date + end_date instead")
+            raise ValueError("Use ts_code + start_date + end_date or start_date + end_date for batch mode")
+        
+        if ts_code:
+            # Single stock mode
+            self.logger.info(f"Extracting HK daily data for {ts_code}")
+            if start_date and end_date:
+                data = extractor.extract_by_date_range(ts_code, start_date, end_date)
+            else:
+                # Default: 1 year of data
+                data = extractor.extract(ts_code=ts_code, start_date=start_date, end_date=end_date)
+            
+            if data.empty:
+                self.logger.warning(f"No data found for {ts_code}")
+                return pd.DataFrame()
+            
+            self.logger.info(f"Extracted {len(data)} records for {ts_code}")
+            
         else:
-            raise ValueError("Either trade_date, or (ts_code + start_date + end_date), or (start_date + end_date) is required")
-        
-        if data.empty:
-            self.logger.warning(f"No HK daily data found for params: {kwargs}")
-            return pd.DataFrame()
+            # Batch mode: get all HK stocks
+            if not start_date or not end_date:
+                raise ValueError("Both start_date and end_date are required for batch mode")
+            
+            self.logger.info(f"Extracting HK daily data for all stocks from {start_date} to {end_date}")
+            
+            if not self.db:
+                self.logger.error("Database not initialized for batch extraction")
+                raise ValueError("Database connection required for batch mode")
+            
+            data = extractor.extract_all_hk_stocks(
+                start_date=start_date,
+                end_date=end_date,
+                db_client=self.db,
+                max_stocks=max_stocks
+            )
+            
+            if data.empty:
+                self.logger.warning("No HK daily data found")
+                return pd.DataFrame()
         
         # Add system columns
         data['version'] = int(datetime.now().timestamp())
@@ -206,11 +241,11 @@ if __name__ == "__main__":
     import sys
     import argparse
     
-    parser = argparse.ArgumentParser(description="TuShare HK Daily Data Plugin")
-    parser.add_argument("--date", help="Trade date in YYYYMMDD format")
-    parser.add_argument("--ts_code", help="Stock code (e.g., 00001.HK)")
+    parser = argparse.ArgumentParser(description="HK Daily Data Plugin (yfinance)")
+    parser.add_argument("--ts_code", help="Stock code in TuShare format (e.g., 00001.HK)")
     parser.add_argument("--start_date", help="Start date in YYYYMMDD format")
     parser.add_argument("--end_date", help="End date in YYYYMMDD format")
+    parser.add_argument("--max_stocks", type=int, help="Maximum number of stocks (for testing)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     
     args = parser.parse_args()
@@ -220,17 +255,17 @@ if __name__ == "__main__":
     
     # Build kwargs
     kwargs = {}
-    if args.date:
-        kwargs['trade_date'] = args.date
     if args.ts_code:
         kwargs['ts_code'] = args.ts_code
     if args.start_date:
         kwargs['start_date'] = args.start_date
     if args.end_date:
         kwargs['end_date'] = args.end_date
+    if args.max_stocks:
+        kwargs['max_stocks'] = args.max_stocks
     
-    if not kwargs:
-        print("Error: At least one of --date, --ts_code, or --start_date/--end_date is required")
+    if not kwargs or (not args.ts_code and (not args.start_date or not args.end_date)):
+        print("Error: Provide --ts_code, or both --start_date and --end_date")
         sys.exit(1)
     
     # Run pipeline

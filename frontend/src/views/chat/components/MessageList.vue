@@ -27,9 +27,9 @@ const chartInstances = ref<Map<string, echarts.ECharts>>(new Map())
 
 // Feature cards for welcome screen
 const featureCards = [
-  { icon: 'chart-line', title: '行情分析', desc: '分析股票K线走势、技术指标', example: '分析贵州茅台的走势' },
+  { icon: 'chart-line', title: '行情分析', desc: '分析A股/港股K线走势、技术指标', example: '分析贵州茅台的走势' },
   { icon: 'search', title: '智能选股', desc: '根据条件筛选股票', example: '推荐低估值蓝筹股' },
-  { icon: 'file-paste', title: '财报解读', desc: '解读公司财务数据', example: '解读比亚迪的财报' },
+  { icon: 'file-paste', title: '财报解读', desc: '解读A股/港股公司财务数据', example: '解读腾讯控股 00700.HK 的财报' },
   { icon: 'chart-pie', title: '持仓管理', desc: '分析持仓配置建议', example: '分析我的持仓' },
 ]
 
@@ -37,6 +37,7 @@ const featureCards = [
 const exampleQueries = [
   '今日大盘走势如何？',
   '帮我分析一下 600519 的技术指标',
+  '分析腾讯控股 00700.HK 的技术面和财务情况',
   '推荐一些低PE高ROE的股票',
   '查看沪深300成分股',
   '分析宁德时代的财务状况',
@@ -306,7 +307,7 @@ const getThinkingStepIcon = (step: string): string => {
       <!-- Usage tips -->
       <div class="usage-tips">
         <t-icon name="info-circle" style="color: #0052d9" />
-        <span>提示：你可以直接输入股票代码（如 600519）或股票名称（如 贵州茅台）进行分析</span>
+        <span>提示：你可以直接输入股票代码（如 600519、00700.HK）或股票名称（如 贵州茅台、腾讯控股）进行分析</span>
       </div>
     </div>
     

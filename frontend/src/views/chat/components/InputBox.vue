@@ -31,7 +31,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   <div class="input-box">
     <t-textarea
       v-model="inputValue"
-      placeholder="输入您的问题，例如：帮我分析一下贵州茅台的走势"
+      placeholder="输入您的问题，例如：分析贵州茅台的走势 / 分析腾讯 00700.HK 技术指标"
       :autosize="{ minRows: 1, maxRows: 4 }"
       :disabled="disabled"
       @keydown="handleKeydown"

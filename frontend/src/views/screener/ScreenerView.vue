@@ -301,13 +301,13 @@ onMounted(() => {
         </t-col>
         <t-col :span="2">
           <div class="summary-item">
-            <div class="summary-label up">涨停</div>
+            <div class="summary-label up">{{ marketType === 'hk_stock' ? '大涨(≥10%)' : '涨停' }}</div>
             <div class="summary-value up">{{ screenerStore.summary.limit_up }}</div>
           </div>
         </t-col>
         <t-col :span="2">
           <div class="summary-item">
-            <div class="summary-label down">跌停</div>
+            <div class="summary-label down">{{ marketType === 'hk_stock' ? '大跌(≤-10%)' : '跌停' }}</div>
             <div class="summary-value down">{{ screenerStore.summary.limit_down }}</div>
           </div>
         </t-col>

@@ -31,9 +31,9 @@ const handleSend = async (content: string) => {
 // Quick suggestions
 const suggestions = [
   '分析贵州茅台',
+  '分析腾讯控股 00700.HK',
   '推荐低估值股票',
   '今日大盘走势',
-  '查看我的工作流',
 ]
 
 // Format session time
