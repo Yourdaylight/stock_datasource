@@ -222,7 +222,8 @@ class ScreenerService:
         page_size: int = 20,
         include_name: bool = True,
         trade_date: Optional[str] = None,
-        market_type: Optional[str] = None
+        market_type: Optional[str] = None,
+        search: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
         """
         多条件筛选股票 - 使用 Plugin Services
@@ -236,6 +237,7 @@ class ScreenerService:
             include_name: 是否包含股票名称
             trade_date: 交易日期，默认使用最新日期
             market_type: 市场类型 (a_share, hk_stock, all)，默认 a_share
+            search: 按名称/代码模糊搜索
             
         Returns:
             (股票列表, 总数量)
@@ -248,7 +250,8 @@ class ScreenerService:
                 sort_order=sort_order,
                 page=page,
                 page_size=page_size,
-                trade_date=trade_date
+                trade_date=trade_date,
+                search=search
             )
         elif market_type == 'all':
             # 分别筛选两个市场
@@ -258,7 +261,8 @@ class ScreenerService:
                 sort_order=sort_order,
                 page=page,
                 page_size=page_size // 2,
-                trade_date=trade_date
+                trade_date=trade_date,
+                search=search
             )
             hk_items, hk_total = self._filter_hk_stocks(
                 conditions=conditions,
@@ -266,7 +270,8 @@ class ScreenerService:
                 sort_order=sort_order,
                 page=page,
                 page_size=page_size // 2,
-                trade_date=trade_date
+                trade_date=trade_date,
+                search=search
             )
             return a_items + hk_items, a_total + hk_total
         else:
@@ -277,7 +282,8 @@ class ScreenerService:
                 sort_order=sort_order,
                 page=page,
                 page_size=page_size,
-                trade_date=trade_date
+                trade_date=trade_date,
+                search=search
             )
     
     def _filter_a_share_stocks(
@@ -287,7 +293,8 @@ class ScreenerService:
         sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
-        trade_date: Optional[str] = None
+        trade_date: Optional[str] = None,
+        search: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
         """A股条件筛选（原有逻辑）"""
         target_date = trade_date or self.get_latest_trade_date()
@@ -298,6 +305,15 @@ class ScreenerService:
         merged_df = self._get_merged_data(target_date)
         if merged_df.empty:
             return [], 0
+        
+        # 搜索过滤
+        if search:
+            search_upper = search.strip().upper()
+            mask = (
+                merged_df['ts_code'].str.upper().str.contains(search_upper, na=False) |
+                merged_df['stock_name'].str.contains(search, na=False)
+            )
+            merged_df = merged_df[mask]
         
         # 应用筛选条件
         filtered_df = self._apply_conditions(merged_df, conditions)
@@ -333,7 +349,8 @@ class ScreenerService:
         sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
-        trade_date: Optional[str] = None
+        trade_date: Optional[str] = None,
+        search: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
         """港股条件筛选"""
         try:
@@ -365,6 +382,15 @@ class ScreenerService:
             hk_stock_list = hk_basic_service.get_stock_list(list_status='L')
             hk_names = {s['ts_code']: s['name'] for s in hk_stock_list}
             daily_df['stock_name'] = daily_df['ts_code'].map(lambda x: hk_names.get(x, x))
+            
+            # 搜索过滤
+            if search:
+                search_upper = search.strip().upper()
+                mask = (
+                    daily_df['ts_code'].str.upper().str.contains(search_upper, na=False) |
+                    daily_df['stock_name'].str.contains(search, na=False)
+                )
+                daily_df = daily_df[mask]
             
             # 应用筛选条件（港股支持的字段有限）
             filtered_df = self._apply_hk_conditions(daily_df, conditions)

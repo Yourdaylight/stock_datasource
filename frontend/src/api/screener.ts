@@ -14,6 +14,7 @@ export interface ScreenerRequest {
   limit?: number
   trade_date?: string  // 交易日期，格式 YYYY-MM-DD
   market_type?: 'a_share' | 'hk_stock' | 'all'  // 市场类型
+  search?: string  // 按名称/代码模糊搜索
 }
 
 export interface StockItem {
@@ -160,8 +161,9 @@ export const screenerApi = {
   },
 
   // 获取市场概况
-  getSummary(): Promise<MarketSummary> {
-    return request.get('/api/screener/summary')
+  getSummary(market_type?: string): Promise<MarketSummary> {
+    const params = market_type ? `?market_type=${market_type}` : ''
+    return request.get(`/api/screener/summary${params}`)
   },
 
   // 多条件筛选

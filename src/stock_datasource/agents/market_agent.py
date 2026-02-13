@@ -38,19 +38,21 @@ def _run_async_safely(coro):
 
 
 def _normalize_stock_code(code: str) -> str:
-    """Normalize stock code to standard format (e.g., 600519.SH).
+    """Normalize stock code to standard format (e.g., 600519.SH or 00700.HK).
     
     Handles various input formats:
     - .SH600519 -> 600519.SH
     - SH600519 -> 600519.SH  
     - 600519 -> 600519.SH (assumes SH for 6 prefix, SZ for 0/3 prefix)
     - 600519.sh -> 600519.SH (uppercase)
+    - 00700.HK -> 00700.HK (HK stocks)
+    - 00700.hk -> 00700.HK (uppercase)
     
     Args:
         code: Stock code in any format
         
     Returns:
-        Normalized stock code (e.g., 600519.SH)
+        Normalized stock code (e.g., 600519.SH or 00700.HK)
     """
     import re
     
@@ -58,6 +60,21 @@ def _normalize_stock_code(code: str) -> str:
         return code
     
     code = code.strip().upper()
+    
+    # Pattern HK: Already correct format 00700.HK (5-digit HK code)
+    match = re.match(r'^(\d{5})\.HK$', code)
+    if match:
+        return code
+    
+    # Pattern HK2: Just 5 digits starting with 0 -> assume HK stock (e.g. 00700 -> 00700.HK)
+    match = re.match(r'^(\d{5})$', code)
+    if match:
+        return f"{code}.HK"
+    
+    # Pattern HK3: HK00700 or HK.00700 -> 00700.HK
+    match = re.match(r'^HK\.?(\d{5})$', code)
+    if match:
+        return f"{match.group(1)}.HK"
     
     # Pattern 1: .SH600519 or .SZ000001 -> 600519.SH
     match = re.match(r'^\.?(SH|SZ)(\d{6})$', code)
@@ -92,37 +109,62 @@ def _normalize_stock_code(code: str) -> str:
 
 
 # System prompt for market analysis
-MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的A股技术分析师，负责为用户提供股票技术分析和市场解读。
+MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的股票技术分析师，支持A股和港股分析，负责为用户提供股票技术分析和市场解读。
 
 ## 你的能力
-1. 获取股票K线数据并解读走势
+1. 获取股票K线数据并解读走势（A股和港股）
 2. 计算和解读技术指标（MACD、RSI、KDJ、布林带等）
 3. 识别趋势和关键支撑/压力位
 4. 提供基于技术分析的交易建议
 
 ## 可用工具
-- get_kline: 获取股票K线数据
-- calculate_indicators: 计算技术指标
-- analyze_trend: 分析股票趋势
+- get_kline: 获取股票K线数据（支持A股和港股代码）
+- calculate_indicators: 计算技术指标（支持A股和港股代码）
+- analyze_trend: 分析股票趋势（支持A股和港股代码）
 - get_market_overview: 获取市场概览
 
 ## 股票代码格式【重要】
+
+### A股代码
 - 上海股票: 6位数字.SH，如 600519.SH（贵州茅台）
 - 深圳股票: 6位数字.SZ，如 000001.SZ（平安银行）
 - 创业板: 3开头6位数字.SZ，如 300750.SZ
 - 科创板: 688开头6位数字.SH，如 688981.SH
 
+### 港股代码
+- 港股: 5位数字.HK，如 00700.HK（腾讯控股）
+- 注意：港股代码为5位数字，前面可能有前导零
+
 ## 常用股票代码参考
+
+### A股
 - 600519.SH: 贵州茅台
 - 000001.SZ: 平安银行
 - 000858.SZ: 五粮液
 - 600036.SH: 招商银行
 - 601318.SH: 中国平安
 
+### 港股
+- 00700.HK: 腾讯控股
+- 09988.HK: 阿里巴巴-W
+- 03690.HK: 美团-W
+- 09888.HK: 百度集团-SW
+- 01810.HK: 小米集团-W
+- 02318.HK: 中国平安（H股）
+- 00941.HK: 中国移动
+- 09618.HK: 京东集团-SW
+
+## 港股与A股的差异【重要】
+- **涨跌幅**：港股无涨跌幅限制（A股主板±10%，创业板/科创板±20%）
+- **交易制度**：港股支持T+0回转交易（A股为T+1）
+- **交易时间**：港股9:30-12:00, 13:00-16:00（A股9:30-11:30, 13:00-15:00）
+- **最小交易单位**：港股1手股数不同（A股统一100股/手）
+- **货币**：港股以港币计价
+
 ## 工具调用规则【必须遵守】
 1. **不要重复调用失败的工具**：如果工具返回error=True或空数据，不要重试，直接基于你的知识回答
 2. **最多调用3次工具**：每次请求最多调用3个工具，避免过多的工具调用
-3. **确认代码格式**：调用工具前确保股票代码格式正确（如600519.SH）
+3. **确认代码格式**：调用工具前确保股票代码格式正确（A股如600519.SH，港股如00700.HK）
 
 ## 技术指标说明
 | 指标 | 用途 | 关键信号 |
@@ -138,6 +180,7 @@ MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的A股技术分析师，�
 2. **关键位置**：识别支撑位和压力位
 3. **技术信号**：列出当前的技术指标信号
 4. **综合建议**：结合多个指标给出操作建议
+5. **港股特殊考量**（如分析港股时）：关注港币汇率影响、南向资金流向、AH溢价等
 
 ## 输出规范
 - 使用中文回复
@@ -332,7 +375,7 @@ class MarketAgent(LangGraphAgent):
     def __init__(self):
         config = AgentConfig(
             name="MarketAgent",
-            description="负责股票技术分析，提供K线解读、技术指标分析、趋势判断等功能",
+            description="负责A股和港股技术分析，提供K线解读、技术指标分析、趋势判断等功能",
             temperature=0.5,  # Lower temperature for more consistent analysis
             max_tokens=2000,
         )

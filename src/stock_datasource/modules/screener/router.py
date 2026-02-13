@@ -107,7 +107,8 @@ async def filter_stocks(
             page=page,
             page_size=page_size,
             trade_date=request.trade_date,
-            market_type=request.market_type
+            market_type=request.market_type,
+            search=request.search
         )
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -536,42 +537,75 @@ async def get_fields():
 # =============================================================================
 
 @router.get("/summary", response_model=MarketSummary)
-async def get_market_summary():
-    """获取市场概况统计"""
+async def get_market_summary(
+    market_type: Optional[str] = Query(None, description="市场类型: a_share, hk_stock, all (默认 a_share)")
+):
+    """获取市场概况统计，支持 A 股和港股"""
     try:
         from stock_datasource.models.database import db_client
         
         db = db_client
+        effective_market = market_type or "a_share"
         
-        # Get latest trade date
-        date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
-        date_df = db.execute_query(date_query)
-        if date_df.empty or date_df.iloc[0]['max_date'] is None:
-            raise HTTPException(status_code=404, detail="No data available")
-        
-        latest_date_raw = date_df.iloc[0]['max_date']
-        if hasattr(latest_date_raw, 'strftime'):
-            latest_date = latest_date_raw.strftime('%Y-%m-%d')
+        if effective_market == "hk_stock":
+            # 港股统计 - 查询 ods_hk_daily 表
+            date_query = "SELECT max(trade_date) as max_date FROM ods_hk_daily"
+            date_df = db.execute_query(date_query)
+            if date_df.empty or date_df.iloc[0]['max_date'] is None:
+                raise HTTPException(status_code=404, detail="No HK data available")
+            
+            latest_date_raw = date_df.iloc[0]['max_date']
+            if hasattr(latest_date_raw, 'strftime'):
+                latest_date = latest_date_raw.strftime('%Y-%m-%d')
+            else:
+                latest_date = str(latest_date_raw).split()[0].split('T')[0]
+            
+            # 港股无涨跌停限制，但仍统计涨跌幅 >= 10% 的
+            summary_query = f"""
+                SELECT 
+                    count(*) as total_stocks,
+                    sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
+                    sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
+                    sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
+                    sum(CASE WHEN pct_chg >= 10 THEN 1 ELSE 0 END) as limit_up,
+                    sum(CASE WHEN pct_chg <= -10 THEN 1 ELSE 0 END) as limit_down,
+                    avg(pct_chg) as avg_change
+                FROM (
+                    SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
+                    FROM ods_hk_daily
+                    WHERE trade_date = '{latest_date}'
+                    GROUP BY ts_code
+                )
+            """
         else:
-            latest_date = str(latest_date_raw).split()[0].split('T')[0]
-        
-        # Get summary statistics - 使用子查询先去重再聚合
-        summary_query = f"""
-            SELECT 
-                count(*) as total_stocks,
-                sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
-                sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
-                sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
-                sum(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up,
-                sum(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down,
-                avg(pct_chg) as avg_change
-            FROM (
-                SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
-                FROM ods_daily
-                WHERE trade_date = '{latest_date}'
-                GROUP BY ts_code
-            )
-        """
+            # A 股统计（默认）
+            date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
+            date_df = db.execute_query(date_query)
+            if date_df.empty or date_df.iloc[0]['max_date'] is None:
+                raise HTTPException(status_code=404, detail="No data available")
+            
+            latest_date_raw = date_df.iloc[0]['max_date']
+            if hasattr(latest_date_raw, 'strftime'):
+                latest_date = latest_date_raw.strftime('%Y-%m-%d')
+            else:
+                latest_date = str(latest_date_raw).split()[0].split('T')[0]
+            
+            summary_query = f"""
+                SELECT 
+                    count(*) as total_stocks,
+                    sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
+                    sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
+                    sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
+                    sum(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up,
+                    sum(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down,
+                    avg(pct_chg) as avg_change
+                FROM (
+                    SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
+                    FROM ods_daily
+                    WHERE trade_date = '{latest_date}'
+                    GROUP BY ts_code
+                )
+            """
         
         df = db.execute_query(summary_query)
         

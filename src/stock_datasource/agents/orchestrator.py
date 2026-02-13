@@ -158,8 +158,11 @@ class OrchestratorAgent:
             "3. 给出简短的推理说明\n\n"
             "仅输出JSON，格式: {\"intent\": string, \"agent_name\": string, \"rationale\": string}。\n"
             "如果没有匹配的Agent，请将agent_name设为空字符串。\n\n"
-            "intent的可选值: market_analysis, stock_screening, financial_report, hk_financial_report, portfolio_management, "
-            "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, general_chat"
+            "intent的可选值: market_analysis, stock_screening, financial_report, hk_financial_report, hk_market_analysis, portfolio_management, "
+            "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, general_chat\n\n"
+            "注意：\n"
+            "- 如果用户询问港股（代码格式如00700.HK）的技术分析、K线、技术指标，intent设为market_analysis，agent_name设为MarketAgent\n"
+            "- 如果用户同时询问港股的技术面和财务面，intent设为market_analysis，agent_name设为MarketAgent（系统会自动组合HKReportAgent）"
         )
         user_prompt = (
             f"User query: {query}\n\n"
@@ -257,12 +260,13 @@ class OrchestratorAgent:
         
         return unique_codes
 
-    def _build_multi_agent_plan(self, primary_agent: Optional[str], stock_codes: List[str]) -> List[str]:
+    def _build_multi_agent_plan(self, primary_agent: Optional[str], stock_codes: List[str], query: str = "") -> List[str]:
         """Build execution plan with optional concurrent agents.
         
         Args:
             primary_agent: The main agent to handle the request
             stock_codes: Extracted stock codes from query
+            query: Original user query (for detecting combined analysis needs)
             
         Returns:
             List of agent names to execute (in order, concurrent ones grouped)
@@ -272,10 +276,37 @@ class OrchestratorAgent:
             return []
         plan = [primary_agent]
         
+        # Separate HK and A-share codes
+        hk_codes = [c for c in stock_codes if c.upper().endswith('.HK')]
+        a_codes = [c for c in stock_codes if not c.upper().endswith('.HK')]
+        
+        # Detect if user wants combined technical + fundamental analysis
+        query_lower = query.lower()
+        tech_keywords = ['技术', '技术面', '技术指标', 'k线', 'kline', '走势', 'macd', 'rsi', 'kdj', '均线', '趋势']
+        fund_keywords = ['财务', '财报', '基本面', '盈利', '收入', '利润', '资产', '现金流', '全面分析', '综合分析']
+        wants_tech = any(kw in query_lower for kw in tech_keywords)
+        wants_fund = any(kw in query_lower for kw in fund_keywords)
+        
         # Check if we can add concurrent agents for richer analysis
-        if stock_codes and primary_agent == "MarketAgent" and "ReportAgent" in self._agent_classes:
-            if "ReportAgent" not in plan:
-                plan.append("ReportAgent")
+        if stock_codes and primary_agent == "MarketAgent":
+            if hk_codes and "HKReportAgent" in self._agent_classes:
+                # HK stocks: combine MarketAgent + HKReportAgent
+                if "HKReportAgent" not in plan:
+                    plan.append("HKReportAgent")
+            if a_codes and "ReportAgent" in self._agent_classes:
+                # A-share stocks: combine MarketAgent + ReportAgent
+                if "ReportAgent" not in plan:
+                    plan.append("ReportAgent")
+        
+        # If primary is HKReportAgent but user also wants technical analysis
+        if stock_codes and primary_agent == "HKReportAgent" and wants_tech:
+            if "MarketAgent" in self._agent_classes and "MarketAgent" not in plan:
+                plan.insert(0, "MarketAgent")  # MarketAgent first for technical
+        
+        # If primary is ReportAgent but user also wants technical analysis  
+        if stock_codes and primary_agent == "ReportAgent" and wants_tech:
+            if "MarketAgent" in self._agent_classes and "MarketAgent" not in plan:
+                plan.insert(0, "MarketAgent")
         
         return plan
 
@@ -834,7 +865,7 @@ Action Input: {{}}
         if stock_codes:
             context["stock_codes"] = stock_codes
         
-        plan = self._build_multi_agent_plan(agent_name, stock_codes)
+        plan = self._build_multi_agent_plan(agent_name, stock_codes, query)
         if not plan:
             logger.info(f"No agent available for intent: {intent}, fallback to MCP")
             return await self._execute_with_mcp(query, context, intent, stock_codes)
@@ -968,7 +999,7 @@ Action Input: {{}}
                 "stock_codes": stock_codes,
             })
         
-        plan = self._build_multi_agent_plan(agent_name, stock_codes)
+        plan = self._build_multi_agent_plan(agent_name, stock_codes, query)
         if not plan:
             logger.info(f"No agent available for intent: {intent}, fallback to MCP")
             # Emit status about using ReAct mode with MCP

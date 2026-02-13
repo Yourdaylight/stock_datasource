@@ -121,7 +121,7 @@ export const useScreenerStore = defineStore('screener', () => {
   
   const fetchSummary = async () => {
     try {
-      summary.value = await screenerApi.getSummary()
+      summary.value = await screenerApi.getSummary(marketType.value)
     } catch (e) {
       console.error('Failed to fetch summary:', e)
     }
@@ -160,7 +160,10 @@ export const useScreenerStore = defineStore('screener', () => {
   const changeMarketType = async (type: 'a_share' | 'hk_stock' | 'all') => {
     marketType.value = type
     page.value = 1
-    await fetchStocks({ page: 1 })
+    await Promise.all([
+      fetchStocks({ page: 1 }),
+      fetchSummary()
+    ])
   }
 
   const filter = async (conds: ScreenerCondition[]) => {
@@ -173,7 +176,8 @@ export const useScreenerStore = defineStore('screener', () => {
           sort_by: sortBy.value, 
           sort_order: sortOrder.value, 
           trade_date: tradeDate.value || undefined,
-          market_type: marketType.value 
+          market_type: marketType.value,
+          search: searchQuery.value || undefined
         },
         1,
         pageSize.value
