@@ -33,7 +33,7 @@ def _fmt_num(val, fallback='N/A') -> str:
         return fallback
 
 
-def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
+def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> Dict[str, Any]:
     """获取全面的财务分析报告。
     
     Args:
@@ -46,14 +46,14 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
     # Validate and normalize stock code
     is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
     if not is_valid:
-        return f"❌ {error_msg}"
+        return {"report": f"❌ {error_msg}"}
     
     try:
         service = FinancialReportService()
         analysis = service.get_comprehensive_analysis(ts_code, periods)
         
         if analysis.get("status") == "error":
-            return f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"
+            return {"report": f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"}
         
         summary = analysis.get("summary", {})
         health = analysis.get("health_analysis", {})
@@ -124,11 +124,44 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         
         report += f"\n### 📅 数据说明\n- 分析时间范围: 近{summary.get('periods', 0)//4}年({summary.get('periods', 0)}个季度)\n- 最新财报: {latest_period}"
         
-        return report
+        # Build visualization data for TrendChart component
+        financial_periods = analysis.get("financial_data", [])
+        viz = None
+        if financial_periods and isinstance(financial_periods, list) and len(financial_periods) > 0:
+            viz_data = []
+            for fp in financial_periods:
+                period_str = fp.get("end_date") or fp.get("period", "")
+                if hasattr(period_str, 'strftime'):
+                    period_str = period_str.strftime('%Y-%m-%d')
+                viz_data.append({
+                    "period": str(period_str),
+                    "revenue": fp.get("revenue"),
+                    "net_profit": fp.get("n_income") or fp.get("net_profit"),
+                    "net_profit_attr_p": fp.get("n_income_attr_p"),
+                    "total_assets": fp.get("total_assets"),
+                    "total_liab": fp.get("total_liab"),
+                    "roe": fp.get("roe"),
+                    "roa": fp.get("roa"),
+                    "gross_margin": fp.get("grossprofit_margin"),
+                    "net_margin": fp.get("netprofit_margin"),
+                })
+            if viz_data:
+                viz = {
+                    "type": "financial_trend",
+                    "title": f"{ts_code} 财务趋势分析",
+                    "props": {
+                        "data": viz_data,
+                    }
+                }
+        
+        result = {"report": report}
+        if viz:
+            result["_visualization"] = viz
+        return result
         
     except Exception as e:
         logger.error(f"Error in comprehensive financial analysis for {ts_code}: {e}")
-        return f"❌ 分析 {ts_code} 时发生错误: {str(e)}"
+        return {"report": f"❌ 分析 {ts_code} 时发生错误: {str(e)}"}
 
 
 def get_peer_comparison_analysis(ts_code: str, end_date: str = None) -> str:

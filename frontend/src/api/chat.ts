@@ -81,7 +81,55 @@ export interface ErrorEvent {
   error: string
 }
 
-export type StreamEvent = ThinkingEvent | ToolEvent | ContentEvent | DoneEvent | ErrorEvent
+export interface DebugEvent {
+  type: 'debug'
+  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing'
+  agent: string
+  timestamp: number
+  data: {
+    // classification
+    intent?: string
+    selected_agent?: string
+    rationale?: string
+    available_agents?: string[]
+    // routing
+    from_agent?: string
+    to_agent?: string
+    is_parallel?: boolean
+    plan?: string[]
+    // agent_start
+    input_summary?: string
+    tools_available?: string[]
+    parent_agent?: string
+    // agent_end
+    duration_ms?: number
+    tool_calls_count?: number
+    success?: boolean
+    error?: string
+    // tool_result
+    tool?: string
+    args?: Record<string, string>
+    result_summary?: string
+    // data_sharing
+    data_summary?: Record<string, string>
+    // handoff
+    shared_data_summary?: Record<string, string>
+    [key: string]: any
+  }
+}
+
+export interface VisualizationEvent {
+  type: 'visualization'
+  visualization: {
+    type: 'kline' | 'financial_trend' | 'profit_curve' | 'index_compare'
+    title: string
+    props: Record<string, any>
+  }
+  agent?: string
+  tool?: string
+}
+
+export type StreamEvent = ThinkingEvent | ToolEvent | ContentEvent | DoneEvent | ErrorEvent | DebugEvent | VisualizationEvent
 
 export const chatApi = {
   sendMessage(data: SendMessageRequest): Promise<ChatMessage> {

@@ -184,10 +184,32 @@ MARKET_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的股票技术分析师，
 
 ## 输出规范
 - 使用中文回复
+- **调用工具获取数据后，必须根据返回的数据写出完整的技术分析报告**
+- **绝对不允许只说"我来帮您分析"然后就结束，必须输出完整的分析结论**
 - 先给出结论，再展开分析
-- 引用具体数据支持观点
+- 引用具体数据支持观点（如具体的价格、涨跌幅、指标数值）
 - 必须包含风险提示
 - 如果工具调用失败，基于你对该股票的一般性了解给出分析
+
+## 输出模板（必须按此结构输出）
+调用工具获取数据后，请按以下结构输出分析：
+
+### 📊 [股票名称] 技术分析
+
+**1. 行情概览**
+- 最新价格、涨跌幅、成交量等
+
+**2. 趋势判断**
+- 当前处于什么趋势（上涨/下跌/震荡）
+- 关键支撑位和压力位
+
+**3. 技术指标分析**
+- MACD/RSI/KDJ 等指标解读
+- 当前信号（买入/卖出/观望）
+
+**4. 综合建议**
+- 短期操作建议
+- 风险提示
 
 ## 风险提示
 每次分析结束时，必须加上：
@@ -230,9 +252,25 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
             high = max(d["high"] for d in data)
             low = min(d["low"] for d in data)
             
+            stock_name = result.get("name") or normalized_code
+            
+            # Build visualization data for frontend KLineChart component
+            viz_data = []
+            for d in data:
+                viz_data.append({
+                    "date": d["date"],
+                    "open": d["open"],
+                    "high": d["high"],
+                    "low": d["low"],
+                    "close": d["close"],
+                    "volume": d.get("volume", 0),
+                    "amount": d.get("amount", 0),
+                    "pct_chg": d.get("pct_chg"),
+                })
+            
             return {
                 "code": result.get("code"),
-                "name": result.get("name"),
+                "name": stock_name,
                 "period_days": len(data),
                 "latest": {
                     "date": latest["date"],
@@ -245,7 +283,15 @@ def get_kline(code: str, period: int = 60) -> Dict[str, Any]:
                 "period_high": high,
                 "period_low": low,
                 "price_change": round(latest["close"] - earliest["close"], 2),
-                "price_change_pct": round((latest["close"] - earliest["close"]) / earliest["close"] * 100, 2)
+                "price_change_pct": round((latest["close"] - earliest["close"]) / earliest["close"] * 100, 2),
+                "_hint": "请基于以上K线数据，输出完整的技术分析报告，包括趋势判断、关键价位、操作建议。",
+                "_visualization": {
+                    "type": "kline",
+                    "title": f"{stock_name}({result.get('code', normalized_code)}) 近{len(data)}日K线",
+                    "props": {
+                        "data": viz_data,
+                    }
+                }
             }
         logger.warning(f"get_kline returned empty data for code={code}, normalized={normalized_code}")
         return {
@@ -288,6 +334,7 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
         # Extract latest values for LLM
         indicators_data = result.get("indicators", {})
         signals = result.get("signals", [])
+        indicator_dates = result.get("dates", [])
         
         latest_values = {}
         for key, values in indicators_data.items():
@@ -298,11 +345,49 @@ def calculate_indicators(code: str, indicators: str = "MACD,RSI,KDJ") -> Dict[st
                         latest_values[key] = round(v, 2) if isinstance(v, float) else v
                         break
         
-        return {
+        result_data = {
             "code": code,
             "indicators": latest_values,
-            "signals": signals
+            "signals": signals,
+            "_hint": "请基于以上技术指标数据，解读各指标含义，给出综合分析结论和操作建议。",
         }
+        
+        # Add visualization for indicator overlay on K-line chart
+        # Fetch K-line data to provide complete chart
+        if indicators_data and indicator_dates:
+            viz_kline_data = []
+            try:
+                from stock_datasource.modules.market.service import get_market_service as _get_svc
+                from datetime import datetime as _dt, timedelta as _td
+                _svc = _get_svc()
+                _end = _dt.now().strftime("%Y-%m-%d")
+                _start = (_dt.now() - _td(days=60)).strftime("%Y-%m-%d")
+                _kline_result = _run_async_safely(_svc.get_kline(normalized_code, _start, _end))
+                for d in _kline_result.get("data", []):
+                    viz_kline_data.append({
+                        "date": d["date"],
+                        "open": d["open"],
+                        "high": d["high"],
+                        "low": d["low"],
+                        "close": d["close"],
+                        "volume": d.get("volume", 0),
+                    })
+            except Exception as _e:
+                logger.warning(f"Failed to fetch kline for indicator viz: {_e}")
+            
+            if viz_kline_data:
+                result_data["_visualization"] = {
+                    "type": "kline",
+                    "title": f"{normalized_code} 技术指标分析",
+                    "props": {
+                        "data": viz_kline_data,
+                        "indicators": indicators_data,
+                        "indicatorDates": indicator_dates,
+                        "selectedIndicators": list(indicators_data.keys())[:8],
+                    }
+                }
+        
+        return result_data
     except Exception as e:
         logger.error(f"calculate_indicators tool error: {e}")
         return {
@@ -377,7 +462,7 @@ class MarketAgent(LangGraphAgent):
             name="MarketAgent",
             description="负责A股和港股技术分析，提供K线解读、技术指标分析、趋势判断等功能",
             temperature=0.5,  # Lower temperature for more consistent analysis
-            max_tokens=2000,
+            max_tokens=8000,  # Thinking models need more tokens for reasoning + output
         )
         super().__init__(config)
         self._llm_client = None

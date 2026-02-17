@@ -1,5 +1,8 @@
-## ADDED Requirements
+# chat-orchestration Specification
 
+## Purpose
+TBD - created by archiving change add-chat-orchestrator-agent. Update Purpose after archive.
+## Requirements
 ### Requirement: Chat协调Agent调度
 系统 MUST 在chat入口使用协调Agent进行意图解析与调度。
 
@@ -41,7 +44,7 @@
 - **THEN** 仅返回该用户的持仓数据
 
 ### Requirement: LLM调用追踪（Langfuse）
-系统 SHOULD 集成Langfuse记录LLM调用追踪信息。
+系统 MUST 集成Langfuse记录LLM调用追踪信息。
 
 #### Scenario: 对话追踪记录
 - **WHEN** 用户进行智能对话
@@ -59,3 +62,4 @@
 - **GIVEN** user_positions 表可能不包含 user_id 字段（旧版本）
 - **WHEN** PortfolioService 查询持仓
 - **THEN** 自动检测字段存在性并降级处理（返回所有持仓）
+

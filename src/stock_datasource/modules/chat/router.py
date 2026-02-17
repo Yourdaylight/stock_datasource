@@ -211,6 +211,8 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
         full_response = ""
         tool_calls = []
         tool_errors = []
+        debug_events = []
+        visualizations = []
         event_count = 0
         
         try:
@@ -242,6 +244,24 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     }, ensure_ascii=False)
                     yield f"data: {thinking_data}\n\n"
                 
+                elif event_type == "debug":
+                    # Forward debug events to frontend and collect for persistence
+                    debug_events.append(event)
+                    debug_data = json.dumps(event, ensure_ascii=False)
+                    yield f"data: {debug_data}\n\n"
+                
+                elif event_type == "visualization":
+                    # Forward visualization events to frontend and collect for persistence
+                    viz_payload = event.get("visualization", {})
+                    visualizations.append(viz_payload)
+                    viz_data = json.dumps({
+                        "type": "visualization",
+                        "visualization": viz_payload,
+                        "agent": event.get("agent"),
+                        "tool": event.get("tool"),
+                    }, ensure_ascii=False)
+                    yield f"data: {viz_data}\n\n"
+                
                 elif event_type == "tool":
                     tool_data = json.dumps({
                         "type": "tool",
@@ -270,14 +290,20 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                         if len(tool_errors) > 3:
                             failure_note += f" 等共{len(tool_errors)}个错误"
                         full_response += failure_note
-                    if full_response:
-                        service.add_message(session_id, user_id, "assistant", full_response)
                     metadata = event.get("metadata", {})
                     metadata.setdefault("tool_calls", tool_calls)
                     if tool_errors:
                         metadata["tool_errors"] = tool_errors
+                    # Attach collected debug events for persistence
+                    if debug_events:
+                        metadata["debug_events"] = debug_events
+                    # Attach visualization data for history re-rendering
+                    if visualizations:
+                        metadata["visualizations"] = visualizations
+                    if full_response:
+                        service.add_message(session_id, user_id, "assistant", full_response, metadata=metadata)
                     
-                    logger.info(f"[Chat] Completed - events: {event_count}, response length: {len(full_response)}, tools: {tool_calls}")
+                    logger.info(f"[Chat] Completed - events: {event_count}, response length: {len(full_response)}, tools: {tool_calls}, debug_events: {len(debug_events)}")
                     
                     done_data = json.dumps({
                         "type": "done",

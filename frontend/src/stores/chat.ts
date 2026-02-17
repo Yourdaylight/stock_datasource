@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import { chatApi, type ChatMessage, type StreamEvent, type ChatSessionSummary } from '@/api/chat'
+import { chatApi, type ChatMessage, type StreamEvent, type ChatSessionSummary, type DebugEvent, type VisualizationEvent } from '@/api/chat'
 
 // LocalStorage keys
 const MESSAGES_STORAGE_KEY = 'chat_messages'
@@ -72,6 +72,21 @@ interface PlanStep {
   detail?: string
 }
 
+// Debug message for sidebar display
+export interface DebugMessage {
+  id: string
+  debugType: DebugEvent['debug_type']
+  agent: string
+  timestamp: number
+  data: DebugEvent['data']
+  // A2A fields
+  targetAgent?: string
+  parentAgent?: string
+  laneId?: string
+  // Display role
+  role: 'orchestrator' | 'agent' | 'tool' | 'system' | 'handoff'
+}
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const sessionId = ref('')
@@ -100,6 +115,18 @@ export const useChatStore = defineStore('chat', () => {
   
   // Streaming content
   const streamingContent = ref('')
+
+  // Debug sidebar state
+  const debugMessages = ref<DebugMessage[]>([])
+  const debugSidebarOpen = ref(false)
+  const messageDebugMap = ref<Record<string, DebugMessage[]>>({})
+  let debugMsgCounter = 0
+  let parallelLaneCounter = 0
+
+  // Visualization state: maps message ID to array of visualization payloads
+  const messageVisualizations = ref<Record<string, VisualizationEvent['visualization'][]>>({})
+  // Accumulator for current streaming message's visualizations
+  let pendingVisualizations: VisualizationEvent['visualization'][] = []
 
   // ============ LocalStorage Persistence Functions ============
   
@@ -343,6 +370,89 @@ export const useChatStore = defineStore('chat', () => {
     currentPlanStep.value = 0
     reactSteps.value = []
     streamingContent.value = ''
+    // Reset debug state for new message
+    debugMessages.value = []
+    debugMsgCounter = 0
+    parallelLaneCounter = 0
+    // Reset visualization accumulator
+    pendingVisualizations = []
+  }
+
+  // Convert a debug SSE event into a DebugMessage for sidebar display
+  const processDebugEvent = (event: DebugEvent) => {
+    const debugType = event.debug_type
+    const data = event.data
+
+    // Determine role
+    let role: DebugMessage['role'] = 'system'
+    if (debugType === 'classification' || debugType === 'routing') {
+      role = 'orchestrator'
+    } else if (debugType === 'agent_start' || debugType === 'agent_end') {
+      role = 'agent'
+    } else if (debugType === 'tool_result') {
+      role = 'tool'
+    } else if (debugType === 'handoff') {
+      role = 'handoff'
+    } else if (debugType === 'data_sharing') {
+      role = 'system'
+    }
+
+    // Determine laneId for parallel routing
+    let laneId: string | undefined
+    if (debugType === 'routing' && data.is_parallel && data.to_agent) {
+      laneId = `lane_${parallelLaneCounter++}`
+    }
+    // For agent_start, inherit lane from matching routing event
+    if (debugType === 'agent_start' && data.parent_agent) {
+      const matchingRoute = debugMessages.value.find(
+        m => m.debugType === 'routing' && m.data.to_agent === event.agent && m.laneId
+      )
+      if (matchingRoute) {
+        laneId = matchingRoute.laneId
+      }
+    }
+
+    const msg: DebugMessage = {
+      id: `debug_${debugMsgCounter++}`,
+      debugType,
+      agent: event.agent,
+      timestamp: event.timestamp,
+      data,
+      targetAgent: data.to_agent,
+      parentAgent: data.parent_agent,
+      laneId,
+      role,
+    }
+
+    debugMessages.value.push(msg)
+  }
+
+  // Save debug messages snapshot for a completed message (for history playback)
+  const saveDebugSnapshot = (messageId: string) => {
+    if (debugMessages.value.length > 0) {
+      messageDebugMap.value[messageId] = [...debugMessages.value]
+    }
+  }
+
+  // Load debug messages for a historical message
+  const viewDebug = (messageId: string) => {
+    const saved = messageDebugMap.value[messageId]
+    if (saved) {
+      debugMessages.value = [...saved]
+      debugSidebarOpen.value = true
+    } else {
+      // Try to load from message metadata
+      const msg = messages.value.find(m => m.id === messageId)
+      if (msg?.metadata?.debug_events) {
+        debugMessages.value = []
+        debugMsgCounter = 0
+        parallelLaneCounter = 0
+        for (const evt of msg.metadata.debug_events as DebugEvent[]) {
+          processDebugEvent(evt)
+        }
+        debugSidebarOpen.value = true
+      }
+    }
   }
 
   const sendMessage = async (content: string) => {
@@ -449,6 +559,26 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
               break
+
+            case 'debug':
+              // Process debug events for sidebar
+              processDebugEvent(event as DebugEvent)
+              break
+
+            case 'visualization':
+              // Accumulate visualization events for current message
+              {
+                const vizEvent = event as VisualizationEvent
+                if (vizEvent.visualization) {
+                  pendingVisualizations.push(vizEvent.visualization)
+                  // Also store immediately so chart renders during streaming
+                  if (!messageVisualizations.value[assistantMessageId]) {
+                    messageVisualizations.value[assistantMessageId] = []
+                  }
+                  messageVisualizations.value[assistantMessageId].push(vizEvent.visualization)
+                }
+              }
+              break
               
             case 'done':
               thinking.value = false
@@ -464,6 +594,8 @@ export const useChatStore = defineStore('chat', () => {
                   doneMsg.content = '处理完成，但未生成回复内容。'
                 }
               }
+              // Save debug snapshot for this message
+              saveDebugSnapshot(assistantMessageId)
               console.debug('[Chat] Stream completed with metadata:', event.metadata)
               break
               
@@ -518,6 +650,15 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const result = await chatApi.getHistory(sessionId.value)
       messages.value = result.messages
+      // Load visualizations from historical message metadata
+      for (const msg of result.messages) {
+        if (msg.role === 'assistant' && msg.metadata?.visualizations) {
+          const vizList = msg.metadata.visualizations as VisualizationEvent['visualization'][]
+          if (vizList.length > 0) {
+            messageVisualizations.value[msg.id] = vizList
+          }
+        }
+      }
     } catch (e) {
       // Ignore
     }
@@ -547,6 +688,12 @@ export const useChatStore = defineStore('chat', () => {
     currentPlanStep,
     reactSteps,
     streamingContent,
+    // Debug state
+    debugMessages,
+    debugSidebarOpen,
+    messageDebugMap,
+    // Visualization state
+    messageVisualizations,
     // Actions
     initSession,
     restoreOrInitSession,
@@ -559,6 +706,7 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     loadHistory,
     clearMessages,
+    viewDebug,
     // Helpers
     getAgentDisplayName,
     getIntentDisplayName,
