@@ -10,6 +10,7 @@ Memory Architecture (A + B + D):
 
 import os
 import time
+import asyncio
 import hashlib
 import logging
 from urllib.parse import urlparse
@@ -376,6 +377,9 @@ def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
     if isinstance(result, dict):
         compressed = {}
         for key, value in result.items():
+            # Skip visualization data (handled separately via SSE event)
+            if key == "_visualization":
+                continue
             # Skip very large nested data
             if key in ("raw_data", "full_data", "debug"):
                 compressed[key] = f"[数据已省略]"
@@ -489,6 +493,8 @@ class LangGraphAgent(ABC):
 - 必须用自然语言解读、总结和分析工具返回的数据
 - 使用Markdown格式（标题、表格、列表）让输出更易读
 - 数值要有单位和解释，如"上证指数下跌0.64%"而非输出{"pct_chg": -0.64}
+- **关键规则：调用工具获取数据后，你必须根据工具返回的数据输出完整的分析报告，不能只说一句话就结束**
+- **即使工具返回了数据，你仍然需要解读这些数据并给出你的分析观点和建议**
 """
     
     def _init_agent(self, checkpointer=None):
@@ -672,6 +678,70 @@ class LangGraphAgent(ABC):
                 metadata={"error": str(e), "agent": self.config.name, "session_id": session_id},
             )
     
+    def _make_debug_event(self, debug_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a standardized debug event.
+        
+        Args:
+            debug_type: Debug event subtype (agent_start, agent_end, tool_result, etc.)
+            data: Event-specific data
+            
+        Returns:
+            Debug event dict
+        """
+        return {
+            "type": "debug",
+            "debug_type": debug_type,
+            "agent": self.config.name,
+            "timestamp": time.time(),
+            "data": data,
+        }
+
+    @staticmethod
+    def _extract_visualization(tool_output: Any) -> Optional[Dict[str, Any]]:
+        """Extract _visualization data from tool output if present.
+        
+        Tool functions can include a `_visualization` field in their return dict
+        to trigger automatic chart rendering in the frontend.
+        
+        Handles multiple output formats:
+        - dict with _visualization key (direct tool return)
+        - ToolMessage object with .content (LangGraph astream_events v2)
+        - str (JSON-stringified dict)
+        
+        Returns:
+            Visualization payload dict or None
+        """
+        import json as _json
+        
+        # Case 1: Direct dict
+        if isinstance(tool_output, dict) and "_visualization" in tool_output:
+            return tool_output["_visualization"]
+        
+        # Case 2: ToolMessage object (LangGraph astream_events v2)
+        # ToolMessage has .content which is usually a stringified dict
+        if hasattr(tool_output, "content"):
+            content = tool_output.content
+            if isinstance(content, dict) and "_visualization" in content:
+                return content["_visualization"]
+            if isinstance(content, str):
+                try:
+                    parsed = _json.loads(content)
+                    if isinstance(parsed, dict) and "_visualization" in parsed:
+                        return parsed["_visualization"]
+                except (_json.JSONDecodeError, TypeError):
+                    pass
+        
+        # Case 3: Plain string (JSON-stringified dict)
+        if isinstance(tool_output, str):
+            try:
+                parsed = _json.loads(tool_output)
+                if isinstance(parsed, dict) and "_visualization" in parsed:
+                    return parsed["_visualization"]
+            except (_json.JSONDecodeError, TypeError):
+                pass
+        
+        return None
+
     async def execute_stream(
         self, 
         task: str, 
@@ -684,7 +754,7 @@ class LangGraphAgent(ABC):
             context: Optional context
             
         Yields:
-            Dict with type (thinking/content/done/error) and data
+            Dict with type (thinking/content/done/error/debug) and data
         """
         context = context or {}
         
@@ -701,6 +771,10 @@ class LangGraphAgent(ABC):
         
         # Opportunistic cleanup to avoid unbounded memory growth
         self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
+
+        start_time = time.time()
+        tool_calls_seen = []
+        tool_call_count = 0
 
         try:
             checkpointer = self._get_checkpointer()
@@ -723,6 +797,19 @@ class LangGraphAgent(ABC):
                 "status": "分析中...",
                 "session_id": session_id,
             }
+
+            # Emit debug: agent_start
+            tools = self.get_tools()
+            tool_names = []
+            for t in tools:
+                tname = getattr(t, "name", None) or getattr(t, "__name__", "unknown")
+                tool_names.append(tname)
+            yield self._make_debug_event("agent_start", {
+                "agent": self.config.name,
+                "input_summary": task[:200] if len(task) > 200 else task,
+                "tools_available": tool_names[:20],
+                "parent_agent": context.get("parent_agent"),
+            })
             
             # Execute with streaming
             config = {
@@ -738,7 +825,6 @@ class LangGraphAgent(ABC):
             if callbacks:
                 config["callbacks"] = callbacks
             
-            tool_calls_seen = []
             full_response = ""
             
             async for event in agent.astream_events(
@@ -752,6 +838,7 @@ class LangGraphAgent(ABC):
                     if event_type == "on_tool_start":
                         tool_name = event.get("name", "unknown")
                         tool_calls_seen.append(tool_name)
+                        tool_call_count += 1
                         yield {
                             "type": "thinking",
                             "agent": self.config.name,
@@ -759,14 +846,68 @@ class LangGraphAgent(ABC):
                             "tool": tool_name,
                         }
                     
+                    elif event_type == "on_tool_end":
+                        # Emit debug: tool_result
+                        tool_name = event.get("name", "unknown")
+                        tool_output = event.get("data", {}).get("output", "")
+                        tool_input = event.get("data", {}).get("input", {})
+                        logger.debug(f"[{self.config.name}] on_tool_end: tool={tool_name}, output_type={type(tool_output).__name__}, has_content={hasattr(tool_output, 'content')}")
+                        # Compress result for debug display
+                        result_str = str(tool_output)
+                        result_summary = result_str[:500] + "..." if len(result_str) > 500 else result_str
+                        args_summary = {}
+                        if isinstance(tool_input, dict):
+                            args_summary = {k: str(v)[:100] for k, v in list(tool_input.items())[:10]}
+                        yield self._make_debug_event("tool_result", {
+                            "tool": tool_name,
+                            "agent": self.config.name,
+                            "args": args_summary,
+                            "result_summary": result_summary,
+                            "duration_ms": 0,  # Individual tool timing not available here
+                        })
+
+                        # Extract and emit visualization event if tool returned _visualization
+                        viz = self._extract_visualization(tool_output)
+                        if viz:
+                            yield {
+                                "type": "visualization",
+                                "visualization": viz,
+                                "agent": self.config.name,
+                                "tool": tool_name,
+                            }
+                    
                     elif event_type == "on_chat_model_stream":
                         chunk = event.get("data", {}).get("chunk")
                         if chunk:
                             content = None
                             if hasattr(chunk, "content") and chunk.content:
-                                content = chunk.content
+                                raw_content = chunk.content
+                                # Handle thinking models (e.g. Kimi-K2-Thinking) where content
+                                # may be a list of blocks: [{"type":"thinking","thinking":"..."},
+                                #                           {"type":"text","text":"actual output"}]
+                                if isinstance(raw_content, str):
+                                    content = raw_content
+                                elif isinstance(raw_content, list):
+                                    # Extract text blocks only (skip thinking blocks)
+                                    text_parts = []
+                                    for block in raw_content:
+                                        if isinstance(block, dict):
+                                            if block.get("type") == "text" and block.get("text"):
+                                                text_parts.append(block["text"])
+                                            elif block.get("type") == "thinking":
+                                                pass  # Skip thinking/reasoning tokens
+                                        elif isinstance(block, str):
+                                            text_parts.append(block)
+                                    if text_parts:
+                                        content = "".join(text_parts)
                             elif isinstance(chunk, dict) and chunk.get("content"):
                                 content = chunk["content"]
+                            
+                            # Also check for additional_kwargs.reasoning_content (some models)
+                            if not content and hasattr(chunk, "additional_kwargs"):
+                                ak = chunk.additional_kwargs or {}
+                                if ak.get("reasoning_content"):
+                                    pass  # Skip reasoning, wait for actual content
                             
                             if content and isinstance(content, str):
                                 full_response += content
@@ -782,6 +923,63 @@ class LangGraphAgent(ABC):
                 except Exception as e:
                     logger.debug(f"Error processing event {event_type}: {e}")
             
+            # Fallback: if streamed content is too short after tool calls,
+            # the LLM likely didn't generate analysis (common with thinking models).
+            # Must run BEFORE emitting done/agent_end so frontend receives content first.
+            MIN_RESPONSE_LEN = 50  # Minimum chars for a meaningful response
+            if tool_call_count > 0 and len(full_response.strip()) < MIN_RESPONSE_LEN:
+                logger.info(f"{self.config.name}: Streamed response too short ({len(full_response)} chars) after {tool_call_count} tool calls, using fallback")
+                try:
+                    # Strategy 1: Check LangGraph state for a complete AIMessage
+                    state = await asyncio.to_thread(agent.get_state, config)
+                    if state and state.values and "messages" in state.values:
+                        for msg in reversed(state.values["messages"]):
+                            msg_type = type(msg).__name__
+                            if msg_type == "AIMessage" and hasattr(msg, "content"):
+                                msg_content = msg.content
+                                if isinstance(msg_content, str) and len(msg_content.strip()) >= MIN_RESPONSE_LEN:
+                                    full_response = msg_content
+                                    yield {"type": "content", "content": msg_content}
+                                    break
+                    
+                    # Strategy 2: Follow-up LLM call with tool results
+                    if len(full_response.strip()) < MIN_RESPONSE_LEN:
+                        logger.info(f"{self.config.name}: State fallback insufficient, invoking follow-up LLM call")
+                        model = self._get_model()
+                        from langchain_core.messages import SystemMessage, HumanMessage
+                        
+                        system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
+                        follow_up_content = (
+                            f"用户问题：{task}\n\n"
+                            f"你已经通过工具获取了数据，请根据数据给出完整的分析报告。"
+                            f"不要再调用任何工具。直接输出分析结论。"
+                        )
+                        follow_up_messages = [
+                            SystemMessage(content=system_prompt),
+                            HumanMessage(content=follow_up_content),
+                        ]
+                        
+                        # Inject tool results from state
+                        if state and state.values and "messages" in state.values:
+                            for msg in state.values["messages"]:
+                                msg_type = type(msg).__name__
+                                if msg_type == "ToolMessage" and hasattr(msg, "content"):
+                                    tc = msg.content
+                                    if isinstance(tc, str) and len(tc) > 10:
+                                        tc_truncated = tc[:3000] if len(tc) > 3000 else tc
+                                        follow_up_messages.append(
+                                            HumanMessage(content=f"工具返回数据：\n{tc_truncated}")
+                                        )
+                        
+                        response = await asyncio.to_thread(model.invoke, follow_up_messages)
+                        if hasattr(response, "content") and response.content:
+                            resp_content = response.content
+                            if isinstance(resp_content, str) and len(resp_content.strip()) > MIN_RESPONSE_LEN:
+                                full_response = resp_content
+                                yield {"type": "content", "content": resp_content}
+                except Exception as fallback_err:
+                    logger.warning(f"{self.config.name}: Fallback failed: {fallback_err}")
+
             # Save assistant response to history
             if full_response:
                 response_for_history = full_response
@@ -791,6 +989,15 @@ class LangGraphAgent(ABC):
                     session_id, "assistant", response_for_history,
                     max_messages=self.config.max_history_messages
                 )
+
+            # Emit debug: agent_end
+            duration_ms = int((time.time() - start_time) * 1000)
+            yield self._make_debug_event("agent_end", {
+                "agent": self.config.name,
+                "duration_ms": duration_ms,
+                "tool_calls_count": tool_call_count,
+                "success": True,
+            })
             
             # Yield done
             yield {
@@ -803,7 +1010,7 @@ class LangGraphAgent(ABC):
                 },
             }
             
-            # Fallback to sync if no content streamed
+            # Fallback for completely empty responses (no tool calls)
             if not full_response:
                 logger.info(f"{self.config.name}: No streamed content, falling back to sync")
                 result = agent.invoke({"messages": messages}, config=config)
@@ -824,6 +1031,15 @@ class LangGraphAgent(ABC):
             
         except Exception as e:
             logger.error(f"{self.config.name} stream execution failed: {e}")
+            # Emit debug: agent_end with error
+            duration_ms = int((time.time() - start_time) * 1000)
+            yield self._make_debug_event("agent_end", {
+                "agent": self.config.name,
+                "duration_ms": duration_ms,
+                "tool_calls_count": tool_call_count,
+                "success": False,
+                "error": str(e),
+            })
             yield {
                 "type": "error",
                 "error": str(e),

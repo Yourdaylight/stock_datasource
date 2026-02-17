@@ -20,6 +20,7 @@ import inspect
 import os
 import pkgutil
 import asyncio
+import time
 from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple
 
 from .base_agent import (
@@ -77,6 +78,16 @@ class OrchestratorAgent:
         self._discovered = False
         self._cache: AgentSharedCache = get_agent_cache()
     
+    def _make_debug_event(self, debug_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a standardized debug event for orchestrator."""
+        return {
+            "type": "debug",
+            "debug_type": debug_type,
+            "agent": "OrchestratorAgent",
+            "timestamp": time.time(),
+            "data": data,
+        }
+
     def _discover_agents(self) -> None:
         if self._discovered:
             return
@@ -373,7 +384,17 @@ class OrchestratorAgent:
         Returns:
             True if successful
         """
-        return self._cache.share_data_between_agents(session_id, from_agent, to_agent, data)
+        success = self._cache.share_data_between_agents(session_id, from_agent, to_agent, data)
+        # Store the data_sharing event for later emission in streaming
+        if not hasattr(self, '_pending_debug_events'):
+            self._pending_debug_events: List[Dict[str, Any]] = []
+        self._pending_debug_events.append(self._make_debug_event("data_sharing", {
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "data_summary": {k: str(v)[:100] for k, v in list(data.items())[:5]},
+            "success": success,
+        }))
+        return success
 
     def _receive_shared_data(
         self,
@@ -966,6 +987,15 @@ Action Input: {{}}
         # Extract stock codes
         stock_codes = self._extract_stock_codes(query)
         
+        # Emit debug: classification
+        yield self._make_debug_event("classification", {
+            "intent": intent,
+            "selected_agent": agent_name,
+            "rationale": rationale,
+            "stock_codes": stock_codes,
+            "available_agents": [a["name"] for a in self._list_available_agents()],
+        })
+        
         # Step 2: Emit plan thinking status with intent and rationale
         yield {
             "type": "thinking",
@@ -1022,6 +1052,18 @@ Action Input: {{}}
                     yield event
                 return
             logger.info(f"Streaming via {plan[0]} for intent: {intent}")
+
+            # Emit debug: routing (single agent)
+            yield self._make_debug_event("routing", {
+                "from_agent": "OrchestratorAgent",
+                "to_agent": plan[0],
+                "is_parallel": False,
+                "plan": plan,
+            })
+
+            # Pass parent_agent to sub-agent context for debug tracing
+            context["parent_agent"] = "OrchestratorAgent"
+
             has_error = False
             error_msg = ""
             try:
@@ -1067,6 +1109,20 @@ Action Input: {{}}
             return
         
         logger.info(f"Streaming via multi-agent plan: {plan}")
+        is_parallel = self._can_run_concurrently(plan)
+
+        # Emit debug: routing for each agent in the plan
+        for target_agent in plan:
+            yield self._make_debug_event("routing", {
+                "from_agent": "OrchestratorAgent",
+                "to_agent": target_agent,
+                "is_parallel": is_parallel,
+                "plan": plan,
+            })
+
+        # Pass parent_agent to sub-agent context
+        context["parent_agent"] = "OrchestratorAgent"
+
         tool_calls = []
         sub_metadata = []
         queue: asyncio.Queue = asyncio.Queue()
@@ -1122,6 +1178,12 @@ Action Input: {{}}
             elif event_type == "tool":
                 event.setdefault("agent", agent_name)
                 yield event
+            elif event_type == "debug":
+                # Forward debug events from sub-agents
+                yield event
+            elif event_type == "visualization":
+                # Forward visualization events from sub-agents
+                yield event
             elif event_type == "done":
                 metadata = event.get("metadata", {})
                 metadata["agent"] = metadata.get("agent", agent_name)
@@ -1136,6 +1198,12 @@ Action Input: {{}}
         for task in tasks:
             if not task.done():
                 task.cancel()
+
+        # Flush any pending debug events (e.g., data_sharing)
+        if hasattr(self, '_pending_debug_events'):
+            for debug_event in self._pending_debug_events:
+                yield debug_event
+            self._pending_debug_events.clear()
 
         yield {
             "type": "done",

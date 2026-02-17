@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/chat'
 import { useWorkflowStore } from '@/stores/workflow'
 import MessageList from './components/MessageList.vue'
 import InputBox from './components/InputBox.vue'
+import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -371,6 +372,15 @@ onMounted(async () => {
             <template #icon><t-icon name="clear" /></template>
             清空
           </t-button>
+          <t-button
+            :theme="chatStore.debugSidebarOpen ? 'primary' : 'default'"
+            variant="text"
+            @click="chatStore.debugSidebarOpen = !chatStore.debugSidebarOpen"
+            title="Agent 调试面板"
+          >
+            <template #icon><t-icon name="bug-report" /></template>
+            调试
+          </t-button>
           <t-button 
             theme="primary" 
             variant="text"
@@ -451,6 +461,9 @@ onMounted(async () => {
         <InputBox @send="handleSend" :disabled="chatStore.loading" />
       </div>
     </div>
+
+    <!-- Debug Sidebar -->
+    <AgentDebugSidebar />
   </div>
 </template>
 
