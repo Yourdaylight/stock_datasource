@@ -46,8 +46,8 @@ interface MenuItem {
 
 const menuItems: MenuItem[] = [
   { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
-  { path: '/research', title: '研究数据', icon: FileSearchIcon, public: true },
-  { path: '/news', title: '新闻资讯', icon: NotificationIcon, requiresAuth: true },
+  { path: '/research', title: '财报分析', icon: FileSearchIcon, public: true },
+  { path: '/news', title: '资讯中心', icon: NotificationIcon, requiresAuth: true },
   { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
   { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },

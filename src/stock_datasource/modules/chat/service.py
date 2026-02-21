@@ -407,9 +407,9 @@ class ChatService:
         self.add_message(session_id, user_id, "user", content)
         
         # Get orchestrator to process
-        from stock_datasource.agents.orchestrator import OrchestratorAgent
+        from stock_datasource.agents.orchestrator import get_orchestrator
         
-        orchestrator = OrchestratorAgent()
+        orchestrator = get_orchestrator()
         context = {
             "session_id": session_id,
             "user_id": user_id,

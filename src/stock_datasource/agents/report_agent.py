@@ -8,45 +8,32 @@ import re
 from .base_agent import LangGraphAgent, AgentConfig
 from .tools import get_stock_info, get_stock_valuation
 from ..services.financial_report_service import FinancialReportService
+from ..utils.stock_code import validate_cn_stock_code as _validate_and_normalize_stock_code
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_and_normalize_stock_code(ts_code: str) -> Tuple[bool, str, Optional[str]]:
-    """Validate and normalize stock code.
-    
-    Args:
-        ts_code: Raw stock code input
-        
-    Returns:
-        Tuple of (is_valid, normalized_code, error_message)
-    """
-    if not ts_code:
-        return False, "", "股票代码不能为空"
-    
-    # Strip whitespace
-    ts_code = ts_code.strip().upper()
-    
-    # Check if already in valid format (e.g., 600519.SH)
-    if re.match(r'^\d{6}\.(SH|SZ|BJ)$', ts_code):
-        return True, ts_code, None
-    
-    # Check if it's a 6-digit code without suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            return True, f"{ts_code}.SH", None
-        elif ts_code.startswith(('0', '3')):
-            return True, f"{ts_code}.SZ", None
-        elif ts_code.startswith(('4', '8')):
-            return True, f"{ts_code}.BJ", None
-        else:
-            return False, ts_code, f"无法识别的股票代码前缀: {ts_code}"
-    
-    # Invalid format
-    return False, ts_code, f"无效的股票代码格式: {ts_code}。请使用6位数字代码(如600519)或完整代码(如600519.SH)"
+def _fmt_pct(val, fallback='N/A') -> str:
+    """Format a percentage value, handling \\N and None."""
+    if val is None or val == '\\N' or val == 'None' or val == '':
+        return fallback
+    try:
+        return f"{float(val):.2f}%"
+    except (ValueError, TypeError):
+        return fallback
 
 
-def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
+def _fmt_num(val, fallback='N/A') -> str:
+    """Format a numeric value, handling \\N and None."""
+    if val is None or val == '\\N' or val == 'None' or val == '':
+        return fallback
+    try:
+        return f"{float(val):.2f}"
+    except (ValueError, TypeError):
+        return fallback
+
+
+def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> Dict[str, Any]:
     """获取全面的财务分析报告。
     
     Args:
@@ -59,14 +46,14 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
     # Validate and normalize stock code
     is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
     if not is_valid:
-        return f"❌ {error_msg}"
+        return {"report": f"❌ {error_msg}"}
     
     try:
         service = FinancialReportService()
         analysis = service.get_comprehensive_analysis(ts_code, periods)
         
         if analysis.get("status") == "error":
-            return f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"
+            return {"report": f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"}
         
         summary = analysis.get("summary", {})
         health = analysis.get("health_analysis", {})
@@ -97,19 +84,19 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         prof = summary.get("profitability", {})
         report += f"""
 ### 📈 盈利能力指标
-- ROE (净资产收益率): {prof.get('roe', 'N/A')}%
-- ROA (总资产收益率): {prof.get('roa', 'N/A')}%
-- 毛利率: {prof.get('gross_profit_margin', 'N/A')}%
-- 净利率: {prof.get('net_profit_margin', 'N/A')}%
+- ROE (净资产收益率): {_fmt_pct(prof.get('roe'))}
+- ROA (总资产收益率): {_fmt_pct(prof.get('roa'))}
+- 毛利率: {_fmt_pct(prof.get('gross_profit_margin'))}
+- 净利率: {_fmt_pct(prof.get('net_profit_margin'))}
 """
         
         # Solvency metrics
         solv = summary.get("solvency", {})
         report += f"""
 ### 🛡️ 偿债能力指标
-- 资产负债率: {solv.get('debt_to_assets', 'N/A')}%
-- 流动比率: {solv.get('current_ratio', 'N/A')}
-- 速动比率: {solv.get('quick_ratio', 'N/A')}
+- 资产负债率: {_fmt_pct(solv.get('debt_to_assets'))}
+- 流动比率: {_fmt_num(solv.get('current_ratio'))}
+- 速动比率: {_fmt_num(solv.get('quick_ratio'))}
 """
         
         # Growth analysis
@@ -117,8 +104,8 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         if growth_data:
             report += f"""
 ### 🚀 成长性分析
-- 营收增长率: {growth_data.get('revenue_growth', 'N/A')}%
-- 净利润增长率: {growth_data.get('profit_growth', 'N/A')}%
+- 营收增长率: {_fmt_pct(growth_data.get('revenue_growth'))}
+- 净利润增长率: {_fmt_pct(growth_data.get('profit_growth'))}
 """
         
         # Recommendations
@@ -137,11 +124,44 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> str:
         
         report += f"\n### 📅 数据说明\n- 分析时间范围: 近{summary.get('periods', 0)//4}年({summary.get('periods', 0)}个季度)\n- 最新财报: {latest_period}"
         
-        return report
+        # Build visualization data for TrendChart component
+        financial_periods = analysis.get("financial_data", [])
+        viz = None
+        if financial_periods and isinstance(financial_periods, list) and len(financial_periods) > 0:
+            viz_data = []
+            for fp in financial_periods:
+                period_str = fp.get("end_date") or fp.get("period", "")
+                if hasattr(period_str, 'strftime'):
+                    period_str = period_str.strftime('%Y-%m-%d')
+                viz_data.append({
+                    "period": str(period_str),
+                    "revenue": fp.get("revenue"),
+                    "net_profit": fp.get("n_income") or fp.get("net_profit"),
+                    "net_profit_attr_p": fp.get("n_income_attr_p"),
+                    "total_assets": fp.get("total_assets"),
+                    "total_liab": fp.get("total_liab"),
+                    "roe": fp.get("roe"),
+                    "roa": fp.get("roa"),
+                    "gross_margin": fp.get("grossprofit_margin"),
+                    "net_margin": fp.get("netprofit_margin"),
+                })
+            if viz_data:
+                viz = {
+                    "type": "financial_trend",
+                    "title": f"{ts_code} 财务趋势分析",
+                    "props": {
+                        "data": viz_data,
+                    }
+                }
+        
+        result = {"report": report}
+        if viz:
+            result["_visualization"] = viz
+        return result
         
     except Exception as e:
         logger.error(f"Error in comprehensive financial analysis for {ts_code}: {e}")
-        return f"❌ 分析 {ts_code} 时发生错误: {str(e)}"
+        return {"report": f"❌ 分析 {ts_code} 时发生错误: {str(e)}"}
 
 
 def get_peer_comparison_analysis(ts_code: str, end_date: str = None) -> str:

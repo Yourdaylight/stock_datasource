@@ -210,6 +210,9 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
     async def generate():
         full_response = ""
         tool_calls = []
+        tool_errors = []
+        debug_events = []
+        visualizations = []
         event_count = 0
         
         try:
@@ -241,6 +244,24 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     }, ensure_ascii=False)
                     yield f"data: {thinking_data}\n\n"
                 
+                elif event_type == "debug":
+                    # Forward debug events to frontend and collect for persistence
+                    debug_events.append(event)
+                    debug_data = json.dumps(event, ensure_ascii=False)
+                    yield f"data: {debug_data}\n\n"
+                
+                elif event_type == "visualization":
+                    # Forward visualization events to frontend and collect for persistence
+                    viz_payload = event.get("visualization", {})
+                    visualizations.append(viz_payload)
+                    viz_data = json.dumps({
+                        "type": "visualization",
+                        "visualization": viz_payload,
+                        "agent": event.get("agent"),
+                        "tool": event.get("tool"),
+                    }, ensure_ascii=False)
+                    yield f"data: {viz_data}\n\n"
+                
                 elif event_type == "tool":
                     tool_data = json.dumps({
                         "type": "tool",
@@ -264,12 +285,25 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                         yield f"data: {data}\n\n"
                 
                 elif event_type == "done":
-                    if full_response:
-                        service.add_message(session_id, user_id, "assistant", full_response)
+                    if tool_errors:
+                        failure_note = "\n\n> ⚠️ 工具调用失败摘要: " + "; ".join(tool_errors[:3])
+                        if len(tool_errors) > 3:
+                            failure_note += f" 等共{len(tool_errors)}个错误"
+                        full_response += failure_note
                     metadata = event.get("metadata", {})
                     metadata.setdefault("tool_calls", tool_calls)
+                    if tool_errors:
+                        metadata["tool_errors"] = tool_errors
+                    # Attach collected debug events for persistence
+                    if debug_events:
+                        metadata["debug_events"] = debug_events
+                    # Attach visualization data for history re-rendering
+                    if visualizations:
+                        metadata["visualizations"] = visualizations
+                    if full_response:
+                        service.add_message(session_id, user_id, "assistant", full_response, metadata=metadata)
                     
-                    logger.info(f"[Chat] Completed - events: {event_count}, response length: {len(full_response)}, tools: {tool_calls}")
+                    logger.info(f"[Chat] Completed - events: {event_count}, response length: {len(full_response)}, tools: {tool_calls}, debug_events: {len(debug_events)}")
                     
                     done_data = json.dumps({
                         "type": "done",
@@ -280,6 +314,7 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                 elif event_type == "error":
                     error_msg = event.get("error", "未知错误")
                     logger.error(f"[Chat] Agent error: {error_msg}")
+                    tool_errors.append(error_msg)
                     error_data = json.dumps({
                         "type": "error",
                         "error": error_msg
@@ -292,6 +327,11 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
             logger.error(f"[Chat] Streaming error for session {session_id}:\n{error_traceback}")
             
             if full_response:
+                if tool_errors:
+                    failure_note = "\n\n> ⚠️ 工具调用失败摘要: " + "; ".join(tool_errors[:3])
+                    if len(tool_errors) > 3:
+                        failure_note += f" 等共{len(tool_errors)}个错误"
+                    full_response += failure_note
                 service.add_message(session_id, user_id, "assistant", full_response)
             
             error_data = json.dumps({

@@ -2,6 +2,7 @@
 
 import os
 import logging
+import asyncio
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
 # Load .env file at module import
@@ -18,27 +19,46 @@ _langfuse_handler = None
 
 
 def get_langfuse():
-    """Get or create Langfuse instance."""
+    """Get or create Langfuse instance.
+
+    注意：Langfuse 的初始化是同步的，可能涉及网络/IO。
+    如果在正在运行的 asyncio event loop 线程内初始化，会阻塞整个 API 服务。
+    因此在异步上下文中（未预先初始化时）直接返回 None。
+    """
     global _langfuse
-    if _langfuse is None:
-        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
-        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
-        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
-        enabled = os.getenv("LANGFUSE_ENABLED", "true").lower() == "true"
-        
-        if enabled and public_key and secret_key:
-            try:
-                from langfuse import Langfuse
-                _langfuse = Langfuse(
-                    public_key=public_key,
-                    secret_key=secret_key,
-                    host=host
-                )
-                logger.info(f"Langfuse initialized with host: {host}")
-            except ImportError:
-                logger.warning("langfuse package not installed")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Langfuse: {e}")
+
+    if _langfuse is not None:
+        return _langfuse
+
+    # 避免在 event loop 线程里做同步初始化，导致请求卡死
+    try:
+        asyncio.get_running_loop()
+        in_asyncio = True
+    except RuntimeError:
+        in_asyncio = False
+
+    if in_asyncio:
+        return None
+
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+    host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+    enabled = os.getenv("LANGFUSE_ENABLED", "true").lower() == "true"
+
+    if enabled and public_key and secret_key:
+        try:
+            from langfuse import Langfuse
+            _langfuse = Langfuse(
+                public_key=public_key,
+                secret_key=secret_key,
+                host=host
+            )
+            logger.info(f"Langfuse initialized with host: {host}")
+        except ImportError:
+            logger.warning("langfuse package not installed")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Langfuse: {e}")
+
     return _langfuse
 
 
@@ -53,12 +73,8 @@ def get_langfuse_handler():
         
         if enabled and public_key and secret_key:
             try:
-                from langfuse.callback import CallbackHandler
-                _langfuse_handler = CallbackHandler(
-                    public_key=public_key,
-                    secret_key=secret_key,
-                    host=host
-                )
+                from langfuse.langchain import CallbackHandler
+                _langfuse_handler = CallbackHandler(update_trace=True)
                 logger.info("Langfuse CallbackHandler initialized")
             except ImportError:
                 logger.warning("langfuse package not installed")
@@ -316,15 +332,30 @@ class OpenAIClient(BaseLLMClient):
                 "temperature": temperature,
                 "max_tokens": max_tokens
             }
+
+            response = None
             if functions:
-                kwargs["functions"] = functions
-                kwargs["function_call"] = "auto"
-            
-            response = await self.client.chat.completions.create(**kwargs)
+                tools = [{"type": "function", "function": fn} for fn in functions]
+                kwargs_tools = {**kwargs, "tools": tools, "tool_choice": "auto"}
+                try:
+                    response = await self.client.chat.completions.create(**kwargs_tools)
+                except TypeError:
+                    kwargs_legacy = {**kwargs, "functions": functions, "function_call": "auto"}
+                    response = await self.client.chat.completions.create(**kwargs_legacy)
+            else:
+                response = await self.client.chat.completions.create(**kwargs)
+
             message = response.choices[0].message
             
             result = {"role": "assistant", "content": message.content}
-            if hasattr(message, "function_call") and message.function_call:
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                first_call = message.tool_calls[0]
+                if getattr(first_call, "function", None):
+                    result["function_call"] = {
+                        "name": first_call.function.name,
+                        "arguments": first_call.function.arguments
+                    }
+            elif hasattr(message, "function_call") and message.function_call:
                 result["function_call"] = {
                     "name": message.function_call.name,
                     "arguments": message.function_call.arguments

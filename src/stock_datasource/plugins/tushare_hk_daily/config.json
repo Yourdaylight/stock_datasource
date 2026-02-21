@@ -1,0 +1,61 @@
+{
+  "enabled": true,
+  "data_source": "yfinance",
+  "rate_limit": 60,
+  "batch_size": 10,
+  "delay_between_batches": 1.0,
+  "timeout": 30,
+  "retry_attempts": 3,
+  "description": "Hong Kong Stock daily price data plugin using yfinance (migrated from TuShare)",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  },
+  "parameters": {
+    "max_empty_days": 5,
+    "validate_prices": true,
+    "require_ohlc": true
+  },
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Trade date in YYYYMMDD format (e.g., 20250110) - Not recommended for yfinance"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "HK stock code in TuShare format (e.g., 00001.HK)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "Start date in YYYYMMDD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "End date in YYYYMMDD format"
+    },
+    "batch_size": {
+      "type": "integer",
+      "required": false,
+      "default": 10,
+      "description": "Number of stocks per batch for batch extraction"
+    },
+    "max_stocks": {
+      "type": "integer",
+      "required": false,
+      "description": "Maximum number of stocks to process (for testing)"
+    }
+  },
+  "notes": [
+    "Data source: yfinance (free, no token required)",
+    "Missing field: amount (成交额) - not available from yfinance",
+    "Code format: TuShare uses 5-digit codes (00700.HK), yfinance uses 4-digit codes (0700.HK)",
+    "Rate limit: 60 calls/minute default to avoid API throttling"
+  ]
+}

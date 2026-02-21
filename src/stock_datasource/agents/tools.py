@@ -25,23 +25,55 @@ def _get_db():
     return _db_client
 
 
-def get_stock_info(ts_code: str) -> str:
-    """获取股票基本信息。
+def _is_hk_stock(ts_code: str) -> bool:
+    """Check if a stock code is a Hong Kong stock.
     
     Args:
-        ts_code: 股票代码，如 600519.SH 或 000001.SZ。如果只有6位数字，会自动补全后缀。
+        ts_code: Stock code, e.g. 00700.HK
         
     Returns:
-        股票的基本信息，包括最新行情和估值数据。
+        True if the code is a HK stock
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
+    return ts_code.upper().endswith('.HK')
+
+
+def _normalize_ts_code(ts_code: str) -> str:
+    """Normalize stock code by auto-completing suffix.
+    
+    Handles:
+    - 5-digit codes -> HK stock (e.g. 00700 -> 00700.HK)
+    - 6-digit codes starting with 6 -> SH (e.g. 600519 -> 600519.SH)
+    - 6-digit codes starting with 0/3 -> SZ (e.g. 000001 -> 000001.SZ)
+    - Already suffixed codes -> uppercase (e.g. 00700.hk -> 00700.HK)
+    """
+    ts_code = ts_code.strip()
+    # 5-digit pure number -> HK stock
+    if len(ts_code) == 5 and ts_code.isdigit():
+        ts_code = f"{ts_code}.HK"
+    # 6-digit pure number -> A-share
+    elif len(ts_code) == 6 and ts_code.isdigit():
         if ts_code.startswith('6'):
             ts_code = f"{ts_code}.SH"
         elif ts_code.startswith(('0', '3')):
             ts_code = f"{ts_code}.SZ"
+    return ts_code.upper()
+
+
+def get_stock_info(ts_code: str) -> str:
+    """获取股票基本信息（支持A股和港股）。
     
-    ts_code = ts_code.upper()
+    Args:
+        ts_code: 股票代码，如 600519.SH、000001.SZ 或 00700.HK。如果只有6位数字，会自动补全后缀。
+        
+    Returns:
+        股票的基本信息，包括最新行情和估值数据。
+    """
+    ts_code = _normalize_ts_code(ts_code)
+    
+    # Route to HK handler if it's a HK stock
+    if _is_hk_stock(ts_code):
+        return _get_hk_stock_info(ts_code)
+    
     db = _get_db()
     
     if db is None:
@@ -97,23 +129,21 @@ def get_stock_info(ts_code: str) -> str:
 
 
 def get_stock_kline(ts_code: str, days: int = 30) -> str:
-    """获取股票K线数据（日线）。
+    """获取股票K线数据（日线），支持A股和港股。
     
     Args:
-        ts_code: 股票代码，如 600519.SH
+        ts_code: 股票代码，如 600519.SH 或 00700.HK
         days: 获取最近多少天的数据，默认30天
         
     Returns:
         K线数据，包括日期、开盘价、最高价、最低价、收盘价、成交量、涨跌幅等。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    ts_code = _normalize_ts_code(ts_code)
     
-    ts_code = ts_code.upper()
+    # Route to HK handler if it's a HK stock
+    if _is_hk_stock(ts_code):
+        return _get_hk_stock_kline(ts_code, days)
+    
     db = _get_db()
     
     if db is None:
@@ -176,22 +206,20 @@ def get_stock_kline(ts_code: str, days: int = 30) -> str:
 
 
 def get_stock_valuation(ts_code: str) -> str:
-    """获取股票估值指标（PE、PB、市值等）。
+    """获取股票估值指标（PE、PB、市值等），支持A股和港股。
     
     Args:
-        ts_code: 股票代码，如 600519.SH
+        ts_code: 股票代码，如 600519.SH 或 00700.HK
         
     Returns:
-        估值指标，包括PE、PB、市值、换手率等。
+        估值指标，包括PE、PB、市值、换手率等。港股将返回财务指标信息。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    ts_code = _normalize_ts_code(ts_code)
     
-    ts_code = ts_code.upper()
+    # Route to HK handler if it's a HK stock
+    if _is_hk_stock(ts_code):
+        return _get_hk_stock_valuation(ts_code)
+    
     db = _get_db()
     
     if db is None:
@@ -241,22 +269,20 @@ def get_stock_valuation(ts_code: str) -> str:
 
 
 def calculate_technical_indicators(ts_code: str) -> str:
-    """计算股票技术指标（均线、MACD等）。
+    """计算股票技术指标（均线、MACD等），支持A股和港股。
     
     Args:
-        ts_code: 股票代码，如 600519.SH
+        ts_code: 股票代码，如 600519.SH 或 00700.HK
         
     Returns:
         技术指标分析结果，包括均线、趋势判断等。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
+    ts_code = _normalize_ts_code(ts_code)
     
-    ts_code = ts_code.upper()
+    # Route to HK handler if it's a HK stock
+    if _is_hk_stock(ts_code):
+        return _calculate_hk_technical_indicators(ts_code)
+    
     db = _get_db()
     
     if db is None:
@@ -335,6 +361,293 @@ def calculate_technical_indicators(ts_code: str) -> str:
     except Exception as e:
         logger.error(f"Calculate indicators failed: {e}")
         return f"计算 {ts_code} 技术指标失败: {str(e)}"
+
+
+# ==================== HK Stock Helper Functions ====================
+
+def _get_hk_stock_info(ts_code: str) -> str:
+    """获取港股基本信息。
+    
+    Args:
+        ts_code: 港股代码，如 00700.HK
+        
+    Returns:
+        港股的基本信息，包括最新行情。
+    """
+    db = _get_db()
+    if db is None:
+        return f"数据库连接失败，无法查询港股 {ts_code} 信息"
+    
+    try:
+        query = """
+            SELECT 
+                d.ts_code,
+                d.trade_date,
+                d.open, d.high, d.low, d.close,
+                d.pre_close,
+                d.pct_chg,
+                d.vol as volume,
+                d.amount,
+                b.name
+            FROM ods_hk_daily d
+            LEFT JOIN ods_hk_basic b ON d.ts_code = b.ts_code
+            WHERE d.ts_code = %(code)s
+            ORDER BY d.trade_date DESC
+            LIMIT 1
+        """
+        df = db.execute_query(query, {"code": ts_code})
+        
+        if df.empty:
+            return f"未找到港股 {ts_code} 的数据，请确认股票代码是否正确（港股代码格式如 00700.HK）"
+        
+        row = df.iloc[0]
+        trade_date = _format_date(row['trade_date'])
+        name = row.get('name', '') or ''
+        
+        lines = [f"## 港股信息: {ts_code} {name}"]
+        lines.append(f"### 最新行情 ({trade_date})")
+        lines.append(f"- 收盘价: {row['close']:.3f} HKD")
+        
+        if row.get('pct_chg') is not None:
+            lines.append(f"- 涨跌幅: {row['pct_chg']:+.2f}%")
+        if row.get('pre_close') is not None:
+            lines.append(f"- 昨收价: {row['pre_close']:.3f}")
+        if row.get('open') is not None:
+            lines.append(f"- 开盘: {row['open']:.3f} | 最高: {row['high']:.3f} | 最低: {row['low']:.3f}")
+        if row.get('volume') is not None:
+            lines.append(f"- 成交量: {row['volume']/10000:.2f}万股")
+        if row.get('amount') is not None and row['amount']:
+            lines.append(f"- 成交额: {row['amount']/100000000:.2f}亿港元")
+        
+        lines.append(f"\n> 注：港股无涨跌幅限制，支持T+0交易，以港币计价")
+        
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Query HK stock info failed: {e}")
+        return f"查询港股 {ts_code} 信息失败: {str(e)}"
+
+
+def _get_hk_stock_kline(ts_code: str, days: int = 30) -> str:
+    """获取港股K线数据。
+    
+    Args:
+        ts_code: 港股代码，如 00700.HK
+        days: 获取最近多少天的数据
+        
+    Returns:
+        K线数据表格。
+    """
+    db = _get_db()
+    if db is None:
+        return f"数据库连接失败，无法查询港股 {ts_code} K线数据"
+    
+    try:
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
+        
+        query = """
+            SELECT 
+                trade_date,
+                open, high, low, close,
+                vol as volume,
+                amount,
+                pct_chg as change_pct
+            FROM ods_hk_daily
+            WHERE ts_code = %(code)s
+              AND trade_date BETWEEN %(start)s AND %(end)s
+            ORDER BY trade_date DESC
+            LIMIT %(limit)s
+        """
+        df = db.execute_query(query, {
+            "code": ts_code,
+            "start": start_date,
+            "end": end_date,
+            "limit": days
+        })
+        
+        if df.empty:
+            return f"未找到港股 {ts_code} 的K线数据"
+        
+        lines = [f"## {ts_code} 最近 {len(df)} 个交易日K线数据（港股）\n"]
+        lines.append("| 日期 | 开盘 | 最高 | 最低 | 收盘 | 涨跌幅 | 成交量(万股) |")
+        lines.append("|------|------|------|------|------|--------|-------------|")
+        
+        for _, row in df.iterrows():
+            open_p = f"{row['open']:.3f}" if row.get('open') is not None else "-"
+            high_p = f"{row['high']:.3f}" if row.get('high') is not None else "-"
+            low_p = f"{row['low']:.3f}" if row.get('low') is not None else "-"
+            close_p = f"{row['close']:.3f}" if row.get('close') is not None else "-"
+            chg = f"{row['change_pct']:+.2f}%" if row.get('change_pct') is not None else "-"
+            vol = f"{row['volume']/10000:.2f}" if row.get('volume') is not None else "-"
+            lines.append(f"| {row['trade_date']} | {open_p} | {high_p} | {low_p} | {close_p} | {chg} | {vol} |")
+        
+        # Summary
+        latest = df.iloc[0]
+        valid_chg = df['change_pct'].dropna()
+        total_change = valid_chg.sum() if not valid_chg.empty else 0
+        valid_vol = df['volume'].dropna()
+        avg_volume = valid_vol.mean() / 10000 if not valid_vol.empty else 0
+        
+        lines.append(f"\n### 统计摘要")
+        lines.append(f"- 最新收盘价: {latest['close']:.3f} HKD")
+        if latest.get('change_pct') is not None:
+            lines.append(f"- 最新涨跌幅: {latest['change_pct']:+.2f}%")
+        lines.append(f"- 期间累计涨跌: {total_change:.2f}%")
+        lines.append(f"- 日均成交量: {avg_volume:.2f}万股")
+        
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Query HK K-line failed: {e}")
+        return f"查询港股 {ts_code} K线数据失败: {str(e)}"
+
+
+def _calculate_hk_technical_indicators(ts_code: str) -> str:
+    """计算港股技术指标。
+    
+    Args:
+        ts_code: 港股代码，如 00700.HK
+        
+    Returns:
+        技术指标分析结果。
+    """
+    db = _get_db()
+    if db is None:
+        return f"数据库连接失败，无法计算港股 {ts_code} 技术指标"
+    
+    try:
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=120)).strftime("%Y%m%d")
+        
+        query = """
+            SELECT trade_date, close, vol as volume
+            FROM ods_hk_daily
+            WHERE ts_code = %(code)s
+              AND trade_date BETWEEN %(start)s AND %(end)s
+              AND close IS NOT NULL
+            ORDER BY trade_date DESC
+            LIMIT 60
+        """
+        df = db.execute_query(query, {
+            "code": ts_code,
+            "start": start_date,
+            "end": end_date
+        })
+        
+        if len(df) < 20:
+            return f"港股 {ts_code} 数据不足（仅 {len(df)} 条），无法计算技术指标。港股数据可能覆盖时间较短。"
+        
+        closes = df['close'].tolist()
+        volumes = df['volume'].dropna().tolist()
+        
+        # Calculate moving averages
+        ma5 = sum(closes[:5]) / 5
+        ma10 = sum(closes[:10]) / 10
+        ma20 = sum(closes[:20]) / 20
+        
+        current_price = closes[0]
+        
+        lines = [f"## {ts_code} 港股技术指标分析\n"]
+        lines.append(f"### 当前价格: {current_price:.3f} HKD\n")
+        
+        lines.append("### 均线系统")
+        lines.append(f"- MA5: {ma5:.3f} ({'↑' if current_price > ma5 else '↓'})")
+        lines.append(f"- MA10: {ma10:.3f} ({'↑' if current_price > ma10 else '↓'})")
+        lines.append(f"- MA20: {ma20:.3f} ({'↑' if current_price > ma20 else '↓'})")
+        
+        # Trend analysis
+        if ma5 > ma10 > ma20:
+            trend = "多头排列（看涨）"
+        elif ma5 < ma10 < ma20:
+            trend = "空头排列（看跌）"
+        else:
+            trend = "震荡整理"
+        lines.append(f"- 均线趋势: {trend}")
+        
+        # Support/Resistance
+        lines.append(f"\n### 支撑/压力位")
+        lines.append(f"- 短期支撑: {ma5:.3f}")
+        lines.append(f"- 中期支撑: {ma10:.3f}")
+        lines.append(f"- 强支撑: {ma20:.3f}")
+        
+        # Volume analysis
+        if len(volumes) >= 10:
+            vol_ma5 = sum(volumes[:5]) / 5
+            vol_ma10 = sum(volumes[:10]) / 10
+            
+            lines.append(f"\n### 成交量分析")
+            lines.append(f"- 5日均量: {vol_ma5/10000:.2f}万股")
+            lines.append(f"- 10日均量: {vol_ma10/10000:.2f}万股")
+            if vol_ma5 > vol_ma10 * 1.2:
+                lines.append("- 量能状态: 放量")
+            elif vol_ma5 < vol_ma10 * 0.8:
+                lines.append("- 量能状态: 缩量")
+            else:
+                lines.append("- 量能状态: 平稳")
+        
+        lines.append(f"\n> 注：港股无涨跌幅限制，技术指标信号需结合港股市场特点判断")
+        
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Calculate HK indicators failed: {e}")
+        return f"计算港股 {ts_code} 技术指标失败: {str(e)}"
+
+
+def _get_hk_stock_valuation(ts_code: str) -> str:
+    """获取港股估值信息（通过HK财务报告服务）。
+    
+    Args:
+        ts_code: 港股代码，如 00700.HK
+        
+    Returns:
+        港股估值/财务指标信息。
+    """
+    try:
+        from stock_datasource.services.hk_financial_report_service import HKFinancialReportService
+        
+        service = HKFinancialReportService()
+        result = service.get_financial_indicators(ts_code)
+        
+        if not result or result.get("error"):
+            # Fallback: return basic price info from ods_hk_daily
+            db = _get_db()
+            if db is None:
+                return f"港股 {ts_code} 暂无独立估值数据表（如PE/PB），建议通过财报分析获取相关指标"
+            
+            query = """
+                SELECT 
+                    d.ts_code, d.trade_date, d.close, d.pct_chg,
+                    b.name
+                FROM ods_hk_daily d
+                LEFT JOIN ods_hk_basic b ON d.ts_code = b.ts_code
+                WHERE d.ts_code = %(code)s
+                ORDER BY d.trade_date DESC
+                LIMIT 1
+            """
+            df = db.execute_query(query, {"code": ts_code})
+            if df.empty:
+                return f"港股 {ts_code} 暂无估值数据，建议使用财报分析功能获取财务指标"
+            
+            row = df.iloc[0]
+            name = row.get('name', '') or ''
+            lines = [f"## {ts_code} {name} 估值参考"]
+            lines.append(f"- 最新收盘价: {row['close']:.3f} HKD")
+            if row.get('pct_chg') is not None:
+                lines.append(f"- 涨跌幅: {row['pct_chg']:+.2f}%")
+            lines.append(f"\n> 港股暂无独立估值数据表（PE/PB/市值），详细财务指标请使用\"XX.HK 财报分析\"获取")
+            return "\n".join(lines)
+        
+        # Format financial indicators
+        lines = [f"## {ts_code} 港股财务指标\n"]
+        for key, value in result.items():
+            if key not in ("error", "ts_code"):
+                lines.append(f"- {key}: {value}")
+        
+        return "\n".join(lines)
+    except ImportError:
+        return f"港股 {ts_code} 暂无独立估值数据表，建议使用\"XX.HK 财报分析\"获取财务指标"
+    except Exception as e:
+        logger.error(f"Get HK valuation failed: {e}")
+        return f"港股 {ts_code} 暂无独立估值数据表，建议使用\"XX.HK 财报分析\"获取财务指标"
 
 
 def screen_stocks(
@@ -521,14 +834,7 @@ def get_stock_profile(ts_code: str) -> str:
     Returns:
         股票的十维画像评分和投资建议。
     """
-    # Auto-complete code suffix
-    if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
-            ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
-            ts_code = f"{ts_code}.SZ"
-    
-    ts_code = ts_code.upper()
+    ts_code = _normalize_ts_code(ts_code)
     
     try:
         from stock_datasource.modules.screener.profile import get_profile_service

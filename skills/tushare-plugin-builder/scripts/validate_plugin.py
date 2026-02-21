@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any
 
 # 将项目根目录加入 sys.path
-project_root = Path(__file__).resolve().parents[4]
+project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root / "src"))
 
 PLUGINS_DIR = project_root / "src" / "stock_datasource" / "plugins"

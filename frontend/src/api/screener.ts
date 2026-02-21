@@ -13,6 +13,8 @@ export interface ScreenerRequest {
   sort_order?: 'asc' | 'desc'
   limit?: number
   trade_date?: string  // 交易日期，格式 YYYY-MM-DD
+  market_type?: 'a_share' | 'hk_stock' | 'all'  // 市场类型
+  search?: string  // 按名称/代码模糊搜索
 }
 
 export interface StockItem {
@@ -143,6 +145,7 @@ export const screenerApi = {
     sort_order?: 'asc' | 'desc'
     search?: string
     trade_date?: string  // 交易日期，格式 YYYY-MM-DD
+    market_type?: 'a_share' | 'hk_stock' | 'all'  // 市场类型
   } = {}): Promise<StockListResponse> {
     const queryParams = new URLSearchParams()
     if (params.page) queryParams.append('page', params.page.toString())
@@ -151,14 +154,16 @@ export const screenerApi = {
     if (params.sort_order) queryParams.append('sort_order', params.sort_order)
     if (params.search) queryParams.append('search', params.search)
     if (params.trade_date) queryParams.append('trade_date', params.trade_date)
+    if (params.market_type) queryParams.append('market_type', params.market_type)
     
     const query = queryParams.toString()
     return request.get(`/api/screener/stocks${query ? '?' + query : ''}`)
   },
 
   // 获取市场概况
-  getSummary(): Promise<MarketSummary> {
-    return request.get('/api/screener/summary')
+  getSummary(market_type?: string): Promise<MarketSummary> {
+    const params = market_type ? `?market_type=${market_type}` : ''
+    return request.get(`/api/screener/summary${params}`)
   },
 
   // 多条件筛选
@@ -214,8 +219,11 @@ export const screenerApi = {
   // =============================================================================
 
   // 获取行业列表
-  getSectors(): Promise<SectorListResponse> {
-    return request.get('/api/screener/sectors')
+  getSectors(marketType?: 'a_share' | 'hk_stock' | 'all'): Promise<SectorListResponse> {
+    const queryParams = new URLSearchParams()
+    if (marketType) queryParams.append('market_type', marketType)
+    const query = queryParams.toString()
+    return request.get(`/api/screener/sectors${query ? '?' + query : ''}`)
   },
 
   // 获取行业内股票
@@ -240,8 +248,11 @@ export const screenerApi = {
   // =============================================================================
 
   // 获取AI推荐
-  getRecommendations(): Promise<RecommendationResponse> {
-    return request.get('/api/screener/recommendations')
+  getRecommendations(marketType?: 'a_share' | 'hk_stock' | 'all'): Promise<RecommendationResponse> {
+    const queryParams = new URLSearchParams()
+    if (marketType) queryParams.append('market_type', marketType)
+    const query = queryParams.toString()
+    return request.get(`/api/screener/recommendations${query ? '?' + query : ''}`)
   },
 
   // 获取技术信号

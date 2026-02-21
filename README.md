@@ -42,6 +42,50 @@
 我们定义了一套Skill可以一键基于tushare的文档生成插件代码，插件是我们整套系统的数据采集基础，可以方便的扩展新的数据源和数据表。每个插件包括数据采集、数据清洗、数据入库等功能模块并提供统一的http接口与Mcp tool给Agent调用。 当然也支持除了tushare之外的akshare， baostock等数据源。具体可以参看plugins目录下的实现。
 
 ![alt text](screenshot/plugins.png)
+
+### 🇭🇰 港股数据获取
+
+系统支持港股日线数据的自动采集，使用 **AKShare** 作为数据源（免费、无权限限制）。
+
+#### 快速开始
+
+```bash
+# 1. 确保港股基础数据已加载
+uv run cli.py load-hk-basic
+
+# 2. 获取所有港股最近一年的历史日线数据
+uv run scripts/fetch_hk_daily_from_akshare.py
+
+# 3. 测试模式（仅获取前10只股票）
+uv run scripts/fetch_hk_daily_from_akshare.py --max-stocks 10
+```
+
+#### 数据更新
+
+建议每日收盘后更新最新数据：
+
+```bash
+# 更新最近3天的数据
+uv run scripts/fetch_hk_daily_from_akshare.py \
+  --start-date $(date -d "3 days ago" +%Y%m%d) \
+  --end-date $(date +%Y%m%d)
+```
+
+#### 数据统计
+
+- **股票覆盖**：2,700+ 只港股
+- **时间范围**：最近一年历史数据
+- **数据字段**：开盘价、最高价、最低价、收盘价、成交量、涨跌幅等
+- **数据源**：AKShare（免费、无限制）
+
+#### 注意事项
+
+1. **数据完整性**：每只股票数据获取后立即入库，确保数据不丢失
+2. **错误处理**：约 0.7% 的股票可能因退市、新上市等原因获取失败，属于正常现象
+3. **智能选股**：港股数据已集成到智能选股系统，支持港股筛选和分析
+4. **性能**：全量获取约 2,700 只股票需 40-45 分钟
+
+详细文档请参考 [港股日线数据迁移总结](HK_DAILY_MIGRATION_SUMMARY.md)。
 ### AI 工作流引擎
 
 支持自定义 AI 工作流，串联多个 Agent 完成复杂任务：

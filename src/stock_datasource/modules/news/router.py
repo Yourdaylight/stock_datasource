@@ -322,15 +322,19 @@ async def search_news(
 @router.get("/hot-topics", response_model=HotTopicsResponse, summary="获取热点话题")
 async def get_hot_topics(
     limit: int = Query(default=10, ge=1, le=50, description="返回数量"),
+    stock_code: Optional[str] = Query(default=None, description="股票代码（可选）"),
+    days: int = Query(default=7, ge=1, le=30, description="查询天数（仅股票模式）"),
 ):
     """获取当前市场热点话题
     
     Args:
         limit: 返回数量
+        stock_code: 股票代码（可选）
+        days: 查询天数（仅股票模式）
     """
     try:
         service = get_news_service()
-        topics = await service.get_hot_topics(limit)
+        topics = await service.get_hot_topics(limit=limit, stock_code=stock_code, days=days)
         
         return HotTopicsResponse(
             success=True,

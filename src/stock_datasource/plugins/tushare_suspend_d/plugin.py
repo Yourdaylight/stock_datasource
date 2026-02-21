@@ -11,7 +11,7 @@ class SuspendDPlugin(BasePlugin):
 
     def __init__(self, **kwargs):
         config_path = Path(__file__).parent / "config.json"
-        with open(config_path) as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             self._plugin_config = json.load(f)
 
         super().__init__(**kwargs)

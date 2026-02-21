@@ -51,9 +51,13 @@ async def get_stocks(
     sort_by: str = "pct_chg",
     sort_order: str = "desc",
     search: Optional[str] = None,
-    trade_date: Optional[str] = Query(None, description="交易日期，格式 YYYY-MM-DD，默认最新日期")
+    trade_date: Optional[str] = Query(None, description="交易日期，格式 YYYY-MM-DD，默认最新日期"),
+    market_type: Optional[str] = Query(None, description="市场类型: a_share, hk_stock, all (默认 a_share)")
 ):
-    """获取分页股票列表（含最新行情）"""
+    """获取分页股票列表（含最新行情）
+    
+    支持 A 股和港股，通过 market_type 参数切换。
+    """
     try:
         service = get_screener_service()
         items, total = service.get_stocks(
@@ -62,7 +66,8 @@ async def get_stocks(
             sort_by=sort_by,
             sort_order=sort_order,
             search=search,
-            trade_date=trade_date
+            trade_date=trade_date,
+            market_type=market_type
         )
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -89,7 +94,10 @@ async def filter_stocks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """多条件筛选股票"""
+    """多条件筛选股票
+    
+    支持 A 股和港股，通过 market_type 参数切换。
+    """
     try:
         service = get_screener_service()
         items, total = service.filter_by_conditions(
@@ -98,7 +106,9 @@ async def filter_stocks(
             sort_order=request.sort_order,
             page=page,
             page_size=page_size,
-            trade_date=request.trade_date
+            trade_date=request.trade_date,
+            market_type=request.market_type,
+            search=request.search
         )
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -229,9 +239,18 @@ async def batch_get_profiles(request: BatchProfileRequest):
 # =============================================================================
 
 @router.get("/sectors", response_model=SectorListResponse)
-async def get_sectors():
-    """获取行业列表"""
+async def get_sectors(
+    market_type: Optional[str] = Query(None, description="市场类型: a_share, hk_stock (默认 a_share)")
+):
+    """获取行业列表
+    
+    注：港股暂不支持行业筛选，返回空列表
+    """
     try:
+        # 港股暂不支持行业筛选
+        if market_type == 'hk_stock':
+            return SectorListResponse(sectors=[], total=0)
+        
         service = get_screener_service()
         sectors = service.get_sectors()
         
@@ -282,61 +301,118 @@ async def get_sector_stocks(
 # =============================================================================
 
 @router.get("/recommendations", response_model=RecommendationResponse)
-async def get_recommendations():
-    """获取AI智能推荐"""
+async def get_recommendations(
+    market_type: Optional[str] = Query(None, description="市场类型: a_share, hk_stock (默认 a_share)")
+):
+    """获取AI智能推荐
+    
+    根据市场类型返回不同的推荐策略
+    """
     try:
         service = get_screener_service()
-        profile_service = get_profile_service()
-        latest_date = service.get_latest_trade_date() or ""
         
         categories: Dict[str, List[Recommendation]] = {}
         
-        # 低估值推荐
-        low_pe_conds = [
-            ScreenerCondition(field="pe", operator="lt", value=15),
-            ScreenerCondition(field="pe", operator="gt", value=0),
-            ScreenerCondition(field="pb", operator="lt", value=2),
-        ]
-        items, _ = service.filter_by_conditions(low_pe_conds, sort_by="pe", sort_order="asc", page=1, page_size=5)
-        categories["low_valuation"] = [
-            Recommendation(
-                ts_code=item.ts_code,
-                stock_name=item.stock_name or item.ts_code,
-                reason=f"PE={item.pe_ttm:.1f}, PB={item.pb:.2f}, 估值较低" if item.pe_ttm and item.pb else "低估值",
-                score=80.0,
-                category="低估值"
-            ) for item in items
-        ]
-        
-        # 强势股推荐
-        momentum_conds = [
-            ScreenerCondition(field="pct_chg", operator="gt", value=5),
-        ]
-        items, _ = service.filter_by_conditions(momentum_conds, sort_by="pct_chg", sort_order="desc", page=1, page_size=5)
-        categories["strong_momentum"] = [
-            Recommendation(
-                ts_code=item.ts_code,
-                stock_name=item.stock_name or item.ts_code,
-                reason=f"今日涨幅 {item.pct_chg:.2f}%，动量强劲" if item.pct_chg else "强势股",
-                score=75.0,
-                category="强势股"
-            ) for item in items
-        ]
-        
-        # 活跃股推荐
-        active_conds = [
-            ScreenerCondition(field="turnover_rate", operator="gt", value=10),
-        ]
-        items, _ = service.filter_by_conditions(active_conds, sort_by="turnover_rate", sort_order="desc", page=1, page_size=5)
-        categories["high_activity"] = [
-            Recommendation(
-                ts_code=item.ts_code,
-                stock_name=item.stock_name or item.ts_code,
-                reason=f"换手率 {item.turnover_rate:.2f}%，交投活跃" if item.turnover_rate else "活跃股",
-                score=70.0,
-                category="活跃股"
-            ) for item in items
-        ]
+        if market_type == 'hk_stock':
+            # 港股推荐策略（基于港股支持的字段）
+            from stock_datasource.plugins.tushare_hk_daily.service import TuShareHKDailyService
+            hk_service = TuShareHKDailyService()
+            latest_date = hk_service.get_latest_trade_date() or ""
+            
+            # 强势港股推荐
+            momentum_conds = [
+                ScreenerCondition(field="pct_chg", operator="gt", value=3),
+            ]
+            items, _ = service.filter_by_conditions(momentum_conds, sort_by="pct_chg", sort_order="desc", page=1, page_size=5, market_type='hk_stock')
+            categories["strong_momentum"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"今日涨幅 {item.pct_chg:.2f}%，动量强劲" if item.pct_chg else "强势股",
+                    score=75.0,
+                    category="强势港股"
+                ) for item in items
+            ]
+            
+            # 大跌港股（可能超跌反弹）
+            oversold_conds = [
+                ScreenerCondition(field="pct_chg", operator="lt", value=-3),
+            ]
+            items, _ = service.filter_by_conditions(oversold_conds, sort_by="pct_chg", sort_order="asc", page=1, page_size=5, market_type='hk_stock')
+            categories["oversold"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"今日跌幅 {item.pct_chg:.2f}%，关注超跌机会" if item.pct_chg else "超跌股",
+                    score=65.0,
+                    category="超跌港股"
+                ) for item in items
+            ]
+            
+            # 高成交港股
+            volume_conds = [
+                ScreenerCondition(field="amount", operator="gt", value=1000000000),  # 成交额 > 10亿
+            ]
+            items, _ = service.filter_by_conditions(volume_conds, sort_by="amount", sort_order="desc", page=1, page_size=5, market_type='hk_stock')
+            categories["high_volume"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"成交额 {item.amount/100000000:.2f}亿，资金关注度高" if item.amount else "高成交",
+                    score=70.0,
+                    category="高成交港股"
+                ) for item in items
+            ]
+        else:
+            # A股推荐策略（原有逻辑）
+            latest_date = service.get_latest_trade_date() or ""
+            
+            # 低估值推荐
+            low_pe_conds = [
+                ScreenerCondition(field="pe", operator="lt", value=15),
+                ScreenerCondition(field="pe", operator="gt", value=0),
+                ScreenerCondition(field="pb", operator="lt", value=2),
+            ]
+            items, _ = service.filter_by_conditions(low_pe_conds, sort_by="pe", sort_order="asc", page=1, page_size=5, market_type='a_share')
+            categories["low_valuation"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"PE={item.pe_ttm:.1f}, PB={item.pb:.2f}, 估值较低" if item.pe_ttm and item.pb else "低估值",
+                    score=80.0,
+                    category="低估值"
+                ) for item in items
+            ]
+            
+            # 强势股推荐
+            momentum_conds = [
+                ScreenerCondition(field="pct_chg", operator="gt", value=5),
+            ]
+            items, _ = service.filter_by_conditions(momentum_conds, sort_by="pct_chg", sort_order="desc", page=1, page_size=5, market_type='a_share')
+            categories["strong_momentum"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"今日涨幅 {item.pct_chg:.2f}%，动量强劲" if item.pct_chg else "强势股",
+                    score=75.0,
+                    category="强势股"
+                ) for item in items
+            ]
+            
+            # 活跃股推荐
+            active_conds = [
+                ScreenerCondition(field="turnover_rate", operator="gt", value=10),
+            ]
+            items, _ = service.filter_by_conditions(active_conds, sort_by="turnover_rate", sort_order="desc", page=1, page_size=5, market_type='a_share')
+            categories["high_activity"] = [
+                Recommendation(
+                    ts_code=item.ts_code,
+                    stock_name=item.stock_name or item.ts_code,
+                    reason=f"换手率 {item.turnover_rate:.2f}%，交投活跃" if item.turnover_rate else "活跃股",
+                    score=70.0,
+                    category="活跃股"
+                ) for item in items
+            ]
         
         return RecommendationResponse(
             trade_date=latest_date,
@@ -461,42 +537,75 @@ async def get_fields():
 # =============================================================================
 
 @router.get("/summary", response_model=MarketSummary)
-async def get_market_summary():
-    """获取市场概况统计"""
+async def get_market_summary(
+    market_type: Optional[str] = Query(None, description="市场类型: a_share, hk_stock, all (默认 a_share)")
+):
+    """获取市场概况统计，支持 A 股和港股"""
     try:
         from stock_datasource.models.database import db_client
         
         db = db_client
+        effective_market = market_type or "a_share"
         
-        # Get latest trade date
-        date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
-        date_df = db.execute_query(date_query)
-        if date_df.empty or date_df.iloc[0]['max_date'] is None:
-            raise HTTPException(status_code=404, detail="No data available")
-        
-        latest_date_raw = date_df.iloc[0]['max_date']
-        if hasattr(latest_date_raw, 'strftime'):
-            latest_date = latest_date_raw.strftime('%Y-%m-%d')
+        if effective_market == "hk_stock":
+            # 港股统计 - 查询 ods_hk_daily 表
+            date_query = "SELECT max(trade_date) as max_date FROM ods_hk_daily"
+            date_df = db.execute_query(date_query)
+            if date_df.empty or date_df.iloc[0]['max_date'] is None:
+                raise HTTPException(status_code=404, detail="No HK data available")
+            
+            latest_date_raw = date_df.iloc[0]['max_date']
+            if hasattr(latest_date_raw, 'strftime'):
+                latest_date = latest_date_raw.strftime('%Y-%m-%d')
+            else:
+                latest_date = str(latest_date_raw).split()[0].split('T')[0]
+            
+            # 港股无涨跌停限制，但仍统计涨跌幅 >= 10% 的
+            summary_query = f"""
+                SELECT 
+                    count(*) as total_stocks,
+                    sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
+                    sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
+                    sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
+                    sum(CASE WHEN pct_chg >= 10 THEN 1 ELSE 0 END) as limit_up,
+                    sum(CASE WHEN pct_chg <= -10 THEN 1 ELSE 0 END) as limit_down,
+                    avg(pct_chg) as avg_change
+                FROM (
+                    SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
+                    FROM ods_hk_daily
+                    WHERE trade_date = '{latest_date}'
+                    GROUP BY ts_code
+                )
+            """
         else:
-            latest_date = str(latest_date_raw).split()[0].split('T')[0]
-        
-        # Get summary statistics - 使用子查询先去重再聚合
-        summary_query = f"""
-            SELECT 
-                count(*) as total_stocks,
-                sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
-                sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
-                sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
-                sum(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up,
-                sum(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down,
-                avg(pct_chg) as avg_change
-            FROM (
-                SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
-                FROM ods_daily
-                WHERE trade_date = '{latest_date}'
-                GROUP BY ts_code
-            )
-        """
+            # A 股统计（默认）
+            date_query = "SELECT max(trade_date) as max_date FROM ods_daily"
+            date_df = db.execute_query(date_query)
+            if date_df.empty or date_df.iloc[0]['max_date'] is None:
+                raise HTTPException(status_code=404, detail="No data available")
+            
+            latest_date_raw = date_df.iloc[0]['max_date']
+            if hasattr(latest_date_raw, 'strftime'):
+                latest_date = latest_date_raw.strftime('%Y-%m-%d')
+            else:
+                latest_date = str(latest_date_raw).split()[0].split('T')[0]
+            
+            summary_query = f"""
+                SELECT 
+                    count(*) as total_stocks,
+                    sum(CASE WHEN pct_chg > 0 THEN 1 ELSE 0 END) as up_count,
+                    sum(CASE WHEN pct_chg < 0 THEN 1 ELSE 0 END) as down_count,
+                    sum(CASE WHEN pct_chg = 0 THEN 1 ELSE 0 END) as flat_count,
+                    sum(CASE WHEN pct_chg >= 9.9 THEN 1 ELSE 0 END) as limit_up,
+                    sum(CASE WHEN pct_chg <= -9.9 THEN 1 ELSE 0 END) as limit_down,
+                    avg(pct_chg) as avg_change
+                FROM (
+                    SELECT ts_code, argMax(pct_chg, _ingested_at) as pct_chg
+                    FROM ods_daily
+                    WHERE trade_date = '{latest_date}'
+                    GROUP BY ts_code
+                )
+            """
         
         df = db.execute_query(summary_query)
         

@@ -50,6 +50,18 @@ def _safe_float(value) -> Optional[float]:
         return None
 
 
+def _safe_value(value):
+    """Return None if value is NaN, otherwise return as-is."""
+    if value is None:
+        return None
+    try:
+        if value != value:  # NaN check
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
 class EtfService(BaseListService):
     """Service for ETF operations."""
     
@@ -276,16 +288,16 @@ class EtfService(BaseListService):
                 "pct_chg": _safe_float(row.get("pct_chg")),
                 "vol": _safe_float(row.get("vol")),
                 "amount": _safe_float(row.get("amount")),
-                "csname": row.get("csname"),
-                "cname": row.get("cname"),
-                "index_code": row.get("index_code"),
-                "index_name": row.get("index_name"),
-                "exchange": row.get("exchange"),
-                "mgr_name": row.get("mgr_name"),
-                "custod_name": row.get("custod_name"),
-                "list_date": row.get("list_date"),
-                "list_status": row.get("list_status"),
-                "etf_type": row.get("etf_type"),
+                "csname": _safe_value(row.get("csname")),
+                "cname": _safe_value(row.get("cname")),
+                "index_code": _safe_value(row.get("index_code")),
+                "index_name": _safe_value(row.get("index_name")),
+                "exchange": _safe_value(row.get("exchange")),
+                "mgr_name": _safe_value(row.get("mgr_name")),
+                "custod_name": _safe_value(row.get("custod_name")),
+                "list_date": _safe_value(row.get("list_date")),
+                "list_status": _safe_value(row.get("list_status")),
+                "etf_type": _safe_value(row.get("etf_type")),
                 "mgt_fee": _safe_float(row.get("mgt_fee")),
             })
         

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useScreenerStore } from '@/stores/screener'
 import { usePortfolioStore } from '@/stores/portfolio'
@@ -15,6 +15,9 @@ const nlQuery = ref('')
 const activeTab = ref('condition')
 const searchInput = ref('')
 const selectedDate = ref<string | null>(null)
+
+// 市场类型筛选
+const marketType = ref<'a_share' | 'hk_stock' | 'all'>('a_share')
 
 // Stock detail dialog
 const showDetailDialog = ref(false)
@@ -34,10 +37,11 @@ const presetStrategies = [
 ]
 
 const conditions = ref<ScreenerCondition[]>([
-  { field: 'pe', operator: 'lt', value: 30 }
+  { field: 'pct_chg', operator: 'gt', value: 3 }
 ])
 
-const fieldOptions = [
+// A股支持的全部字段
+const aShareFieldOptions = [
   { value: 'pe', label: 'PE (市盈率)', defaultValue: 30 },
   { value: 'pb', label: 'PB (市净率)', defaultValue: 3 },
   { value: 'ps', label: 'PS (市销率)', defaultValue: 5 },
@@ -52,11 +56,39 @@ const fieldOptions = [
   { value: 'amount', label: '成交额 (千元)', defaultValue: 50000 },
 ]
 
+// 港股支持的字段（基于 ods_hk_daily 表结构）
+const hkFieldOptions = [
+  { value: 'pct_chg', label: '涨跌幅 (%)', defaultValue: 3 },
+  { value: 'close', label: '收盘价', defaultValue: 50 },
+  { value: 'open', label: '开盘价', defaultValue: 50 },
+  { value: 'high', label: '最高价', defaultValue: 50 },
+  { value: 'low', label: '最低价', defaultValue: 50 },
+  { value: 'vol', label: '成交量 (股)', defaultValue: 1000000 },
+  { value: 'amount', label: '成交额 (元)', defaultValue: 10000000 },
+]
+
+// 根据市场类型返回可用字段
+const fieldOptions = computed(() => {
+  if (marketType.value === 'hk_stock') {
+    return hkFieldOptions
+  }
+  return aShareFieldOptions
+})
+
 // 获取字段默认值
 const getFieldDefaultValue = (field: string): number => {
-  const option = fieldOptions.find(opt => opt.value === field)
+  const options = marketType.value === 'hk_stock' ? hkFieldOptions : aShareFieldOptions
+  const option = options.find(opt => opt.value === field)
   return option?.defaultValue ?? 0
 }
+
+// 监听市场类型变化，重置筛选条件
+watch(marketType, (newType) => {
+  // 重置为该市场支持的默认条件
+  const defaultField = newType === 'hk_stock' ? 'pct_chg' : 'pct_chg'
+  const defaultValue = getFieldDefaultValue(defaultField)
+  conditions.value = [{ field: defaultField, operator: 'gt', value: defaultValue }]
+})
 
 const operatorOptions = [
   { value: 'gt', label: '>' },
@@ -67,7 +99,8 @@ const operatorOptions = [
 ]
 
 const addCondition = () => {
-  const defaultField = 'pe'
+  // 根据市场类型选择默认字段
+  const defaultField = marketType.value === 'hk_stock' ? 'pct_chg' : 'pe'
   conditions.value.push({ 
     field: defaultField, 
     operator: 'lt', 
@@ -108,8 +141,15 @@ const handleDateChange = (date: string | null) => {
   screenerStore.changeTradeDate(date)
 }
 
+const handleMarketTypeChange = (value: 'a_share' | 'hk_stock' | 'all') => {
+  marketType.value = value
+  screenerStore.changeMarketType(value)
+}
+
 const handleClearFilters = () => {
-  conditions.value = [{ field: 'pe', operator: 'lt', value: 30 }]
+  // 重置为当前市场的默认条件
+  const defaultField = marketType.value === 'hk_stock' ? 'pct_chg' : 'pct_chg'
+  conditions.value = [{ field: defaultField, operator: 'gt', value: getFieldDefaultValue(defaultField) }]
   searchInput.value = ''
   selectedDate.value = null
   nlQuery.value = ''
@@ -204,6 +244,34 @@ onMounted(() => {
 
 <template>
   <div class="screener-view">
+    <!-- Market Type TAB -->
+    <div class="market-tab-bar">
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'a_share' }" 
+        @click="handleMarketTypeChange('a_share')"
+      >
+        <span class="market-tab-icon">🇨🇳</span>
+        <span class="market-tab-label">A 股</span>
+      </div>
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'hk_stock' }" 
+        @click="handleMarketTypeChange('hk_stock')"
+      >
+        <span class="market-tab-icon">🇭🇰</span>
+        <span class="market-tab-label">港股</span>
+      </div>
+      <div 
+        class="market-tab-item" 
+        :class="{ active: marketType === 'all' }" 
+        @click="handleMarketTypeChange('all')"
+      >
+        <span class="market-tab-icon">🌐</span>
+        <span class="market-tab-label">全部</span>
+      </div>
+    </div>
+
     <!-- Market Summary -->
     <t-card v-if="screenerStore.summary" class="summary-card" :bordered="false">
       <t-row :gutter="16">
@@ -233,13 +301,13 @@ onMounted(() => {
         </t-col>
         <t-col :span="2">
           <div class="summary-item">
-            <div class="summary-label up">涨停</div>
+            <div class="summary-label up">{{ marketType === 'hk_stock' ? '大涨(≥10%)' : '涨停' }}</div>
             <div class="summary-value up">{{ screenerStore.summary.limit_up }}</div>
           </div>
         </t-col>
         <t-col :span="2">
           <div class="summary-item">
-            <div class="summary-label down">跌停</div>
+            <div class="summary-label down">{{ marketType === 'hk_stock' ? '大跌(≤-10%)' : '跌停' }}</div>
             <div class="summary-value down">{{ screenerStore.summary.limit_down }}</div>
           </div>
         </t-col>
@@ -353,7 +421,7 @@ onMounted(() => {
               <t-date-picker
                 v-model="selectedDate"
                 placeholder="选择日期"
-                style="width: 150px"
+                style="width: 130px"
                 :clearable="true"
                 format="YYYY-MM-DD"
                 value-type="YYYY-MM-DD"
@@ -362,14 +430,14 @@ onMounted(() => {
               <t-input
                 v-model="searchInput"
                 placeholder="搜索代码/名称"
-                style="width: 160px"
+                style="width: 140px"
                 @enter="handleSearch"
               >
                 <template #suffix-icon>
                   <t-icon name="search" @click="handleSearch" style="cursor: pointer" />
                 </template>
               </t-input>
-              <span class="result-count">共 {{ screenerStore.total }} 只股票</span>
+              <span class="result-count">共 {{ screenerStore.total }} 只{{ marketType === 'hk_stock' ? '港股' : (marketType === 'all' ? '股票' : 'A股') }}</span>
             </t-space>
           </template>
           
@@ -458,6 +526,52 @@ onMounted(() => {
 <style scoped>
 .screener-view {
   height: 100%;
+}
+
+.market-tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  background: var(--td-bg-color-container);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.market-tab-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--td-text-color-secondary);
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.market-tab-item:hover {
+  color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+}
+
+.market-tab-item.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-hover) 100%);
+  box-shadow: 0 2px 8px rgba(0, 82, 217, 0.3);
+}
+
+.market-tab-icon {
+  font-size: 18px;
+}
+
+.market-tab-label {
+  font-size: 15px;
+  letter-spacing: 1px;
 }
 
 .summary-card {

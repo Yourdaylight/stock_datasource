@@ -367,8 +367,31 @@ class ScheduleService:
             except Exception as e:
                 logger.warning(f"Failed to check trading day: {e}")
         
-        # Add to history
-        add_schedule_execution(record)
+        # Dedup: prevent duplicate scheduled triggers within 60 seconds
+        if not is_manual:
+            try:
+                recent = get_schedule_history(limit=3)
+                for prev in recent:
+                    if prev.get("trigger_type") == "scheduled" and prev.get("started_at"):
+                        prev_time = datetime.fromisoformat(prev["started_at"])
+                        if (started_at - prev_time).total_seconds() < 60:
+                            logger.warning(
+                                "Skipping duplicate scheduled trigger %s "
+                                "(previous %s was %ds ago)",
+                                execution_id,
+                                prev.get("execution_id"),
+                                (started_at - prev_time).total_seconds(),
+                            )
+                            record["status"] = "skipped"
+                            record["skip_reason"] = "重复触发（距上次不足60秒）"
+                            record["completed_at"] = datetime.now().isoformat()
+                            # Don't write to history - just return silently
+                            return record
+            except Exception as e:
+                logger.warning(f"Dedup check failed: {e}")
+        
+        # Add to history (defer until we know there are plugins to run)
+        # We'll add the record below after checking enabled_plugins
         
         # Get enabled plugins and sort by dependency order
         plugin_configs = self.get_plugin_configs()
@@ -385,11 +408,20 @@ class ScheduleService:
         enabled_plugins = actually_enabled
         
         if not enabled_plugins:
-            record["status"] = "completed"
+            record["status"] = "skipped"
+            record["skip_reason"] = "没有启用定时同步的插件"
             record["completed_at"] = datetime.now().isoformat()
-            update_schedule_execution(execution_id, record)
-            logger.info(f"Schedule {execution_id} completed: no enabled plugins")
+            # Don't write empty 0/0 records to history for scheduled triggers
+            if not is_manual:
+                logger.info(f"Schedule {execution_id} skipped: no enabled plugins (not recorded)")
+                return record
+            # Manual triggers still record for visibility
+            add_schedule_execution(record)
+            logger.info(f"Schedule {execution_id} skipped: no enabled plugins")
             return record
+        
+        # Now we have plugins to run, write the execution record
+        add_schedule_execution(record)
         
         # Sort by dependency order using plugin_manager
         plugin_names = [p["plugin_name"] for p in enabled_plugins]

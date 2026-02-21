@@ -33,6 +33,9 @@ export const useScreenerStore = defineStore('screener', () => {
   // 日期筛选
   const tradeDate = ref<string | null>(null)
   
+  // 市场类型筛选
+  const marketType = ref<'a_share' | 'hk_stock' | 'all'>('a_share')
+  
   // 市场概况
   const summary = ref<MarketSummary | null>(null)
   
@@ -90,6 +93,7 @@ export const useScreenerStore = defineStore('screener', () => {
     sortOrder?: 'asc' | 'desc'
     search?: string
     tradeDate?: string | null
+    marketType?: 'a_share' | 'hk_stock' | 'all'
   } = {}) => {
     loading.value = true
     try {
@@ -100,6 +104,7 @@ export const useScreenerStore = defineStore('screener', () => {
         sort_order: options.sortOrder || sortOrder.value,
         search: options.search ?? searchQuery.value,
         trade_date: options.tradeDate !== undefined ? (options.tradeDate || undefined) : (tradeDate.value || undefined),
+        market_type: options.marketType ?? marketType.value,
       })
       
       stocks.value = response.items
@@ -116,7 +121,7 @@ export const useScreenerStore = defineStore('screener', () => {
   
   const fetchSummary = async () => {
     try {
-      summary.value = await screenerApi.getSummary()
+      summary.value = await screenerApi.getSummary(marketType.value)
     } catch (e) {
       console.error('Failed to fetch summary:', e)
     }
@@ -152,12 +157,28 @@ export const useScreenerStore = defineStore('screener', () => {
     await fetchStocks({ page: 1, tradeDate: date })
   }
 
+  const changeMarketType = async (type: 'a_share' | 'hk_stock' | 'all') => {
+    marketType.value = type
+    page.value = 1
+    await Promise.all([
+      fetchStocks({ page: 1 }),
+      fetchSummary()
+    ])
+  }
+
   const filter = async (conds: ScreenerCondition[]) => {
     loading.value = true
     conditions.value = conds
     try {
       const response = await screenerApi.filter(
-        { conditions: conds, sort_by: sortBy.value, sort_order: sortOrder.value, trade_date: tradeDate.value || undefined },
+        { 
+          conditions: conds, 
+          sort_by: sortBy.value, 
+          sort_order: sortOrder.value, 
+          trade_date: tradeDate.value || undefined,
+          market_type: marketType.value,
+          search: searchQuery.value || undefined
+        },
         1,
         pageSize.value
       )
@@ -264,10 +285,10 @@ export const useScreenerStore = defineStore('screener', () => {
   // 推荐操作
   // =============================================================================
 
-  const fetchRecommendations = async () => {
+  const fetchRecommendations = async (market?: 'a_share' | 'hk_stock' | 'all') => {
     recommendationsLoading.value = true
     try {
-      recommendations.value = await screenerApi.getRecommendations()
+      recommendations.value = await screenerApi.getRecommendations(market ?? marketType.value)
     } catch (e) {
       console.error('Failed to fetch recommendations:', e)
     } finally {
@@ -279,10 +300,10 @@ export const useScreenerStore = defineStore('screener', () => {
   // 行业操作
   // =============================================================================
 
-  const fetchSectors = async () => {
+  const fetchSectors = async (market?: 'a_share' | 'hk_stock' | 'all') => {
     sectorsLoading.value = true
     try {
-      const response = await screenerApi.getSectors()
+      const response = await screenerApi.getSectors(market ?? marketType.value)
       sectors.value = response.sectors
     } catch (e) {
       console.error('Failed to fetch sectors:', e)
@@ -330,6 +351,7 @@ export const useScreenerStore = defineStore('screener', () => {
     sortOrder,
     searchQuery,
     tradeDate,
+    marketType,
     summary,
     conditions,
     
@@ -358,6 +380,7 @@ export const useScreenerStore = defineStore('screener', () => {
     changePageSize,
     changeSort,
     changeTradeDate,
+    changeMarketType,
     search,
     filter,
     nlScreener,

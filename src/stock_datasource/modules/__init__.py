@@ -97,6 +97,12 @@ def get_all_routers() -> list:
     except ImportError:
         pass
     
+    try:
+        from .hk_report.router import router as hk_report_router
+        routers.append(("/hk-report", hk_report_router, ["港股财报"]))
+    except ImportError:
+        pass
+    
     # Note: toplist routes are registered separately in http_server.py
     # from stock_datasource.api.toplist_routes
     

@@ -25,13 +25,13 @@ const routes: RouteRecordRaw[] = [
     path: '/research',
     name: 'Research',
     component: () => import('@/views/research/ResearchView.vue'),
-    meta: { title: '研究数据', icon: 'file-search', public: true }
+    meta: { title: '财报分析', icon: 'file-search', public: true }
   },
   {
     path: '/news',
     name: 'News',
     component: () => import('@/views/news/NewsView.vue'),
-    meta: { title: '新闻资讯', icon: 'notification', requiresAuth: true }
+    meta: { title: '资讯中心', icon: 'notification', requiresAuth: true }
   },
   {
     path: '/chat',
@@ -148,10 +148,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '策略详情', requiresAuth: true }
   },
   // Legacy routes redirect
-  {
-    path: '/toplist',
-    redirect: '/market'
-  },
   {
     path: '/report',
     redirect: '/research'

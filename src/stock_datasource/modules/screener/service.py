@@ -221,7 +221,9 @@ class ScreenerService:
         page: int = 1,
         page_size: int = 20,
         include_name: bool = True,
-        trade_date: Optional[str] = None
+        trade_date: Optional[str] = None,
+        market_type: Optional[str] = None,
+        search: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
         """
         多条件筛选股票 - 使用 Plugin Services
@@ -234,10 +236,67 @@ class ScreenerService:
             page_size: 每页数量
             include_name: 是否包含股票名称
             trade_date: 交易日期，默认使用最新日期
+            market_type: 市场类型 (a_share, hk_stock, all)，默认 a_share
+            search: 按名称/代码模糊搜索
             
         Returns:
             (股票列表, 总数量)
         """
+        # 根据 market_type 路由
+        if market_type == 'hk_stock':
+            return self._filter_hk_stocks(
+                conditions=conditions,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                page=page,
+                page_size=page_size,
+                trade_date=trade_date,
+                search=search
+            )
+        elif market_type == 'all':
+            # 分别筛选两个市场
+            a_items, a_total = self._filter_a_share_stocks(
+                conditions=conditions,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                page=page,
+                page_size=page_size // 2,
+                trade_date=trade_date,
+                search=search
+            )
+            hk_items, hk_total = self._filter_hk_stocks(
+                conditions=conditions,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                page=page,
+                page_size=page_size // 2,
+                trade_date=trade_date,
+                search=search
+            )
+            return a_items + hk_items, a_total + hk_total
+        else:
+            # 默认 A 股
+            return self._filter_a_share_stocks(
+                conditions=conditions,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                page=page,
+                page_size=page_size,
+                trade_date=trade_date,
+                search=search
+            )
+    
+    def _filter_a_share_stocks(
+        self,
+        conditions: List[ScreenerCondition],
+        sort_by: str = "pct_chg",
+        sort_order: str = "desc",
+        page: int = 1,
+        page_size: int = 20,
+        trade_date: Optional[str] = None,
+        search: Optional[str] = None
+    ) -> Tuple[List[StockItem], int]:
+        """A股条件筛选（原有逻辑）"""
         target_date = trade_date or self.get_latest_trade_date()
         if not target_date:
             return [], 0
@@ -246,6 +305,15 @@ class ScreenerService:
         merged_df = self._get_merged_data(target_date)
         if merged_df.empty:
             return [], 0
+        
+        # 搜索过滤
+        if search:
+            search_upper = search.strip().upper()
+            mask = (
+                merged_df['ts_code'].str.upper().str.contains(search_upper, na=False) |
+                merged_df['stock_name'].str.contains(search, na=False)
+            )
+            merged_df = merged_df[mask]
         
         # 应用筛选条件
         filtered_df = self._apply_conditions(merged_df, conditions)
@@ -274,7 +342,185 @@ class ScreenerService:
         
         return items, total
     
+    def _filter_hk_stocks(
+        self,
+        conditions: List[ScreenerCondition],
+        sort_by: str = "pct_chg",
+        sort_order: str = "desc",
+        page: int = 1,
+        page_size: int = 20,
+        trade_date: Optional[str] = None,
+        search: Optional[str] = None
+    ) -> Tuple[List[StockItem], int]:
+        """港股条件筛选"""
+        try:
+            from stock_datasource.plugins.tushare_hk_daily.service import TuShareHKDailyService
+            from stock_datasource.plugins.tushare_hk_basic.service import TuShareHKBasicService
+            
+            hk_daily_service = TuShareHKDailyService()
+            hk_basic_service = TuShareHKBasicService()
+            
+            # 获取最新交易日
+            target_date = trade_date
+            if not target_date:
+                target_date = hk_daily_service.get_latest_trade_date()
+            if not target_date:
+                return [], 0
+            
+            # 格式化日期
+            if '-' in target_date:
+                target_date = target_date.replace('-', '')
+            
+            # 获取当日行情数据
+            daily_data = hk_daily_service.get_by_trade_date(target_date)
+            if not daily_data:
+                return [], 0
+            
+            daily_df = pd.DataFrame(daily_data)
+            
+            # 获取股票名称
+            hk_stock_list = hk_basic_service.get_stock_list(list_status='L')
+            hk_names = {s['ts_code']: s['name'] for s in hk_stock_list}
+            daily_df['stock_name'] = daily_df['ts_code'].map(lambda x: hk_names.get(x, x))
+            
+            # 搜索过滤
+            if search:
+                search_upper = search.strip().upper()
+                mask = (
+                    daily_df['ts_code'].str.upper().str.contains(search_upper, na=False) |
+                    daily_df['stock_name'].str.contains(search, na=False)
+                )
+                daily_df = daily_df[mask]
+            
+            # 应用筛选条件（港股支持的字段有限）
+            filtered_df = self._apply_hk_conditions(daily_df, conditions)
+            
+            total = len(filtered_df)
+            if total == 0:
+                return [], 0
+            
+            # 排序
+            if sort_by in filtered_df.columns:
+                ascending = sort_order.lower() == "asc"
+                filtered_df = filtered_df.sort_values(
+                    by=sort_by, 
+                    ascending=ascending, 
+                    na_position='last'
+                )
+            
+            # 分页
+            offset = (page - 1) * page_size
+            page_df = filtered_df.iloc[offset:offset + page_size]
+            
+            # 转换为 StockItem
+            items = []
+            for _, row in page_df.iterrows():
+                trade_date_val = row.get('trade_date', '')
+                if hasattr(trade_date_val, 'strftime'):
+                    trade_date_val = trade_date_val.strftime('%Y-%m-%d')
+                
+                item = StockItem(
+                    ts_code=row.get('ts_code', ''),
+                    stock_name=row.get('stock_name') or row.get('ts_code', ''),
+                    trade_date=_format_date(trade_date_val),
+                    open=_safe_float(row.get('open')),
+                    high=_safe_float(row.get('high')),
+                    low=_safe_float(row.get('low')),
+                    close=_safe_float(row.get('close')),
+                    pct_chg=_safe_float(row.get('pct_chg')),
+                    vol=_safe_float(row.get('vol')),
+                    amount=_safe_float(row.get('amount')),
+                    pe_ttm=None,
+                    pb=None,
+                    ps_ttm=None,
+                    dv_ratio=None,
+                    total_mv=None,
+                    circ_mv=None,
+                    turnover_rate=None,
+                    industry=None
+                )
+                items.append(item)
+            
+            return items, total
+            
+        except Exception as e:
+            logger.error(f"Failed to filter HK stocks: {e}")
+            return [], 0
+    
+    def _apply_hk_conditions(
+        self,
+        df: pd.DataFrame,
+        conditions: List[ScreenerCondition]
+    ) -> pd.DataFrame:
+        """应用筛选条件到港股 DataFrame（港股支持的字段有限）"""
+        if df.empty or not conditions:
+            return df
+        
+        # 港股支持的筛选字段
+        hk_supported_fields = {'pct_chg', 'close', 'open', 'high', 'low', 'vol', 'amount'}
+        
+        mask = pd.Series([True] * len(df), index=df.index)
+        
+        for cond in conditions:
+            field = cond.field
+            
+            # 跳过港股不支持的字段
+            if field not in hk_supported_fields and field not in df.columns:
+                logger.warning(f"HK stocks do not support field: {field}, skipping")
+                continue
+            
+            if field not in df.columns:
+                continue
+            
+            op_func = OPERATORS.get(cond.operator)
+            if not op_func:
+                logger.warning(f"Unknown operator: {cond.operator}")
+                continue
+            
+            try:
+                # 数值比较
+                col = pd.to_numeric(df[field], errors='coerce')
+                mask &= op_func(col, float(cond.value))
+            except Exception as e:
+                logger.warning(f"Failed to apply condition {cond}: {e}")
+                continue
+        
+        return df[mask]
+    
     def get_stocks(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "pct_chg",
+        sort_order: str = "desc",
+        search: Optional[str] = None,
+        trade_date: Optional[str] = None,
+        market_type: Optional[str] = None
+    ) -> Tuple[List[StockItem], int]:
+        """获取股票列表（带分页）- 使用 Plugin Services
+        
+        Args:
+            page: 页码
+            page_size: 每页数量
+            sort_by: 排序字段
+            sort_order: 排序方向
+            search: 搜索关键词
+            trade_date: 交易日期，默认使用最新日期
+            market_type: 市场类型 (a_share, hk_stock, all)，默认 a_share
+        """
+        # 根据 market_type 路由
+        if market_type == 'hk_stock':
+            return self._get_hk_stocks(page, page_size, sort_by, sort_order, search, trade_date)
+        elif market_type == 'all':
+            # 获取两个市场的数据并合并
+            a_items, a_total = self._get_a_share_stocks(page, page_size // 2, sort_by, sort_order, search, trade_date)
+            hk_items, hk_total = self._get_hk_stocks(page, page_size // 2, sort_by, sort_order, search, trade_date)
+            return a_items + hk_items, a_total + hk_total
+        else:
+            # 默认 A 股
+            return self._get_a_share_stocks(page, page_size, sort_by, sort_order, search, trade_date)
+    
+    def _get_a_share_stocks(
         self,
         page: int = 1,
         page_size: int = 20,
@@ -283,11 +529,7 @@ class ScreenerService:
         search: Optional[str] = None,
         trade_date: Optional[str] = None
     ) -> Tuple[List[StockItem], int]:
-        """获取股票列表（带分页）- 使用 Plugin Services
-        
-        Args:
-            trade_date: 交易日期，默认使用最新日期
-        """
+        """获取 A 股列表（原有逻辑）"""
         target_date = trade_date or self.get_latest_trade_date()
         if not target_date:
             return [], 0
@@ -328,6 +570,108 @@ class ScreenerService:
         items = self._df_to_stock_items(page_df)
         
         return items, total
+    
+    def _get_hk_stocks(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "pct_chg",
+        sort_order: str = "desc",
+        search: Optional[str] = None,
+        trade_date: Optional[str] = None
+    ) -> Tuple[List[StockItem], int]:
+        """获取港股列表"""
+        try:
+            from stock_datasource.plugins.tushare_hk_daily.service import TuShareHKDailyService
+            from stock_datasource.plugins.tushare_hk_basic.service import TuShareHKBasicService
+            
+            hk_daily_service = TuShareHKDailyService()
+            hk_basic_service = TuShareHKBasicService()
+            
+            # 获取最新交易日
+            target_date = trade_date
+            if not target_date:
+                target_date = hk_daily_service.get_latest_trade_date()
+            if not target_date:
+                return [], 0
+            
+            # 格式化日期
+            if '-' in target_date:
+                target_date = target_date.replace('-', '')
+            
+            # 获取当日行情数据
+            daily_data = hk_daily_service.get_by_trade_date(target_date)
+            if not daily_data:
+                return [], 0
+            
+            daily_df = pd.DataFrame(daily_data)
+            
+            # 获取股票名称
+            hk_stock_list = hk_basic_service.get_stock_list(list_status='L')
+            hk_names = {s['ts_code']: s['name'] for s in hk_stock_list}
+            daily_df['stock_name'] = daily_df['ts_code'].map(lambda x: hk_names.get(x, x))
+            
+            # 搜索过滤
+            if search:
+                search_upper = search.strip().upper()
+                mask = (
+                    daily_df['ts_code'].str.upper().str.contains(search_upper, na=False) |
+                    daily_df['stock_name'].str.contains(search, na=False)
+                )
+                daily_df = daily_df[mask]
+            
+            total = len(daily_df)
+            if total == 0:
+                return [], 0
+            
+            # 排序
+            if sort_by in daily_df.columns:
+                ascending = sort_order.lower() == "asc"
+                daily_df = daily_df.sort_values(
+                    by=sort_by, 
+                    ascending=ascending, 
+                    na_position='last'
+                )
+            
+            # 分页
+            offset = (page - 1) * page_size
+            page_df = daily_df.iloc[offset:offset + page_size]
+            
+            # 转换为 StockItem
+            items = []
+            for _, row in page_df.iterrows():
+                trade_date_val = row.get('trade_date', '')
+                if hasattr(trade_date_val, 'strftime'):
+                    trade_date_val = trade_date_val.strftime('%Y-%m-%d')
+                
+                item = StockItem(
+                    ts_code=row.get('ts_code', ''),
+                    stock_name=row.get('stock_name') or row.get('ts_code', ''),
+                    trade_date=_format_date(trade_date_val),
+                    open=_safe_float(row.get('open')),
+                    high=_safe_float(row.get('high')),
+                    low=_safe_float(row.get('low')),
+                    close=_safe_float(row.get('close')),
+                    pct_chg=_safe_float(row.get('pct_chg')),
+                    vol=_safe_float(row.get('vol')),
+                    amount=_safe_float(row.get('amount')),
+                    # 港股暂无以下数据
+                    pe_ttm=None,
+                    pb=None,
+                    ps_ttm=None,
+                    dv_ratio=None,
+                    total_mv=None,
+                    circ_mv=None,
+                    turnover_rate=None,
+                    industry=None
+                )
+                items.append(item)
+            
+            return items, total
+            
+        except Exception as e:
+            logger.error(f"Failed to get HK stocks: {e}")
+            return [], 0
     
     def _df_to_stock_items(self, df: pd.DataFrame) -> List[StockItem]:
         """将 DataFrame 转换为 StockItem 列表"""

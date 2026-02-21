@@ -10,6 +10,7 @@ interface Props {
 
 interface Emits {
   (e: 'topic-click', topic: HotTopic): void
+  (e: 'refresh'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -50,13 +51,17 @@ const formatHeatScore = (score: number) => {
 const handleTopicClick = (topic: HotTopic) => {
   emit('topic-click', topic)
 }
+
+const handleRefresh = () => {
+  emit('refresh')
+}
 </script>
 
 <template>
   <div class="hot-topics-panel">
     <t-card title="热点话题" size="small" :bordered="false" class="hot-topics-card">
       <template #actions>
-        <t-button size="small" variant="text" :loading="loading">
+        <t-button size="small" variant="text" :loading="loading" @click="handleRefresh">
           <template #icon>
             <TrendingUpIcon />
           </template>

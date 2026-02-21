@@ -18,7 +18,7 @@ class HsgtTop10Extractor:
         self.pro = ts.pro_api()
 
         config_path = Path(__file__).parent / "config.json"
-        with open(config_path) as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
 
     def extract(

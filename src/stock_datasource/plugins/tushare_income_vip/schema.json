@@ -1,5 +1,5 @@
 {
-  "table_name": "ods_income_statement_vip",
+  "table_name": "ods_income_statement",
   "table_type": "ods",
   "columns": [
     {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},

@@ -1,6 +1,7 @@
 """Query service for TuShare income statement data."""
 
 import re
+import numpy as np
 from typing import List, Dict, Any, Optional
 from stock_datasource.core.base_service import BaseService, query_method, QueryParam
 
@@ -70,7 +71,7 @@ class TuShareIncomeService(BaseService):
             params['report_type'] = report_type
         
         query += " ORDER BY end_date DESC LIMIT %(limit)s"
-        params['limit'] = str(periods_value)
+        params['limit'] = int(periods_value)
         
         df = self.db.execute_query(query, params)
         
@@ -81,6 +82,7 @@ class TuShareIncomeService(BaseService):
             elif hasattr(df[col].dtype, 'name') and 'date' in df[col].dtype.name.lower():
                 df[col] = df[col].astype(str)
         
+        df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
         return df.to_dict('records')
     
     @query_method(
@@ -117,43 +119,87 @@ class TuShareIncomeService(BaseService):
             ebit,
             ebitda,
             total_cogs,
+            oper_cost,
             sell_exp,
             admin_exp,
             fin_exp,
-            rd_exp
+            rd_exp,
+            income_tax,
+            biz_tax_surchg,
+            minority_gain,
+            invest_income,
+            non_oper_income,
+            non_oper_exp,
+            t_compr_income,
+            fin_exp_int_exp,
+            fin_exp_int_inc
         FROM ods_income_statement
         WHERE ts_code = %(code)s AND report_type = '1'
         ORDER BY end_date DESC
         LIMIT %(limit)s
         """
-        params = {'code': code, 'limit': str(periods_value)}
+        params = {'code': code, 'limit': int(periods_value)}
         
         df = self.db.execute_query(query, params)
         
         if df.empty:
             return {"code": code, "periods": 0, "metrics": []}
         
+        def _safe_float(val):
+            """Safely convert to float, returning None for invalid values."""
+            if val is None or val == '\\N' or val == 'None' or val == '':
+                return None
+            try:
+                f = float(val)
+                return f if f == f else None  # NaN check
+            except (ValueError, TypeError):
+                return None
+        
         # Calculate derived metrics
         metrics = []
         for _, row in df.iterrows():
             metric = {
                 "end_date": str(row['end_date']) if row['end_date'] else None,
-                "total_revenue": row['total_revenue'],
-                "revenue": row['revenue'],
-                "operate_profit": row['operate_profit'],
-                "total_profit": row['total_profit'],
-                "net_income": row['n_income'],
-                "net_income_attr_parent": row['n_income_attr_p'],
-                "basic_eps": row['basic_eps'],
-                "ebit": row['ebit'],
-                "ebitda": row['ebitda']
+                "total_revenue": _safe_float(row['total_revenue']),
+                "revenue": _safe_float(row['revenue']),
+                "operate_profit": _safe_float(row['operate_profit']),
+                "total_profit": _safe_float(row['total_profit']),
+                "net_income": _safe_float(row['n_income']),
+                "net_income_attr_parent": _safe_float(row['n_income_attr_p']),
+                "basic_eps": _safe_float(row['basic_eps']),
+                "diluted_eps": _safe_float(row['diluted_eps']),
+                "ebit": _safe_float(row['ebit']),
+                "ebitda": _safe_float(row['ebitda']),
+                # Cost & expense fields
+                "oper_cost": _safe_float(row['oper_cost']),
+                "sell_exp": _safe_float(row['sell_exp']),
+                "admin_exp": _safe_float(row['admin_exp']),
+                "fin_exp": _safe_float(row['fin_exp']),
+                "rd_exp": _safe_float(row['rd_exp']),
+                "total_cogs": _safe_float(row['total_cogs']),
+                # Tax & other
+                "income_tax": _safe_float(row['income_tax']),
+                "biz_tax_surchg": _safe_float(row['biz_tax_surchg']),
+                "minority_gain": _safe_float(row['minority_gain']),
+                "invest_income": _safe_float(row['invest_income']),
+                "non_oper_income": _safe_float(row['non_oper_income']),
+                "non_oper_exp": _safe_float(row['non_oper_exp']),
+                "t_compr_income": _safe_float(row['t_compr_income']),
+                "fin_exp_int_exp": _safe_float(row['fin_exp_int_exp']),
+                "fin_exp_int_inc": _safe_float(row['fin_exp_int_inc']),
             }
             
-            # Calculate margins
-            if row['revenue'] and row['revenue'] != 0:
-                metric['gross_margin'] = ((row['revenue'] - (row['total_cogs'] or 0)) / row['revenue'] * 100) if row['total_cogs'] else None
-                metric['operating_margin'] = (row['operate_profit'] / row['revenue'] * 100) if row['operate_profit'] else None
-                metric['net_margin'] = (row['n_income'] / row['revenue'] * 100) if row['n_income'] else None
+            # Calculate margins and ratios
+            rev = metric['revenue']
+            if rev and rev != 0:
+                metric['gross_margin'] = ((rev - (metric['oper_cost'] or metric['total_cogs'] or 0)) / rev * 100) if (metric['oper_cost'] or metric['total_cogs']) else None
+                metric['operating_margin'] = (metric['operate_profit'] / rev * 100) if metric['operate_profit'] else None
+                metric['net_margin'] = (metric['net_income'] / rev * 100) if metric['net_income'] else None
+                # Expense ratios (as % of revenue)
+                metric['sell_exp_ratio'] = (metric['sell_exp'] / rev * 100) if metric['sell_exp'] else None
+                metric['admin_exp_ratio'] = (metric['admin_exp'] / rev * 100) if metric['admin_exp'] else None
+                metric['fin_exp_ratio'] = (metric['fin_exp'] / rev * 100) if metric['fin_exp'] else None
+                metric['rd_exp_ratio'] = (metric['rd_exp'] / rev * 100) if metric['rd_exp'] else None
             
             metrics.append(metric)
         
@@ -187,7 +233,7 @@ class TuShareIncomeService(BaseService):
         ORDER BY end_date DESC
         LIMIT %(limit)s
         """
-        params = {'code': code, 'limit': str(quarters_value)}
+        params = {'code': code, 'limit': int(quarters_value)}
         
         df = self.db.execute_query(query, params)
         

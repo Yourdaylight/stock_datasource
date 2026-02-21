@@ -64,6 +64,30 @@ class FinaIndicatorExtractor:
             logger.error(f"API call failed: {e}")
             raise
     
+    # TuShare fina_indicator 字段名 → schema 字段名的映射
+    # TuShare 实际返回 grossprofit_margin / netprofit_margin（无下划线），
+    # 而 schema 定义为 gross_profit_margin / net_profit_margin
+    FIELD_RENAME_MAP = {
+        'grossprofit_margin': 'gross_profit_margin',
+        'netprofit_margin': 'net_profit_margin',
+        'debt_to_eqt': 'debt_to_equity',
+        'assets_turn': 'asset_turnover',
+        'inv_turn': 'inventory_turnover',
+        'ar_turn': 'receivable_turnover',
+    }
+
+    # 需要从 TuShare fina_indicator 获取的字段列表
+    # 注意：只包含 schema.json 中定义的字段，多余字段会导致 INSERT 失败
+    EXTRACT_FIELDS = ','.join([
+        'ts_code', 'ann_date', 'end_date',
+        'roe', 'roa',
+        'grossprofit_margin', 'netprofit_margin',  # TuShare 实际字段名，rename 后对应 schema
+        'eps', 'bps',
+        'current_ratio', 'quick_ratio',
+        'debt_to_assets', 'debt_to_eqt',  # TuShare 字段名，rename 后对应 schema
+        'assets_turn', 'inv_turn', 'ar_turn',  # TuShare 字段名，rename 后对应 schema
+    ])
+
     def extract(self, ts_code: Optional[str] = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """Extract financial indicators data.
         
@@ -75,7 +99,7 @@ class FinaIndicatorExtractor:
         Returns:
             DataFrame with financial indicators data
         """
-        kwargs = {}
+        kwargs = {'fields': self.EXTRACT_FIELDS}
         if ts_code:
             kwargs['ts_code'] = ts_code
         if start_date:
@@ -83,7 +107,15 @@ class FinaIndicatorExtractor:
         if end_date:
             kwargs['end_date'] = end_date
         
-        return self._call_api(self.pro.fina_indicator, **kwargs)
+        df = self._call_api(self.pro.fina_indicator, **kwargs)
+        
+        # Rename TuShare field names to match our schema
+        if not df.empty:
+            rename_cols = {k: v for k, v in self.FIELD_RENAME_MAP.items() if k in df.columns}
+            if rename_cols:
+                df = df.rename(columns=rename_cols)
+        
+        return df
 
 
 # Global extractor instance

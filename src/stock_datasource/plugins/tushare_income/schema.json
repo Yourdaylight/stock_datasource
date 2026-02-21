@@ -96,7 +96,6 @@
     {"name": "continued_net_profit", "data_type": "Nullable(Float64)", "nullable": true, "comment": "持续经营净利润"},
     {"name": "end_net_profit", "data_type": "Nullable(Float64)", "nullable": true, "comment": "终止经营净利润"},
     {"name": "update_flag", "data_type": "LowCardinality(String)", "nullable": true, "comment": "更新标识"},
-    {"name": "update_flag", "data_type": "LowCardinality(String)", "nullable": true, "comment": "更新标识"},
     {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
     {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}
   ],

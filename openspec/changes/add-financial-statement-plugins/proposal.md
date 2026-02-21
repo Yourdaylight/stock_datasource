@@ -37,10 +37,10 @@
 4. 提供统一的查询服务接口，供 Agent 和 API 调用
 5. **新增**: 支持财务审计意见数据，为财务分析提供审计风险评估依据
 6. **新增**: 支持 VIP 批量接口，实现高效的全市场财务数据获取
+7. **新增**: 前端完整展示 `ods_income_statement` 利润表字段（利润结构、费用分析、费用率、税务等 25+ 字段），包含概览卡片、分类表格和趋势图表
 
 ## Non-Goals
 
-- 不涉及前端 UI 变更（已有 financial-report-analysis 规范覆盖）
 - 不修改现有的 tushare_finace_indicator 插件
 
 ## Affected Specs

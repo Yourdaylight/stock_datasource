@@ -6,6 +6,7 @@ import {
   type HotTopicsResponse,
   type SentimentAnalysisResponse
 } from '@/api/news'
+import { NewsCacheManager } from '@/utils/newsCache'
 import type { 
   NewsItem, 
   NewsSentiment, 
@@ -63,10 +64,34 @@ export const useNewsStore = defineStore('news', () => {
   // Selected news for detail view
   const selectedNews = ref<NewsItem | null>(null)
   const detailVisible = ref(false)
+
+  // Stock mode
+  const activeStockCode = ref<string | null>(null)
+  const isStockMode = computed(() => !!activeStockCode.value)
   
   // Available options
   const availableCategories = ref<string[]>([])
   const availableSources = ref<string[]>([])
+
+  // Cache
+  const newsCache = new NewsCacheManager({
+    maxAge: 5 * 60 * 1000,
+    maxSize: 50
+  })
+
+  const normalizeStockCode = (code: string) => {
+    const normalized = code.trim().toUpperCase()
+    if (/^\d{6}$/.test(normalized)) {
+      if (normalized.startsWith('6') || normalized.startsWith('9')) {
+        return `${normalized}.SH`
+      }
+      return `${normalized}.SZ`
+    }
+    if (/^\d{5}$/.test(normalized)) {
+      return `${normalized}.HK`
+    }
+    return normalized
+  }
 
   // Computed
   const filteredNews = computed(() => {
@@ -134,6 +159,21 @@ export const useNewsStore = defineStore('news', () => {
       .slice(0, 10)
   })
 
+  const getPrimaryStockCode = () => {
+    return activeStockCode.value || filters.value.stock_codes[0] || null
+  }
+
+  const clearNewsResults = () => {
+    newsItems.value = []
+    total.value = 0
+    hasMore.value = false
+    currentPage.value = 1
+  }
+
+  const clearHotTopics = () => {
+    hotTopics.value = []
+  }
+
   // Actions
   const fetchMarketNews = async (params?: {
     page?: number
@@ -151,6 +191,20 @@ export const useNewsStore = defineStore('news', () => {
         sort_order: sortOrder.value,
         ...filters.value
       }
+
+      const isFirstPage = (params?.page || currentPage.value) === 1
+      const shouldBypassCache = params?.reset === true
+
+      if (isFirstPage && !shouldBypassCache) {
+        const cached = newsCache.get<NewsListResponse>('market-news', requestParams)
+        if (cached) {
+          newsItems.value = cached.data
+          total.value = cached.total
+          hasMore.value = cached.has_more
+          currentPage.value = cached.page
+          return
+        }
+      }
       
       const response = await newsAPI.getNewsList(requestParams)
       
@@ -163,6 +217,10 @@ export const useNewsStore = defineStore('news', () => {
       total.value = response.total
       hasMore.value = response.has_more
       currentPage.value = response.page
+
+      if (isFirstPage) {
+        newsCache.set('market-news', requestParams, response)
+      }
     } catch (e) {
       console.error('Failed to fetch market news:', e)
     } finally {
@@ -173,14 +231,18 @@ export const useNewsStore = defineStore('news', () => {
   const fetchNewsByStock = async (stockCode: string, days: number = 30) => {
     loading.value = true
     try {
+      const normalizedCode = normalizeStockCode(stockCode)
       const response = await newsAPI.getNewsByStock({
-        stock_code: stockCode,
+        stock_code: normalizedCode,
         days,
         limit: pageSize.value
       })
       newsItems.value = response.data
       total.value = response.total
-      hasMore.value = response.has_more
+      hasMore.value = false
+      currentPage.value = 1
+      activeStockCode.value = normalizedCode
+      filters.value.stock_codes = [normalizedCode]
     } catch (e) {
       console.error('Failed to fetch stock news:', e)
     } finally {
@@ -188,10 +250,15 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
   
-  const fetchHotTopics = async (limit: number = 10) => {
+  const fetchHotTopics = async (limit: number = 10, stockCode?: string) => {
     hotTopicsLoading.value = true
     try {
-      const response = await newsAPI.getHotTopics({ limit })
+      const normalizedCode = stockCode ? normalizeStockCode(stockCode) : activeStockCode.value
+      const response = await newsAPI.getHotTopics({
+        limit,
+        stock_code: normalizedCode || undefined,
+        days: 7
+      })
       hotTopics.value = response.data
     } catch (e) {
       console.error('Failed to fetch hot topics:', e)
@@ -243,6 +310,7 @@ export const useNewsStore = defineStore('news', () => {
   
   const loadMoreNews = async () => {
     if (!hasMore.value || loading.value) return
+    if (activeStockCode.value) return
     
     currentPage.value += 1
     await fetchMarketNews({
@@ -253,19 +321,32 @@ export const useNewsStore = defineStore('news', () => {
   
   const refreshNews = async () => {
     currentPage.value = 1
-    await fetchMarketNews({
-      page: 1,
-      reset: true
-    })
+    const stockCode = getPrimaryStockCode()
+    if (stockCode) {
+      await fetchNewsByStock(stockCode, 30)
+      return
+    }
+    await fetchMarketNews({ page: 1, reset: true })
   }
   
   const applyFilters = async (newFilters: Partial<NewsFilters>) => {
-    filters.value = { ...filters.value, ...newFilters }
+    const mergedFilters = { ...filters.value, ...newFilters }
+    if (mergedFilters.stock_codes.length > 0) {
+      mergedFilters.stock_codes = mergedFilters.stock_codes
+        .map(code => (code ? normalizeStockCode(code) : code))
+        .filter(code => !!code) as string[]
+    }
+    filters.value = mergedFilters
     currentPage.value = 1
-    await fetchMarketNews({
-      page: 1,
-      reset: true
-    })
+
+    const nextStockCode = mergedFilters.stock_codes[0]
+    if (nextStockCode) {
+      await fetchNewsByStock(nextStockCode, 30)
+      return
+    }
+
+    setActiveStockCode(null)
+    clearNewsResults()
   }
   
   const clearFilters = async () => {
@@ -278,25 +359,40 @@ export const useNewsStore = defineStore('news', () => {
       keywords: ''
     }
     currentPage.value = 1
-    await fetchMarketNews({
-      page: 1,
-      reset: true
-    })
+    setActiveStockCode(null)
+    clearNewsResults()
   }
   
   const setSortBy = async (newSortBy: NewsSortBy, newSortOrder: 'asc' | 'desc' = 'desc') => {
     sortBy.value = newSortBy
     sortOrder.value = newSortOrder
     currentPage.value = 1
-    await fetchMarketNews({
-      page: 1,
-      reset: true
-    })
+
+    const stockCode = getPrimaryStockCode()
+    if (stockCode) {
+      await fetchNewsByStock(stockCode, 30)
+      return
+    }
+
+    clearNewsResults()
   }
   
   const showNewsDetail = (news: NewsItem) => {
     selectedNews.value = news
     detailVisible.value = true
+  }
+
+  const setActiveStockCode = (stockCode?: string | null) => {
+    if (!stockCode) {
+      activeStockCode.value = null
+      filters.value.stock_codes = []
+      return
+    }
+    const normalized = normalizeStockCode(stockCode)
+    activeStockCode.value = normalized
+    if (filters.value.stock_codes.length !== 1 || filters.value.stock_codes[0] !== normalized) {
+      filters.value.stock_codes = [normalized]
+    }
   }
   
   const hideNewsDetail = () => {
@@ -340,13 +436,22 @@ export const useNewsStore = defineStore('news', () => {
   }
   
   const fetchAvailableOptions = async () => {
+    const extractValues = (resp: any): string[] => {
+      const data = resp?.data ?? resp
+      if (!Array.isArray(data)) return []
+      return data
+        .map((item: any) => (typeof item === 'string' ? item : item?.value))
+        .filter((v: any) => typeof v === 'string' && v.length > 0)
+    }
+
     try {
-      const [categories, sources] = await Promise.all([
+      const [categoriesResp, sourcesResp] = await Promise.all([
         newsAPI.getCategories(),
         newsAPI.getSources()
       ])
-      availableCategories.value = categories
-      availableSources.value = sources
+
+      availableCategories.value = extractValues(categoriesResp).filter((v) => v !== 'all')
+      availableSources.value = extractValues(sourcesResp).filter((v) => v !== 'all')
     } catch (e) {
       console.error('Failed to fetch available options:', e)
     }
@@ -397,6 +502,8 @@ export const useNewsStore = defineStore('news', () => {
     detailVisible,
     availableCategories,
     availableSources,
+    activeStockCode,
+    isStockMode,
     
     // Computed
     filteredNews,
@@ -416,11 +523,14 @@ export const useNewsStore = defineStore('news', () => {
     setSortBy,
     showNewsDetail,
     hideNewsDetail,
+    setActiveStockCode,
     addFollowedStock,
     removeFollowedStock,
     fetchFollowedStockNews,
     fetchAvailableOptions,
     favoriteNews,
-    unfavoriteNews
+    unfavoriteNews,
+    clearNewsResults,
+    clearHotTopics
   }
 })

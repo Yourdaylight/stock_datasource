@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
-import * as echarts from 'echarts'
 import type { ChatMessage } from '@/api/chat'
 import { useChatStore } from '@/stores/chat'
+import KLineChart from '@/components/charts/KLineChart.vue'
+import TrendChart from '@/components/report/TrendChart.vue'
+import ProfitChart from '@/components/ProfitChart.vue'
 
 // Configure marked for security
 marked.setOptions({
@@ -22,14 +23,11 @@ const emit = defineEmits<{
 
 const chatStore = useChatStore()
 
-// Track chart instances for cleanup
-const chartInstances = ref<Map<string, echarts.ECharts>>(new Map())
-
 // Feature cards for welcome screen
 const featureCards = [
-  { icon: 'chart-line', title: '行情分析', desc: '分析股票K线走势、技术指标', example: '分析贵州茅台的走势' },
+  { icon: 'chart-line', title: '行情分析', desc: '分析A股/港股K线走势、技术指标', example: '分析贵州茅台的走势' },
   { icon: 'search', title: '智能选股', desc: '根据条件筛选股票', example: '推荐低估值蓝筹股' },
-  { icon: 'file-paste', title: '财报解读', desc: '解读公司财务数据', example: '解读比亚迪的财报' },
+  { icon: 'file-paste', title: '财报解读', desc: '解读A股/港股公司财务数据', example: '解读腾讯控股 00700.HK 的财报' },
   { icon: 'chart-pie', title: '持仓管理', desc: '分析持仓配置建议', example: '分析我的持仓' },
 ]
 
@@ -37,6 +35,7 @@ const featureCards = [
 const exampleQueries = [
   '今日大盘走势如何？',
   '帮我分析一下 600519 的技术指标',
+  '分析腾讯控股 00700.HK 的技术面和财务情况',
   '推荐一些低PE高ROE的股票',
   '查看沪深300成分股',
   '分析宁德时代的财务状况',
@@ -46,14 +45,9 @@ const exampleQueries = [
 const renderMarkdown = (content: string): string => {
   if (!content) return ''
   try {
-    // Clean content before rendering
     let cleanContent = content
     
-    // Remove chart markers before rendering
-    cleanContent = cleanContent.replace(/\[KLINE_CHART\][\s\S]*?\[\/KLINE_CHART\]/g, '')
-    
     // Filter out obvious garbage/partial data (like incomplete JSON fragments)
-    // This helps prevent displaying "0 {" or similar fragments
     if (cleanContent.match(/^\s*\d+\s*[{\[]\s*$/)) {
       return '<span class="text-gray-400">正在生成回复...</span>'
     }
@@ -73,136 +67,17 @@ const renderMarkdown = (content: string): string => {
   }
 }
 
-// Check if content contains chart data
-const parseChartData = (content: string): { text: string; chartData: any | null } => {
-  const chartMarkerRegex = /\[KLINE_CHART\]([\s\S]*?)\[\/KLINE_CHART\]/g
-  const match = chartMarkerRegex.exec(content)
-  
-  if (match) {
-    try {
-      const chartData = JSON.parse(match[1])
-      const textWithoutChart = content.replace(chartMarkerRegex, '').trim()
-      return { text: textWithoutChart, chartData }
-    } catch (e) {
-      return { text: content, chartData: null }
-    }
-  }
-  return { text: content, chartData: null }
+// Get visualizations for a specific message
+const getMessageVisualizations = (msgId: string) => {
+  return chatStore.messageVisualizations[msgId] || []
 }
 
-// Check if a message has chart data
-const hasChartData = (content: string): boolean => {
-  return /\[KLINE_CHART\]/.test(content)
+// Map visualization type to component
+const vizComponentMap: Record<string, any> = {
+  'kline': KLineChart,
+  'financial_trend': TrendChart,
+  'profit_curve': ProfitChart,
 }
-
-// Get chart data from message content
-const getChartDataFromContent = (content: string): any | null => {
-  const result = parseChartData(content)
-  return result.chartData
-}
-
-// Initialize chart for a message
-const initChart = (msgId: string, chartData: any) => {
-  nextTick(() => {
-    const container = document.getElementById(`chart-${msgId}`)
-    if (!container || !chartData) return
-    
-    const existingChart = chartInstances.value.get(msgId)
-    if (existingChart) {
-      existingChart.dispose()
-    }
-    
-    const chart = echarts.init(container)
-    chartInstances.value.set(msgId, chart)
-    
-    const dates = chartData.dates || []
-    const klineData = chartData.data || []
-    const volumes = chartData.volumes || []
-    
-    const option: any = {
-      animation: false,
-      title: {
-        text: chartData.title || 'K线图',
-        left: 'center',
-        textStyle: { fontSize: 14, fontWeight: 'bold' }
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'cross' },
-        formatter: (params: any) => {
-          const dataIndex = params[0]?.dataIndex
-          if (dataIndex === undefined) return ''
-          const kline = klineData[dataIndex]
-          if (!kline) return ''
-          let html = `<div style="font-size:12px;"><strong>${dates[dataIndex]}</strong><br/>`
-          html += `开: ${kline[0]?.toFixed(2)} 高: ${kline[3]?.toFixed(2)}<br/>`
-          html += `低: ${kline[2]?.toFixed(2)} 收: ${kline[1]?.toFixed(2)}</div>`
-          return html
-        }
-      },
-      grid: [
-        { left: '10%', right: '10%', top: '12%', height: '55%' },
-        { left: '10%', right: '10%', top: '72%', height: '18%' }
-      ],
-      xAxis: [
-        { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: '#ccc' } }, boundaryGap: true },
-        { type: 'category', data: dates, gridIndex: 1, axisLine: { lineStyle: { color: '#ccc' } }, boundaryGap: true, axisLabel: { show: false } }
-      ],
-      yAxis: [
-        { type: 'value', gridIndex: 0, scale: true, splitArea: { show: true }, axisLine: { lineStyle: { color: '#ccc' } } },
-        { type: 'value', gridIndex: 1, scale: true, axisLine: { lineStyle: { color: '#ccc' } }, splitNumber: 2 }
-      ],
-      dataZoom: [
-        { type: 'inside', xAxisIndex: [0, 1], start: 50, end: 100 }
-      ],
-      series: [
-        {
-          name: 'K线',
-          type: 'candlestick',
-          data: klineData,
-          xAxisIndex: 0,
-          yAxisIndex: 0,
-          itemStyle: {
-            color: '#ec0000',
-            color0: '#228B22',
-            borderColor: '#ec0000',
-            borderColor0: '#228B22'
-          }
-        },
-        {
-          name: '成交量',
-          type: 'bar',
-          data: volumes.map((v: number, i: number) => ({
-            value: v,
-            itemStyle: { color: klineData[i] && klineData[i][1] >= klineData[i][0] ? '#ec0000' : '#228B22' }
-          })),
-          xAxisIndex: 1,
-          yAxisIndex: 1
-        }
-      ]
-    }
-    
-    chart.setOption(option)
-  })
-}
-
-// Watch for chart data in messages
-watch(() => props.messages, (newMessages) => {
-  newMessages.forEach(msg => {
-    if (msg.role === 'assistant' && hasChartData(msg.content)) {
-      const chartData = getChartDataFromContent(msg.content)
-      if (chartData) {
-        initChart(msg.id, chartData)
-      }
-    }
-  })
-}, { deep: true })
-
-// Cleanup charts on unmount
-onUnmounted(() => {
-  chartInstances.value.forEach(chart => chart.dispose())
-  chartInstances.value.clear()
-})
 
 // Handle quick action click
 const handleQuickAction = (query: string) => {
@@ -306,7 +181,7 @@ const getThinkingStepIcon = (step: string): string => {
       <!-- Usage tips -->
       <div class="usage-tips">
         <t-icon name="info-circle" style="color: #0052d9" />
-        <span>提示：你可以直接输入股票代码（如 600519）或股票名称（如 贵州茅台）进行分析</span>
+        <span>提示：你可以直接输入股票代码（如 600519、00700.HK）或股票名称（如 贵州茅台、腾讯控股）进行分析</span>
       </div>
     </div>
     
@@ -354,14 +229,39 @@ const getThinkingStepIcon = (step: string): string => {
         ></div>
         <div v-else class="message-text">{{ msg.content }}</div>
         
-        <!-- K-line chart container -->
+        <!-- Dynamic visualization charts -->
         <div 
-          v-if="msg.role === 'assistant' && hasChartData(msg.content)" 
-          :id="`chart-${msg.id}`"
-          class="message-chart"
-        ></div>
+          v-if="msg.role === 'assistant' && getMessageVisualizations(msg.id).length > 0"
+          class="message-visualizations"
+        >
+          <div 
+            v-for="(viz, vizIdx) in getMessageVisualizations(msg.id)" 
+            :key="`${msg.id}-viz-${vizIdx}`"
+            class="visualization-container"
+          >
+            <div v-if="viz.title" class="viz-title">{{ viz.title }}</div>
+            <component
+              v-if="vizComponentMap[viz.type]"
+              :is="vizComponentMap[viz.type]"
+              v-bind="viz.props"
+            />
+            <div v-else class="viz-unsupported">
+              <t-icon name="chart" />
+              <span>不支持的图表类型: {{ viz.type }}</span>
+            </div>
+          </div>
+        </div>
         
-        <div class="message-time">{{ msg.timestamp }}</div>
+        <div class="message-time">
+          {{ msg.timestamp }}
+          <span
+            v-if="msg.role === 'assistant' && msg.metadata?.debug_events"
+            class="debug-btn"
+            @click="chatStore.viewDebug(msg.id)"
+          >
+            🔍 查看调试
+          </span>
+        </div>
       </div>
     </div>
     
@@ -639,14 +539,35 @@ const getThinkingStepIcon = (step: string): string => {
   color: #fff;
 }
 
-/* Chart container in message */
-.message-chart {
-  width: 100%;
-  height: 350px;
+/* Visualization containers */
+.message-visualizations {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin-top: 12px;
+}
+
+.visualization-container {
   border-radius: 8px;
   background: #fff;
   border: 1px solid #eee;
+  overflow: hidden;
+}
+
+.viz-title {
+  padding: 10px 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.viz-unsupported {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: #999;
+  font-size: 13px;
 }
 
 /* Markdown styles */
@@ -748,6 +669,25 @@ const getThinkingStepIcon = (step: string): string => {
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-btn {
+  font-size: 11px;
+  color: var(--td-brand-color, #0052d9);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message-item:hover .debug-btn {
+  opacity: 1;
+}
+
+.debug-btn:hover {
+  text-decoration: underline;
 }
 
 .message-item.user .message-time {

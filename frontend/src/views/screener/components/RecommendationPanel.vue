@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useScreenerStore } from '@/stores/screener'
 import type { Recommendation } from '@/api/screener'
 
@@ -7,17 +7,31 @@ const screenerStore = useScreenerStore()
 
 const emit = defineEmits(['view-detail', 'add-watchlist'])
 
-// 分类标签
-const categoryLabels: Record<string, string> = {
+// A股分类标签
+const aShareCategoryLabels: Record<string, string> = {
   low_valuation: '低估值精选',
   strong_momentum: '强势股',
   high_activity: '活跃股',
 }
 
+// 港股分类标签
+const hkCategoryLabels: Record<string, string> = {
+  strong_momentum: '强势港股',
+  oversold: '超跌港股',
+  high_volume: '高成交港股',
+}
+
+// 根据市场类型获取分类标签
+const categoryLabels = computed(() => {
+  return screenerStore.marketType === 'hk_stock' ? hkCategoryLabels : aShareCategoryLabels
+})
+
 const categoryIcons: Record<string, string> = {
   low_valuation: 'chart-pie',
   strong_momentum: 'arrow-up',
   high_activity: 'swap',
+  oversold: 'arrow-down',
+  high_volume: 'money-circle',
 }
 
 const handleViewDetail = (tsCode: string) => {
@@ -27,6 +41,11 @@ const handleViewDetail = (tsCode: string) => {
 const handleAddWatchlist = (rec: Recommendation) => {
   emit('add-watchlist', rec)
 }
+
+// 监听市场类型变化，重新获取推荐
+watch(() => screenerStore.marketType, () => {
+  screenerStore.fetchRecommendations()
+}, { immediate: false })
 
 onMounted(() => {
   screenerStore.fetchRecommendations()
