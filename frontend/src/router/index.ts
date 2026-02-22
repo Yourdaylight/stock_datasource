@@ -106,6 +106,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '数据配置', icon: 'setting', requiresAuth: true }
   },
   {
+    path: '/datamanage/knowledge',
+    name: 'KnowledgeBase',
+    component: () => import('@/views/datamanage/KnowledgeView.vue'),
+    meta: { title: '知识库', icon: 'book-open', requiresAuth: true }
+  },
+  {
     path: '/system-logs',
     name: 'SystemLogs',
     component: () => import('@/views/SystemLogs.vue'),

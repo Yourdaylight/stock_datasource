@@ -1,0 +1,131 @@
+# docker-compose.weknora.yml - WeKnora Knowledge Base Service (Optional)
+#
+# Usage:
+#   docker-compose -f docker-compose.weknora.yml up -d
+#
+# This starts the WeKnora knowledge base service stack independently.
+# After startup, configure the main app by setting these env vars in .env:
+#   WEKNORA_ENABLED=true
+#   WEKNORA_BASE_URL=http://weknora-app:8080/api/v1
+#   WEKNORA_API_KEY=<your-api-key>
+#
+# Then restart the backend:
+#   docker-compose restart backend
+
+services:
+  weknora-app:
+    image: wechatopenai/weknora-app:latest
+    container_name: weknora-app
+    restart: unless-stopped
+    ports:
+      - "${WEKNORA_APP_PORT:-18880}:8080"
+    environment:
+      GIN_MODE: release
+      LOG_LEVEL: ${WEKNORA_LOG_LEVEL:-info}
+      # PostgreSQL
+      DB_DRIVER: postgres
+      DB_HOST: weknora-postgres
+      DB_PORT: 5432
+      DB_USER: ${WEKNORA_DB_USER:-weknora}
+      DB_PASSWORD: ${WEKNORA_DB_PASSWORD:-weknora123}
+      DB_NAME: ${WEKNORA_DB_NAME:-weknora}
+      DB_SSL_MODE: disable
+      # Redis
+      REDIS_HOST: weknora-redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${WEKNORA_REDIS_PASSWORD:-}
+      STREAM_MANAGER_TYPE: redis
+      # Vector store
+      RETRIEVE_DRIVER: postgres
+      # Doc reader
+      DOCREADER_GRPC_ADDRESS: weknora-docreader:50051
+      # Storage
+      STORAGE_TYPE: local
+      DATA_DIR: /data/files
+      # Embedding (use external API or Ollama)
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - weknora-data:/data/files
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - weknora-network
+      - stock_network
+    depends_on:
+      weknora-postgres:
+        condition: service_healthy
+      weknora-redis:
+        condition: service_started
+      weknora-docreader:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:8080/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  weknora-frontend:
+    image: wechatopenai/weknora-ui:latest
+    container_name: weknora-frontend
+    restart: unless-stopped
+    ports:
+      - "${WEKNORA_FRONTEND_PORT:-18881}:80"
+    environment:
+      BACKEND_HOST: weknora-app
+      BACKEND_PORT: 8080
+    networks:
+      - weknora-network
+    depends_on:
+      weknora-app:
+        condition: service_healthy
+
+  weknora-docreader:
+    image: wechatopenai/weknora-docreader:latest
+    container_name: weknora-docreader
+    restart: unless-stopped
+    networks:
+      - weknora-network
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  weknora-postgres:
+    image: paradedb/paradedb:v0.21.4-pg17
+    container_name: weknora-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WEKNORA_DB_USER:-weknora}
+      POSTGRES_PASSWORD: ${WEKNORA_DB_PASSWORD:-weknora123}
+      POSTGRES_DB: ${WEKNORA_DB_NAME:-weknora}
+    volumes:
+      - weknora-postgres-data:/var/lib/postgresql/data
+    networks:
+      - weknora-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WEKNORA_DB_USER:-weknora}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  weknora-redis:
+    image: redis:7.0-alpine
+    container_name: weknora-redis
+    restart: unless-stopped
+    networks:
+      - weknora-network
+
+volumes:
+  weknora-data:
+  weknora-postgres-data:
+
+networks:
+  weknora-network:
+    name: weknora-network
+    driver: bridge
+  stock_network:
+    external: true

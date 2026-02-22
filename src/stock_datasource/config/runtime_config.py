@@ -24,6 +24,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_concurrent_tasks": 1,
         "max_date_threads": 1,
     },
+    "weknora": {
+        "enabled": False,
+        "base_url": "http://weknora-backend:8080/api/v1",
+        "api_key": "",
+        "kb_ids": "",
+        "timeout": 10,
+    },
     "schedule": {
         "enabled": False,
         "execute_time": "18:00",
@@ -71,6 +78,7 @@ def load_runtime_config() -> Dict[str, Any]:
 def save_runtime_config(
     proxy: Optional[Dict[str, Any]] = None,
     sync: Optional[Dict[str, Any]] = None,
+    weknora: Optional[Dict[str, Any]] = None,
     schedule: Optional[Dict[str, Any]] = None,
     plugin_schedules: Optional[Dict[str, Any]] = None,
     schedule_history: Optional[list] = None,
@@ -82,6 +90,8 @@ def save_runtime_config(
             current["proxy"].update(proxy)
         if sync is not None:
             current["sync"].update(sync)
+        if weknora is not None:
+            current.setdefault("weknora", {}).update(weknora)
         if schedule is not None:
             current["schedule"].update(schedule)
         if plugin_schedules is not None:

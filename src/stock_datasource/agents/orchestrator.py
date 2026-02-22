@@ -49,6 +49,10 @@ CONCURRENT_AGENT_GROUPS = [
     {"OverviewAgent", "TopListAgent"},
     # HK Report can run alongside Market for cross-market analysis
     {"MarketAgent", "HKReportAgent"},
+    # Knowledge + Market for RAG-enhanced technical analysis
+    {"KnowledgeAgent", "MarketAgent"},
+    # Knowledge + Report for document-backed financial analysis
+    {"KnowledgeAgent", "ReportAgent"},
 ]
 
 # Agent handoff configurations: agent_from -> [possible handoff targets]
@@ -170,10 +174,12 @@ class OrchestratorAgent:
             "仅输出JSON，格式: {\"intent\": string, \"agent_name\": string, \"rationale\": string}。\n"
             "如果没有匹配的Agent，请将agent_name设为空字符串。\n\n"
             "intent的可选值: market_analysis, stock_screening, financial_report, hk_financial_report, hk_market_analysis, portfolio_management, "
-            "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, general_chat\n\n"
+            "strategy_backtest, index_analysis, etf_analysis, market_overview, news_analysis, knowledge_search, general_chat\n\n"
             "注意：\n"
             "- 如果用户询问港股（代码格式如00700.HK）的技术分析、K线、技术指标，intent设为market_analysis，agent_name设为MarketAgent\n"
-            "- 如果用户同时询问港股的技术面和财务面，intent设为market_analysis，agent_name设为MarketAgent（系统会自动组合HKReportAgent）"
+            "- 如果用户同时询问港股的技术面和财务面，intent设为market_analysis，agent_name设为MarketAgent（系统会自动组合HKReportAgent）\n"
+            "- 如果用户询问研报、公告、政策文件、规章制度等文档内容，intent设为knowledge_search，agent_name设为KnowledgeAgent\n"
+            "- 如果用户查询包含'根据研报'、'根据公告'、'文档中'等关键词，优先选择KnowledgeAgent"
         )
         user_prompt = (
             f"User query: {query}\n\n"

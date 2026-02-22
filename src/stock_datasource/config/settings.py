@@ -141,6 +141,13 @@ class Settings(BaseSettings):
     CACHE_TTL_BASIC: int = Field(default=3600)     # Stock basic info
     CACHE_TTL_OVERVIEW: int = Field(default=300)   # Market overview
 
+    # WeKnora Knowledge Base (Optional)
+    WEKNORA_ENABLED: bool = Field(default=False)
+    WEKNORA_BASE_URL: str = Field(default="http://weknora-backend:8080/api/v1")
+    WEKNORA_API_KEY: Optional[str] = Field(default=None)
+    WEKNORA_KB_IDS: str = Field(default="")  # Comma-separated knowledge base IDs
+    WEKNORA_TIMEOUT: int = Field(default=10)
+
     # Auth / Registration
     # Default: no email whitelist check (open registration)
     AUTH_EMAIL_WHITELIST_ENABLED: bool = Field(default=False)
@@ -164,6 +171,18 @@ try:
     settings.HTTP_PROXY_PORT = _proxy_cfg.get("port", settings.HTTP_PROXY_PORT)
     settings.HTTP_PROXY_USERNAME = _proxy_cfg.get("username", settings.HTTP_PROXY_USERNAME)
     settings.HTTP_PROXY_PASSWORD = _proxy_cfg.get("password", settings.HTTP_PROXY_PASSWORD)
+
+    _weknora_cfg = _runtime_cfg.get("weknora", {})
+    if _weknora_cfg.get("enabled") or _weknora_cfg.get("api_key"):
+        settings.WEKNORA_ENABLED = _weknora_cfg.get("enabled", settings.WEKNORA_ENABLED)
+        if _weknora_cfg.get("base_url"):
+            settings.WEKNORA_BASE_URL = _weknora_cfg["base_url"]
+        if _weknora_cfg.get("api_key"):
+            settings.WEKNORA_API_KEY = _weknora_cfg["api_key"]
+        if _weknora_cfg.get("kb_ids"):
+            settings.WEKNORA_KB_IDS = _weknora_cfg["kb_ids"]
+        if _weknora_cfg.get("timeout"):
+            settings.WEKNORA_TIMEOUT = _weknora_cfg["timeout"]
 except Exception:
     # Fallback to env-only configuration on any error
     pass
