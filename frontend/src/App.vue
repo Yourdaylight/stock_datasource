@@ -23,7 +23,8 @@ import {
   TimeIcon,
   SettingIcon,
   NotificationIcon,
-  DataDisplayIcon
+  DataDisplayIcon,
+  BookOpenIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -82,6 +83,7 @@ const menuItems: MenuItem[] = [
       { path: '/datamanage', title: '数据概览', icon: ServerIcon, requiresAuth: true },
       { path: '/datamanage/explorer', title: '数据浏览器', icon: SearchIcon, requiresAuth: true },
       { path: '/datamanage/tasks', title: '同步任务', icon: TimeIcon, requiresAuth: true },
+      { path: '/datamanage/knowledge', title: '知识库', icon: BookOpenIcon, requiresAuth: true },
       { path: '/datamanage/config', title: '数据配置', icon: SettingIcon, requiresAuth: true }
     ]
   }

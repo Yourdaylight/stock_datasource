@@ -210,6 +210,121 @@ export interface ProxyTestResult {
   external_ip?: string
 }
 
+// Knowledge Base (WeKnora) Types
+export interface KnowledgeConfig {
+  enabled: boolean
+  base_url: string
+  api_key: string
+  kb_ids: string
+  timeout: number
+}
+
+export interface QuickDeployStep {
+  title: string
+  command: string
+  note?: string
+}
+
+export interface QuickDeployInfo {
+  description: string
+  features: string[]
+  steps: QuickDeployStep[]
+  docs_url: string
+  github_url: string
+}
+
+export interface KnowledgeStatus {
+  enabled: boolean
+  status: 'not_configured' | 'healthy' | 'unreachable'
+  message: string
+  knowledge_bases_count?: number
+  quick_deploy?: QuickDeployInfo | null
+}
+
+export interface KnowledgeTestResult {
+  success: boolean
+  message: string
+  knowledge_bases_count?: number
+}
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface KnowledgeBasesResponse {
+  knowledge_bases: KnowledgeBase[]
+  total: number
+  error?: string
+}
+
+// Knowledge Sync Types
+export interface KnowledgeSyncTable {
+  table_name: string
+  comment: string
+}
+
+export interface KnowledgeSyncColumn {
+  name: string
+  type: string
+  comment: string
+}
+
+export interface KnowledgeSyncRequest {
+  kb_id: string
+  table_name: string
+  ts_codes?: string[]
+  start_date?: string
+  end_date?: string
+  custom_sql?: string
+  custom_title?: string
+  max_rows?: number
+}
+
+export interface KnowledgeSyncDocInfo {
+  title: string
+  knowledge_id: string
+  action: string
+  rows: number
+}
+
+export interface KnowledgeSyncTask {
+  task_id: string
+  table_name: string
+  kb_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'idle'
+  total: number
+  completed: number
+  failed: number
+  error?: string
+  created_at?: string
+  started_at?: string
+  finished_at?: string
+  documents: KnowledgeSyncDocInfo[]
+  message?: string
+}
+
+export interface KnowledgeSyncHistoryResponse {
+  items: KnowledgeSyncTask[]
+  total: number
+}
+
+export interface KnowledgeDocument {
+  id: string
+  title: string
+  content?: string
+  parse_status?: string
+  enable_status?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface KnowledgeDocumentsResponse {
+  data: KnowledgeDocument[]
+  total: number
+}
+
 // Plugin Dependency Types
 export interface PluginDependency {
   plugin_name: string
@@ -876,5 +991,72 @@ export const datamanageApi = {
   // Run scheduler task now
   runSchedulerNow(taskType: 'data_sync' | 'analysis'): Promise<SchedulerRunResult> {
     return request.post(`/api/datamanage/scheduler/run?task_type=${taskType}`)
+  },
+
+  // ============ Knowledge Base (WeKnora) API ============
+
+  // Get knowledge config
+  getKnowledgeConfig(): Promise<KnowledgeConfig> {
+    return request.get('/api/datamanage/knowledge/config')
+  },
+
+  // Save knowledge config
+  updateKnowledgeConfig(config: KnowledgeConfig): Promise<KnowledgeConfig> {
+    return request.put('/api/datamanage/knowledge/config', config)
+  },
+
+  // Get knowledge base status
+  getKnowledgeStatus(): Promise<KnowledgeStatus> {
+    return request.get('/api/datamanage/knowledge/status')
+  },
+
+  // Test knowledge base connection (with optional custom config)
+  testKnowledgeConnection(config?: Partial<KnowledgeConfig>): Promise<KnowledgeTestResult> {
+    return request.post('/api/datamanage/knowledge/test', config || {})
+  },
+
+  // List knowledge bases
+  listKnowledgeBases(): Promise<KnowledgeBasesResponse> {
+    return request.get('/api/datamanage/knowledge/bases')
+  },
+
+  // ============ Knowledge Sync API ============
+
+  // Get tables available for sync
+  getKnowledgeSyncTables(): Promise<{ tables: KnowledgeSyncTable[] }> {
+    return request.get('/api/datamanage/knowledge/sync/tables')
+  },
+
+  // Get columns for a table
+  getKnowledgeSyncTableColumns(tableName: string): Promise<{ columns: KnowledgeSyncColumn[] }> {
+    return request.get(`/api/datamanage/knowledge/sync/tables/${tableName}/columns`)
+  },
+
+  // Trigger knowledge sync
+  triggerKnowledgeSync(params: KnowledgeSyncRequest): Promise<KnowledgeSyncTask> {
+    return request.post('/api/datamanage/knowledge/sync', params)
+  },
+
+  // Get sync task status
+  getKnowledgeSyncStatus(taskId?: string): Promise<KnowledgeSyncTask> {
+    const query = taskId ? `?task_id=${taskId}` : ''
+    return request.get(`/api/datamanage/knowledge/sync/status${query}`)
+  },
+
+  // Get sync history
+  getKnowledgeSyncHistory(limit: number = 20): Promise<KnowledgeSyncHistoryResponse> {
+    return request.get(`/api/datamanage/knowledge/sync/history?limit=${limit}`)
+  },
+
+  // List knowledge documents
+  listKnowledgeDocuments(kbId: string, page: number = 1, pageSize: number = 20, keyword?: string): Promise<KnowledgeDocumentsResponse> {
+    let url = `/api/datamanage/knowledge/documents?kb_id=${kbId}&page=${page}&page_size=${pageSize}`
+    if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`
+    return request.get(url)
+  },
+
+  // Delete a knowledge document
+  deleteKnowledgeDocument(knowledgeId: string): Promise<{ success: boolean; message: string }> {
+    return request.delete(`/api/datamanage/knowledge/documents/${knowledgeId}`)
   }
 }

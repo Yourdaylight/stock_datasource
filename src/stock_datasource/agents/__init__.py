@@ -44,6 +44,7 @@ from .etf_agent import EtfAgent, get_etf_agent
 from .overview_agent import OverviewAgent, get_overview_agent
 from .toplist_agent import TopListAgent
 from .news_analyst_agent import NewsAnalystAgent, get_news_analyst_agent
+from .knowledge_agent import KnowledgeAgent, get_knowledge_agent
 
 # For backward compatibility with deep_agent imports
 from .deep_agent import StockDeepAgent, get_stock_agent
@@ -87,6 +88,8 @@ __all__ = [
     "TopListAgent",
     "NewsAnalystAgent",
     "get_news_analyst_agent",
+    "KnowledgeAgent",
+    "get_knowledge_agent",
     # DeepAgent (for backward compatibility)
     "StockDeepAgent",
     "get_stock_agent",

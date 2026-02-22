@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import type { ChatMessage } from '@/api/chat'
 import { useChatStore } from '@/stores/chat'
+import { datamanageApi } from '@/api/datamanage'
 import KLineChart from '@/components/charts/KLineChart.vue'
 import TrendChart from '@/components/report/TrendChart.vue'
 import ProfitChart from '@/components/ProfitChart.vue'
@@ -22,6 +25,19 @@ const emit = defineEmits<{
 }>()
 
 const chatStore = useChatStore()
+const router = useRouter()
+
+// Knowledge base availability
+const knowledgeEnabled = ref(false)
+
+onMounted(async () => {
+  try {
+    const status = await datamanageApi.getKnowledgeStatus()
+    knowledgeEnabled.value = status.status === 'healthy'
+  } catch {
+    knowledgeEnabled.value = false
+  }
+})
 
 // Feature cards for welcome screen
 const featureCards = [
@@ -155,6 +171,24 @@ const getThinkingStepIcon = (step: string): string => {
             <div class="feature-desc">{{ feature.desc }}</div>
           </div>
           <t-icon name="chevron-right" class="feature-arrow" />
+        </div>
+
+        <!-- Knowledge base card -->
+        <div 
+          class="feature-card"
+          :class="{ 'feature-card--disabled': !knowledgeEnabled }"
+          @click="knowledgeEnabled ? handleQuickAction('查看可用知识库') : router.push('/datamanage/knowledge')"
+        >
+          <div class="feature-icon" :class="{ 'feature-icon--disabled': !knowledgeEnabled }">
+            <t-icon name="books" size="24px" />
+          </div>
+          <div class="feature-content">
+            <div class="feature-title">知识库问答</div>
+            <div class="feature-desc" v-if="knowledgeEnabled">引用研报公告进行深度分析</div>
+            <div class="feature-desc feature-desc--guide" v-else>需部署知识库服务 · 点击前往配置</div>
+          </div>
+          <t-icon v-if="knowledgeEnabled" name="chevron-right" class="feature-arrow" />
+          <t-icon v-else name="setting" class="feature-arrow feature-arrow--guide" />
         </div>
       </div>
       
@@ -444,6 +478,38 @@ const getThinkingStepIcon = (step: string): string => {
 .feature-card:hover .feature-arrow {
   color: #0052d9;
   transform: translateX(4px);
+}
+
+/* Knowledge card disabled state */
+.feature-card--disabled {
+  background: #f5f5f5;
+  opacity: 0.75;
+  border: 1px dashed #d9d9d9;
+}
+
+.feature-card--disabled:hover {
+  background: #f0f0f0;
+  border-color: #bbb;
+  box-shadow: none;
+}
+
+.feature-icon--disabled {
+  background: linear-gradient(135deg, #f0f0f0 0%, #e8e8e8 100%);
+  color: #999;
+}
+
+.feature-desc--guide {
+  color: #0052d9;
+  font-size: 11px;
+}
+
+.feature-arrow--guide {
+  color: #999;
+}
+
+.feature-card--disabled:hover .feature-arrow--guide {
+  color: #666;
+  transform: rotate(60deg);
 }
 
 /* Quick Start */
