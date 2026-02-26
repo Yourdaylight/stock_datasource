@@ -81,14 +81,17 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                 result_queue.put((True, total_records, "", ""))
                 return
 
-            # incremental
-            from stock_datasource.core.trade_calendar import trade_calendar_service
+            # incremental — determine market from plugin category
+            from stock_datasource.core.trade_calendar import trade_calendar_service, MARKET_CN, MARKET_HK
+            from stock_datasource.core.base_plugin import PluginCategory
+
+            market = MARKET_HK if plugin.get_category() == PluginCategory.HK_STOCK else MARKET_CN
 
             today = datetime.now().strftime("%Y%m%d")
-            if trade_calendar_service.is_trading_day(today):
+            if trade_calendar_service.is_trading_day(today, market=market):
                 target_date = today
             else:
-                prev_date = trade_calendar_service.get_prev_trading_day(today)
+                prev_date = trade_calendar_service.get_prev_trading_day(today, market=market)
                 target_date = prev_date or (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
 
             # incremental
@@ -409,8 +412,11 @@ class TaskWorker:
         
         return total_records
     
-    def _get_latest_trading_date(self) -> Optional[str]:
+    def _get_latest_trading_date(self, market: str = "cn") -> Optional[str]:
         """Get the latest valid trading date.
+        
+        Args:
+            market: Market type - 'cn' for A-share, 'hk' for HK stock
         
         Returns:
             Date string in YYYYMMDD format, or None if not available
@@ -421,18 +427,18 @@ class TaskWorker:
             today = datetime.now().strftime("%Y%m%d")
             
             # Check if today is a trading day
-            if trade_calendar_service.is_trading_day(today):
+            if trade_calendar_service.is_trading_day(today, market=market):
                 return today
             
             # Get previous trading day
-            prev_date = trade_calendar_service.get_prev_trading_day(today)
+            prev_date = trade_calendar_service.get_prev_trading_day(today, market=market)
             if prev_date:
                 return prev_date
             
             # Fallback: try last 7 days
             for i in range(1, 8):
                 check_date = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
-                if trade_calendar_service.is_trading_day(check_date):
+                if trade_calendar_service.is_trading_day(check_date, market=market):
                     return check_date
             
             # Last resort fallback

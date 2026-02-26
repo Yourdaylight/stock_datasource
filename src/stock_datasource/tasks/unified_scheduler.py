@@ -596,15 +596,25 @@ class UnifiedScheduler:
         logger.info("=" * 60)
 
     def _should_run_today(self) -> bool:
-        """Check if today is a valid run day (respects skip_non_trading_days)."""
+        """Check if today is a valid run day (respects skip_non_trading_days).
+        
+        Returns True if today is a trading day in ANY market (A-share or HK),
+        so that HK plugins are not skipped on HK trading days when A-share is closed.
+        """
         if not self._config.get("skip_non_trading_days", True):
             return True
 
         try:
-            from ..core.trade_calendar import TradeCalendarService
+            from ..core.trade_calendar import TradeCalendarService, MARKET_CN, MARKET_HK
 
             calendar = TradeCalendarService()
-            return calendar.is_trading_day(date.today())
+            today = date.today()
+            is_cn = calendar.is_trading_day(today, market=MARKET_CN)
+            is_hk = calendar.is_trading_day(today, market=MARKET_HK)
+            if is_cn or is_hk:
+                return True
+            logger.info("Today is not a trading day for either A-share or HK")
+            return False
         except Exception as exc:
             logger.warning("Failed to check trading day, defaulting to weekday check: %s", exc)
             return date.today().weekday() < 5

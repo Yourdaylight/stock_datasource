@@ -275,10 +275,31 @@ onMounted(() => {
     <!-- Market Summary -->
     <t-card v-if="screenerStore.summary" class="summary-card" :bordered="false">
       <t-row :gutter="16">
-        <t-col :span="2">
-          <div class="summary-item">
-            <div class="summary-label">交易日期</div>
-            <div class="summary-value">{{ screenerStore.summary.trade_date }}</div>
+        <t-col :span="3">
+          <div class="summary-item calendar-info">
+            <div class="summary-label">
+              {{ screenerStore.summary.market_label || '交易日历' }}
+            </div>
+            <div class="summary-value" style="font-size: 16px;">
+              {{ screenerStore.summary.trade_date }}
+            </div>
+            <div class="calendar-status">
+              <t-tag 
+                :theme="screenerStore.summary.is_trading_day ? 'success' : 'warning'" 
+                variant="light"
+                size="small"
+              >
+                {{ screenerStore.summary.is_trading_day ? '今日开市' : '今日休市' }}
+              </t-tag>
+            </div>
+            <div class="calendar-nav" v-if="screenerStore.summary.prev_trading_day || screenerStore.summary.next_trading_day">
+              <span v-if="screenerStore.summary.prev_trading_day" class="calendar-day" @click="handleDateChange(screenerStore.summary.prev_trading_day!)">
+                ← {{ screenerStore.summary.prev_trading_day }}
+              </span>
+              <span v-if="screenerStore.summary.next_trading_day" class="calendar-day" @click="handleDateChange(screenerStore.summary.next_trading_day!)">
+                {{ screenerStore.summary.next_trading_day }} →
+              </span>
+            </div>
           </div>
         </t-col>
         <t-col :span="2">
@@ -305,9 +326,9 @@ onMounted(() => {
             <div class="summary-value up">{{ screenerStore.summary.limit_up }}</div>
           </div>
         </t-col>
-        <t-col :span="2">
+        <t-col :span="1">
           <div class="summary-item">
-            <div class="summary-label down">{{ marketType === 'hk_stock' ? '大跌(≤-10%)' : '跌停' }}</div>
+            <div class="summary-label down">{{ marketType === 'hk_stock' ? '大跌' : '跌停' }}</div>
             <div class="summary-value down">{{ screenerStore.summary.limit_down }}</div>
           </div>
         </t-col>
@@ -581,6 +602,35 @@ onMounted(() => {
 
 .summary-item {
   text-align: center;
+}
+
+.summary-item.calendar-info {
+  text-align: left;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  padding-right: 16px;
+}
+
+.calendar-status {
+  margin-top: 6px;
+}
+
+.calendar-nav {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.calendar-day {
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.calendar-day:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 .summary-label {

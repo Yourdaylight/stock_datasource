@@ -646,6 +646,15 @@ class OrchestratorAgent:
                 "type": "error",
                 "error": str(e),
             }
+            yield {
+                "type": "done",
+                "metadata": {
+                    "agent": "MCPFallback",
+                    "intent": intent,
+                    "stock_codes": stock_codes,
+                    "error": str(e),
+                },
+            }
         finally:
             await client.disconnect()
 
@@ -865,6 +874,15 @@ Action Input: {{}}
             yield {
                 "type": "error",
                 "error": str(e),
+            }
+            yield {
+                "type": "done",
+                "metadata": {
+                    "agent": "MCPFallback",
+                    "intent": intent,
+                    "stock_codes": stock_codes,
+                    "error": str(e),
+                },
             }
         finally:
             await client.disconnect()

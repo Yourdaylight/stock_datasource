@@ -214,6 +214,7 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
         debug_events = []
         visualizations = []
         event_count = 0
+        terminal_sent = False
         
         try:
             async for event in orchestrator.execute_stream(content, context):
@@ -310,6 +311,7 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                         "metadata": metadata
                     }, ensure_ascii=False)
                     yield f"data: {done_data}\n\n"
+                    terminal_sent = True
                 
                 elif event_type == "error":
                     error_msg = event.get("error", "未知错误")
@@ -339,6 +341,20 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                 "error": f"处理请求时发生错误: {str(e)}"
             }, ensure_ascii=False)
             yield f"data: {error_data}\n\n"
+        finally:
+            # Always guarantee a terminal 'done' event so the frontend
+            # does not report "SSE stream closed without terminal event"
+            if not terminal_sent:
+                logger.warning(f"[Chat] Stream ended without done event for session {session_id}, sending fallback done")
+                done_data = json.dumps({
+                    "type": "done",
+                    "metadata": {
+                        "agent": "OrchestratorAgent",
+                        "tool_calls": tool_calls,
+                        "error": tool_errors[-1] if tool_errors else None,
+                    }
+                }, ensure_ascii=False)
+                yield f"data: {done_data}\n\n"
     
     return StreamingResponse(
         generate(),
