@@ -208,3 +208,8 @@ class MarketSummary(BaseModel):
     limit_up: int
     limit_down: int
     avg_change: float
+    # 交易日历信息
+    is_trading_day: Optional[bool] = None  # 今天是否交易日
+    prev_trading_day: Optional[str] = None  # 上一个交易日
+    next_trading_day: Optional[str] = None  # 下一个交易日
+    market_label: Optional[str] = None  # 市场标签 (A股/港股)

@@ -1297,8 +1297,13 @@ class SyncTaskManager:
                 # Backfill specific dates with parallel processing
                 self._execute_backfill_parallel(task, plugin)
             else:
+                # Determine market from plugin category
+                from stock_datasource.core.base_plugin import PluginCategory
+                from stock_datasource.core.trade_calendar import MARKET_CN, MARKET_HK
+                market = MARKET_HK if plugin.get_category() == PluginCategory.HK_STOCK else MARKET_CN
+                
                 # Incremental or full sync - use latest valid trading day from calendar
-                target_date = self._get_latest_trading_date()
+                target_date = self._get_latest_trading_date(market=market)
                 if not target_date:
                     raise ValueError("无法获取有效交易日，请检查交易日历数据")
                 
@@ -1339,19 +1344,22 @@ class SyncTaskManager:
             self._save_task_to_db(task)
             self.logger.error(f"Task {task_id} failed: {error_msg}\n{error_tb}")
     
-    def _get_latest_trading_date(self) -> Optional[str]:
+    def _get_latest_trading_date(self, market: str = "cn") -> Optional[str]:
         """Get the latest valid trading date from calendar.
         
         Returns the most recent trading day that has data available.
         Since today's data may not be published yet (especially before market close),
         we return the previous trading day to ensure data availability.
         
+        Args:
+            market: Market type - 'cn' for A-share, 'hk' for HK stock
+        
         Returns:
             Trading date in YYYYMMDD format, or None if calendar is unavailable
         """
         try:
             # Get recent trading days (get a few to ensure we have valid ones)
-            trading_days = trade_calendar_service.get_trading_days(n=10)
+            trading_days = trade_calendar_service.get_trading_days(n=10, market=market)
             if not trading_days:
                 self.logger.error("交易日历为空，无法获取有效交易日")
                 return None
@@ -1372,7 +1380,7 @@ class SyncTaskManager:
             if valid_dates:
                 # Return the most recent past trading day
                 latest = max(valid_dates)
-                self.logger.info(f"使用最近的有效交易日: {latest} (今天: {today})")
+                self.logger.info(f"使用最近的有效交易日: {latest} (今天: {today}, 市场: {market})")
                 return latest.strftime('%Y%m%d')
             
             # If no past trading days found, this is unusual

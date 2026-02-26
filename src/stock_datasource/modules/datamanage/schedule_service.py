@@ -354,15 +354,20 @@ class ScheduleService:
         
         # Check if we should skip (non-trading day) - only for scheduled triggers
         # Manual triggers should always proceed, but use the latest trading day
+        # Check both A-share and HK markets - only skip if neither is open
         if not is_manual and config.get("skip_non_trading_days", True):
             try:
+                from stock_datasource.core.trade_calendar import MARKET_CN, MARKET_HK
                 calendar = TradeCalendarService()
-                if not calendar.is_trading_day(datetime.now().date()):
+                today = datetime.now().date()
+                is_cn_trading = calendar.is_trading_day(today, market=MARKET_CN)
+                is_hk_trading = calendar.is_trading_day(today, market=MARKET_HK)
+                if not is_cn_trading and not is_hk_trading:
                     record["status"] = "skipped"
-                    record["skip_reason"] = "非交易日"
+                    record["skip_reason"] = "非交易日(A股和港股均休市)"
                     record["completed_at"] = datetime.now().isoformat()
                     add_schedule_execution(record)
-                    logger.info(f"Schedule {execution_id} skipped: non-trading day")
+                    logger.info(f"Schedule {execution_id} skipped: non-trading day (both CN and HK)")
                     return record
             except Exception as e:
                 logger.warning(f"Failed to check trading day: {e}")

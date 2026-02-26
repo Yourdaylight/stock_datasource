@@ -37,6 +37,32 @@ def _safe_float(value) -> Optional[float]:
     except (ValueError, TypeError):
         return None
 
+
+def _get_calendar_info(market_type: str) -> dict:
+    """获取当前市场的交易日历信息."""
+    from datetime import date
+    try:
+        from stock_datasource.core.trade_calendar import trade_calendar_service, MARKET_CN, MARKET_HK
+
+        today_str = date.today().strftime('%Y-%m-%d')
+        market = MARKET_HK if market_type == "hk_stock" else MARKET_CN
+        market_label = "港股" if market_type == "hk_stock" else "A股"
+
+        is_trading = trade_calendar_service.is_trading_day(today_str, market=market)
+        prev_day = trade_calendar_service.get_prev_trading_day(today_str, market=market)
+        next_day = trade_calendar_service.get_next_trading_day(today_str, market=market)
+
+        return {
+            "is_trading_day": is_trading,
+            "prev_trading_day": prev_day,
+            "next_trading_day": next_day,
+            "market_label": market_label,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get calendar info for {market_type}: {e}")
+        return {}
+
+
 router = APIRouter()
 
 
@@ -622,6 +648,7 @@ async def get_market_summary(
             limit_up=int(row['limit_up']),
             limit_down=int(row['limit_down']),
             avg_change=float(row['avg_change']) if row['avg_change'] else 0,
+            **_get_calendar_info(effective_market),
         )
         
     except HTTPException:

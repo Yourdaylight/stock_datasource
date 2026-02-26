@@ -1217,7 +1217,8 @@ async def trigger_plugin_group(
     维度表(basic类)只执行一次全量同步,不传递多日期。
     日期列表会自动过滤非交易日。
     """
-    from stock_datasource.core.trade_calendar import trade_calendar_service
+    from stock_datasource.core.trade_calendar import trade_calendar_service, MARKET_CN, MARKET_HK
+    from stock_datasource.core.base_plugin import PluginCategory
     
     group = get_plugin_group(group_id)
     if not group:
@@ -1233,19 +1234,31 @@ async def trigger_plugin_group(
         "tushare_ths_index", "tushare_etf_basic", "akshare_hk_stock_list",
     }
     
-    # Filter trade_dates to only include actual trading days
-    # Use calendar membership check for correctness (supports any historical range)
+    # Determine the market for this group based on plugin categories
+    # If any plugin is HK_STOCK, use HK calendar for date filtering
+    group_market = MARKET_CN
+    for name in plugin_names:
+        plugin = plugin_manager.get_plugin(name)
+        if plugin and plugin.get_category() == PluginCategory.HK_STOCK:
+            group_market = MARKET_HK
+            break
+    
+    # Filter trade_dates to only include actual trading days for the appropriate market
     filtered_trade_dates = None
     if request.trade_dates:
-        filtered_trade_dates = [d for d in request.trade_dates if trade_calendar_service.is_trading_day(d)]
+        filtered_trade_dates = [
+            d for d in request.trade_dates 
+            if trade_calendar_service.is_trading_day(d, market=group_market)
+        ]
         if not filtered_trade_dates:
-            logger.warning(f"All provided dates are non-trading days: {request.trade_dates[:5]}...")
+            logger.warning(f"All provided dates are non-trading days ({group_market}): {request.trade_dates[:5]}...")
             # Fall back to original dates if all filtered out (edge case)
             filtered_trade_dates = request.trade_dates
         elif len(filtered_trade_dates) < len(request.trade_dates):
             filtered_out = [d for d in request.trade_dates if d not in filtered_trade_dates]
             logger.info(
-                f"Filtered {len(filtered_out)} non-trading days, remaining {len(filtered_trade_dates)} trading days. "
+                f"Filtered {len(filtered_out)} non-trading days ({group_market}), "
+                f"remaining {len(filtered_trade_dates)} trading days. "
                 f"Example filtered out: {filtered_out[:5]}"
             )
     

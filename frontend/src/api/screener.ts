@@ -76,6 +76,11 @@ export interface MarketSummary {
   limit_up: number
   limit_down: number
   avg_change: number
+  // 交易日历信息
+  is_trading_day?: boolean
+  prev_trading_day?: string
+  next_trading_day?: string
+  market_label?: string
 }
 
 // =============================================================================

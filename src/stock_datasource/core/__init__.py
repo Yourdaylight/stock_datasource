@@ -13,7 +13,9 @@ from .trade_calendar import (
     TradeCalendarService,
     TradeCalendarError,
     CalendarNotFoundError,
-    InvalidDateError
+    InvalidDateError,
+    MARKET_CN,
+    MARKET_HK,
 )
 
 __all__ = [
@@ -30,5 +32,7 @@ __all__ = [
     "TradeCalendarService",
     "TradeCalendarError",
     "CalendarNotFoundError",
-    "InvalidDateError"
+    "InvalidDateError",
+    "MARKET_CN",
+    "MARKET_HK",
 ]
