@@ -1537,3 +1537,305 @@ async def run_scheduler_task(
 
     logger.info(f"Manual scheduler task triggered: {task_type}")
     return SchedulerRunResult(success=True, message=message, task_type=task_type)
+
+
+# ============ Knowledge Base (WeKnora) Configuration ============
+
+@router.get("/knowledge/config")
+async def get_knowledge_config(current_user: dict = Depends(require_admin)):
+    """Get current WeKnora configuration (from runtime_config + settings)."""
+    from ...config.runtime_config import load_runtime_config
+    from ...config.settings import settings
+
+    rt = load_runtime_config().get("weknora", {})
+    return {
+        "enabled": settings.WEKNORA_ENABLED,
+        "base_url": settings.WEKNORA_BASE_URL,
+        "api_key": settings.WEKNORA_API_KEY or "",
+        "kb_ids": settings.WEKNORA_KB_IDS or "",
+        "timeout": settings.WEKNORA_TIMEOUT,
+    }
+
+
+@router.put("/knowledge/config")
+async def update_knowledge_config(
+    body: dict,
+    current_user: dict = Depends(require_admin),
+):
+    """Save WeKnora configuration to runtime_config and reload settings."""
+    from ...config.runtime_config import save_runtime_config
+    from ...config.settings import settings
+    from ...services.weknora_client import reset_weknora_client
+
+    weknora_cfg = {
+        "enabled": body.get("enabled", False),
+        "base_url": body.get("base_url", "http://weknora-backend:8080/api/v1"),
+        "api_key": body.get("api_key", ""),
+        "kb_ids": body.get("kb_ids", ""),
+        "timeout": body.get("timeout", 10),
+    }
+    save_runtime_config(weknora=weknora_cfg)
+
+    # Apply to live settings
+    settings.WEKNORA_ENABLED = weknora_cfg["enabled"]
+    settings.WEKNORA_BASE_URL = weknora_cfg["base_url"]
+    settings.WEKNORA_API_KEY = weknora_cfg["api_key"]
+    settings.WEKNORA_KB_IDS = weknora_cfg["kb_ids"]
+    settings.WEKNORA_TIMEOUT = weknora_cfg["timeout"]
+
+    # Reset singleton so next call picks up new config
+    reset_weknora_client()
+
+    return weknora_cfg
+
+
+@router.get("/knowledge/status")
+async def get_knowledge_status(current_user: dict = Depends(require_admin)):
+    """Get WeKnora knowledge base connection status and deployment guide."""
+    from ...config.settings import settings
+    from ...services.weknora_client import get_weknora_client, _quick_deploy_info
+
+    if not settings.WEKNORA_ENABLED:
+        return {
+            "enabled": False,
+            "status": "not_configured",
+            "message": "知识库服务未配置",
+            "quick_deploy": _quick_deploy_info(),
+        }
+
+    client = get_weknora_client()
+    if client is None:
+        return {
+            "enabled": True,
+            "status": "unreachable",
+            "message": "知识库客户端初始化失败（请检查 WEKNORA_API_KEY 配置）",
+            "quick_deploy": _quick_deploy_info(),
+        }
+
+    status = await asyncio.to_thread(client.get_status)
+    return status
+
+
+@router.post("/knowledge/test")
+async def test_knowledge_connection(
+    body: dict = None,
+    current_user: dict = Depends(require_admin),
+):
+    """Test WeKnora service connection with provided or current config."""
+    from ...config.settings import settings
+    from ...services.weknora_client import WeKnoraClient
+
+    # Use request body values if provided, otherwise fall back to settings
+    body = body or {}
+    base_url = body.get("base_url") or settings.WEKNORA_BASE_URL
+    api_key = body.get("api_key") or settings.WEKNORA_API_KEY
+    timeout = body.get("timeout") or settings.WEKNORA_TIMEOUT
+
+    if not api_key:
+        return {
+            "success": False,
+            "message": "请填写 API Key",
+        }
+
+    client = WeKnoraClient(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=timeout,
+    )
+    healthy = await asyncio.to_thread(client.is_healthy, True)
+    if healthy:
+        kb_count = 0
+        try:
+            kbs = await asyncio.to_thread(client.list_knowledge_bases)
+            kb_count = len(kbs)
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "message": f"连接成功，发现 {kb_count} 个知识库",
+            "knowledge_bases_count": kb_count,
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"无法连接到 WeKnora 服务: {base_url}",
+        }
+
+
+@router.get("/knowledge/bases")
+async def list_knowledge_bases(current_user: dict = Depends(require_admin)):
+    """List available knowledge bases from WeKnora."""
+    from ...services.weknora_client import get_weknora_client
+
+    client = get_weknora_client()
+    if client is None:
+        return {"knowledge_bases": [], "total": 0, "error": "知识库服务未配置或未启用"}
+
+    kbs = await asyncio.to_thread(client.list_knowledge_bases)
+    return {
+        "knowledge_bases": kbs,
+        "total": len(kbs),
+    }
+
+
+# ============ Knowledge Sync (ClickHouse → WeKnora) ============
+
+@router.get("/knowledge/sync/debug")
+async def debug_weknora_connection(current_user: dict = Depends(require_admin)):
+    """Debug endpoint: test WeKnora HTTP call from within uvicorn process."""
+    import httpx as _httpx
+    import os as _os
+    import time as _time
+    from ...config.settings import settings
+
+    url = f"{settings.WEKNORA_BASE_URL}/knowledge-bases"
+    headers = {"X-API-Key": settings.WEKNORA_API_KEY or "", "Content-Type": "application/json"}
+
+    results = {
+        "env_proxy": {
+            "HTTP_PROXY": _os.environ.get("HTTP_PROXY", ""),
+            "HTTPS_PROXY": _os.environ.get("HTTPS_PROXY", ""),
+        },
+    }
+
+    # Test: sync httpx with trust_env=False (bypass proxy)
+    def _sync_test():
+        t0 = _time.time()
+        try:
+            with _httpx.Client(timeout=15, trust_env=False) as c:
+                resp = c.get(url, headers=headers)
+                return {"status": resp.status_code, "elapsed": round(_time.time() - t0, 3)}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}", "elapsed": round(_time.time() - t0, 3)}
+
+    results["sync_no_proxy"] = await asyncio.to_thread(_sync_test)
+
+    return results
+
+
+@router.get("/knowledge/sync/tables")
+async def get_sync_tables(current_user: dict = Depends(require_admin)):
+    """List ClickHouse tables available for knowledge sync."""
+    from ...services.knowledge_sync_service import knowledge_sync_service
+
+    tables = await asyncio.to_thread(knowledge_sync_service.list_tables)
+    return {"tables": tables}
+
+
+@router.get("/knowledge/sync/tables/{table_name}/columns")
+async def get_sync_table_columns(table_name: str, current_user: dict = Depends(require_admin)):
+    """Get column info for a ClickHouse table."""
+    from ...services.knowledge_sync_service import knowledge_sync_service
+
+    columns = await asyncio.to_thread(knowledge_sync_service.get_table_columns, table_name)
+    return {"columns": columns}
+
+
+@router.post("/knowledge/sync")
+async def trigger_knowledge_sync(
+    body: dict,
+    current_user: dict = Depends(require_admin),
+):
+    """Trigger a knowledge sync from ClickHouse to WeKnora.
+
+    Body parameters:
+    - kb_id (required): Target knowledge base ID.
+    - table_name (required): ClickHouse table to query.
+    - ts_codes (optional): List of stock codes to filter.
+    - start_date (optional): Start date filter (e.g. "20240101").
+    - end_date (optional): End date filter.
+    - custom_sql (optional): Custom SQL query (overrides table_name/filters).
+    - custom_title (optional): Custom document title.
+    - max_rows (optional): Max rows per document, default 5000.
+    """
+    from ...services.knowledge_sync_service import knowledge_sync_service
+
+    kb_id = body.get("kb_id")
+    table_name = body.get("table_name", "")
+    custom_sql = body.get("custom_sql")
+
+    if not kb_id:
+        raise HTTPException(status_code=400, detail="kb_id 是必填参数")
+    if not table_name and not custom_sql:
+        raise HTTPException(status_code=400, detail="table_name 或 custom_sql 至少需要提供一个")
+
+    task = await knowledge_sync_service.sync_table(
+        kb_id=kb_id,
+        table_name=table_name,
+        ts_codes=body.get("ts_codes"),
+        start_date=body.get("start_date"),
+        end_date=body.get("end_date"),
+        custom_sql=custom_sql,
+        custom_title=body.get("custom_title"),
+        max_rows=body.get("max_rows", 5000),
+    )
+    return task.to_dict()
+
+
+@router.get("/knowledge/sync/status")
+async def get_knowledge_sync_status(
+    task_id: Optional[str] = Query(default=None),
+    current_user: dict = Depends(require_admin),
+):
+    """Get knowledge sync status. If task_id is given, return that task; else return current running task."""
+    from ...services.knowledge_sync_service import knowledge_sync_service
+
+    if task_id:
+        task = knowledge_sync_service.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        return task.to_dict()
+
+    current = knowledge_sync_service.get_current_task()
+    if current:
+        return current.to_dict()
+    return {"status": "idle", "message": "当前没有运行中的同步任务"}
+
+
+@router.get("/knowledge/sync/history")
+async def get_knowledge_sync_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: dict = Depends(require_admin),
+):
+    """Get knowledge sync task history."""
+    from ...services.knowledge_sync_service import knowledge_sync_service
+
+    history = knowledge_sync_service.get_history(limit)
+    return {"items": history, "total": len(history)}
+
+
+@router.get("/knowledge/documents")
+async def list_knowledge_documents(
+    kb_id: str = Query(..., description="Knowledge base ID"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: Optional[str] = Query(default=None),
+    current_user: dict = Depends(require_admin),
+):
+    """List knowledge documents in a WeKnora knowledge base."""
+    from ...services.weknora_client import get_weknora_client
+
+    client = get_weknora_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="WeKnora 服务未配置")
+
+    result = await asyncio.to_thread(client.list_knowledges, kb_id, page, page_size, keyword)
+    return result
+
+
+@router.delete("/knowledge/documents/{knowledge_id}")
+async def delete_knowledge_document(
+    knowledge_id: str,
+    current_user: dict = Depends(require_admin),
+):
+    """Delete a knowledge document from WeKnora."""
+    from ...services.weknora_client import get_weknora_client
+
+    client = get_weknora_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="WeKnora 服务未配置")
+
+    ok = await asyncio.to_thread(client.delete_knowledge, knowledge_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="删除失败")
+    return {"success": True, "message": "文档已删除"}
