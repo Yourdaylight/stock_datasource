@@ -9,6 +9,8 @@ from .builtin.kdj_strategy import KDJStrategy
 from .builtin.bollinger_strategy import BollingerBandsStrategy
 from .builtin.dual_ma_strategy import DualMAStrategy
 from .builtin.turtle_strategy import TurtleStrategy
+from .builtin.zscore_ma_stationary_strategy import ZScoreMAStationaryStrategy
+from .builtin.adaptive_breakout_follow_strategy import AdaptiveBreakoutFollowStrategy
 
 
 def initialize_builtin_strategies():
@@ -24,6 +26,8 @@ def initialize_builtin_strategies():
         ("bollinger_strategy", BollingerBandsStrategy),
         ("dual_ma_strategy", DualMAStrategy),
         ("turtle_strategy", TurtleStrategy),
+        ("zscore_ma_stationary_strategy", ZScoreMAStationaryStrategy),
+        ("adaptive_breakout_follow_strategy", AdaptiveBreakoutFollowStrategy),
     ]
     
     for name, strategy_class in strategies:

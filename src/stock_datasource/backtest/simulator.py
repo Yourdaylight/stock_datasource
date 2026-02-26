@@ -216,6 +216,28 @@ class TradingSimulator:
         
         logger.debug(f"Trade executed: {trade.trade_type.value} {trade.quantity} {symbol}, Cash: {self.cash:.2f}")
     
+    def close_all_positions(self, market_data: Dict[str, pd.Series], timestamp: datetime, reason: str = "回测结束强制平仓") -> None:
+        """在回测结束时平掉所有持仓"""
+        for symbol, position in list(self.positions.items()):
+            if position.quantity <= 0:
+                continue
+
+            row = market_data.get(symbol)
+            if row is not None:
+                close_price = row.get('close', position.avg_price)
+            else:
+                close_price = position.avg_price
+
+            signal = TradingSignal(
+                timestamp=timestamp,
+                symbol=symbol,
+                action='sell',
+                price=float(close_price),
+                quantity=position.quantity,
+                reason=reason
+            )
+            self.execute_signal(signal, row if row is not None else pd.Series({'close': close_price}))
+
     def update_positions(self, market_data: Dict[str, pd.Series]) -> None:
         """更新持仓的市值和未实现盈亏"""
         total_market_value = 0

@@ -209,6 +209,22 @@
               </div>
             </t-tab-panel>
 
+            <!-- 回测历史 -->
+            <t-tab-panel label="回测历史" value="backtest_history">
+              <div class="history-panel">
+                <t-table
+                  :data="filteredBacktestHistory"
+                  :columns="historyColumns"
+                  row-key="task_id"
+                  size="small"
+                  :loading="historyLoading"
+                />
+                <div v-if="!filteredBacktestHistory.length && !historyLoading" class="history-empty">
+                  <t-empty description="暂无历史记录" />
+                </div>
+              </div>
+            </t-tab-panel>
+
             <!-- AI洞察 -->
             <t-tab-panel 
               v-if="selectedStrategy?.is_ai_generated" 
@@ -280,6 +296,7 @@ import AIStrategyWizard from '@/components/strategy/AIStrategyWizard.vue'
 import BacktestDialog from '@/components/strategy/BacktestDialog.vue'
 import BacktestResults from '@/components/strategy/BacktestResults.vue'
 import { strategyApi } from '@/api/strategy'
+import { backtestApi } from '@/api/backtest'
 
 export default {
   name: 'StrategyWorkbench',
@@ -301,6 +318,8 @@ export default {
     const showBacktestDialog = ref(false)
     const backtesting = ref(false)
     const backtestResult = ref(null)
+    const backtestHistory = ref([])
+    const historyLoading = ref(false)
     const aiExplanation = ref('')
     const strategyParams = reactive({})
 
@@ -337,6 +356,162 @@ export default {
       }
 
       return filtered
+    })
+
+    const formatPercentValue = (value) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return '-'
+      return `${Number(value).toFixed(2)}%`
+    }
+
+    const formatDateTime = (dateStr) => {
+      if (!dateStr) return '-'
+      return new Date(dateStr).toLocaleString('zh-CN')
+    }
+
+    const getReturnClass = (value) => {
+      if (value > 0) return 'positive'
+      if (value < 0) return 'negative'
+      return ''
+    }
+
+    const loadBacktestHistory = async () => {
+      historyLoading.value = true
+      try {
+        const results = await backtestApi.getResults(50)
+        backtestHistory.value = Array.isArray(results) ? results : []
+      } catch (error) {
+        backtestHistory.value = []
+      } finally {
+        historyLoading.value = false
+      }
+    }
+
+    const normalizeBacktestResult = (rawResult, fallbackStrategyId) => {
+      if (!rawResult) return null
+
+      const strategyId = rawResult.strategy_id || fallbackStrategyId || rawResult.strategy_name || ''
+      const equityCurve = Array.isArray(rawResult.equity_curve)
+        ? rawResult.equity_curve.reduce((acc, point) => {
+            acc[point.date] = point.value
+            return acc
+          }, {})
+        : (rawResult.equity_curve || {})
+
+      const normalizedTrades = (rawResult.trades || []).map(trade => ({
+        timestamp: trade.date || trade.timestamp,
+        symbol: (rawResult.ts_codes && rawResult.ts_codes[0]) || trade.symbol || '',
+        trade_type: trade.direction || trade.trade_type,
+        quantity: trade.quantity,
+        price: trade.price,
+        commission: trade.commission ?? 0,
+        trade_value: trade.amount ?? trade.trade_value ?? trade.quantity * trade.price,
+        signal_reason: trade.signal_reason || ''
+      }))
+
+      return {
+        id: rawResult.task_id || rawResult.id,
+        strategy_id: strategyId,
+        config: {
+          strategy_id: strategyId,
+          symbol: (rawResult.ts_codes && rawResult.ts_codes[0]) || '',
+          start_date: rawResult.start_date,
+          end_date: rawResult.end_date,
+          initial_capital: rawResult.initial_capital,
+          parameters: strategyParams
+        },
+        performance_metrics: rawResult.performance_metrics || {
+          total_return: (rawResult.total_return ?? 0) / 100,
+          annualized_return: (rawResult.annual_return ?? 0) / 100,
+          excess_return: (rawResult.excess_return ?? 0) / 100,
+          volatility: (rawResult.volatility ?? 0) / 100,
+          sharpe_ratio: rawResult.sharpe_ratio ?? 0,
+          max_drawdown: (rawResult.max_drawdown ?? 0) / 100,
+          max_drawdown_duration: rawResult.max_drawdown_duration ?? 0,
+          sortino_ratio: rawResult.sortino_ratio ?? 0,
+          calmar_ratio: rawResult.calmar_ratio ?? 0,
+          information_ratio: rawResult.information_ratio ?? 0,
+          alpha: rawResult.alpha ?? 0,
+          beta: rawResult.beta ?? 0,
+          win_rate: (rawResult.win_rate ?? 0) / 100,
+          profit_factor: rawResult.profit_factor ?? 0,
+          total_trades: rawResult.trade_count ?? 0,
+          winning_trades: rawResult.winning_trades ?? 0,
+          losing_trades: rawResult.losing_trades ?? 0,
+          avg_win: rawResult.avg_win ?? 0,
+          avg_loss: rawResult.avg_loss ?? 0
+        },
+        risk_metrics: rawResult.risk_metrics || {
+          var_95: (rawResult.var_95 ?? 0) / 100,
+          cvar_95: (rawResult.cvar_95 ?? 0) / 100,
+          skewness: rawResult.skewness ?? 0,
+          kurtosis: rawResult.kurtosis ?? 0
+        },
+        trades: normalizedTrades,
+        equity_curve: equityCurve,
+        drawdown_series: rawResult.drawdown_series || {},
+        daily_returns: rawResult.daily_returns || {},
+        benchmark_curve: rawResult.benchmark_curve || {},
+        created_at: rawResult.created_at || new Date().toISOString()
+      }
+    }
+
+    const selectHistoryResult = (row) => {
+      if (!row) return
+      backtestResult.value = normalizeBacktestResult(row, selectedStrategy.value?.id)
+      activeTab.value = 'backtest'
+    }
+
+    const historyColumns = [
+      {
+        colKey: 'created_at',
+        title: '时间',
+        width: 160,
+        cell: (h, { row }) => formatDateTime(row.created_at || row.start_date)
+      },
+      {
+        colKey: 'strategy_name',
+        title: '策略',
+        width: 140
+      },
+      {
+        colKey: 'ts_codes',
+        title: '标的',
+        minWidth: 140,
+        cell: (h, { row }) => (row.ts_codes || []).join(', ')
+      },
+      {
+        colKey: 'total_return',
+        title: '总收益率',
+        width: 120,
+        cell: (h, { row }) => h('span', { class: getReturnClass(row.total_return) }, formatPercentValue(row.total_return))
+      },
+      {
+        colKey: 'max_drawdown',
+        title: '最大回撤',
+        width: 120,
+        cell: (h, { row }) => formatPercentValue(row.max_drawdown)
+      },
+      {
+        colKey: 'trade_count',
+        title: '交易次数',
+        width: 100
+      },
+      {
+        colKey: 'actions',
+        title: '操作',
+        width: 80,
+        cell: (h, { row }) => h('t-button', {
+          theme: 'primary',
+          size: 'small',
+          variant: 'text',
+          onClick: () => selectHistoryResult(row)
+        }, '查看')
+      }
+    ]
+
+    const filteredBacktestHistory = computed(() => {
+      if (!selectedStrategy.value) return backtestHistory.value
+      return backtestHistory.value.filter(item => item.strategy_name === selectedStrategy.value.id)
     })
 
     // 方法
@@ -403,13 +578,21 @@ export default {
       showBacktestDialog.value = false
       
       try {
-        const response = await strategyApi.runBacktest({
+        const rawResult = await backtestApi.runBacktest({
           strategy_id: selectedStrategy.value.id,
-          parameters: strategyParams,
-          ...config
+          ts_codes: config.symbols || [],
+          start_date: config.start_date,
+          end_date: config.end_date,
+          initial_capital: config.trading_config?.initial_capital,
+          params: strategyParams
         })
-        
-        backtestResult.value = response.data
+
+        if ((rawResult.trade_count ?? 0) === 0) {
+          MessagePlugin.warning('本次回测未产生交易，指标为 0。可延长日期区间或降低过滤条件（如关闭趋势过滤、降低分离度）。')
+        }
+
+        backtestResult.value = normalizeBacktestResult(rawResult, selectedStrategy.value.id)
+        await loadBacktestHistory()
         activeTab.value = 'backtest'
         MessagePlugin.success('回测完成')
       } catch (error) {
@@ -523,6 +706,7 @@ export default {
     // 生命周期
     onMounted(() => {
       loadStrategies()
+      loadBacktestHistory()
     })
 
     return {
@@ -536,8 +720,12 @@ export default {
       showBacktestDialog,
       backtesting,
       backtestResult,
+      backtestHistory,
+      historyLoading,
       aiExplanation,
       strategyParams,
+      filteredBacktestHistory,
+      historyColumns,
       categories,
       filteredStrategies,
 
@@ -700,12 +888,16 @@ export default {
   margin: 16px;
   border-radius: 4px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .strategy-details {
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .details-header {
@@ -714,6 +906,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 0 0 auto;
 }
 
 .details-header h2 {
@@ -728,10 +921,28 @@ export default {
 .strategy-tabs {
   flex: 1;
   padding: 0 24px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .strategy-info {
   padding: 16px 0;
+}
+
+.history-panel {
+  padding: 16px 0;
+}
+
+.history-empty {
+  margin-top: 16px;
+}
+
+.positive {
+  color: #67c23a;
+}
+
+.negative {
+  color: #f56c6c;
 }
 
 .strategy-description-full {

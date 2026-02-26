@@ -25,6 +25,13 @@ const colors = [
   '#73c0de', '#3ba272', '#fc8452', '#9a60b4'
 ];
 
+const resolveReturnColor = (values: Array<number | null | undefined>) => {
+  const numeric = values.filter(value => value !== null && value !== undefined).map(value => Number(value))
+  if (!numeric.length) return '#ff4d4f'
+  const lastValue = numeric[numeric.length - 1]
+  return lastValue >= 0 ? '#ff4d4f' : '#52c41a'
+}
+
 function initChart() {
   if (!chartRef.value) return;
   
@@ -46,14 +53,15 @@ function updateChart() {
   // Create series data
   const series: echarts.SeriesOption[] = props.data.map((item, index) => {
     const dataMap = new Map(item.dates.map((d, i) => [d, item.returns[i]]));
+    const seriesData = dates.map((d) => dataMap.get(d) ?? null)
     return {
       name: item.name,
       type: 'line',
       smooth: true,
       symbol: 'none',
-      data: dates.map((d) => dataMap.get(d) ?? null),
+      data: seriesData,
       itemStyle: {
-        color: colors[index % colors.length],
+        color: resolveReturnColor(seriesData),
       },
       lineStyle: {
         width: 2,
@@ -95,7 +103,7 @@ function updateChart() {
         arr.forEach((item) => {
           if (item.value !== null && item.value !== undefined) {
             const value = Number(item.value);
-            const color = value >= 0 ? '#67c23a' : '#f56c6c';
+            const color = value >= 0 ? '#ff4d4f' : '#52c41a';
             result += `
               <div style="display: flex; justify-content: space-between; gap: 20px;">
                 <span>${item.marker}${item.seriesName}</span>

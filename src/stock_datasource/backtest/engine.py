@@ -22,7 +22,7 @@ from .models import (
 from .simulator import TradingSimulator
 from .analyzer import PerformanceAnalyzer
 from ..strategies.base import BaseStrategy, TradingSignal
-from ..strategies.registry import strategy_registry
+from ..strategies.init import get_strategy_registry
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class IntelligentBacktestEngine:
         
         try:
             # 获取策略实例
-            strategy = strategy_registry.get_strategy(config.strategy_id)
+            strategy = get_strategy_registry().get_strategy(config.strategy_id)
             if strategy is None:
                 raise ValueError(f"Strategy not found: {config.strategy_id}")
             
@@ -210,6 +210,7 @@ class IntelligentBacktestEngine:
         
         # 按时间逐步执行回测
         unique_dates = combined_data['timestamp'].dt.date.unique()
+        last_date = unique_dates[-1] if len(unique_dates) > 0 else None
         
         for current_date in unique_dates:
             # 获取当前日期的数据
@@ -246,10 +247,21 @@ class IntelligentBacktestEngine:
                 if not symbol_daily.empty:
                     current_market_data[symbol] = symbol_daily.iloc[-1]
             
+            if last_date is not None and current_date == last_date:
+                simulator.close_all_positions(
+                    current_market_data,
+                    timestamp=pd.to_datetime(current_date),
+                    reason="回测结束强制平仓"
+                )
+
             simulator.update_positions(current_market_data)
         
         # 分析绩效
         equity_curve = simulator.get_equity_curve()
+        if len(equity_curve) == len(unique_dates):
+            equity_curve.index = pd.to_datetime(list(unique_dates))
+        returns_series = equity_curve.pct_change().fillna(0)
+
         performance_metrics, risk_metrics = self.performance_analyzer.analyze(
             equity_curve, simulator.trades
         )
@@ -263,7 +275,7 @@ class IntelligentBacktestEngine:
             trades=simulator.trades,
             positions=simulator.positions,
             equity_curve=equity_curve,
-            returns_series=simulator.calculate_returns()
+            returns_series=returns_series
         )
         
         # 计算回撤序列
@@ -374,7 +386,7 @@ class IntelligentBacktestEngine:
         errors = []
         
         # 检查策略是否存在
-        if not strategy_registry.validate_strategy_id(config.strategy_id):
+        if not get_strategy_registry().validate_strategy_id(config.strategy_id):
             errors.append(f"Strategy not found: {config.strategy_id}")
         
         # 检查日期范围

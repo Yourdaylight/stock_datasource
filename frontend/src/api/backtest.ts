@@ -45,12 +45,35 @@ export interface BacktestResult {
   final_capital: number
   total_return: number
   annual_return: number
+  excess_return?: number
+  volatility?: number
   max_drawdown: number
+  max_drawdown_duration?: number
   sharpe_ratio: number
+  sortino_ratio?: number
+  calmar_ratio?: number
+  information_ratio?: number
+  alpha?: number
+  beta?: number
   win_rate: number
   trade_count: number
+  winning_trades?: number
+  losing_trades?: number
+  avg_win?: number
+  avg_loss?: number
+  profit_factor?: number
+  var_95?: number
+  cvar_95?: number
+  var_99?: number
+  cvar_99?: number
+  skewness?: number
+  kurtosis?: number
   trades: Trade[]
-  equity_curve: { date: string; value: number }[]
+  equity_curve: { date: string; value: number }[] | Record<string, number>
+  drawdown_series?: Record<string, number>
+  daily_returns?: Record<string, number>
+  benchmark_curve?: Record<string, number>
+  created_at?: string
 }
 
 export const backtestApi = {
