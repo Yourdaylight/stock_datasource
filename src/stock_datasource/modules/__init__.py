@@ -103,6 +103,12 @@ def get_all_routers() -> list:
     except ImportError:
         pass
     
+    try:
+        from .quant.router import router as quant_router
+        routers.append(("/quant", quant_router, ["量化选股"]))
+    except ImportError:
+        pass
+    
     # Note: toplist routes are registered separately in http_server.py
     # from stock_datasource.api.toplist_routes
     
