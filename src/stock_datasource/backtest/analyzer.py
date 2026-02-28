@@ -12,8 +12,12 @@ import logging
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
-from scipy import stats
 from datetime import datetime, timedelta
+
+try:
+    from scipy import stats
+except ImportError:  # pragma: no cover
+    stats = None
 
 from .models import (
     PerformanceMetrics, RiskMetrics, Trade, TradeType, 
@@ -133,15 +137,15 @@ class PerformanceAnalyzer:
         
         # 交易统计
         filled_trades = [t for t in trades if t.status == TradeStatus.FILLED]
-        metrics.total_trades = len(filled_trades)
         
         if filled_trades:
-            # 计算交易盈亏
+            # 计算已完成交易的盈亏（按卖出成交计算）
             trade_pnls = self._calculate_trade_pnls(filled_trades)
             
             winning_trades = [pnl for pnl in trade_pnls if pnl > 0]
             losing_trades = [pnl for pnl in trade_pnls if pnl < 0]
             
+            metrics.total_trades = len(trade_pnls)
             metrics.winning_trades = len(winning_trades)
             metrics.losing_trades = len(losing_trades)
             
@@ -160,6 +164,8 @@ class PerformanceAnalyzer:
             
             if total_losses > 0:
                 metrics.profit_factor = total_wins / total_losses
+        else:
+            metrics.total_trades = 0
         
         # 基准对比
         if benchmark_returns is not None and len(benchmark_returns) > 0:
@@ -219,8 +225,8 @@ class PerformanceAnalyzer:
             metrics.cvar_99 = tail_returns_99.mean()
         
         # 分布特征
-        metrics.skewness = stats.skew(returns)
-        metrics.kurtosis = stats.kurtosis(returns)
+        metrics.skewness = self._calculate_skewness(returns)
+        metrics.kurtosis = self._calculate_kurtosis(returns)
         
         # 尾部比率
         positive_returns = returns[returns > 0]
@@ -263,6 +269,32 @@ class PerformanceAnalyzer:
         
         return metrics
     
+    def _calculate_skewness(self, returns: pd.Series) -> float:
+        """计算偏度"""
+        if len(returns) < 3:
+            return 0.0
+        if stats is not None:
+            return float(stats.skew(returns))
+        values = returns.to_numpy(dtype=float)
+        mean = values.mean()
+        std = values.std(ddof=0)
+        if std == 0:
+            return 0.0
+        return float(np.mean(((values - mean) / std) ** 3))
+
+    def _calculate_kurtosis(self, returns: pd.Series) -> float:
+        """计算峰度（超额峰度）"""
+        if len(returns) < 4:
+            return 0.0
+        if stats is not None:
+            return float(stats.kurtosis(returns))
+        values = returns.to_numpy(dtype=float)
+        mean = values.mean()
+        std = values.std(ddof=0)
+        if std == 0:
+            return 0.0
+        return float(np.mean(((values - mean) / std) ** 4) - 3)
+
     def _calculate_drawdown_series(self, equity_curve: pd.Series) -> pd.Series:
         """计算回撤序列"""
         if len(equity_curve) == 0:

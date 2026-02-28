@@ -62,7 +62,6 @@ const menuItems: MenuItem[] = [
     requiresAuth: true,
     children: [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
-      { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
       { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true }
     ]
   },

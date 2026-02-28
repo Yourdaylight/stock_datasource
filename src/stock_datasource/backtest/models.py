@@ -273,7 +273,7 @@ class BacktestResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
-        return {
+        result = {
             'strategy_id': self.strategy_id,
             'config': {
                 'symbols': self.config.symbols,
@@ -288,8 +288,60 @@ class BacktestResult:
             'total_pnl': self.total_pnl,
             'execution_time': self.execution_time,
             'start_time': self.start_time.isoformat(),
-            'end_time': self.end_time.isoformat() if self.end_time else None
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            
+            # 交易记录
+            'trades': [
+                {
+                    'trade_id': trade.trade_id,
+                    'symbol': trade.symbol,
+                    'side': trade.trade_type.value,
+                    'quantity': trade.quantity,
+                    'price': trade.price,
+                    'amount': trade.trade_value,
+                    'commission': trade.commission,
+                    'timestamp': trade.timestamp.isoformat(),
+                    'signal_reason': trade.signal_reason
+                }
+                for trade in self.trades
+            ]
         }
+        
+        # 时间序列数据 - 转换为图表友好的格式
+        if not self.equity_curve.empty:
+            result['equity_curve'] = {
+                date.strftime('%Y-%m-%d'): float(value)
+                for date, value in self.equity_curve.items()
+            }
+        else:
+            result['equity_curve'] = {}
+            
+        if not self.drawdown_series.empty:
+            result['drawdown_series'] = {
+                date.strftime('%Y-%m-%d'): float(value)
+                for date, value in self.drawdown_series.items()
+            }
+        else:
+            result['drawdown_series'] = {}
+            
+        if not self.returns_series.empty:
+            result['daily_returns'] = {
+                date.strftime('%Y-%m-%d'): float(value)
+                for date, value in self.returns_series.items()
+            }
+        else:
+            result['daily_returns'] = {}
+            
+        # 基准数据
+        if self.benchmark_returns is not None and not self.benchmark_returns.empty:
+            result['benchmark_curve'] = {
+                date.strftime('%Y-%m-%d'): float(value)
+                for date, value in self.benchmark_returns.items()
+            }
+        else:
+            result['benchmark_curve'] = {}
+            
+        return result
 
 
 @dataclass

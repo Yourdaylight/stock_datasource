@@ -2,6 +2,10 @@
 策略相关的API路由
 """
 from typing import List, Dict, Any, Optional
+import json
+import logging
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
@@ -85,9 +89,40 @@ class CreateStrategyRequest(BaseModel):
     description: Optional[str] = None
 
 
-# 存储用户创建的策略（内存存储，生产环境应使用数据库）
+logger = logging.getLogger(__name__)
+
+# 用户策略持久化存储路径
+_USER_STRATEGY_STORE_PATH = (
+    Path(__file__).resolve().parents[3] / "data" / "strategies" / "user_strategies.json"
+)
+
+
+def _load_user_strategies() -> Dict[str, Dict[str, Any]]:
+    if not _USER_STRATEGY_STORE_PATH.exists():
+        return {}
+    try:
+        with _USER_STRATEGY_STORE_PATH.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, dict):
+            return data
+        logger.warning("用户策略存储格式异常，已忽略加载")
+    except Exception as error:
+        logger.warning(f"加载用户策略失败: {error}")
+    return {}
+
+
+def _save_user_strategies() -> None:
+    try:
+        _USER_STRATEGY_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _USER_STRATEGY_STORE_PATH.open("w", encoding="utf-8") as file:
+            json.dump(_user_strategies, file, ensure_ascii=False, indent=2)
+    except Exception as error:
+        logger.error(f"保存用户策略失败: {error}")
+
+
+# 存储用户创建的策略（持久化到文件，生产环境应使用数据库）
 # 结构: {strategy_id: {"user_id": str, "strategy": Dict}}
-_user_strategies: Dict[str, Dict[str, Any]] = {}
+_user_strategies: Dict[str, Dict[str, Any]] = _load_user_strategies()
 
 
 @router.post("/")
@@ -133,6 +168,7 @@ async def create_strategy(
             "user_id": user_id,
             "strategy": strategy
         }
+        _save_user_strategies()
         
         return {"data": strategy}
         
@@ -464,6 +500,12 @@ async def generate_ai_strategy(
             ]
         }
         
+        _user_strategies[strategy_id] = {
+            "user_id": user_id,
+            "strategy": generated_strategy
+        }
+        _save_user_strategies()
+
         # Generate explanation based on strategy type
         explanation = f"根据您的描述，AI生成了一个{strategy_name}。"
         if "均线" in description or "ma" in description.lower():

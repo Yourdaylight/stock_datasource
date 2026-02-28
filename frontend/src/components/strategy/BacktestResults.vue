@@ -4,7 +4,11 @@
     <div class="results-overview">
       <div class="overview-cards">
         <div class="metric-card">
-          <div class="metric-value" :class="getReturnClass(result.performance_metrics.total_return)">
+          <div
+            class="metric-value"
+            :class="getReturnClass(result.performance_metrics.total_return)"
+            :style="{ color: getReturnColor(result.performance_metrics.total_return) }"
+          >
             {{ formatPercent(result.performance_metrics.total_return) }}
           </div>
           <div class="metric-label">总收益率</div>
@@ -54,20 +58,39 @@
         <div class="charts-container">
           <!-- 权益曲线图 -->
           <div class="chart-section">
-            <h4>权益曲线</h4>
-            <div ref="equityChartRef" class="chart" style="height: 300px;"></div>
+            <ReturnCurveChart 
+              :data="equityChartData"
+              :benchmark="benchmarkData"
+            />
           </div>
           
-          <!-- 回撤图 -->
+          <!-- 回撤曲线图 -->
           <div class="chart-section">
-            <h4>回撤分析</h4>
-            <div ref="drawdownChartRef" class="chart" style="height: 200px;"></div>
+            <DrawdownChart 
+              :drawdown-data="drawdownChartData"
+              :loading="false"
+              height="350px"
+            />
           </div>
           
-          <!-- 收益分布 -->
+          <!-- 每日盈亏图 -->
           <div class="chart-section">
-            <h4>收益分布</h4>
-            <div ref="returnsChartRef" class="chart" style="height: 250px;"></div>
+            <DailyPnLChart 
+              :daily-pn-l-data="dailyPnLChartData"
+              :loading="false"
+              height="350px"
+              :show-cumulative="true"
+            />
+          </div>
+          
+          <!-- 收益分布图 -->
+          <div class="chart-section">
+            <ReturnDistributionChart 
+              :return-data="returnDistributionData"
+              :loading="false"
+              height="350px"
+              :show-normal-curve="true"
+            />
           </div>
         </div>
       </t-tab-panel>
@@ -81,7 +104,10 @@
               <h4>收益指标</h4>
               <t-descriptions :column="1" bordered>
                 <t-descriptions-item label="总收益率">
-                  <span :class="getReturnClass(result.performance_metrics.total_return)">
+                  <span
+                    :class="getReturnClass(result.performance_metrics.total_return)"
+                    :style="{ color: getReturnColor(result.performance_metrics.total_return) }"
+                  >
                     {{ formatPercent(result.performance_metrics.total_return) }}
                   </span>
                 </t-descriptions-item>
@@ -91,7 +117,10 @@
                   </span>
                 </t-descriptions-item>
                 <t-descriptions-item label="超额收益率">
-                  <span :class="getReturnClass(result.performance_metrics.excess_return)">
+                  <span
+                    :class="getReturnClass(result.performance_metrics.excess_return)"
+                    :style="{ color: getReturnColor(result.performance_metrics.excess_return) }"
+                  >
                     {{ formatPercent(result.performance_metrics.excess_return) }}
                   </span>
                 </t-descriptions-item>
@@ -112,7 +141,7 @@
                   {{ formatPercent(result.performance_metrics.volatility) }}
                 </t-descriptions-item>
                 <t-descriptions-item label="最大回撤">
-                  <span class="negative">
+                  <span class="drawdown">
                     {{ formatPercent(result.performance_metrics.max_drawdown) }}
                   </span>
                 </t-descriptions-item>
@@ -259,10 +288,19 @@
 <script>
 import { ref, computed, onMounted, nextTick, h } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import * as echarts from 'echarts'
+import ReturnCurveChart from '@/views/arena/components/ReturnCurveChart.vue'
+import DrawdownChart from '@/components/charts/DrawdownChart.vue'
+import DailyPnLChart from '@/components/charts/DailyPnLChart.vue'
+import ReturnDistributionChart from '@/components/charts/ReturnDistributionChart.vue'
 
 export default {
   name: 'BacktestResults',
+  components: {
+    ReturnCurveChart,
+    DrawdownChart,
+    DailyPnLChart,
+    ReturnDistributionChart
+  },
   props: {
     result: {
       type: Object,
@@ -275,15 +313,9 @@ export default {
     const currentPage = ref(1)
     const pageSize = ref(20)
     
-    // 图表引用
-    const equityChartRef = ref(null)
-    const drawdownChartRef = ref(null)
-    const returnsChartRef = ref(null)
+    // 图表引用 - 已移除，使用新的Vue组件
     
-    // 图表实例
-    let equityChart = null
-    let drawdownChart = null
-    let returnsChart = null
+    // 图表实例 - 已移除，使用新的Vue组件
 
     // 计算属性
     const paginatedTrades = computed(() => {
@@ -291,6 +323,101 @@ export default {
       const start = (currentPage.value - 1) * pageSize.value
       const end = start + pageSize.value
       return trades.slice(start, end)
+    })
+
+    const normalizeCurveToPercent = (values) => {
+      if (!values.length) return []
+      const numericValues = values.map(value => Number(value))
+      const maxValue = Math.max(...numericValues)
+      const minValue = Math.min(...numericValues)
+
+      // 认为是资金曲线（金额）时转为累计收益率百分比
+      if (maxValue > 10 && minValue > 0) {
+        const base = numericValues[0] || 1
+        return numericValues.map(value => ((value / base) - 1) * 100)
+      }
+
+      // 默认认为已经是百分比
+      return numericValues
+    }
+
+    // 权益曲线数据
+    const equityChartData = computed(() => {
+      if (!props.result.equity_curve) return []
+      
+      const dates = Object.keys(props.result.equity_curve)
+      const values = Object.values(props.result.equity_curve)
+      const returns = normalizeCurveToPercent(values)
+      
+      return [{
+        name: '策略收益',
+        dates: dates,
+        returns: returns
+      }]
+    })
+
+    // 基准数据（如果有的话）
+    const benchmarkData = computed(() => {
+      if (!props.result.benchmark_curve) return null
+      
+      const dates = Object.keys(props.result.benchmark_curve)
+      const values = Object.values(props.result.benchmark_curve)
+      const returns = normalizeCurveToPercent(values)
+      
+      return {
+        name: '基准收益',
+        dates: dates,
+        returns: returns
+      }
+    })
+
+    // 回撤曲线数据
+    const drawdownChartData = computed(() => {
+      if (!props.result.drawdown_series || !props.result.equity_curve) return []
+      
+      const dates = Object.keys(props.result.drawdown_series)
+      const drawdowns = Object.values(props.result.drawdown_series)
+      const equities = Object.values(props.result.equity_curve)
+      
+      return dates.map((date, index) => ({
+        date: date,
+        drawdown: drawdowns[index] || 0,
+        equity: equities[index] || 0
+      }))
+    })
+
+    // 每日盈亏数据
+    const dailyPnLChartData = computed(() => {
+      if (!props.result.daily_returns) return []
+      
+      const dates = Object.keys(props.result.daily_returns)
+      const returns = Object.values(props.result.daily_returns)
+      
+      let cumulativeFactor = 1
+      const initialCapital = props.result.initial_capital || 100000
+      
+      return dates.map((date, index) => {
+        const dailyReturn = Number(returns[index] || 0)
+        cumulativeFactor *= (1 + dailyReturn)
+        const cumulativePnLPercent = (cumulativeFactor - 1) * 100
+        const dailyReturnPercent = dailyReturn * 100
+        
+        return {
+          date: date,
+          pnl: dailyReturn * initialCapital,
+          pnlPercent: dailyReturnPercent,
+          cumulativePnL: cumulativePnLPercent
+        }
+      })
+    })
+
+    // 收益分布数据
+    const returnDistributionData = computed(() => {
+      if (!props.result.daily_returns) return []
+      
+      return Object.values(props.result.daily_returns)
+        .filter(ret => ret !== null && ret !== undefined)
+        .map(ret => Number(ret) * 100)
     })
 
     // TDesign 表格列配置
@@ -366,9 +493,19 @@ export default {
     }
 
     const getReturnClass = (value) => {
-      if (value > 0) return 'positive'
-      if (value < 0) return 'negative'
+      const numericValue = Number(value)
+      if (Number.isNaN(numericValue)) return ''
+      if (numericValue > 0) return 'positive'
+      if (numericValue < 0) return 'negative'
       return ''
+    }
+
+    const getReturnColor = (value) => {
+      const numericValue = Number(value)
+      if (Number.isNaN(numericValue)) return undefined
+      if (numericValue > 0) return '#ff4d4f'
+      if (numericValue < 0) return '#52c41a'
+      return undefined
     }
 
     const getSharpeClass = (value) => {
@@ -376,206 +513,6 @@ export default {
       if (value > 0.5) return 'good'
       if (value > 0) return 'fair'
       return 'poor'
-    }
-
-    const initCharts = async () => {
-      await nextTick()
-      
-      // 权益曲线图
-      if (equityChartRef.value) {
-        equityChart = echarts.init(equityChartRef.value)
-        updateEquityChart()
-      }
-      
-      // 回撤图
-      if (drawdownChartRef.value) {
-        drawdownChart = echarts.init(drawdownChartRef.value)
-        updateDrawdownChart()
-      }
-      
-      // 收益分布图
-      if (returnsChartRef.value) {
-        returnsChart = echarts.init(returnsChartRef.value)
-        updateReturnsChart()
-      }
-    }
-
-    const updateEquityChart = () => {
-      if (!equityChart || !props.result.equity_curve) return
-
-      const dates = Object.keys(props.result.equity_curve)
-      const values = Object.values(props.result.equity_curve)
-
-      const option = {
-        title: {
-          text: '权益曲线',
-          left: 'center',
-          textStyle: { fontSize: 14 }
-        },
-        tooltip: {
-          trigger: 'axis',
-          formatter: (params) => {
-            const point = params[0]
-            return `${point.name}<br/>组合价值: ${formatCurrency(point.value)}`
-          }
-        },
-        xAxis: {
-          type: 'category',
-          data: dates,
-          axisLabel: { fontSize: 10 }
-        },
-        yAxis: {
-          type: 'value',
-          axisLabel: {
-            fontSize: 10,
-            formatter: (value) => formatCurrency(value)
-          }
-        },
-        series: [{
-          name: '组合价值',
-          type: 'line',
-          data: values,
-          smooth: true,
-          lineStyle: { color: '#409EFF' },
-          areaStyle: { 
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
-              { offset: 1, color: 'rgba(64, 158, 255, 0.1)' }
-            ])
-          }
-        }],
-        grid: {
-          left: '10%',
-          right: '10%',
-          bottom: '15%',
-          top: '15%'
-        }
-      }
-
-      equityChart.setOption(option)
-    }
-
-    const updateDrawdownChart = () => {
-      if (!drawdownChart || !props.result.drawdown_series) return
-
-      const dates = Object.keys(props.result.drawdown_series)
-      const values = Object.values(props.result.drawdown_series).map(v => v * 100)
-
-      const option = {
-        title: {
-          text: '回撤分析',
-          left: 'center',
-          textStyle: { fontSize: 14 }
-        },
-        tooltip: {
-          trigger: 'axis',
-          formatter: (params) => {
-            const point = params[0]
-            return `${point.name}<br/>回撤: ${point.value.toFixed(2)}%`
-          }
-        },
-        xAxis: {
-          type: 'category',
-          data: dates,
-          axisLabel: { fontSize: 10 }
-        },
-        yAxis: {
-          type: 'value',
-          axisLabel: {
-            fontSize: 10,
-            formatter: '{value}%'
-          }
-        },
-        series: [{
-          name: '回撤',
-          type: 'line',
-          data: values,
-          smooth: true,
-          lineStyle: { color: '#F56C6C' },
-          areaStyle: { 
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(245, 108, 108, 0.3)' },
-              { offset: 1, color: 'rgba(245, 108, 108, 0.1)' }
-            ])
-          }
-        }],
-        grid: {
-          left: '10%',
-          right: '10%',
-          bottom: '15%',
-          top: '15%'
-        }
-      }
-
-      drawdownChart.setOption(option)
-    }
-
-    const updateReturnsChart = () => {
-      if (!returnsChart || !props.result.returns_series) return
-
-      const returns = Object.values(props.result.returns_series).map(v => v * 100)
-      
-      // 计算收益分布
-      const bins = 20
-      const min = Math.min(...returns)
-      const max = Math.max(...returns)
-      const binWidth = (max - min) / bins
-      
-      const histogram = new Array(bins).fill(0)
-      const binLabels = []
-      
-      for (let i = 0; i < bins; i++) {
-        const binStart = min + i * binWidth
-        const binEnd = min + (i + 1) * binWidth
-        binLabels.push(`${binStart.toFixed(1)}%`)
-        
-        returns.forEach(ret => {
-          if (ret >= binStart && ret < binEnd) {
-            histogram[i]++
-          }
-        })
-      }
-
-      const option = {
-        title: {
-          text: '收益分布',
-          left: 'center',
-          textStyle: { fontSize: 14 }
-        },
-        tooltip: {
-          trigger: 'axis',
-          formatter: (params) => {
-            const point = params[0]
-            return `收益区间: ${point.name}<br/>频次: ${point.value}`
-          }
-        },
-        xAxis: {
-          type: 'category',
-          data: binLabels,
-          axisLabel: { 
-            fontSize: 10,
-            rotate: 45
-          }
-        },
-        yAxis: {
-          type: 'value',
-          axisLabel: { fontSize: 10 }
-        },
-        series: [{
-          name: '频次',
-          type: 'bar',
-          data: histogram,
-          itemStyle: { color: '#67C23A' }
-        }],
-        grid: {
-          left: '10%',
-          right: '10%',
-          bottom: '25%',
-          top: '15%'
-        }
-      }
-
-      returnsChart.setOption(option)
     }
 
     const exportReport = () => {
@@ -588,21 +525,20 @@ export default {
       MessagePlugin.info('数据导出功能开发中...')
     }
 
-    // 生命周期
-    onMounted(() => {
-      initCharts()
-    })
-
     return {
       // 数据
       activeTab,
       currentPage,
       pageSize,
-      equityChartRef,
-      drawdownChartRef,
-      returnsChartRef,
       paginatedTrades,
       tradeColumns,
+      
+      // 图表数据
+      equityChartData,
+      benchmarkData,
+      drawdownChartData,
+      dailyPnLChartData,
+      returnDistributionData,
 
       // 方法
       formatPercent,
@@ -610,6 +546,7 @@ export default {
       formatCurrency,
       formatDateTime,
       getReturnClass,
+      getReturnColor,
       getSharpeClass,
       exportReport,
       exportData
@@ -621,10 +558,15 @@ export default {
 <style scoped>
 .backtest-results {
   padding: 16px 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .results-overview {
   margin-bottom: 24px;
+  flex: 0 0 auto;
 }
 
 .overview-cards {
@@ -647,12 +589,12 @@ export default {
   margin-bottom: 8px;
 }
 
-.metric-value.positive { color: #67c23a; }
-.metric-value.negative { color: #f56c6c; }
-.metric-value.excellent { color: #67c23a; }
+.metric-value.positive { color: #ff4d4f; }
+.metric-value.negative { color: #52c41a; }
+.metric-value.excellent { color: #ff4d4f; }
 .metric-value.good { color: #e6a23c; }
 .metric-value.fair { color: #909399; }
-.metric-value.poor { color: #f56c6c; }
+.metric-value.poor { color: #52c41a; }
 
 .metric-label {
   font-size: 12px;
@@ -663,23 +605,25 @@ export default {
   background: white;
   border-radius: 4px;
   padding: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .charts-container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
+  padding: 16px 0;
 }
 
-.chart-section h4 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  font-weight: 500;
+.chart-section {
+  width: 100%;
+  margin-bottom: 24px;
 }
 
-.chart {
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+.chart-section:last-child {
+  margin-bottom: 0;
 }
 
 .metrics-container {
@@ -750,6 +694,7 @@ export default {
   margin-left: 8px;
 }
 
-.positive { color: #67c23a; }
-.negative { color: #f56c6c; }
+.positive { color: #ff4d4f; }
+.negative { color: #52c41a; }
+.drawdown { color: #ff4d4f; }
 </style>
