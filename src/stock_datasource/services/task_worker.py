@@ -81,12 +81,61 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                 result_queue.put((True, total_records, "", ""))
                 return
 
-            # incremental — determine market from plugin category
             from stock_datasource.core.trade_calendar import trade_calendar_service, MARKET_CN, MARKET_HK
             from stock_datasource.core.base_plugin import PluginCategory
 
             market = MARKET_HK if plugin.get_category() == PluginCategory.HK_STOCK else MARKET_CN
 
+            if task_type == "full":
+                # Full sync: auto-detect parameter style from plugin config's
+                # parameters_schema, then run with a reasonable historical range.
+                total_records = 0
+                plugin_config = plugin.get_config() if hasattr(plugin, "get_config") else {}
+                params_schema = plugin_config.get("parameters_schema", {})
+                uses_date_range = "start_date" in params_schema and "end_date" in params_schema
+
+                if uses_date_range:
+                    # Plugins using start_date/end_date (financial statements)
+                    end_dt = datetime.now().strftime("%Y%m%d")
+                    start_dt = (datetime.now() - timedelta(days=365 * 2)).strftime("%Y%m%d")
+                    logger.info(f"[full] {plugin_name}: date_range {start_dt}~{end_dt}")
+                    result = plugin.run(start_date=start_dt, end_date=end_dt)
+                    if result.get("status") != "success":
+                        err = result.get("error", "插件执行失败")
+                        detail = result.get("error_detail", "")
+                        msg = f"{err}\n{detail}" if detail else err
+                        result_queue.put((False, 0, "retryable", msg))
+                        return
+                    total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                else:
+                    # Plugins using trade_date: iterate over recent trading days
+                    full_days = int(plugin_config.get("full_sync_days", 500))
+                    today_str = datetime.now().strftime("%Y%m%d")
+                    start_str = (datetime.now() - timedelta(days=full_days + 200)).strftime("%Y%m%d")
+                    dates_raw = trade_calendar_service.get_trading_days_between(
+                        start_date=start_str,
+                        end_date=today_str,
+                        market=market,
+                    )
+                    # Convert YYYY-MM-DD to YYYYMMDD
+                    dates = [d.replace("-", "") for d in dates_raw] if dates_raw else []
+                    if not dates:
+                        dates = [(datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+                                 for i in range(full_days, -1, -1)]
+                    dates = dates[-full_days:]
+                    logger.info(f"[full] {plugin_name}: {len(dates)} trading days")
+                    for dt_str in dates:
+                        try:
+                            result = plugin.run(trade_date=dt_str)
+                            if result.get("status") == "success":
+                                total_records += int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                        except Exception as e:
+                            logger.warning(f"[full] {plugin_name} date={dt_str} failed: {e}")
+
+                result_queue.put((True, total_records, "", ""))
+                return
+
+            # incremental — determine target date
             today = datetime.now().strftime("%Y%m%d")
             if trade_calendar_service.is_trading_day(today, market=market):
                 target_date = today

@@ -24,7 +24,8 @@ import {
   SettingIcon,
   NotificationIcon,
   DataDisplayIcon,
-  BookOpenIcon
+  BookOpenIcon,
+  PreciseMonitorIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -63,6 +64,21 @@ const menuItems: MenuItem[] = [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
       { path: '/backtest', title: '策略回测', icon: ChartBubbleIcon, requiresAuth: true },
       { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true }
+    ]
+  },
+  {
+    path: '/quant',
+    title: '量化选股',
+    icon: PreciseMonitorIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/quant', title: '模型总览', icon: PreciseMonitorIcon, requiresAuth: true },
+      { path: '/quant/screening', title: '全市场初筛', icon: FilterIcon, requiresAuth: true },
+      { path: '/quant/pool', title: '核心目标池', icon: DataDisplayIcon, requiresAuth: true },
+      { path: '/quant/rps', title: 'RPS排名', icon: TrendingUpIcon, requiresAuth: true },
+      { path: '/quant/analysis', title: '深度分析', icon: FileSearchIcon, requiresAuth: true },
+      { path: '/quant/signals', title: '交易信号', icon: NotificationIcon, requiresAuth: true },
+      { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true }
     ]
   },
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },

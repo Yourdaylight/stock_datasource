@@ -153,6 +153,49 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/arena/ArenaStrategyDetail.vue'),
     meta: { title: '策略详情', requiresAuth: true }
   },
+  // Quant model routes
+  {
+    path: '/quant',
+    name: 'Quant',
+    component: () => import('@/views/quant/QuantView.vue'),
+    meta: { title: '量化选股', icon: 'chart-analytics', requiresAuth: true }
+  },
+  {
+    path: '/quant/screening',
+    name: 'QuantScreening',
+    component: () => import('@/views/quant/QuantScreeningView.vue'),
+    meta: { title: '全市场初筛', requiresAuth: true }
+  },
+  {
+    path: '/quant/pool',
+    name: 'QuantPool',
+    component: () => import('@/views/quant/QuantPoolView.vue'),
+    meta: { title: '核心目标池', requiresAuth: true }
+  },
+  {
+    path: '/quant/rps',
+    name: 'QuantRps',
+    component: () => import('@/views/quant/QuantRpsView.vue'),
+    meta: { title: 'RPS排名', requiresAuth: true }
+  },
+  {
+    path: '/quant/analysis',
+    name: 'QuantAnalysis',
+    component: () => import('@/views/quant/QuantAnalysisView.vue'),
+    meta: { title: '深度分析', requiresAuth: true }
+  },
+  {
+    path: '/quant/signals',
+    name: 'QuantSignals',
+    component: () => import('@/views/quant/QuantSignalsView.vue'),
+    meta: { title: '交易信号', requiresAuth: true }
+  },
+  {
+    path: '/quant/config',
+    name: 'QuantConfig',
+    component: () => import('@/views/quant/QuantConfigView.vue'),
+    meta: { title: '模型配置', requiresAuth: true }
+  },
   // Legacy routes redirect
   {
     path: '/report',
