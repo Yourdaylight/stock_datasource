@@ -141,6 +141,24 @@ class Settings(BaseSettings):
     CACHE_TTL_BASIC: int = Field(default=3600)     # Stock basic info
     CACHE_TTL_OVERVIEW: int = Field(default=300)   # Market overview
 
+    # --- Realtime Kline (RT_KLINE_*) ---
+    RT_KLINE_COLLECT_INTERVAL: float = Field(default=1.5, description="采集周期(秒)")
+    RT_KLINE_MARKET_INNER_CONCURRENCY: int = Field(default=3, description="单市场内采集并发上限")
+    RT_KLINE_STREAM_TTL_HOURS: int = Field(default=72, description="Redis stream 保留小时数")
+    RT_KLINE_LATEST_TTL_SECONDS: int = Field(default=86400, description="Redis latest key TTL")
+    RT_KLINE_SINK_INTERVAL: int = Field(default=60, description="分钟落库周期(秒)")
+    RT_KLINE_SINK_BATCH_SIZE: int = Field(default=10000, description="单次XREAD批大小")
+    RT_KLINE_SINK_MAX_BATCHES_PER_TICK: int = Field(default=6, description="每次tick每市场最大批次数")
+    RT_KLINE_CLOUD_PUSH_ENABLED: bool = Field(default=False, description="云端推送开关(隐藏功能)")
+    RT_KLINE_CLOUD_PUSH_URL: str = Field(default="", description="云端推送目标URL")
+    RT_KLINE_CLOUD_PUSH_TOKEN: str = Field(default="", description="云端推送鉴权Token")
+    RT_KLINE_CLOUD_PUSH_INTERVAL: float = Field(default=2.0, description="推送触发间隔(秒)")
+    RT_KLINE_CLOUD_PUSH_WINDOW: float = Field(default=10.0, description="滑动窗口大小(秒)")
+    RT_KLINE_PUSH_CIRCUIT_BREAKER_MINUTES: int = Field(default=30, description="推送熔断阈值(分钟)")
+    RT_KLINE_PUSH_MAX_BACKLOG: int = Field(default=10000, description="推送熔断内存队列上限")
+    RT_KLINE_PUSH_DLQ_TTL_DAYS: int = Field(default=7, description="推送死信保留天数")
+    RT_KLINE_SINK_MARKET_RETRY_LIMIT: int = Field(default=3, description="落库单市场重试上限")
+
     # WeKnora Knowledge Base (Optional)
     WEKNORA_ENABLED: bool = Field(default=False)
     WEKNORA_BASE_URL: str = Field(default="http://weknora-backend:8080/api/v1")

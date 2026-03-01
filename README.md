@@ -2,7 +2,7 @@
 
 **AI 原生的 A 股智能投资助手——赛博操盘手** —— 基于大语言模型和 LangGraph 多智能体架构，为个人投资者提供专业级的股票分析、智能选股、投资组合管理、策略回测、AI 生成量化策略能力。
 ![alt text](screenshot/chat.png)
----
+--------
 
 ## 🧠 AI 原生能力
 
@@ -14,21 +14,21 @@
 用户输入 → OrchestratorAgent → 意图识别 → 路由到专业Agent → 工具调用 → 自然语言回复
 ```
 
-| Agent | 功能定位 | 典型场景 |
-|-------|----------|----------|
-| **OverviewAgent** | 市场概览 | "今日大盘走势"、"市场情绪如何" |
-| **MarketAgent** | 技术分析 | "分析贵州茅台走势"、"600519 估值如何" |
-| **ScreenerAgent** | 智能选股 | "找出低估值高成长股票"、"筛选股息率>5%的股票" |
-| **ReportAgent** | 财报分析 | "分析宁德时代财务状况"、"比较茅台和五粮液财报" |
-| **PortfolioAgent** | 持仓管理 | "查看我的持仓"、"分析投资组合风险" |
-| **BacktestAgent** | 策略回测 | "回测双均线策略"、"测试选股条件历史收益" |
-| **IndexAgent** | 指数分析 | "分析沪深300走势"、"创业板指技术形态" |
-| **EtfAgent** | ETF 分析 | "分析科创50ETF"、"对比各行业ETF表现" |
-| **TopListAgent** | 龙虎榜 | "今日龙虎榜"、"查看机构席位动向" |
-| **MemoryAgent** | 用户记忆 | "记住我的自选股"、"我的投资偏好是什么" |
-| **DataManageAgent** | 数据管理 | "更新今日数据"、"检查数据质量" |
-| **WorkflowAgent** | AI 工作流 | "创建每日复盘工作流"、"执行选股策略流程" |
-| **ChatAgent** | 通用对话 | 其他投资相关问题 |
+| Agent                     | 功能定位  | 典型场景                                       |
+| ------------------------- | --------- | ---------------------------------------------- |
+| **OverviewAgent**   | 市场概览  | "今日大盘走势"、"市场情绪如何"                 |
+| **MarketAgent**     | 技术分析  | "分析贵州茅台走势"、"600519 估值如何"          |
+| **ScreenerAgent**   | 智能选股  | "找出低估值高成长股票"、"筛选股息率>5%的股票"  |
+| **ReportAgent**     | 财报分析  | "分析宁德时代财务状况"、"比较茅台和五粮液财报" |
+| **PortfolioAgent**  | 持仓管理  | "查看我的持仓"、"分析投资组合风险"             |
+| **BacktestAgent**   | 策略回测  | "回测双均线策略"、"测试选股条件历史收益"       |
+| **IndexAgent**      | 指数分析  | "分析沪深300走势"、"创业板指技术形态"          |
+| **EtfAgent**        | ETF 分析  | "分析科创50ETF"、"对比各行业ETF表现"           |
+| **TopListAgent**    | 龙虎榜    | "今日龙虎榜"、"查看机构席位动向"               |
+| **MemoryAgent**     | 用户记忆  | "记住我的自选股"、"我的投资偏好是什么"         |
+| **DataManageAgent** | 数据管理  | "更新今日数据"、"检查数据质量"                 |
+| **WorkflowAgent**   | AI 工作流 | "创建每日复盘工作流"、"执行选股策略流程"       |
+| **ChatAgent**       | 通用对话  | 其他投资相关问题                               |
 
 ### 核心 AI 能力
 
@@ -38,7 +38,9 @@
 - **🔗 会话记忆**：支持多轮对话，保持上下文连贯
 - **📊 Langfuse 可观测**：完整的 AI 调用链路追踪、Token 统计、性能分析
 - **🔌 MCP Server**：支持 Claude Code、Cursor 等 AI IDE 直接调用
+
 ### 可AI拓展的数据采集能力
+
 我们定义了一套Skill可以一键基于tushare的文档生成插件代码，插件是我们整套系统的数据采集基础，可以方便的扩展新的数据源和数据表。每个插件包括数据采集、数据清洗、数据入库等功能模块并提供统一的http接口与Mcp tool给Agent调用。 当然也支持除了tushare之外的akshare， baostock等数据源。具体可以参看plugins目录下的实现。
 
 ![alt text](screenshot/plugins.png)
@@ -86,6 +88,7 @@ uv run scripts/fetch_hk_daily_from_akshare.py \
 4. **性能**：全量获取约 2,700 只股票需 40-45 分钟
 
 详细文档请参考 [港股日线数据迁移总结](HK_DAILY_MIGRATION_SUMMARY.md)。
+
 ### AI 工作流引擎
 
 支持自定义 AI 工作流，串联多个 Agent 完成复杂任务：
@@ -106,37 +109,46 @@ steps:
 ## ✨ 核心特性
 
 ### 📊 智能选股系统
+
 - 实时行情展示：分页展示全市场股票，支持排序和搜索
 - 多维度筛选：PE、PB、市值、涨跌幅、换手率等多条件组合
 - AI 辅助选股：自然语言描述条件，AI 自动生成筛选策略
-![screener](screenshot/screener.png)
+  ![screener](screenshot/screener.png)
+
 ### 📈 专业行情分析
+
 - K 线图表：交互式 K 线，支持多种技术指标
 - 趋势分析：均线系统、MACD、RSI 等技术分析
 - 估值分析：PE、PB、市值等基本面指标
-![股票详情](screenshot/股票详情.png)
-![行情看板](screenshot/market.png)
+  ![股票详情](screenshot/股票详情.png)
+  ![行情看板](screenshot/market.png)
+
 ### 💼 投资组合管理
+
 - 持仓跟踪：实时计算持仓盈亏
 - 风险分析：波动率、最大回撤等风险指标
 - 收益归因：分析收益来源
 - AI 基于个人持仓定期分析
+
 ### 智能对话
+
 实时展示Agent的思考与工具调用过程，实时渲染相关技术指标图
 ![股票详情](screenshot/chat2.png)
 ![股票详情](screenshot/chat3.png)
 
 ### 🔄 策略回测
+
 - 可视化回测：图表展示策略表现
 - 多策略支持：均线、动量、价值等策略模板
 - 参数优化：自动寻找最优参数
 - 多AI Agent对抗寻找最佳策略
-![策略生成](screenshot/strategies.png)
+  ![策略生成](screenshot/strategies.png)
 
 ### 知识库集成（可选配置）
+
 使用Weknora开源知识库，需要手动配置
 基于该知识库实现将财报内容存入知识库用于后续分析
----
+------------------------------------------------
 
 ## 🚀 快速开始
 
@@ -386,12 +398,31 @@ uv run cli.py load-stock-basic
 
 # 加载交易日历
 uv run cli.py load-trade-calendar --start-date 20240101 --end-date 20261231
-
-# 采集日线数据
-uv run cli.py ingest-daily --date 20250119
 ```
 
-#### 6. 启动服务
+#### 6. 日线数据采集（A股/ETF/指数/港股）
+
+```bash
+# A股/ETF/指数：采集某一交易日（日线）
+uv run cli.py ingest-daily --date 20250119
+
+# A股/ETF/指数：采集区间回补（日线）
+uv run cli.py backfill --start-date 20250101 --end-date 20250119
+
+# 可选：跳过质量检查（排障用）
+uv run cli.py ingest-daily --date 20250119 --no-quality-checks
+
+# 可选：忽略插件调度限制，强制拉取（排障/补数用）
+uv run cli.py ingest-daily --date 20250119 --ignore-schedule
+
+# 港股：先加载港股股票列表
+uv run cli.py load-hk-stock-list
+
+# 港股：采集单只港股日线（示例：腾讯 00700）
+uv run cli.py load-hk-daily --symbol 00700 --start-date 20250101 --end-date 20250119
+```
+
+#### 7. 启动服务
 
 **终端 1：启动后端**
 
@@ -406,7 +437,7 @@ cd frontend
 npm run dev
 ```
 
-#### 7. 访问应用
+#### 8. 访问应用
 
 - **前端界面**：http://localhost:5173
 - **API 服务**：http://localhost:6666
@@ -484,15 +515,15 @@ uv run python -m stock_datasource.services.mcp_server
 
 ### 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| **前端** | Vue 3, TypeScript, TDesign, ECharts, Pinia |
-| **后端** | Python 3.11+, FastAPI, LangGraph, DeepAgents |
-| **数据库** | ClickHouse（列式存储，高性能分析） |
-| **缓存** | Redis（会话缓存、数据缓存） |
-| **数据源** | TuShare Pro（A股全量数据） |
-| **AI** | OpenAI GPT-4 / 国产大模型，Function Calling |
-| **可观测** | Langfuse（AI 调用链路追踪） |
+| 层级             | 技术                                         |
+| ---------------- | -------------------------------------------- |
+| **前端**   | Vue 3, TypeScript, TDesign, ECharts, Pinia   |
+| **后端**   | Python 3.11+, FastAPI, LangGraph, DeepAgents |
+| **数据库** | ClickHouse（列式存储，高性能分析）           |
+| **缓存**   | Redis（会话缓存、数据缓存）                  |
+| **数据源** | TuShare Pro（A股全量数据）                   |
+| **AI**     | OpenAI GPT-4 / 国产大模型，Function Calling  |
+| **可观测** | Langfuse（AI 调用链路追踪）                  |
 
 ---
 
@@ -558,27 +589,32 @@ asyncio.run(test())
 
 ## 📚 文档
 
-| 文档 | 说明 |
-|------|------|
+| 文档                           | 说明                   |
+| ------------------------------ | ---------------------- |
 | [CLI 使用指南](docs/CLI_GUIDE.md) | 命令行工具详细使用说明 |
-| [开发指南](DEVELOPMENT_GUIDE.md) | 开发者文档 |
-| [插件开发](PLUGIN_QUICK_START.md) | 新建数据插件快速参考 |
+| [开发指南](DEVELOPMENT_GUIDE.md)  | 开发者文档             |
+| [插件开发](PLUGIN_QUICK_START.md) | 新建数据插件快速参考   |
 
 ---
 
 ## 🔧 常见问题
 
 ### Q: Docker 启动后前端访问不了？
+
 检查端口配置 `APP_PORT`，确保没有被占用。查看日志 `docker-compose logs frontend`。
 
 ### Q: AI 返回错误 "Invalid API key"？
+
 检查 `.env.docker` 中的 `OPENAI_API_KEY` 是否正确配置，然后重建容器：
+
 ```bash
 docker-compose build backend && docker-compose up -d backend
 ```
 
 ### Q: 如何使用国产大模型？
+
 修改 `.env` 中的配置：
+
 ```env
 OPENAI_BASE_URL=https://your-provider-url/v1
 OPENAI_MODEL=your-model-name
@@ -586,6 +622,7 @@ OPENAI_API_KEY=your-api-key
 ```
 
 ### Q: 数据采集失败？
+
 确保 TuShare Token 有效且有足够积分。可通过 `uv run cli.py check-tushare` 检查。
 
 ---
