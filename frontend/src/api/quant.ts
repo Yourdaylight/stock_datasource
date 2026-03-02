@@ -17,7 +17,7 @@ export interface PluginTriggerInfo {
   display_name: string
   table_name: string
   missing_dates: string[]
-  task_type: string
+  task_type: 'full' | 'incremental'
   description: string
 }
 
@@ -37,6 +37,7 @@ export interface DataRequirementStatus {
   missing_dates: string[]
   record_count: number
   suggested_plugins: string[]
+  suggested_task_type: 'full' | 'incremental'
 }
 
 export interface DataReadinessResult {

@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useScreenerStore } from '@/stores/screener'
 import type { Recommendation } from '@/api/screener'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const screenerStore = useScreenerStore()
 
@@ -95,13 +96,14 @@ onMounted(() => {
           </div>
         </div>
         
-        <t-empty 
+        <DataEmptyGuide 
           v-if="Object.keys(screenerStore.recommendations.categories).length === 0"
           description="暂无推荐"
+          plugin-name="tushare_daily_basic"
         />
       </div>
       
-      <t-empty v-else description="暂无推荐数据" />
+      <DataEmptyGuide v-else description="暂无推荐数据" plugin-name="tushare_daily_basic" />
     </t-loading>
   </div>
 </template>

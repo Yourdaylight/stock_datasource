@@ -470,15 +470,15 @@ class TestDataReadiness:
         statuses = [
             DataRequirementStatus(
                 requirement=DataRequirement(
-                    plugin_name="tushare_fina_indicator",
-                    table_name="fact_fina_indicator",
+                    plugin_name="tushare_finace_indicator",
+                    table_name="ods_fina_indicator",
                 ),
                 status=DataStatus.READY,
             ),
             DataRequirementStatus(
                 requirement=DataRequirement(
                     plugin_name="tushare_income",
-                    table_name="fact_income",
+                    table_name="ods_income_statement",
                     description="利润表",
                 ),
                 status=DataStatus.MISSING_TABLE,

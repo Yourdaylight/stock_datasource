@@ -1,6 +1,7 @@
 """FastAPI router for quant module - /api/quant/*"""
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,6 +22,12 @@ from .service import get_quant_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_TS_CODE_RE = re.compile(r"^[A-Za-z0-9]{4,10}\.[A-Za-z]{2,4}$")
+
+
+def _validate_ts_code(ts_code: str) -> bool:
+    return bool(_TS_CODE_RE.match(ts_code or ""))
 
 
 # =============================================================================
@@ -143,8 +150,9 @@ async def refresh_pool(trade_date: Optional[str] = Query(None)):
     # Get passed stock codes from screening result table
     from stock_datasource.models.database import db_client
     df = db_client.execute_query(
-        f"""SELECT ts_code FROM quant_screening_result
-        WHERE run_date = '{screening.run_date}' AND overall_pass = 1"""
+        """SELECT ts_code FROM quant_screening_result
+        WHERE run_date = %(run_date)s AND overall_pass = 1""",
+        {"run_date": screening.run_date},
     )
     if df.empty:
         raise HTTPException(400, "No passed stocks found in screening result")
@@ -181,12 +189,16 @@ async def get_rps(limit: int = Query(100, ge=1, le=500)):
 @router.get("/rps/{ts_code}")
 async def get_rps_detail(ts_code: str):
     """Get RPS detail for a stock."""
+    if not _validate_ts_code(ts_code):
+        raise HTTPException(400, f"Invalid ts_code: {ts_code}")
+
     try:
         from stock_datasource.models.database import db_client
         df = db_client.execute_query(
-            f"""SELECT * FROM quant_rps_rank
-            WHERE ts_code = '{ts_code}'
-            ORDER BY calc_date DESC LIMIT 10"""
+            """SELECT * FROM quant_rps_rank
+            WHERE ts_code = %(ts_code)s
+            ORDER BY calc_date DESC LIMIT 10""",
+            {"ts_code": ts_code},
         )
         return df.to_dict("records") if not df.empty else []
     except Exception:
@@ -238,10 +250,12 @@ async def get_signal_history(
     limit: int = Query(100, ge=1, le=500),
 ):
     """Get signal history."""
+    safe_limit = max(1, min(int(limit or 100), 500))
     try:
         from stock_datasource.models.database import db_client
         df = db_client.execute_query(
-            f"SELECT * FROM quant_trading_signal ORDER BY signal_date DESC, ts_code LIMIT {limit}"
+            "SELECT * FROM quant_trading_signal ORDER BY signal_date DESC, ts_code LIMIT %(limit)s",
+            {"limit": safe_limit},
         )
         return df.to_dict("records") if not df.empty else []
     except Exception:

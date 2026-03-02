@@ -2,6 +2,7 @@
 import { ref, onMounted, onActivated } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolio'
 import { MessagePlugin } from 'tdesign-vue-next'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const portfolioStore = usePortfolioStore()
 const showAddModal = ref(false)
@@ -170,7 +171,7 @@ onActivated(() => {
             </div>
           </div>
           
-          <t-empty v-else description="暂无分析数据" />
+          <DataEmptyGuide v-else description="暂无分析数据" plugin-name="tushare_daily" />
         </t-card>
       </t-col>
     </t-row>

@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, h } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import * as echarts from 'echarts'
 import { hkReportApi, type HKFinancialResponse, type HKFinancialIndicator, type HKAnalysisResponse, type HKStatementRow } from '@/api/hk-report'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const stockCode = ref('')
 const periods = ref(8)
@@ -887,7 +888,7 @@ onUnmounted(() => {
               <t-loading size="large" text="加载图表数据..." />
             </div>
             <div v-else-if="!indicatorData.length && !incomeData.length" class="empty-container">
-              <t-empty description="暂无趋势数据" />
+              <DataEmptyGuide description="暂无趋势数据" plugin-name="tushare_hk_daily" />
             </div>
             <div v-else class="charts-grid">
               <div class="chart-item">
@@ -929,7 +930,7 @@ onUnmounted(() => {
             <!-- Income Statement -->
             <div v-if="statementSubTab === 'income'">
               <div v-if="!incomeData.length" class="empty-container" style="height: 200px">
-                <t-empty description="暂无利润表数据" />
+                <DataEmptyGuide description="暂无利润表数据" plugin-name="tushare_hk_daily" />
               </div>
               <t-table
                 v-else
@@ -947,7 +948,7 @@ onUnmounted(() => {
             <!-- Balance Sheet -->
             <div v-if="statementSubTab === 'balance'">
               <div v-if="!balanceData.length" class="empty-container" style="height: 200px">
-                <t-empty description="暂无资产负债表数据" />
+                <DataEmptyGuide description="暂无资产负债表数据" plugin-name="tushare_hk_daily" />
               </div>
               <t-table
                 v-else
@@ -965,7 +966,7 @@ onUnmounted(() => {
             <!-- Cash Flow -->
             <div v-if="statementSubTab === 'cashflow'">
               <div v-if="!cashflowData.length" class="empty-container" style="height: 200px">
-                <t-empty description="暂无现金流量表数据" />
+                <DataEmptyGuide description="暂无现金流量表数据" plugin-name="tushare_hk_daily" />
               </div>
               <t-table
                 v-else
