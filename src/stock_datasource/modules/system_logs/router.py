@@ -7,18 +7,57 @@ from fastapi.responses import FileResponse
 
 from stock_datasource.modules.auth.dependencies import require_admin
 from .schemas import (
-    LogFilter,
-    LogListResponse,
-    LogFileInfo,
+    ArchiveListResponse,
+    ErrorClusterResponse,
     LogAnalysisRequest,
     LogAnalysisResponse,
-    ArchiveListResponse,
+    LogFileInfo,
+    LogFilter,
+    LogInsightFilter,
+    LogListResponse,
+    LogStatsResponse,
+    OperationTimelineResponse,
 )
 from .service import get_log_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system_logs", tags=["system-logs"])
+
+
+def _parse_iso_time(value: str, field_name: str):
+    from datetime import datetime
+
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name} format: {value}"
+        )
+
+
+def _build_insight_filter(
+    level: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    keyword: str = None,
+    window_hours: int = 2,
+    limit: int = 50,
+) -> LogInsightFilter:
+    parsed_start = _parse_iso_time(start_time, "start_time") if start_time else None
+    parsed_end = _parse_iso_time(end_time, "end_time") if end_time else None
+    return LogInsightFilter(
+        level=level,
+        start_time=parsed_start,
+        end_time=parsed_end,
+        keyword=keyword,
+        window_hours=window_hours,
+        limit=limit,
+    )
 
 
 @router.get(
@@ -47,31 +86,9 @@ async def get_system_logs(
     - page: Page number (1-indexed)
     - page_size: Number of logs per page (1-1000)
     """
-    from datetime import datetime
+    parsed_start = _parse_iso_time(start_time, "start_time") if start_time else None
+    parsed_end = _parse_iso_time(end_time, "end_time") if end_time else None
 
-    # Parse time filters
-    parsed_start = None
-    parsed_end = None
-
-    if start_time:
-        try:
-            parsed_start = datetime.fromisoformat(start_time)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid start_time format: {start_time}"
-            )
-
-    if end_time:
-        try:
-            parsed_end = datetime.fromisoformat(end_time)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid end_time format: {end_time}"
-            )
-
-    # Create filter
     filters = LogFilter(
         level=level,
         start_time=parsed_start,
@@ -95,23 +112,120 @@ async def get_system_logs(
 @router.post(
     "/analyze",
     response_model=LogAnalysisResponse,
-    dependencies=[Depends(require_admin)],
     summary="Analyze logs with AI",
     description="Analyze error logs and get AI-powered suggestions"
 )
 async def analyze_logs(
     request: LogAnalysisRequest,
+    current_user: dict = Depends(require_admin),
     log_service = Depends(get_log_service)
 ):
     """Analyze logs using AI agent."""
     try:
-        return log_service.analyze_logs(request)
+        user_id = str(current_user.get("username") or current_user.get("user_id") or "admin")
+        return await log_service.analyze_logs(request, user_id=user_id)
     except Exception as e:
         logger.error(f"Error analyzing logs: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to analyze logs: {str(e)}"
         )
+
+
+@router.get(
+    "/stats",
+    response_model=LogStatsResponse,
+    dependencies=[Depends(require_admin)],
+    summary="Get log stats",
+    description="Get overview stats and hourly trends for logs"
+)
+async def get_log_stats(
+    level: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    keyword: str = None,
+    window_hours: int = 2,
+    limit: int = 200,
+    log_service = Depends(get_log_service)
+):
+    """Get log overview stats and trend."""
+    try:
+        filters = _build_insight_filter(
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            window_hours=window_hours,
+            limit=limit,
+        )
+        return log_service.get_stats(filters)
+    except Exception as e:
+        logger.error(f"Error getting log stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve log stats: {str(e)}")
+
+
+@router.get(
+    "/clusters",
+    response_model=ErrorClusterResponse,
+    dependencies=[Depends(require_admin)],
+    summary="Get error clusters",
+    description="Group recent error/warning logs by signature"
+)
+async def get_log_clusters(
+    level: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    keyword: str = None,
+    window_hours: int = 2,
+    limit: int = 20,
+    log_service = Depends(get_log_service)
+):
+    """Get clustered recent errors."""
+    try:
+        filters = _build_insight_filter(
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            window_hours=window_hours,
+            limit=limit,
+        )
+        return log_service.get_error_clusters(filters)
+    except Exception as e:
+        logger.error(f"Error getting log clusters: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve log clusters: {str(e)}")
+
+
+@router.get(
+    "/timeline",
+    response_model=OperationTimelineResponse,
+    dependencies=[Depends(require_admin)],
+    summary="Get operation timeline",
+    description="Get recent operations timeline from logs and scheduler executions"
+)
+async def get_operation_timeline(
+    level: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    keyword: str = None,
+    window_hours: int = 2,
+    limit: int = 50,
+    log_service = Depends(get_log_service)
+):
+    """Get merged operation timeline."""
+    try:
+        filters = _build_insight_filter(
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            window_hours=window_hours,
+            limit=limit,
+        )
+        return log_service.get_operation_timeline(filters)
+    except Exception as e:
+        logger.error(f"Error getting operation timeline: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve operation timeline: {str(e)}")
 
 
 @router.get(
@@ -194,31 +308,9 @@ async def export_logs(
     log_service = Depends(get_log_service)
 ):
     """Export filtered logs to file."""
-    from datetime import datetime
+    parsed_start = _parse_iso_time(start_time, "start_time") if start_time else None
+    parsed_end = _parse_iso_time(end_time, "end_time") if end_time else None
 
-    # Parse time filters
-    parsed_start = None
-    parsed_end = None
-
-    if start_time:
-        try:
-            parsed_start = datetime.fromisoformat(start_time)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid start_time format: {start_time}"
-            )
-
-    if end_time:
-        try:
-            parsed_end = datetime.fromisoformat(end_time)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid end_time format: {end_time}"
-            )
-
-    # Create filter
     filters = LogFilter(
         level=level,
         start_time=parsed_start,

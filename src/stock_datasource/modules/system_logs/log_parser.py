@@ -37,6 +37,11 @@ class LogParser:
         "%Y-%m-%d %H:%M:%S.%f",  # 2026-01-26 10:30:45.123
     ]
 
+    ERROR_SIGNATURE_PATTERNS = [
+        re.compile(r'(\w+(?:Error|Exception|Timeout|Refused|Unavailable))'),
+        re.compile(r'\b(Traceback)\b'),
+    ]
+
     def __init__(self):
         self.module_mapping = {
             'backend.log': 'backend',
@@ -56,26 +61,34 @@ class LogParser:
             Dict with keys: timestamp, level, module, message, raw_line
             or None if line cannot be parsed
         """
+        parsed = self._parse_line_strict(line, filename)
+        if parsed:
+            return parsed
+
         if not line or not line.strip():
             return None
 
-        # Remove ANSI color codes
+        return {
+            'timestamp': datetime.now(),
+            'level': 'INFO',
+            'module': self._get_module_from_filename(filename),
+            'message': line.strip(),
+            'raw_line': line
+        }
+
+    def _parse_line_strict(self, line: str, filename: str = "unknown") -> Optional[dict]:
+        """Parse line only when line matches known log patterns."""
+        if not line or not line.strip():
+            return None
+
         cleaned_line = self._remove_ansi_codes(line)
 
-        # Try each pattern
         for pattern in self.PATTERNS:
             match = pattern.match(cleaned_line)
             if match:
                 return self._extract_fields(match, line, filename)
 
-        # If no pattern matched, treat as raw message
-        return {
-            'timestamp': datetime.now(),
-            'level': 'INFO',
-            'module': self._get_module_from_filename(filename),
-            'message': line,
-            'raw_line': line
-        }
+        return None
 
     def parse_file(
         self,
@@ -91,7 +104,7 @@ class LogParser:
         Returns:
             List of parsed log entries
         """
-        entries = []
+        entries: List[dict] = []
         path = Path(filepath)
 
         if not path.exists():
@@ -104,9 +117,19 @@ class LogParser:
                     if max_lines and i >= max_lines:
                         break
 
-                    entry = self.parse_line(line, path.name)
-                    if entry:
-                        entries.append(entry)
+                    strict_entry = self._parse_line_strict(line, path.name)
+                    if strict_entry:
+                        entries.append(strict_entry)
+                        continue
+
+                    if self._is_continuation_line(line) and entries:
+                        entries[-1]['message'] = f"{entries[-1]['message']}\n{line.rstrip()}"
+                        entries[-1]['raw_line'] = f"{entries[-1]['raw_line']}\n{line.rstrip()}"
+                        continue
+
+                    fallback_entry = self.parse_line(line, path.name)
+                    if fallback_entry:
+                        entries.append(fallback_entry)
 
         except Exception as e:
             logger.error(f"Error parsing log file {filepath}: {e}")
@@ -170,6 +193,31 @@ class LogParser:
             'message': line,
             'raw_line': line
         }
+
+    def _is_continuation_line(self, line: str) -> bool:
+        """Check whether a line is likely a continuation (stack trace/details)."""
+        stripped = line.lstrip()
+        if not stripped:
+            return False
+
+        if line.startswith(" ") or line.startswith("\t"):
+            return True
+
+        return stripped.startswith("File ") or stripped.startswith("Traceback") or stripped.startswith("During handling")
+
+    def extract_error_signature(self, message: str) -> str:
+        """Extract stable error signature for clustering."""
+        if not message:
+            return "UnknownError"
+
+        first_line = message.splitlines()[0]
+        for pattern in self.ERROR_SIGNATURE_PATTERNS:
+            match = pattern.search(message)
+            if match:
+                return match.group(1)
+
+        compact = first_line.strip()
+        return compact[:120] if compact else "UnknownError"
 
     def _extract_module_from_location(self, location: str) -> str:
         """Extract module name from location string.

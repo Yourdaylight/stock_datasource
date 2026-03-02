@@ -1,9 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { systemLogsApi, type LogEntry, type LogFilter } from '@/api/systemLogs'
+import { computed, onMounted, ref } from 'vue'
+import {
+  systemLogsApi,
+  type ErrorClusterItem,
+  type LogAnalysisResponse,
+  type LogEntry,
+  type LogFilter,
+  type LogStatsResponse,
+  type OperationTimelineItem
+} from '@/api/systemLogs'
 import { MessagePlugin } from 'tdesign-vue-next'
+import OverviewCards from '@/components/system-logs/OverviewCards.vue'
+import ErrorClusterPanel from '@/components/system-logs/ErrorClusterPanel.vue'
+import OperationTimeline from '@/components/system-logs/OperationTimeline.vue'
+import AiDiagnosisDrawer from '@/components/system-logs/AiDiagnosisDrawer.vue'
 
-// Filter state
 const filter = ref<LogFilter>({
   level: undefined,
   start_time: undefined,
@@ -12,25 +23,27 @@ const filter = ref<LogFilter>({
   page: 1,
   page_size: 100
 })
+const windowHours = ref(2)
 
-// Table data
 const logs = ref<LogEntry[]>([])
 const total = ref(0)
 const loading = ref(false)
 const loadingMore = ref(false)
 const hasMore = ref(true)
 
-// Dialog state
-const showAnalysisDialog = ref(false)
-const analysisResult = ref<any>(null)
+const stats = ref<LogStatsResponse | null>(null)
+const clusters = ref<ErrorClusterItem[]>([])
+const timeline = ref<OperationTimelineItem[]>([])
+const insightLoading = ref(false)
+
+const showAnalysisDrawer = ref(false)
+const analysisResult = ref<LogAnalysisResponse | null>(null)
 const analyzing = ref(false)
 
-// Archive dialog state
 const showArchiveDialog = ref(false)
 const archiving = ref(false)
 const archiveRetentionDays = ref(30)
 
-// Level options
 const levelOptions = [
   { label: '全部', value: undefined },
   { label: 'INFO', value: 'INFO' },
@@ -38,19 +51,18 @@ const levelOptions = [
   { label: 'ERROR', value: 'ERROR' }
 ]
 
-// Format log as plain text
-const formatLogText = (log: LogEntry) => {
-  return log.raw_line || `${log.timestamp} [${log.level}] [${log.module}] ${log.message}`
-}
+const windowOptions = [
+  { label: '最近30分钟', value: 1 },
+  { label: '最近2小时', value: 2 },
+  { label: '最近6小时', value: 6 },
+  { label: '最近24小时', value: 24 }
+]
 
-// Sort logs by timestamp descending (newest first)
-const sortedLogs = computed(() => {
-  return [...logs.value].sort((a, b) => {
-    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  })
-})
+const sortedLogs = computed(() => [...logs.value].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)))
+const formatLogText = (log: LogEntry) => log.raw_line || `${log.timestamp} [${log.level}] [${log.module}] ${log.message}`
 
-// Fetch logs
+const getInsightParams = () => ({ ...filter.value, window_hours: windowHours.value })
+
 const fetchLogs = async () => {
   loading.value = true
   try {
@@ -59,37 +71,49 @@ const fetchLogs = async () => {
     logs.value = response.logs
     total.value = response.total
     hasMore.value = response.logs.length === filter.value.page_size
-  } catch (error) {
-    // Error handled by request interceptor
   } finally {
     loading.value = false
   }
 }
 
-// Load more logs
 const loadMore = async () => {
   if (loadingMore.value || !hasMore.value) return
-
   loadingMore.value = true
   try {
-    filter.value.page += 1
+    filter.value.page = (filter.value.page || 1) + 1
     const response = await systemLogsApi.getLogs(filter.value)
     logs.value = [...logs.value, ...response.logs]
     hasMore.value = response.logs.length === filter.value.page_size
-  } catch (error) {
-    // Error handled by request interceptor
   } finally {
     loadingMore.value = false
   }
 }
 
-// Apply filters
-const handleFilter = () => {
-  filter.value.page = 1
-  fetchLogs()
+const fetchInsights = async () => {
+  insightLoading.value = true
+  try {
+    const params = getInsightParams()
+    const [statsRes, clusterRes, timelineRes] = await Promise.all([
+      systemLogsApi.getStats(params),
+      systemLogsApi.getClusters({ ...params, limit: 10 }),
+      systemLogsApi.getTimeline({ ...params, limit: 30 })
+    ])
+    stats.value = statsRes
+    clusters.value = clusterRes.clusters
+    timeline.value = timelineRes.items
+  } finally {
+    insightLoading.value = false
+  }
 }
 
-// Reset filters
+const fetchAll = async () => {
+  await Promise.all([fetchLogs(), fetchInsights()])
+}
+
+const handleFilter = () => {
+  fetchAll()
+}
+
 const handleReset = () => {
   filter.value = {
     level: undefined,
@@ -97,54 +121,52 @@ const handleReset = () => {
     end_time: undefined,
     keyword: undefined,
     page: 1,
-    page_size: 50
+    page_size: 100
   }
-  fetchLogs()
+  windowHours.value = 2
+  fetchAll()
 }
 
+const handleClusterSelect = (signature: string) => {
+  filter.value.keyword = signature
+  fetchAll()
+}
 
-
-// Analyze selected logs
-const handleAnalyze = async (log: LogEntry) => {
-  showAnalysisDialog.value = true
-  analysisResult.value = null
+const handleAnalyze = async () => {
+  showAnalysisDrawer.value = true
   analyzing.value = true
-
+  analysisResult.value = null
   try {
-    const errorLogs = logs.value.filter(l => l.level === 'ERROR')
-    const response = await systemLogsApi.analyzeLogs({
-      log_entries: errorLogs.length > 0 ? errorLogs : [log],
-      user_query: '请分析错误日志并提供修复建议'
+    const selected = logs.value.filter((item) => item.level === 'ERROR').slice(0, 50)
+    analysisResult.value = await systemLogsApi.analyzeLogs({
+      log_entries: selected,
+      user_query: '请结合最近日志与操作，定位根因并给出修复建议与影响范围',
+      default_window_hours: windowHours.value,
+      include_code_context: true,
+      max_entries: 50
     })
-    analysisResult.value = response
-  } catch (error) {
-    MessagePlugin.error('分析失败')
+  } catch {
+    MessagePlugin.error('AI 诊断失败，已切换规则分析')
   } finally {
     analyzing.value = false
   }
 }
 
-// Archive logs
 const handleArchive = async () => {
   archiving.value = true
   try {
     const response = await systemLogsApi.archiveLogs(archiveRetentionDays.value)
     MessagePlugin.success(`已归档 ${response.archived_count} 个文件`)
     showArchiveDialog.value = false
-    fetchLogs()
-  } catch (error) {
-    // Error handled by request interceptor
+    fetchAll()
   } finally {
     archiving.value = false
   }
 }
 
-// Export logs
 const handleExport = async (format: 'csv' | 'json') => {
   try {
     const blob = await systemLogsApi.exportLogs({ ...filter.value, format })
-
-    // Create download link
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -153,195 +175,91 @@ const handleExport = async (format: 'csv' | 'json') => {
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
-
     MessagePlugin.success('导出成功')
-  } catch (error) {
+  } catch {
     MessagePlugin.error('导出失败')
   }
 }
 
-// Copy log line
 const handleCopy = (log: LogEntry) => {
   navigator.clipboard.writeText(formatLogText(log))
   MessagePlugin.success('已复制到剪贴板')
 }
 
 onMounted(() => {
-  fetchLogs()
+  fetchAll()
 })
 </script>
 
 <template>
   <div class="system-logs-view">
-    <!-- Filters -->
-    <t-card title="日志查询" :bordered="false" style="margin-bottom: 16px">
-      <t-form layout="inline" @submit="handleFilter">
+    <t-card title="系统日志可观测工作台" :bordered="false" class="mb-4">
+      <t-form layout="inline">
         <t-form-item label="级别">
           <t-select v-model="filter.level" :options="levelOptions" style="width: 120px" clearable />
         </t-form-item>
-
         <t-form-item label="开始时间">
-          <t-date-picker
-            v-model="filter.start_time"
-            enable-time-picker
-            format="YYYY-MM-DD HH:mm:ss"
-            placeholder="选择开始时间"
-            style="width: 220px"
-          />
+          <t-date-picker v-model="filter.start_time" enable-time-picker format="YYYY-MM-DD HH:mm:ss" style="width: 220px" />
         </t-form-item>
-
         <t-form-item label="结束时间">
-          <t-date-picker
-            v-model="filter.end_time"
-            enable-time-picker
-            format="YYYY-MM-DD HH:mm:ss"
-            placeholder="选择结束时间"
-            style="width: 220px"
-          />
+          <t-date-picker v-model="filter.end_time" enable-time-picker format="YYYY-MM-DD HH:mm:ss" style="width: 220px" />
         </t-form-item>
-
         <t-form-item label="关键词">
-          <t-input
-            v-model="filter.keyword"
-            placeholder="搜索消息内容"
-            style="width: 200px"
-            clearable
-          />
+          <t-input v-model="filter.keyword" placeholder="模块/错误签名/关键字" style="width: 220px" clearable />
         </t-form-item>
-
+        <t-form-item label="分析窗口">
+          <t-select v-model="windowHours" :options="windowOptions" style="width: 140px" />
+        </t-form-item>
         <t-form-item>
-          <t-button theme="primary" @click="handleFilter">
-            <template #icon><t-icon name="search" /></template>
-            查询
-          </t-button>
-          <t-button theme="default" @click="handleReset" style="margin-left: 8px">
-            <template #icon><t-icon name="refresh" /></template>
-            重置
-          </t-button>
+          <t-space>
+            <t-button theme="primary" @click="handleFilter">查询</t-button>
+            <t-button variant="outline" @click="handleReset">重置</t-button>
+            <t-button theme="warning" variant="outline" :loading="analyzing" @click="handleAnalyze">一键AI诊断</t-button>
+          </t-space>
         </t-form-item>
       </t-form>
-
-      <div style="margin-top: 12px">
-        <t-button size="small" variant="outline" @click="handleExport('csv')">
-          <template #icon><t-icon name="download" /></template>
-          导出 CSV
-        </t-button>
-        <t-button size="small" variant="outline" @click="handleExport('json')" style="margin-left: 8px">
-          <template #icon><t-icon name="download" /></template>
-          导出 JSON
-        </t-button>
-        <t-button size="small" variant="outline" @click="showArchiveDialog = true" style="margin-left: 8px">
-          <template #icon><t-icon name="archive" /></template>
-          归档日志
-        </t-button>
-      </div>
+      <t-space class="mt-3">
+        <t-button size="small" variant="outline" @click="handleExport('csv')">导出 CSV</t-button>
+        <t-button size="small" variant="outline" @click="handleExport('json')">导出 JSON</t-button>
+        <t-button size="small" variant="outline" @click="showArchiveDialog = true">归档日志</t-button>
+      </t-space>
     </t-card>
 
-    <!-- Logs Text Display -->
-    <t-card title="系统日志" :bordered="false">
-      <div v-if="loading && logs.length === 0" style="text-align: center; padding: 40px;">
+    <OverviewCards :stats="stats" :loading="insightLoading" />
+
+    <t-row :gutter="16" class="mt-4">
+      <t-col :span="4">
+        <ErrorClusterPanel :clusters="clusters" :loading="insightLoading" @select="handleClusterSelect" />
+      </t-col>
+      <t-col :span="8">
+        <OperationTimeline :items="timeline" :loading="insightLoading" />
+      </t-col>
+    </t-row>
+
+    <t-card title="系统日志明细" :bordered="false" class="mt-4">
+      <div v-if="loading && !logs.length" class="center">
         <t-loading text="加载中..." />
       </div>
       <div v-else>
         <div class="logs-text-container">
-          <div v-for="log in sortedLogs" :key="log.timestamp" class="log-line-wrapper">
+          <div v-for="log in sortedLogs" :key="`${log.timestamp}-${log.message}`" class="log-line-wrapper">
             <span class="log-line">{{ formatLogText(log) }}</span>
-            <t-button
-              size="small"
-              variant="text"
-              theme="default"
-              @click="handleCopy(log)"
-              class="copy-button"
-            >
-              复制
-            </t-button>
+            <t-button size="small" variant="text" @click="handleCopy(log)" class="copy-button">复制</t-button>
           </div>
         </div>
-
-        <div v-if="hasMore && logs.length > 0" style="text-align: center; padding-top: 16px;">
-          <t-button
-            :loading="loadingMore"
-            @click="loadMore"
-          >
-            加载更多
-          </t-button>
+        <div class="center mt-4" v-if="hasMore && logs.length > 0">
+          <t-button :loading="loadingMore" @click="loadMore">加载更多</t-button>
         </div>
-
-        <div v-else-if="logs.length > 0" style="text-align: center; padding-top: 16px; color: #999; font-size: 12px;">
-          已加载全部日志
-        </div>
+        <div class="center mt-4 text-gray-400 text-xs" v-else-if="logs.length > 0">共 {{ total }} 条，已加载完毕</div>
       </div>
     </t-card>
 
-    <!-- Analysis Dialog -->
-    <t-dialog v-model:visible="showAnalysisDialog" header="AI日志分析" width="800" :footer="false">
-      <div v-if="analyzing" style="text-align: center; padding: 40px;">
-        <t-loading text="分析中..." />
-      </div>
+    <AiDiagnosisDrawer v-model:visible="showAnalysisDrawer" :loading="analyzing" :result="analysisResult" />
 
-      <div v-else-if="analysisResult" class="analysis-result">
-        <t-descriptions :column="1" bordered>
-          <t-descriptions-item label="错误类型">
-            {{ analysisResult.error_type }}
-          </t-descriptions-item>
-          <t-descriptions-item label="置信度">
-            {{ (analysisResult.confidence * 100).toFixed(1) }}%
-          </t-descriptions-item>
-        </t-descriptions>
-
-        <div style="margin-top: 16px">
-          <div style="font-weight: bold; margin-bottom: 8px;">可能的原因：</div>
-          <ul>
-            <li v-for="(cause, index) in analysisResult.possible_causes" :key="index">
-              {{ cause }}
-            </li>
-          </ul>
-        </div>
-
-        <div style="margin-top: 16px">
-          <div style="font-weight: bold; margin-bottom: 8px;">建议的修复方案：</div>
-          <ul>
-            <li v-for="(fix, index) in analysisResult.suggested_fixes" :key="index">
-              {{ fix }}
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="analysisResult.related_logs.length > 0" style="margin-top: 16px">
-          <div style="font-weight: bold; margin-bottom: 8px;">相关日志：</div>
-          <div
-            v-for="(log, index) in analysisResult.related_logs"
-            :key="index"
-            style="padding: 8px; background: #f5f5f5; border-radius: 4px; margin-bottom: 8px; font-size: 12px;"
-          >
-            {{ log }}
-          </div>
-        </div>
-      </div>
-
-      <div v-else style="text-align: center; padding: 40px;">
-        <t-result theme="error" title="分析失败" />
-      </div>
-    </t-dialog>
-
-    <!-- Archive Dialog -->
-    <t-dialog
-      v-model:visible="showArchiveDialog"
-      header="归档日志"
-      @confirm="handleArchive"
-      :confirm-btn="{ loading: archiving }"
-    >
+    <t-dialog v-model:visible="showArchiveDialog" header="归档日志" @confirm="handleArchive" :confirm-btn="{ loading: archiving }">
       <t-form layout="vertical">
         <t-form-item label="保留天数">
-          <t-input-number
-            v-model="archiveRetentionDays"
-            :min="1"
-            :max="365"
-            style="width: 200px"
-          />
-          <div style="color: #999; font-size: 12px; margin-top: 4px;">
-            将归档超过指定天数的日志文件
-          </div>
+          <t-input-number v-model="archiveRetentionDays" :min="1" :max="365" style="width: 200px" />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -349,57 +267,26 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.system-logs-view {
-  padding: 16px;
-}
-
+.system-logs-view { padding: 16px; }
 .logs-text-container {
-  background: #1a1a1a;
-  color: #f5f5f5;
-  padding: 16px;
-  border-radius: 4px;
+  background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  color: #e5e7eb;
+  padding: 14px;
+  border-radius: 10px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.6;
-  max-height: 600px;
+  max-height: 520px;
   overflow-y: auto;
 }
-
-.log-line-wrapper {
-  display: flex;
-  align-items: flex-start;
-  padding: 2px 0;
-}
-
-.log-line {
-  flex: 1;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-.copy-button {
-  flex-shrink: 0;
-  margin-left: 8px;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.log-line-wrapper:hover .copy-button {
-  opacity: 1;
-}
-
-.analysis-result {
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.analysis-result ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.analysis-result li {
-  margin: 4px 0;
-  line-height: 1.6;
-}
+.log-line-wrapper { display: flex; align-items: flex-start; padding: 2px 0; }
+.log-line { flex: 1; white-space: pre-wrap; word-wrap: break-word; }
+.copy-button { margin-left: 8px; opacity: 0; }
+.log-line-wrapper:hover .copy-button { opacity: 1; }
+.center { text-align: center; padding: 22px; }
+.mt-3 { margin-top: 12px; }
+.mt-4 { margin-top: 16px; }
+.mb-4 { margin-bottom: 16px; }
+.text-gray-400 { color: #9ca3af; }
+.text-xs { font-size: 12px; }
 </style>
