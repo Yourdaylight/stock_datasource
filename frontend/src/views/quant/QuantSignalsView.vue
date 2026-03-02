@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
 import { useQuantStore } from '@/stores/quant'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const store = useQuantStore()
 
@@ -59,7 +60,7 @@ onMounted(async () => {
         <t-button variant="outline" @click="store.fetchSignals()">刷新</t-button>
       </template>
 
-      <t-empty v-if="!store.signals?.length && !store.signalsLoading" description="暂无交易信号" />
+      <DataEmptyGuide v-if="!store.signals?.length && !store.signalsLoading" description="暂无交易信号" plugin-name="tushare_daily" />
 
       <t-table
         v-else

@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { etfApi, type EtfInfo, type EtfKLineData } from '@/api/etf'
 import KLineChart from '@/components/charts/KLineChart.vue'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 import type { KLineData } from '@/types/common'
 
 const props = defineProps<{
@@ -226,7 +227,7 @@ const getStatusLabel = (status?: string) => {
           </t-button>
         </div>
       </div>
-      <t-empty v-else description="未找到ETF信息" />
+      <DataEmptyGuide v-else description="未找到ETF信息" plugin-name="tushare_etf_basic" />
     </t-loading>
   </t-dialog>
 </template>

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useQuantStore } from '@/stores/quant'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const store = useQuantStore()
 const analyzeCode = ref('')
@@ -77,7 +78,7 @@ onMounted(() => {
                   </t-tag>
                 </div>
               </div>
-              <t-empty v-else description="无技术数据" />
+              <DataEmptyGuide v-else description="无技术数据" plugin-name="tushare_daily" />
             </t-card>
           </t-col>
 
@@ -122,7 +123,7 @@ onMounted(() => {
                   </div>
                 </div>
               </div>
-              <t-empty v-else description="暂无AI分析" />
+              <DataEmptyGuide v-else description="暂无AI分析" plugin-name="tushare_daily" />
             </t-card>
           </t-col>
         </t-row>

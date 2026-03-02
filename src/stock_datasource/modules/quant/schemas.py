@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -70,7 +70,7 @@ class PluginTriggerInfo(BaseModel):
     display_name: str
     table_name: str
     missing_dates: list[str] = Field(default_factory=list)
-    task_type: str = "incremental"
+    task_type: Literal["full", "incremental"] = "incremental"
     description: str = ""
 
 
@@ -82,7 +82,7 @@ class DataRequirementStatus(BaseModel):
     missing_dates: list[str] = Field(default_factory=list)
     record_count: int = 0
     suggested_plugins: list[str] = Field(default_factory=list)
-    suggested_task_type: str = "incremental"
+    suggested_task_type: Literal["full", "incremental"] = "incremental"
 
 
 class MissingDataSummary(BaseModel):

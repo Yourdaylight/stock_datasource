@@ -6,6 +6,7 @@ Each stage checks data readiness before execution and records status.
 
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
@@ -37,6 +38,26 @@ from .signal_generator import get_signal_generator
 from .tables import ensure_quant_tables
 
 logger = logging.getLogger(__name__)
+
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_DATE_RE = re.compile(r"^\d{8}$")
+_CONFIG_TYPE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _validate_run_id(run_id: str) -> bool:
+    return bool(_RUN_ID_RE.match(run_id or ""))
+
+
+def _validate_trade_date(date_str: Optional[str]) -> bool:
+    if not date_str:
+        return True
+    return bool(_DATE_RE.match(date_str))
+
+
+def _validate_config_type(config_type: Optional[str]) -> bool:
+    if not config_type:
+        return True
+    return bool(_CONFIG_TYPE_RE.match(config_type))
 
 
 class QuantService:
@@ -239,14 +260,19 @@ class QuantService:
         """Get latest or specific screening result."""
         self._ensure_init()
         try:
-            if run_date:
-                date_filter = f"WHERE run_date = '{run_date}'"
-            else:
-                date_filter = "WHERE run_date = (SELECT max(run_date) FROM quant_screening_run_stats)"
+            if not _validate_trade_date(run_date):
+                logger.warning(f"Invalid run_date format: {run_date}")
+                return None
 
-            stats_df = db_client.execute_query(
-                f"SELECT * FROM quant_screening_run_stats {date_filter} ORDER BY created_at DESC LIMIT 1"
-            )
+            if run_date:
+                stats_df = db_client.execute_query(
+                    "SELECT * FROM quant_screening_run_stats WHERE run_date = %(run_date)s ORDER BY created_at DESC LIMIT 1",
+                    {"run_date": run_date},
+                )
+            else:
+                stats_df = db_client.execute_query(
+                    "SELECT * FROM quant_screening_run_stats WHERE run_date = (SELECT max(run_date) FROM quant_screening_run_stats) ORDER BY created_at DESC LIMIT 1"
+                )
             if stats_df.empty:
                 return None
 
@@ -313,15 +339,18 @@ class QuantService:
     async def get_pool_changes(self, limit: int = 50) -> list[dict]:
         """Get recent pool changes."""
         self._ensure_init()
+        safe_limit = max(1, min(int(limit or 50), 200))
         try:
             df = db_client.execute_query(
-                f"""SELECT * FROM quant_core_pool
+                """SELECT * FROM quant_core_pool
                 WHERE change_type != ''
                 ORDER BY update_date DESC, ts_code
-                LIMIT {limit}"""
+                LIMIT %(limit)s""",
+                {"limit": safe_limit},
             )
             return df.to_dict("records") if not df.empty else []
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to get pool changes: {e}")
             return []
 
     async def get_signals(
@@ -330,14 +359,21 @@ class QuantService:
         """Get trading signals."""
         self._ensure_init()
         try:
-            if signal_date:
-                date_filter = f"WHERE signal_date = '{signal_date}'"
-            else:
-                date_filter = "WHERE signal_date = (SELECT max(signal_date) FROM quant_trading_signal)"
+            if not _validate_trade_date(signal_date):
+                logger.warning(f"Invalid signal_date format: {signal_date}")
+                return []
 
-            df = db_client.execute_query(
-                f"SELECT * FROM quant_trading_signal {date_filter} ORDER BY created_at DESC LIMIT {limit}"
-            )
+            safe_limit = max(1, min(int(limit or 50), 200))
+            if signal_date:
+                df = db_client.execute_query(
+                    "SELECT * FROM quant_trading_signal WHERE signal_date = %(signal_date)s ORDER BY created_at DESC LIMIT %(limit)s",
+                    {"signal_date": signal_date, "limit": safe_limit},
+                )
+            else:
+                df = db_client.execute_query(
+                    "SELECT * FROM quant_trading_signal WHERE signal_date = (SELECT max(signal_date) FROM quant_trading_signal) ORDER BY created_at DESC LIMIT %(limit)s",
+                    {"limit": safe_limit},
+                )
             if df.empty:
                 return []
 
@@ -373,23 +409,30 @@ class QuantService:
     async def get_rps(self, limit: int = 100):
         """Get latest RPS ranking."""
         self._ensure_init()
+        safe_limit = max(1, min(int(limit or 100), 500))
         try:
             df = db_client.execute_query(
-                f"""SELECT * FROM quant_rps_rank
+                """SELECT * FROM quant_rps_rank
                 WHERE calc_date = (SELECT max(calc_date) FROM quant_rps_rank)
                 ORDER BY rps_250 DESC
-                LIMIT {limit}"""
+                LIMIT %(limit)s""",
+                {"limit": safe_limit},
             )
             return df.to_dict("records") if not df.empty else []
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to get rps: {e}")
             return []
 
     async def get_pipeline_status(self, run_id: str) -> Optional[PipelineRunStatus]:
         """Get pipeline run status."""
         self._ensure_init()
+        if not _validate_run_id(run_id):
+            logger.warning(f"Invalid run_id format: {run_id}")
+            return None
         try:
             df = db_client.execute_query(
-                f"SELECT * FROM quant_pipeline_run WHERE run_id = '{run_id}' LIMIT 1"
+                "SELECT * FROM quant_pipeline_run WHERE run_id = %(run_id)s LIMIT 1",
+                {"run_id": run_id},
             )
             if df.empty:
                 return None
@@ -430,11 +473,19 @@ class QuantService:
 
     async def get_config(self, config_type: Optional[str] = None) -> list[QuantConfig]:
         self._ensure_init()
+        if not _validate_config_type(config_type):
+            logger.warning(f"Invalid config_type: {config_type}")
+            return self._default_configs()
         try:
-            where = f"WHERE config_type = '{config_type}'" if config_type else ""
-            df = db_client.execute_query(
-                f"SELECT * FROM quant_model_config {where} ORDER BY updated_at DESC"
-            )
+            if config_type:
+                df = db_client.execute_query(
+                    "SELECT * FROM quant_model_config WHERE config_type = %(config_type)s ORDER BY updated_at DESC",
+                    {"config_type": config_type},
+                )
+            else:
+                df = db_client.execute_query(
+                    "SELECT * FROM quant_model_config ORDER BY updated_at DESC"
+                )
             if df.empty:
                 return self._default_configs()
 

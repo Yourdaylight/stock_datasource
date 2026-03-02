@@ -257,8 +257,9 @@ async def lifespan(app: FastAPI):
             except Exception as inner_e:
                 logger.warning(f"Failed to ensure predefined table {schema.table_name}: {inner_e}")
 
-        # Create only the plugin tables required by the default frontend pages
-        required_plugins = [
+        # Create only configured plugin tables required by frontend pages.
+        # You can override by env: REQUIRED_PLUGIN_TABLES=tushare_daily_basic,tushare_daily,...
+        default_required_plugins = [
             "tushare_ths_daily",      # 同花顺行情数据
             "tushare_ths_index",      # 同花顺指数
             "tushare_idx_factor_pro", # 指数因子
@@ -269,6 +270,10 @@ async def lifespan(app: FastAPI):
             "tushare_stk_surv",       # 机构调研数据
             "tushare_report_rc",      # 研报覆盖数据
         ]
+        required_plugins_env = os.getenv("REQUIRED_PLUGIN_TABLES", "")
+        required_plugins = [
+            p.strip() for p in required_plugins_env.split(",") if p.strip()
+        ] or default_required_plugins
 
         for plugin_name in required_plugins:
             try:

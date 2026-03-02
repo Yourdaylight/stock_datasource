@@ -4,6 +4,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import * as echarts from 'echarts'
 import { useReportStore } from '@/stores/report'
 import type { FinancialData } from '@/api/report'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const reportStore = useReportStore()
 const stockCode = ref('')
@@ -918,7 +919,7 @@ onUnmounted(() => {
               <t-loading size="large" text="加载图表数据..." />
             </div>
             <div v-else-if="!sortedData.length" class="chart-empty">
-              <t-empty description="暂无趋势数据" />
+              <DataEmptyGuide description="暂无趋势数据" plugin-name="tushare_finace_indicator" />
             </div>
             <div v-else class="charts-grid">
               <div class="chart-item">

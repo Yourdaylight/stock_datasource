@@ -8,6 +8,7 @@ table_name and display_name are resolved dynamically from plugin_manager
 """
 
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -25,19 +26,52 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_identifier(name: str) -> str:
+    if not name or not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Unsafe identifier: {name}")
+    return name
+
 
 def _resolve_table_name(plugin_name: str) -> str:
     """Resolve table_name from plugin's schema.json dynamically."""
     schema = plugin_manager.get_plugin_schema(plugin_name)
-    if schema:
-        return schema.get("table_name", "")
-    logger.warning(f"Plugin '{plugin_name}' not found, cannot resolve table_name")
-    return ""
+    if not schema:
+        # Lazy reload once in case readiness checker is used before plugin discovery.
+        try:
+            plugin_manager.discover_plugins()
+            schema = plugin_manager.get_plugin_schema(plugin_name)
+        except Exception as e:
+            logger.warning(f"Plugin discovery failed while resolving '{plugin_name}': {e}")
+
+    if not schema:
+        logger.warning(f"Plugin '{plugin_name}' not found, cannot resolve table_name")
+        return ""
+
+    table_name = schema.get("table_name", "")
+    if not table_name:
+        logger.warning(f"Plugin '{plugin_name}' has empty table_name in schema")
+        return ""
+
+    try:
+        return _safe_identifier(table_name)
+    except ValueError as e:
+        logger.error(f"Plugin '{plugin_name}' invalid table_name '{table_name}': {e}")
+        return ""
 
 
 def _resolve_display_name(plugin_name: str) -> str:
     """Resolve display name from plugin's schema comment or config description."""
     plugin = plugin_manager.get_plugin(plugin_name)
+    if not plugin:
+        try:
+            plugin_manager.discover_plugins()
+            plugin = plugin_manager.get_plugin(plugin_name)
+        except Exception:
+            pass
+
     if plugin:
         schema = plugin.get_schema() if hasattr(plugin, "get_schema") else {}
         if schema.get("comment"):
@@ -179,6 +213,23 @@ class DataReadinessChecker:
         self, requirements: list[DataRequirement], stage: str
     ) -> DataReadinessResult:
         """Check a list of data requirements against ClickHouse."""
+        if not requirements:
+            logger.error(f"No requirements resolved for stage '{stage}'")
+            return DataReadinessResult(
+                is_ready=False,
+                checked_at=datetime.now().isoformat(),
+                stage=stage,
+                requirements=[],
+                missing_summary=MissingDataSummary(
+                    total_requirements=0,
+                    ready_count=0,
+                    missing_count=1,
+                    affected_engines=[stage],
+                    plugins_to_trigger=[],
+                    estimated_sync_time="待插件配置修复",
+                ),
+            )
+
         statuses: list[DataRequirementStatus] = []
         all_ready = True
 
@@ -207,8 +258,11 @@ class DataReadinessChecker:
         status = DataRequirementStatus(requirement=req)
 
         try:
+            safe_table = _safe_identifier(req.table_name)
+            safe_date_col = _safe_identifier(req.date_column)
+
             # 1. Check table existence
-            if not db_client.table_exists(req.table_name):
+            if not db_client.table_exists(safe_table):
                 status.status = DataStatus.MISSING_TABLE
                 status.suggested_plugins = [req.plugin_name]
                 status.suggested_task_type = "full"
@@ -216,7 +270,7 @@ class DataReadinessChecker:
 
             # 2. Check record count
             count_df = db_client.execute_query(
-                f"SELECT count() as cnt FROM {req.table_name}"
+                f"SELECT count() as cnt FROM {safe_table}"
             )
             count = int(count_df.iloc[0]["cnt"]) if len(count_df) > 0 else 0
             status.record_count = count
@@ -228,35 +282,32 @@ class DataReadinessChecker:
                 return status
 
             # 3. Check date range
-            date_col = req.date_column
             range_df = db_client.execute_query(
-                f"SELECT min({date_col}) as min_d, max({date_col}) as max_d FROM {req.table_name}"
+                f"SELECT min({safe_date_col}) as min_d, max({safe_date_col}) as max_d FROM {safe_table}"
             )
             if len(range_df) > 0:
                 min_d = str(range_df.iloc[0]["min_d"])
                 max_d = str(range_df.iloc[0]["max_d"])
                 status.existing_date_range = [min_d, max_d]
 
-                # Check if recent data is missing (within last 5 trading days)
-                if req.min_date:
-                    if max_d < req.min_date:
-                        status.status = DataStatus.MISSING_DATES
-                        status.missing_dates = [f"{max_d} ~ {req.min_date}"]
-                        status.suggested_plugins = [req.plugin_name]
-                        return status
+                if req.min_date and max_d < req.min_date:
+                    status.status = DataStatus.MISSING_DATES
+                    status.missing_dates = [f"{max_d} ~ {req.min_date}"]
+                    status.suggested_plugins = [req.plugin_name]
+                    status.suggested_task_type = "incremental"
+                    return status
 
             # 4. Check required columns exist
             if req.required_columns:
                 try:
-                    cols_sql = ", ".join(
-                        [f"{c}" for c in req.required_columns[:1]]
-                    )
+                    safe_col = _safe_identifier(req.required_columns[0])
                     db_client.execute_query(
-                        f"SELECT {cols_sql} FROM {req.table_name} LIMIT 1"
+                        f"SELECT {safe_col} FROM {safe_table} LIMIT 1"
                     )
                 except Exception:
-                    status.status = DataStatus.MISSING_TABLE
+                    status.status = DataStatus.INSUFFICIENT_DATA
                     status.suggested_plugins = [req.plugin_name]
+                    status.suggested_task_type = "full"
                     return status
 
             status.status = DataStatus.READY

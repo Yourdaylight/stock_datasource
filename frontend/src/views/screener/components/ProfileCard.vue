@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useScreenerStore } from '@/stores/screener'
 import type { StockProfile, ProfileDimension } from '@/api/screener'
+import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 
 const props = defineProps<{
   tsCode: string
@@ -135,7 +136,7 @@ const handleClose = () => {
         </div>
       </div>
       
-      <t-empty v-else description="暂无画像数据" />
+      <DataEmptyGuide v-else description="暂无画像数据" plugin-name="tushare_daily_basic" />
     </t-loading>
   </t-drawer>
 </template>

@@ -5,14 +5,18 @@ import { InfoCircleFilledIcon, ErrorCircleFilledIcon } from 'tdesign-icons-vue-n
 
 interface Props {
   visible: boolean
-  date: string
+  /** 可选：展示缺失的日期 */
+  date?: string
+  /** 可选：跳转数据管理时预选的插件名 */
   pluginName?: string
-  dataType?: 'ETF' | '指数'
+  /** 数据类型描述文案，支持任意字符串 */
+  dataType?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  date: '',
   pluginName: '',
-  dataType: 'ETF'
+  dataType: ''
 })
 
 const emit = defineEmits<{
@@ -65,7 +69,12 @@ const handleGoToDataManagement = () => {
         <ErrorCircleFilledIcon class="warning-icon" />
         <div class="warning-text">
           <p class="main-text">
-            当前日期 <strong>{{ formattedDate }}</strong> 暂无{{ dataType }}数据
+            <template v-if="formattedDate">
+              当前日期 <strong>{{ formattedDate }}</strong> 暂无{{ dataType || '相关' }}数据
+            </template>
+            <template v-else>
+              暂无{{ dataType || '相关' }}数据
+            </template>
           </p>
         </div>
       </div>
