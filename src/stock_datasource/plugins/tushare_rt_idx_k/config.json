@@ -1,0 +1,15 @@
+{
+  "plugin_name": "tushare_rt_idx_k",
+  "display_name": "指数实时日线",
+  "description": "获取指数实时日K线快照数据",
+  "api_name": "rt_idx_k",
+  "rate_limit": 120,
+  "required_points": "单独开权限",
+  "update_schedule": "realtime",
+  "update_time": "交易时段",
+  "category": "INDEX",
+  "role": "PRIMARY",
+  "tags": ["realtime", "kline", "daily", "index"],
+  "dependencies": [],
+  "schedule_enabled": false
+}

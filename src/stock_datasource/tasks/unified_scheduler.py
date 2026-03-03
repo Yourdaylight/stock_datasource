@@ -170,6 +170,10 @@ class UnifiedScheduler:
             "last_missing_report": self._last_missing_report,
         }
 
+    def get_apscheduler(self) -> Optional[BackgroundScheduler]:
+        """Expose scheduler instance for external module job registration."""
+        return self._scheduler
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

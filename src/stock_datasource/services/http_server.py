@@ -321,6 +321,19 @@ async def lifespan(app: FastAPI):
                 scheduler = get_unified_scheduler()
                 scheduler.start()
                 logger.info("UnifiedScheduler started (delayed)")
+
+                # Register realtime kline collection/sync jobs
+                try:
+                    from stock_datasource.modules.realtime_kline.scheduler import register_realtime_kline_jobs
+                    aps = scheduler.get_apscheduler()
+                    if aps is not None:
+                        register_realtime_kline_jobs(aps)
+                        logger.info("Realtime kline jobs registered")
+                    else:
+                        logger.warning("Realtime kline jobs registration skipped: scheduler unavailable")
+                except Exception as rt_e:
+                    logger.warning(f"Realtime kline jobs registration failed: {rt_e}")
+
             except Exception as inner_e:
                 logger.warning(f"UnifiedScheduler delayed start failed: {inner_e}")
         threading.Thread(target=_delayed_scheduler_start, daemon=True).start()

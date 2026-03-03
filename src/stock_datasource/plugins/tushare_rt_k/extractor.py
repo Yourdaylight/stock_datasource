@@ -3,6 +3,7 @@
 import logging
 import json
 import time
+import threading
 import pandas as pd
 from typing import Optional, List
 from pathlib import Path
@@ -10,6 +11,7 @@ from datetime import datetime
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
+from stock_datasource.core.proxy import proxy_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,10 @@ class RtKExtractor:
         
         # Rate limiting
         self._last_call_time = 0
+        # Tushare realtime接口在当前权限下常见上限约50次/分钟，保留少量余量
+        self.rate_limit = min(self.rate_limit, 48)
         self._min_interval = 60.0 / self.rate_limit
+        self._rate_lock = threading.Lock()
         
         self.fields = [
             "ts_code", "name", "pre_close", "high", "open", "low", "close",
@@ -52,15 +57,16 @@ class RtKExtractor:
         ]
     
     def _rate_limit(self):
-        """Apply rate limiting."""
-        current_time = time.time()
-        time_since_last = current_time - self._last_call_time
-        
-        if time_since_last < self._min_interval:
-            sleep_time = self._min_interval - time_since_last
-            time.sleep(sleep_time)
-        
-        self._last_call_time = time.time()
+        """Apply thread-safe rate limiting."""
+        with self._rate_lock:
+            current_time = time.time()
+            time_since_last = current_time - self._last_call_time
+
+            if time_since_last < self._min_interval:
+                sleep_time = self._min_interval - time_since_last
+                time.sleep(sleep_time)
+
+            self._last_call_time = time.time()
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def _call_api(self, ts_code: str) -> pd.DataFrame:
@@ -68,7 +74,8 @@ class RtKExtractor:
         self._rate_limit()
         
         try:
-            result = self.pro.rt_k(ts_code=ts_code)
+            with proxy_context():
+                result = self.pro.rt_k(ts_code=ts_code)
             if result is None or result.empty:
                 logger.warning(f"API returned empty data for {ts_code}")
                 return pd.DataFrame()
