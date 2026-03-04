@@ -2,6 +2,8 @@
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useOverviewStore } from '@/stores/overview'
 import { overviewApi, type HotEtf } from '@/api/overview'
+import { realtimeApi, type MinuteBar } from '@/api/realtime'
+import { useRealtimePolling } from '@/composables/useRealtimePolling'
 import { request } from '@/utils/request'
 import SectorHeatmap from '@/components/market/SectorHeatmap.vue'
 import SectorDetailDialog from '@/components/market/SectorDetailDialog.vue'
@@ -32,6 +34,39 @@ const hotStocksData = ref<HotStockItem[]>([])
 const hotStocksLoading = ref(false)
 let hotEtfTimer: number | undefined
 let isUnmounted = false
+
+// ---- Realtime index overlay ----
+const realtimeIndexMap = ref<Record<string, MinuteBar>>({})
+const realtimeEnabled = ref(false)
+
+const INDEX_CODES = [
+  '000001.SH', '399001.SZ', '399006.SZ', '000016.SH',
+  '000300.SH', '000905.SH', '000852.SH', '000688.SH'
+]
+
+const fetchRealtimeIndices = async () => {
+  try {
+    const resp = await realtimeApi.getBatchMinuteData(INDEX_CODES)
+    if (resp && resp.data) {
+      const map: Record<string, MinuteBar> = {}
+      for (const item of resp.data) {
+        if (item.latest) {
+          map[item.ts_code] = item.latest
+        }
+      }
+      realtimeIndexMap.value = map
+      realtimeEnabled.value = true
+    }
+  } catch {
+    // Realtime not available, degrade silently
+    realtimeEnabled.value = false
+  }
+}
+
+const { start: startPolling, stop: stopPolling, isPolling, lastUpdateTime } = useRealtimePolling(
+  fetchRealtimeIndices,
+  { intervalMs: 30000, immediate: true, tradingHoursOnly: true }
+)
 
 const scheduleHotEtfRefresh = () => {
   if (isUnmounted) return
@@ -92,8 +127,20 @@ const selectedSectorName = ref('')
 // AI dialog
 const aiDialogVisible = ref(false)
 
-// Overview computed
-const majorIndices = computed(() => overviewStore.majorIndices)
+// Overview computed — merge realtime data on top of daily data
+const majorIndices = computed(() => {
+  const base = overviewStore.majorIndices
+  if (!realtimeEnabled.value || Object.keys(realtimeIndexMap.value).length === 0) {
+    return base
+  }
+  return base.map(idx => {
+    const rt = realtimeIndexMap.value[idx.ts_code]
+    if (rt) {
+      return { ...idx, close: rt.close, pct_chg: rt.pct_chg ?? idx.pct_chg }
+    }
+    return idx
+  })
+})
 const hotEtfs = computed(() => hotEtfList.value)
 const quickAnalysis = computed(() => overviewStore.quickAnalysis)
 
@@ -137,11 +184,14 @@ onMounted(async () => {
   ])
   scheduleHotEtfRefresh()
   fetchHotStocks()
+  // Start realtime index polling
+  startPolling()
 })
 
 onUnmounted(() => {
   isUnmounted = true
   if (hotEtfTimer) window.clearTimeout(hotEtfTimer)
+  stopPolling()
 })
 </script>
 
@@ -153,6 +203,10 @@ onUnmounted(() => {
         <template v-if="activeMainTab === 'overview'">
         <!-- Top Section: Major Indices (one row) -->
         <div class="indices-section">
+          <div class="indices-header" v-if="realtimeEnabled && lastUpdateTime">
+            <t-tag size="small" theme="success" variant="light">实时</t-tag>
+            <span class="update-time">{{ lastUpdateTime }} 更新</span>
+          </div>
           <div class="indices-row" :class="{ loading: overviewStore.loading }">
             <div 
               v-for="idx in majorIndices" 
@@ -338,6 +392,19 @@ onUnmounted(() => {
 /* Indices Section */
 .indices-section {
   flex-shrink: 0;
+}
+
+.indices-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+.update-time {
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
 }
 
 .indices-row {

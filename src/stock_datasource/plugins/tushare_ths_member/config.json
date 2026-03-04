@@ -3,5 +3,17 @@
   "timeout": 30,
   "api_name": "ths_member",
   "description": "同花顺概念板块成分股",
-  "min_points": 2000
+  "min_points": 2000,
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "THS concept index code, e.g., 885001.TI"
+    },
+    "code": {
+      "type": "string",
+      "required": false,
+      "description": "Optional stock code to filter"
+    }
+  }
 }

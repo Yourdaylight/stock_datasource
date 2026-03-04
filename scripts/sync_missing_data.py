@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Sync missing market data for 2026 January."""
+"""Sync missing market data."""
 
 import sys
 import time

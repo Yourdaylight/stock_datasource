@@ -11,6 +11,7 @@ import DiagnosisPanel from './components/DiagnosisPanel.vue'
 import SyncDialog from './components/SyncDialog.vue'
 import GroupSyncDialog from './components/GroupSyncDialog.vue'
 import GroupDetailDialog from './components/GroupDetailDialog.vue'
+import RealtimePanel from './components/RealtimePanel.vue'
 
 const dataStore = useDataManageStore()
 const authStore = useAuthStore()
@@ -785,6 +786,11 @@ onMounted(() => {
               </template>
             </t-result>
           </div>
+        </t-tab-panel>
+
+        <!-- Realtime Data Tab -->
+        <t-tab-panel value="realtime" label="实时数据">
+          <RealtimePanel />
         </t-tab-panel>
       </t-tabs>
     </t-card>
