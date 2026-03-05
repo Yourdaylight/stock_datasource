@@ -2,6 +2,7 @@
 
 import importlib
 import pkgutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Type
@@ -81,6 +82,25 @@ class PluginManager:
                             self.logger.debug(f"Discovered plugin: {plugin_instance.name}")
                             
                 except Exception as e:
+                    if "No columns to parse from file" in str(e):
+                        try:
+                            time.sleep(0.2)
+                            module = importlib.import_module(f"{package_path}.{name}")
+                            for attr_name in dir(module):
+                                attr = getattr(module, attr_name)
+                                if (isinstance(attr, type) and
+                                    issubclass(attr, BasePlugin) and
+                                    attr != BasePlugin):
+                                    plugin_instance = attr()
+                                    self.register_plugin(plugin_instance)
+                                    discovered += 1
+                                    self.logger.debug(f"Discovered plugin after retry: {plugin_instance.name}")
+                            continue
+                        except Exception as retry_error:
+                            failed += 1
+                            self.logger.error(f"Failed to load plugin module {name} after retry: {retry_error}")
+                            continue
+
                     failed += 1
                     self.logger.error(f"Failed to load plugin module {name}: {e}")
             

@@ -3,7 +3,9 @@
 # Development stage
 FROM node:20-alpine AS development
 WORKDIR /app
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 COPY package*.json ./
+RUN npm config set registry ${NPM_REGISTRY}
 RUN npm ci
 COPY . .
 EXPOSE 3001
@@ -12,7 +14,9 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3001"]
 # Build stage
 FROM node:20-alpine AS builder
 WORKDIR /app
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 COPY package*.json ./
+RUN npm config set registry ${NPM_REGISTRY}
 RUN npm ci
 COPY . .
 # Skip TypeScript check, just build with vite directly

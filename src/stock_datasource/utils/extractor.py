@@ -9,10 +9,10 @@ import time
 from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 import pandas as pd
-import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from stock_datasource.config.settings import settings
+from tushare.pro.client import DataApi
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class BaseTuShareExtractor:
         if not self.token:
             raise ValueError("TuShare token not configured")
         
-        ts.set_token(self.token)
-        self.pro = ts.pro_api()
+        # Use new tushare pro API (v1.4+)
+        self.pro = DataApi(self.token)
         
         # Rate limiting
         self._last_call_time = 0

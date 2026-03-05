@@ -331,6 +331,11 @@ class ClickHouseClient:
                 result = self.client.query_dataframe(query, params)
                 return result
             except Exception as e:
+                if "No columns to parse from file" in str(e):
+                    logger.warning(
+                        f"Query returned empty/columnless result [{self.name}], returning empty DataFrame"
+                    )
+                    return pd.DataFrame()
                 if self._should_reconnect(e):
                     logger.warning(f"Reconnect ClickHouse during query_dataframe [{self.name}] due to: {e}")
                     self._reconnect()

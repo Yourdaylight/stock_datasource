@@ -152,6 +152,9 @@ class TuShareBalancesheetPlugin(BasePlugin):
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform balance sheet data for database insertion."""
+        if 'indept_acc_liab' in data.columns and 'indept_acct_liab' not in data.columns:
+            data = data.rename(columns={'indept_acc_liab': 'indept_acct_liab'})
+
         # All numeric columns from balance sheet
         numeric_columns = [
             'total_share', 'cap_rese', 'undistr_porfit', 'surplus_rese', 'special_rese',

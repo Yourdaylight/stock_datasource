@@ -3,12 +3,19 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 # Set timezone to Asia/Shanghai
 ENV TZ=Asia/Shanghai
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV UV_INDEX_URL=${UV_INDEX_URL}
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
     curl \
@@ -26,6 +33,12 @@ RUN uv sync --frozen --no-dev
 # Copy source code
 COPY src/ ./src/
 COPY cli.py ./
+
+# Install project package after source is available
+RUN uv sync --frozen --no-dev
+
+# Ensure optional market data providers required by plugins are available
+RUN uv pip install --python /app/.venv/bin/python --no-cache-dir yfinance finnhub-python
 
 # Expose port (default 6666)
 EXPOSE 6666
