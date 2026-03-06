@@ -169,13 +169,6 @@ class SentimentListResponse(BaseModel):
     message: str = Field(default="")
 
 
-class HotTopicsResponse(BaseModel):
-    """热点话题响应"""
-    success: bool = Field(default=True)
-    trade_date: Optional[str] = Field(default=None, description="数据日期")
-    data: List[HotTopic] = Field(default_factory=list)
-    message: str = Field(default="")
-
 
 class NewsSummaryResponse(BaseModel):
     """新闻摘要响应"""
