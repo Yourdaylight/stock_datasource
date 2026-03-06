@@ -716,3 +716,47 @@ class SchedulerRunResult(BaseModel):
     success: bool
     message: str
     task_type: str
+
+
+# ============ Realtime Data Management Schemas ============
+
+class RealtimePluginInfo(BaseModel):
+    """实时插件信息."""
+    plugin_name: str
+    display_name: str
+    description: str = ""
+    api_name: str = ""
+    category: str = ""
+    tags: List[str] = []
+    enabled: bool = False
+
+
+class RealtimeConfigResponse(BaseModel):
+    """实时数据配置响应."""
+    enabled: bool = False
+    watchlist_monitor_enabled: bool = False
+    collect_freq: str = "1MIN"
+    plugin_configs: Dict[str, Any] = {}
+
+
+class RealtimeConfigUpdate(BaseModel):
+    """更新实时数据配置请求."""
+    enabled: Optional[bool] = None
+    watchlist_monitor_enabled: Optional[bool] = None
+    collect_freq: Optional[str] = None
+
+
+class RealtimePluginConfigUpdate(BaseModel):
+    """更新单个实时插件配置请求."""
+    enabled: bool
+
+
+class RealtimeStatusResponse(BaseModel):
+    """实时数据状态响应."""
+    global_enabled: bool = False
+    watchlist_monitor_enabled: bool = False
+    collect_freq: str = "1MIN"
+    total_plugins: int = 0
+    enabled_plugins: int = 0
+    watchlist_count: int = 0
+    watchlist_codes: List[str] = []

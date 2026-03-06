@@ -44,6 +44,59 @@ logging.basicConfig(
 logger = logging.getLogger("task_worker")
 
 
+def _detect_plugin_param_style(plugin) -> str:
+    """Detect the parameter style a plugin expects.
+
+    Returns one of:
+        'date_range'   – needs start_date + end_date
+        'period'       – needs period (YYYYMMDD)
+        'entity_code'  – needs entity-specific code (index_code, ts_code, etc.),
+                         plugin should handle batch iteration internally
+        'no_params'    – no required params, can call with no args
+        'trade_date'   – default, needs trade_date
+    """
+    plugin_config = plugin.get_config() if hasattr(plugin, "get_config") else {}
+    params_schema = plugin_config.get("parameters_schema", {})
+
+    if "start_date" in params_schema and "end_date" in params_schema:
+        return "date_range"
+
+    # Check for entity-code params that are *required*
+    entity_keys = {"index_code", "ts_code", "code"}
+    required_entity = set()
+    for k in entity_keys:
+        if k in params_schema:
+            spec = params_schema[k]
+            # Only count as entity_code if the param is actually required
+            if isinstance(spec, dict) and spec.get("required", False):
+                required_entity.add(k)
+            elif not isinstance(spec, dict):
+                # Flat schema without required flag — treat as required
+                required_entity.add(k)
+    if required_entity:
+        if "trade_date" not in params_schema:
+            return "entity_code"
+
+    if "period" in params_schema and "trade_date" not in params_schema:
+        return "period"
+
+    # If all params in schema are optional (none required), plugin can run with no args
+    if params_schema:
+        has_any_required = any(
+            isinstance(v, dict) and v.get("required", False)
+            for v in params_schema.values()
+        )
+        if not has_any_required and "trade_date" not in params_schema:
+            return "no_params"
+
+    if not params_schema or all(
+        k in ("trade_date",) for k in params_schema
+    ):
+        return "trade_date"
+
+    return "trade_date"
+
+
 def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Queue) -> None:
     """Run plugin in a subprocess and report result via queue.
 
@@ -86,20 +139,42 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
 
             market = MARKET_HK if plugin.get_category() == PluginCategory.HK_STOCK else MARKET_CN
 
+            # Detect what parameters this plugin expects
+            param_style = _detect_plugin_param_style(plugin)
+
             if task_type == "full":
                 # Full sync: auto-detect parameter style from plugin config's
                 # parameters_schema, then run with a reasonable historical range.
                 total_records = 0
                 plugin_config = plugin.get_config() if hasattr(plugin, "get_config") else {}
-                params_schema = plugin_config.get("parameters_schema", {})
-                uses_date_range = "start_date" in params_schema and "end_date" in params_schema
 
-                if uses_date_range:
+                if param_style == "date_range":
                     # Plugins using start_date/end_date (financial statements)
                     end_dt = datetime.now().strftime("%Y%m%d")
                     start_dt = (datetime.now() - timedelta(days=365 * 2)).strftime("%Y%m%d")
                     logger.info(f"[full] {plugin_name}: date_range {start_dt}~{end_dt}")
                     result = plugin.run(start_date=start_dt, end_date=end_dt)
+                    if result.get("status") != "success":
+                        err = result.get("error", "插件执行失败")
+                        detail = result.get("error_detail", "")
+                        msg = f"{err}\n{detail}" if detail else err
+                        result_queue.put((False, 0, "retryable", msg))
+                        return
+                    total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                elif param_style == "entity_code":
+                    # Plugins that need entity codes: call with no args (let plugin handle batch internally)
+                    logger.info(f"[full] {plugin_name}: entity_code mode (no-arg call)")
+                    result = plugin.run()
+                    if result.get("status") != "success":
+                        err = result.get("error", "插件执行失败")
+                        detail = result.get("error_detail", "")
+                        msg = f"{err}\n{detail}" if detail else err
+                        result_queue.put((False, 0, "retryable", msg))
+                        return
+                    total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                elif param_style == "no_params":
+                    logger.info(f"[full] {plugin_name}: no-params mode")
+                    result = plugin.run()
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -143,13 +218,24 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                 prev_date = trade_calendar_service.get_prev_trading_day(today, market=market)
                 target_date = prev_date or (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
 
-            # incremental
-            # NOTE: some plugins (e.g. *_vip) are batch-mode and require `period` instead of `trade_date`.
-            run_kwargs: dict[str, Any] = {"trade_date": target_date}
-
+            # incremental: build run_kwargs based on plugin parameter style
             if plugin_name and plugin_name.endswith("_vip"):
                 year = target_date[:4]
+                run_kwargs: dict[str, Any] = {"period": f"{year}1231"}
+            elif param_style == "date_range":
+                # Plugins requiring start_date/end_date: use target_date for both
+                run_kwargs = {"start_date": target_date, "end_date": target_date}
+                logger.info(f"[incremental] {plugin_name}: date_range mode ({target_date})")
+            elif param_style == "period":
+                year = target_date[:4]
                 run_kwargs = {"period": f"{year}1231"}
+                logger.info(f"[incremental] {plugin_name}: period mode ({year}1231)")
+            elif param_style == "entity_code":
+                # Plugins requiring entity codes: call with no args (plugin handles batch internally)
+                run_kwargs = {}
+                logger.info(f"[incremental] {plugin_name}: entity_code mode (no-arg call)")
+            else:
+                run_kwargs = {"trade_date": target_date}
 
             result = plugin.run(**run_kwargs)
             if result.get("status") != "success":
@@ -195,6 +281,12 @@ class TaskWorker:
         plugin_manager.discover_plugins()
         logger.info(f"Worker {self.worker_id}: Discovered {len(plugin_manager.list_plugins())} plugins")
         
+        # Clean up stale running tasks on startup (only worker 0 to avoid races)
+        if self.worker_id == 0:
+            self._cleanup_stale_running_tasks()
+        
+        last_cleanup = time.time()
+        
         while self.running:
             try:
                 # Get next task from queue (blocks for up to 5 seconds)
@@ -203,12 +295,88 @@ class TaskWorker:
                 if task_data:
                     self._process_task(task_data)
                 
+                # Periodic stale task cleanup (every 30 minutes, only worker 0)
+                if self.worker_id == 0 and time.time() - last_cleanup > 1800:
+                    self._cleanup_stale_running_tasks()
+                    last_cleanup = time.time()
+                
             except Exception as e:
                 logger.error(f"Worker {self.worker_id}: Error in main loop: {e}")
                 traceback.print_exc()
                 time.sleep(1)  # Prevent tight error loop
         
         logger.info(f"Worker {self.worker_id}: Stopped")
+    
+    def _cleanup_stale_running_tasks(self):
+        """Clean up stale entries in the running_tasks set.
+        
+        Tasks stuck in 'running' status for longer than the max timeout
+        are likely from crashed workers. Re-queue or fail them.
+        """
+        from stock_datasource.services.task_queue import RedisUnavailableError
+        
+        try:
+            redis = task_queue._get_redis()
+        except RedisUnavailableError:
+            return
+        
+        try:
+            running_ids = redis.smembers(task_queue.RUNNING_KEY)
+            if not running_ids:
+                return
+            
+            now = datetime.now()
+            stale_count = 0
+            max_stale_hours = 5  # Tasks running > 5 hours are considered stale
+            
+            for task_id in running_ids:
+                task_data = redis.hgetall(task_queue.TASK_KEY.format(task_id=task_id))
+                if not task_data:
+                    # Task hash expired/deleted but still in running set
+                    redis.srem(task_queue.RUNNING_KEY, task_id)
+                    stale_count += 1
+                    continue
+                
+                status = task_data.get("status", "")
+                started_at = task_data.get("started_at", "")
+                
+                # If status is not actually 'running', remove from running set
+                if status not in ("running",):
+                    redis.srem(task_queue.RUNNING_KEY, task_id)
+                    stale_count += 1
+                    continue
+                
+                # Check if task has been running too long
+                if started_at:
+                    try:
+                        started = datetime.fromisoformat(started_at)
+                        age_hours = (now - started).total_seconds() / 3600
+                        if age_hours > max_stale_hours:
+                            plugin_name = task_data.get("plugin_name", "unknown")
+                            attempt = int(task_data.get("attempt", 0))
+                            max_attempts = int(task_data.get("max_attempts", 3))
+                            
+                            # Mark as failed
+                            redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
+                                "status": "failed",
+                                "error_message": f"Stale task cleanup: running for {age_hours:.1f}h (likely from crashed worker)",
+                                "completed_at": now.isoformat(),
+                                "updated_at": now.isoformat(),
+                            })
+                            redis.srem(task_queue.RUNNING_KEY, task_id)
+                            stale_count += 1
+                            
+                            logger.warning(
+                                f"Worker {self.worker_id}: Cleaned stale task {task_id} "
+                                f"({plugin_name}, age={age_hours:.1f}h)"
+                            )
+                    except (ValueError, TypeError):
+                        pass
+            
+            if stale_count > 0:
+                logger.info(f"Worker {self.worker_id}: Cleaned {stale_count} stale running tasks")
+        except Exception as e:
+            logger.warning(f"Worker {self.worker_id}: Stale task cleanup error: {e}")
     
     def _process_task(self, task_data: dict):
         """Process a single task with timeout + automatic retries."""

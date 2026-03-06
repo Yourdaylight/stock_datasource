@@ -114,6 +114,19 @@ async def search_stock(keyword: str = Query(..., min_length=1, description="Sear
     return [StockSearchResult(**r) for r in results]
 
 
+@router.get("/resolve")
+async def resolve_stock_code(code: str = Query(..., min_length=1, description="Stock code to resolve")):
+    """Resolve a possibly incomplete stock code to full ts_code.
+    
+    Examples: '000001' -> '000001.SZ', '510050' -> '510050.SH', '00700' -> '00700.HK'
+    """
+    service = get_market_service()
+    result = await service.resolve_stock_code(code)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Stock code '{code}' not found")
+    return result
+
+
 # =============================================================================
 # Market Overview Endpoints
 # =============================================================================

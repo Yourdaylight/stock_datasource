@@ -209,6 +209,37 @@ except Exception:
 settings.DATA_DIR.mkdir(exist_ok=True)
 settings.LOGS_DIR.mkdir(exist_ok=True)
 
+# Local dev auto-fix: override Docker-internal hostnames with localhost equivalents.
+# The .env sets REDIS_HOST=stock-redis for Docker, but local dev can't resolve that.
+def _apply_local_dev_overrides():
+    """When running outside Docker, remap container-internal hostnames to localhost."""
+    if os.path.exists('/.dockerenv'):
+        return
+    if os.path.exists('/proc/1/cgroup'):
+        with open('/proc/1/cgroup', 'r') as f:
+            content = f.read()
+            if 'docker' in content or 'kubepods' in content:
+                return
+
+    # Not in Docker — fix Redis hostname
+    _docker_redis_hosts = {"stock-redis", "redis"}
+    if settings.REDIS_HOST in _docker_redis_hosts:
+        # Use REDIS_EXPOSE_PORT from env if available, else try common ports
+        expose_port = os.environ.get("REDIS_EXPOSE_PORT")
+        if expose_port:
+            settings.REDIS_PORT = int(expose_port)
+        elif settings.REDIS_PORT == 6379:
+            # Check if the expose port 16379 is reachable
+            import socket
+            try:
+                with socket.create_connection(("localhost", 16379), timeout=1):
+                    settings.REDIS_PORT = 16379
+            except OSError:
+                pass  # Keep 6379
+        settings.REDIS_HOST = "localhost"
+
+_apply_local_dev_overrides()
+
 # Patch TuShare to use HTTPS instead of HTTP
 # This is necessary because some proxies block HTTP POST requests but allow HTTPS
 def _patch_tushare_https():

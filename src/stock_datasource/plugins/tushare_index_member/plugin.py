@@ -1,5 +1,7 @@
 """TuShare index member data plugin implementation."""
 
+import logging
+import time
 import pandas as pd
 from typing import Dict, Any, List
 from datetime import datetime
@@ -9,6 +11,8 @@ import json
 from stock_datasource.plugins import BasePlugin
 from stock_datasource.core.base_plugin import PluginCategory, PluginRole
 from .extractor import extractor
+
+logger = logging.getLogger(__name__)
 
 
 class TuShareIndexMemberPlugin(BasePlugin):
@@ -51,10 +55,41 @@ class TuShareIndexMemberPlugin(BasePlugin):
         index_code = kwargs.get('index_code')
         is_new = kwargs.get('is_new')
         
-        if not index_code:
-            raise ValueError("index_code is required")
+        if index_code:
+            return extractor.extract(index_code, is_new)
         
-        return extractor.extract(index_code, is_new)
+        # Batch mode: iterate over known index codes from ods_index_basic
+        self.logger.info("Batch mode: fetching index members for all known indices")
+        if not self.db:
+            raise ValueError("Database not initialized for batch mode")
+        
+        indices_df = self.db.execute_query(
+            "SELECT DISTINCT ts_code FROM ods_index_basic WHERE ts_code IS NOT NULL LIMIT 200"
+        )
+        if indices_df.empty:
+            self.logger.warning("No index codes found in ods_index_basic")
+            return pd.DataFrame()
+        
+        all_data = []
+        total = len(indices_df)
+        for i, row in indices_df.iterrows():
+            code = row['ts_code']
+            try:
+                self.logger.info(f"[{i+1}/{total}] Extracting members for {code}")
+                data = extractor.extract(code, is_new='Y')
+                if not data.empty:
+                    all_data.append(data)
+                time.sleep(0.15)
+            except Exception as e:
+                self.logger.warning(f"[{i+1}/{total}] {code}: Failed - {e}")
+        
+        if not all_data:
+            self.logger.warning("No index member data extracted")
+            return pd.DataFrame()
+        
+        combined = pd.concat(all_data, ignore_index=True)
+        self.logger.info(f"Extracted {len(combined)} index member records from {len(all_data)} indices")
+        return combined
     
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         if data.empty:

@@ -3,5 +3,17 @@
   "timeout": 30,
   "api_name": "index_member",
   "description": "指数成分股数据",
-  "min_points": 500
+  "min_points": 500,
+  "parameters_schema": {
+    "index_code": {
+      "type": "string",
+      "required": true,
+      "description": "Index code, e.g., 000300.SH"
+    },
+    "is_new": {
+      "type": "string",
+      "required": false,
+      "description": "Y for current members only, N for historical"
+    }
+  }
 }

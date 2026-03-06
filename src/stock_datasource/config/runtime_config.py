@@ -43,6 +43,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "last_run_at": None,
         "next_run_at": None,
     },
+    "realtime": {
+        "enabled": False,
+        "watchlist_monitor_enabled": False,
+        "collect_freq": "1MIN",
+        "plugin_configs": {},  # plugin_name -> {"enabled": bool}
+    },
     "plugin_schedules": {},  # plugin_name -> {"schedule_enabled": bool, "full_scan_enabled": bool}
     "schedule_history": [],  # List of ScheduleExecutionRecord dicts
     "plugin_groups": [],     # List of PluginGroup dicts
@@ -82,6 +88,7 @@ def save_runtime_config(
     schedule: Optional[Dict[str, Any]] = None,
     plugin_schedules: Optional[Dict[str, Any]] = None,
     schedule_history: Optional[list] = None,
+    realtime: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Persist runtime config updates to disk and return merged config."""
     with _lock:
@@ -98,6 +105,8 @@ def save_runtime_config(
             current["plugin_schedules"].update(plugin_schedules)
         if schedule_history is not None:
             current["schedule_history"] = schedule_history
+        if realtime is not None:
+            current.setdefault("realtime", {}).update(realtime)
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(current, f, ensure_ascii=False, indent=2, default=str)
@@ -347,3 +356,47 @@ def _save_config(config: Dict[str, Any], **updates) -> None:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2, default=str)
+
+
+# ============ Realtime Data Management ============
+
+def get_realtime_config() -> Dict[str, Any]:
+    """Get realtime data management configuration."""
+    config = load_runtime_config()
+    return config.get("realtime", DEFAULT_CONFIG["realtime"].copy())
+
+
+def save_realtime_config(
+    enabled: Optional[bool] = None,
+    watchlist_monitor_enabled: Optional[bool] = None,
+    collect_freq: Optional[str] = None,
+    plugin_configs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Save realtime data management configuration."""
+    config = load_runtime_config()
+    rt = config.get("realtime", DEFAULT_CONFIG["realtime"].copy())
+
+    if enabled is not None:
+        rt["enabled"] = enabled
+    if watchlist_monitor_enabled is not None:
+        rt["watchlist_monitor_enabled"] = watchlist_monitor_enabled
+    if collect_freq is not None:
+        rt["collect_freq"] = collect_freq
+    if plugin_configs is not None:
+        rt.setdefault("plugin_configs", {}).update(plugin_configs)
+
+    _save_config(config, realtime=rt)
+    return rt
+
+
+def get_realtime_plugin_config(plugin_name: str) -> Dict[str, Any]:
+    """Get realtime config for a specific plugin."""
+    rt = get_realtime_config()
+    return rt.get("plugin_configs", {}).get(plugin_name, {"enabled": False})
+
+
+def save_realtime_plugin_config(plugin_name: str, enabled: bool) -> Dict[str, Any]:
+    """Save realtime config for a specific plugin."""
+    rt = get_realtime_config()
+    rt.setdefault("plugin_configs", {})[plugin_name] = {"enabled": enabled}
+    return save_realtime_config(plugin_configs=rt["plugin_configs"])
