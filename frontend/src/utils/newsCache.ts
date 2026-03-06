@@ -1,4 +1,4 @@
-import type { NewsItem, HotTopic } from '@/types/news'
+import type { NewsItem } from '@/types/news'
 
 // 缓存配置
 interface CacheConfig {
@@ -164,15 +164,6 @@ export class NewsCache {
     return this.cacheManager.get('stock-news', { stockCode, days })
   }
 
-  // 缓存热点话题
-  setHotTopics(data: HotTopic[]): void {
-    this.cacheManager.set('hot-topics', {}, data)
-  }
-
-  getHotTopics(): HotTopic[] | null {
-    return this.cacheManager.get('hot-topics', {})
-  }
-
   // 缓存搜索结果
   setSearchResults(keyword: string, filters: Record<string, any>, data: NewsItem[]): void {
     this.cacheManager.set('search-results', { keyword, ...filters }, data)
@@ -204,11 +195,6 @@ export class NewsCache {
     this.cacheManager.deleteByPrefix('search-results')
   }
 
-  // 清除热点话题缓存
-  clearHotTopics(): void {
-    this.cacheManager.deleteByPrefix('hot-topics')
-  }
-
   // 获取缓存统计
   getStats() {
     return this.cacheManager.getStats()
@@ -224,12 +210,6 @@ export class NewsCache {
 export const newsCache = new NewsCache({
   maxAge: 5 * 60 * 1000, // 新闻缓存5分钟
   maxSize: 200 // 最多缓存200个条目
-})
-
-// 热点话题缓存（更短的过期时间）
-export const hotTopicsCache = new NewsCache({
-  maxAge: 2 * 60 * 1000, // 热点话题缓存2分钟
-  maxSize: 50
 })
 
 // 缓存装饰器
@@ -275,10 +255,9 @@ export const startCacheCleanup = (intervalMs: number = 60000) => {
 
   cleanupInterval = setInterval(() => {
     const newsCleanup = newsCache.cleanup()
-    const hotTopicsCleanup = hotTopicsCache.cleanup()
     
-    if (newsCleanup > 0 || hotTopicsCleanup > 0) {
-      console.log(`Cache cleanup: removed ${newsCleanup + hotTopicsCleanup} expired items`)
+    if (newsCleanup > 0) {
+      console.log(`Cache cleanup: removed ${newsCleanup} expired items`)
     }
   }, intervalMs)
 }

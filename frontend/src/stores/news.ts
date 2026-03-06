@@ -3,7 +3,6 @@ import { ref, computed } from 'vue'
 import { 
   newsAPI, 
   type NewsListResponse,
-  type HotTopicsResponse,
   type SentimentAnalysisResponse
 } from '@/api/news'
 import { NewsCacheManager } from '@/utils/newsCache'
@@ -50,6 +49,8 @@ export const useNewsStore = defineStore('news', () => {
   const loading = ref(false)
   const hotTopicsLoading = ref(false)
   const sentimentLoading = ref(false)
+  const partialData = ref(false)
+  const failedSources = ref<string[]>([])
   
   // Pagination
   const currentPage = ref(1)
@@ -122,13 +123,6 @@ export const useNewsStore = defineStore('news', () => {
         }
       }
       
-      if (filters.value.keywords) {
-        const keyword = filters.value.keywords.toLowerCase()
-        if (!item.title.toLowerCase().includes(keyword) && 
-            !item.content.toLowerCase().includes(keyword)) {
-          return false
-        }
-      }
       
       if (filters.value.date_range[0] && filters.value.date_range[1]) {
         const newsDate = new Date(item.publish_time)
@@ -217,6 +211,8 @@ export const useNewsStore = defineStore('news', () => {
       total.value = response.total
       hasMore.value = response.has_more
       currentPage.value = response.page
+      partialData.value = !!response.partial
+      failedSources.value = response.failed_sources || []
 
       if (isFirstPage) {
         newsCache.set('market-news', requestParams, response)
@@ -241,6 +237,8 @@ export const useNewsStore = defineStore('news', () => {
       total.value = response.total
       hasMore.value = false
       currentPage.value = 1
+      partialData.value = !!response.partial
+      failedSources.value = response.failed_sources || []
       activeStockCode.value = normalizedCode
       filters.value.stock_codes = [normalizedCode]
     } catch (e) {
@@ -330,23 +328,33 @@ export const useNewsStore = defineStore('news', () => {
   }
   
   const applyFilters = async (newFilters: Partial<NewsFilters>) => {
+    const deprecatedSources = new Set(['tushare_cctv', 'tushare_npr'])
     const mergedFilters = { ...filters.value, ...newFilters }
     if (mergedFilters.stock_codes.length > 0) {
       mergedFilters.stock_codes = mergedFilters.stock_codes
         .map(code => (code ? normalizeStockCode(code) : code))
         .filter(code => !!code) as string[]
     }
+    mergedFilters.sources = mergedFilters.sources.filter((v) => !deprecatedSources.has(v))
+    mergedFilters.keywords = (mergedFilters.keywords || '').trim()
     filters.value = mergedFilters
     currentPage.value = 1
 
     const nextStockCode = mergedFilters.stock_codes[0]
+
+    if (mergedFilters.keywords) {
+      setActiveStockCode(nextStockCode || null)
+      await searchNews(mergedFilters.keywords, true)
+      return
+    }
+
     if (nextStockCode) {
       await fetchNewsByStock(nextStockCode, 30)
       return
     }
 
     setActiveStockCode(null)
-    clearNewsResults()
+    await fetchMarketNews({ page: 1, reset: true })
   }
   
   const clearFilters = async () => {
@@ -360,7 +368,7 @@ export const useNewsStore = defineStore('news', () => {
     }
     currentPage.value = 1
     setActiveStockCode(null)
-    clearNewsResults()
+    await fetchMarketNews({ page: 1, reset: true })
   }
   
   const setSortBy = async (newSortBy: NewsSortBy, newSortOrder: 'asc' | 'desc' = 'desc') => {
@@ -374,7 +382,7 @@ export const useNewsStore = defineStore('news', () => {
       return
     }
 
-    clearNewsResults()
+    await fetchMarketNews({ page: 1, reset: true })
   }
   
   const showNewsDetail = (news: NewsItem) => {
@@ -436,6 +444,8 @@ export const useNewsStore = defineStore('news', () => {
   }
   
   const fetchAvailableOptions = async () => {
+    const deprecatedSources = new Set(['tushare_cctv', 'tushare_npr'])
+
     const extractValues = (resp: any): string[] => {
       const data = resp?.data ?? resp
       if (!Array.isArray(data)) return []
@@ -451,7 +461,10 @@ export const useNewsStore = defineStore('news', () => {
       ])
 
       availableCategories.value = extractValues(categoriesResp).filter((v) => v !== 'all')
-      availableSources.value = extractValues(sourcesResp).filter((v) => v !== 'all')
+      availableSources.value = extractValues(sourcesResp).filter(
+        (v) => v !== 'all' && !deprecatedSources.has(v)
+      )
+      filters.value.sources = filters.value.sources.filter((v) => !deprecatedSources.has(v))
     } catch (e) {
       console.error('Failed to fetch available options:', e)
     }
@@ -486,12 +499,12 @@ export const useNewsStore = defineStore('news', () => {
   return {
     // State
     newsItems,
-    hotTopics,
     filters,
     userPreferences,
     loading,
-    hotTopicsLoading,
     sentimentLoading,
+    partialData,
+    failedSources,
     currentPage,
     pageSize,
     total,
@@ -508,12 +521,10 @@ export const useNewsStore = defineStore('news', () => {
     // Computed
     filteredNews,
     sentimentStats,
-    trendingTopics,
     
     // Actions
     fetchMarketNews,
     fetchNewsByStock,
-    fetchHotTopics,
     searchNews,
     analyzeSentiment,
     loadMoreNews,
@@ -530,7 +541,6 @@ export const useNewsStore = defineStore('news', () => {
     fetchAvailableOptions,
     favoriteNews,
     unfavoriteNews,
-    clearNewsResults,
-    clearHotTopics
+    clearNewsResults
   }
 })

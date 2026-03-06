@@ -256,27 +256,20 @@ onUnmounted(() => {
 
 <style scoped>
 .sentiment-chart-panel {
-  height: 50%;
-  min-height: 300px;
+  max-height: 360px;
 }
 
 .sentiment-chart-card {
-  height: 100%;
   background: #ffffff;
   border: 1px solid #e8e8e8;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  display: flex;
-  flex-direction: column;
 }
 
 .sentiment-chart-card :deep(.t-card__body) {
-  flex: 1;
   padding: 8px;
-  overflow: hidden;
 }
 
 .sentiment-chart-content {
-  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -340,9 +333,8 @@ onUnmounted(() => {
 }
 
 .chart-container {
-  flex: 1;
   position: relative;
-  min-height: 150px;
+  height: 160px;
 }
 
 .sentiment-chart {
@@ -434,11 +426,6 @@ onUnmounted(() => {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .sentiment-chart-panel {
-    height: auto;
-    min-height: 250px;
-  }
-  
   .sentiment-stats {
     gap: 4px;
   }
@@ -452,7 +439,7 @@ onUnmounted(() => {
   }
   
   .chart-container {
-    min-height: 120px;
+    height: 120px;
   }
   
   .index-value {

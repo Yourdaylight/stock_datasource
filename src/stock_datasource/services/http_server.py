@@ -13,7 +13,15 @@ import signal
 
 # Load environment variables at module import
 from dotenv import load_dotenv
-load_dotenv()
+
+# 优先从项目根目录 .env 加载，避免因启动目录不同导致读取失败
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DOTENV_PATH = _PROJECT_ROOT / ".env"
+load_dotenv(dotenv_path=_DOTENV_PATH)
+
+# 若环境变量存在空值（例如 shell 中导出了空串），允许用 .env 覆盖一次
+if not os.getenv("TUSHARE_TOKEN") and _DOTENV_PATH.exists():
+    load_dotenv(dotenv_path=_DOTENV_PATH, override=True)
 
 from stock_datasource.core.service_generator import ServiceGenerator
 from stock_datasource.core.base_service import BaseService
