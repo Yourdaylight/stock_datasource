@@ -405,7 +405,6 @@ class NewsAnalystAgent(LangGraphAgent):
             get_news_by_stock,
             get_market_news,
             analyze_news_sentiment,
-            get_hot_topics,
             summarize_news,
         ]
     

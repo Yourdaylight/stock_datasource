@@ -3,18 +3,15 @@ import {
   safeApiCall, 
   withRetry, 
   validateNewsItems, 
-  validateHotTopics,
   validateNewsSentiment,
   NewsErrorType
 } from '@/utils/newsErrorHandler'
 import type {
   NewsItem,
   NewsSentiment,
-  HotTopic,
   NewsFilters,
   GetNewsByStockParams,
   GetMarketNewsParams,
-  GetHotTopicsParams,
   AnalyzeSentimentParams,
   SearchNewsParams
 } from '@/types/news'
@@ -25,12 +22,16 @@ export interface NewsListResponse {
   page_size: number
   data: NewsItem[]
   has_more: boolean
+  partial?: boolean
+  failed_sources?: string[]
 }
 
 export interface SimpleNewsListResponse {
   success: boolean
   total: number
   data: NewsItem[]
+  partial?: boolean
+  failed_sources?: string[]
   message?: string
 }
 
@@ -96,6 +97,42 @@ export const newsAPI = {
       { 
         showError: true,
         fallbackValue: { success: false, total: 0, data: [], message: '' }
+      }
+    ) as Promise<SimpleNewsListResponse>
+  },
+
+  // 获取券商研报
+  getResearchReports(params: {
+    trade_date?: string
+    start_date?: string
+    end_date?: string
+    report_type?: string
+    ts_code?: string
+    inst_csname?: string
+    ind_name?: string
+    limit?: number
+  } = {}): Promise<SimpleNewsListResponse> {
+    const queryParams = new URLSearchParams()
+    if (params.trade_date) queryParams.append('trade_date', params.trade_date)
+    if (params.start_date) queryParams.append('start_date', params.start_date)
+    if (params.end_date) queryParams.append('end_date', params.end_date)
+    if (params.report_type) queryParams.append('report_type', params.report_type)
+    if (params.ts_code) queryParams.append('ts_code', params.ts_code)
+    if (params.inst_csname) queryParams.append('inst_csname', params.inst_csname)
+    if (params.ind_name) queryParams.append('ind_name', params.ind_name)
+    if (params.limit) queryParams.append('limit', params.limit.toString())
+
+    return safeApiCall(
+      async () => {
+        const response = await withRetry(() => request.get(`/api/news/research?${queryParams.toString()}`))
+        if (response.data) {
+          response.data = validateNewsItems(response.data)
+        }
+        return response
+      },
+      {
+        showError: true,
+        fallbackValue: { success: false, total: 0, data: [], partial: false, failed_sources: [], message: '' }
       }
     ) as Promise<SimpleNewsListResponse>
   },

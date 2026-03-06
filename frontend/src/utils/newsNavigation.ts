@@ -57,14 +57,6 @@ export class NewsNavigationHelper {
     })
   }
 
-  // 跳转到热点话题相关新闻
-  toTopicNews(topic: string, relatedStocks?: string[]) {
-    this.toNewsPage({
-      keywords: topic,
-      stock_codes: relatedStocks
-    })
-  }
-
   // 跳转到特定类型的新闻
   toCategoryNews(category: string, stockCode?: string) {
     this.toNewsPage({
@@ -152,10 +144,6 @@ export const navigateToSentimentNews = (sentiment: 'positive' | 'negative' | 'ne
   getNewsNavigation().toSentimentNews(sentiment, stockCode)
 }
 
-export const navigateToTopicNews = (topic: string, relatedStocks?: string[]) => {
-  getNewsNavigation().toTopicNews(topic, relatedStocks)
-}
-
 export const navigateToCategoryNews = (category: string, stockCode?: string) => {
   getNewsNavigation().toCategoryNews(category, stockCode)
 }
@@ -168,7 +156,6 @@ export const useNewsNavigation = () => {
     toNewsPage: helper.toNewsPage.bind(helper),
     toStockNews: helper.toStockNews.bind(helper),
     toSentimentNews: helper.toSentimentNews.bind(helper),
-    toTopicNews: helper.toTopicNews.bind(helper),
     toCategoryNews: helper.toCategoryNews.bind(helper),
     parseFiltersFromQuery: helper.parseFiltersFromQuery.bind(helper),
     updateQuery: helper.updateQuery.bind(helper)

@@ -34,8 +34,8 @@ const categoryOptions = [
   { label: '公告', value: 'announcement' },
   { label: '快讯', value: 'flash' },
   { label: '分析', value: 'analysis' },
-  { label: '政策', value: 'policy' },
-  { label: '行业', value: 'industry' }
+  { label: '行业', value: 'industry' },
+  { label: '券商研报', value: 'research' }
 ]
 
 // 情绪选项

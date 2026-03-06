@@ -139,7 +139,7 @@ const availableSourcesSafe = computed(() =>
 
 const isStockMode = computed(() => !!props.activeStockCode)
 const emptyDescription = computed(() =>
-  isStockMode.value ? '暂无相关新闻数据' : '请输入股票代码后搜索新闻'
+  isStockMode.value ? '暂无相关新闻数据' : '暂无符合当前筛选条件的新闻'
 )
 
 const availableCategoryOptions = computed(() => {
@@ -147,8 +147,8 @@ const availableCategoryOptions = computed(() => {
     { label: '公告', value: 'announcement' },
     { label: '快讯', value: 'flash' },
     { label: '分析', value: 'analysis' },
-    { label: '政策', value: 'policy' },
-    { label: '行业', value: 'industry' }
+    { label: '行业', value: 'industry' },
+    { label: '券商研报', value: 'research' }
   ]
   return categoryOptions.filter(
     (option) =>
@@ -158,8 +158,24 @@ const availableCategoryOptions = computed(() => {
 })
 
 const availableSourceOptions = computed(() => {
+  const sourceLabels: Record<string, string> = {
+    tushare_news: 'Tushare 快讯',
+    tushare_major: 'Tushare 通讯',
+    tushare_anns: 'Tushare 公告',
+    tushare_research: 'Tushare 研报',
+    sina: '新浪财经',
+    wallstreetcn: '华尔街见闻',
+    '10jqka': '同花顺',
+    eastmoney: '东方财富',
+    yuncaijing: '云财经',
+    fenghuang: '凤凰新闻',
+    jinrongjie: '金融界',
+    cls: '财联社',
+    yicai: '第一财经'
+  }
+
   return availableSourcesSafe.value.map((source) => ({
-    label: source,
+    label: sourceLabels[source] || source,
     value: source
   }))
 })

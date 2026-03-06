@@ -1,6 +1,6 @@
 """News module HTTP router.
 
-Provides API endpoints for news retrieval, sentiment analysis, and hot topics.
+Provides API endpoints for news retrieval and sentiment analysis.
 """
 
 from typing import Optional
@@ -12,7 +12,6 @@ from .schemas import (
     NewsCategory,
     NewsListResponse,
     SentimentListResponse,
-    HotTopicsResponse,
     NewsSummaryResponse,
 )
 
@@ -86,6 +85,9 @@ async def get_categories():
         {"value": "analysis", "label": "分析"},
         {"value": "policy", "label": "政策"},
         {"value": "industry", "label": "行业"},
+        {"value": "cctv", "label": "新闻联播"},
+        {"value": "research", "label": "券商研报"},
+        {"value": "npr", "label": "国家政策"},
     ]
     return {
         "success": True,
@@ -104,8 +106,21 @@ async def get_sources():
     """
     sources = [
         {"value": "all", "label": "全部来源"},
-        {"value": "tushare", "label": "公告数据（Tushare）"},
-        {"value": "sina", "label": "财经新闻（新浪）"},
+        {"value": "tushare_news", "label": "Tushare 快讯"},
+        {"value": "tushare_major", "label": "Tushare 通讯"},
+        {"value": "tushare_anns", "label": "Tushare 公告"},
+        {"value": "tushare_cctv", "label": "Tushare 新闻联播"},
+        {"value": "tushare_research", "label": "Tushare 研报"},
+        {"value": "tushare_npr", "label": "Tushare 政策"},
+        {"value": "sina", "label": "新浪财经（兜底）"},
+        {"value": "wallstreetcn", "label": "华尔街见闻"},
+        {"value": "10jqka", "label": "同花顺"},
+        {"value": "eastmoney", "label": "东方财富"},
+        {"value": "yuncaijing", "label": "云财经"},
+        {"value": "fenghuang", "label": "凤凰新闻"},
+        {"value": "jinrongjie", "label": "金融界"},
+        {"value": "cls", "label": "财联社"},
+        {"value": "yicai", "label": "第一财经"},
     ]
     return {
         "success": True,
@@ -156,6 +171,7 @@ async def get_news_list(
         
         # 获取基础新闻数据
         all_news = await service.get_market_news(news_category, limit=fetch_limit)
+        partial, failed_sources = service.consume_fetch_meta()
         
         # 如果没有筛选条件且source也是all或空，直接分页返回，避免不必要的遍历
         if not source or source == "all":
@@ -173,6 +189,8 @@ async def get_news_list(
                     "page_size": page_size,
                     "data": page_data,
                     "has_more": end_idx < total,
+                    "partial": partial,
+                    "failed_sources": failed_sources,
                     "message": ""
                 }
         
@@ -184,9 +202,10 @@ async def get_news_list(
         # 应用筛选条件
         filtered_news = []
         for news in all_news:
-            # 来源筛选
-            if source and source != "all" and news.source != source:
-                continue
+            # 来源筛选（支持 source 或 news_src）
+            if source and source != "all":
+                if news.source != source and (getattr(news, "news_src", None) != source):
+                    continue
             
             # 股票代码筛选
             if stock_code_list:
@@ -235,6 +254,8 @@ async def get_news_list(
             "page_size": page_size,
             "data": page_data,
             "has_more": end_idx < total,
+            "partial": partial,
+            "failed_sources": failed_sources,
             "message": ""
         }
     except Exception as e:
@@ -261,10 +282,13 @@ async def get_news_by_stock(
     try:
         service = get_news_service()
         news_items = await service.get_news_by_stock(code, days, limit)
-        
+        partial, failed_sources = service.consume_fetch_meta()
+
         return NewsListResponse(
             success=True,
             total=len(news_items),
+            partial=partial,
+            failed_sources=failed_sources,
             data=news_items,
         )
     except Exception as e:
@@ -285,10 +309,100 @@ async def get_market_news(
     try:
         service = get_news_service()
         news_items = await service.get_market_news(category, limit)
-        
+        partial, failed_sources = service.consume_fetch_meta()
+
         return NewsListResponse(
             success=True,
             total=len(news_items),
+            partial=partial,
+            failed_sources=failed_sources,
+            data=news_items,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cctv", response_model=NewsListResponse, summary="获取新闻联播")
+async def get_cctv_news(
+    date: str = Query(..., description="日期，格式YYYYMMDD"),
+):
+    """获取指定日期新闻联播文字稿。"""
+    try:
+        service = get_news_service()
+        news_items = await service.get_cctv_news(date)
+        partial, failed_sources = service.consume_fetch_meta()
+        return NewsListResponse(
+            success=True,
+            total=len(news_items),
+            partial=partial,
+            failed_sources=failed_sources,
+            data=news_items,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/policy", response_model=NewsListResponse, summary="获取政策法规")
+async def get_policy_news(
+    start_date: Optional[str] = Query(default=None, description="开始时间，格式YYYY-MM-DD HH:MM:SS"),
+    end_date: Optional[str] = Query(default=None, description="结束时间，格式YYYY-MM-DD HH:MM:SS"),
+    org: Optional[str] = Query(default=None, description="发布机构"),
+    ptype: Optional[str] = Query(default=None, description="主题分类"),
+    limit: int = Query(default=50, ge=1, le=500, description="返回数量"),
+):
+    """获取国家政策法规。"""
+    try:
+        service = get_news_service()
+        news_items = await service.get_policy_news(
+            start_date=start_date,
+            end_date=end_date,
+            org=org,
+            ptype=ptype,
+            limit=limit,
+        )
+        partial, failed_sources = service.consume_fetch_meta()
+        return NewsListResponse(
+            success=True,
+            total=len(news_items),
+            partial=partial,
+            failed_sources=failed_sources,
+            data=news_items,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/research", response_model=NewsListResponse, summary="获取券商研报")
+async def get_research_reports(
+    trade_date: Optional[str] = Query(default=None, description="研报日期，YYYYMMDD"),
+    start_date: Optional[str] = Query(default=None, description="开始日期，YYYYMMDD"),
+    end_date: Optional[str] = Query(default=None, description="结束日期，YYYYMMDD"),
+    report_type: Optional[str] = Query(default=None, description="研报类型"),
+    ts_code: Optional[str] = Query(default=None, description="股票代码"),
+    inst_csname: Optional[str] = Query(default=None, description="券商名称"),
+    ind_name: Optional[str] = Query(default=None, description="行业名称"),
+    limit: int = Query(default=100, ge=1, le=1000, description="返回数量"),
+):
+    """获取券商研报数据。"""
+    try:
+        service = get_news_service()
+        news_items = await service.get_research_reports(
+            start_date=start_date,
+            end_date=end_date,
+            ts_code=ts_code,
+            report_type=report_type,
+            inst_csname=inst_csname,
+            ind_name=ind_name,
+            limit=limit,
+        )
+        if trade_date:
+            news_items = [n for n in news_items if n.publish_time and n.publish_time.strftime("%Y%m%d") == trade_date]
+        partial, failed_sources = service.consume_fetch_meta()
+        return NewsListResponse(
+            success=True,
+            total=len(news_items),
+            partial=partial,
+            failed_sources=failed_sources,
             data=news_items,
         )
     except Exception as e:
@@ -314,31 +428,6 @@ async def search_news(
             success=True,
             total=len(news_items),
             data=news_items,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/hot-topics", response_model=HotTopicsResponse, summary="获取热点话题")
-async def get_hot_topics(
-    limit: int = Query(default=10, ge=1, le=50, description="返回数量"),
-    stock_code: Optional[str] = Query(default=None, description="股票代码（可选）"),
-    days: int = Query(default=7, ge=1, le=30, description="查询天数（仅股票模式）"),
-):
-    """获取当前市场热点话题
-    
-    Args:
-        limit: 返回数量
-        stock_code: 股票代码（可选）
-        days: 查询天数（仅股票模式）
-    """
-    try:
-        service = get_news_service()
-        topics = await service.get_hot_topics(limit=limit, stock_code=stock_code, days=days)
-        
-        return HotTopicsResponse(
-            success=True,
-            data=topics,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
