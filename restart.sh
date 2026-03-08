@@ -1,6 +1,13 @@
 #!/bin/bash
 
-# Restart backend and frontend servers (safe for remote SSH port-forwarding)
+# Restart backend, MCP server, and frontend (safe for remote SSH port-forwarding)
+#
+# Usage:
+#   ./restart.sh              # 重启全部 (backend + mcp + frontend)
+#   ./restart.sh stop         # 停止全部
+#   ./restart.sh start        # 启动全部
+#   ./restart.sh restart      # 重启全部
+#   ./restart.sh status       # 查看服务状态
 
 set -euo pipefail
 
@@ -17,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/logs"
 PID_DIR="$LOG_DIR/pids"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
+MCP_PID_FILE="$PID_DIR/mcp.pid"
 FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
@@ -65,7 +73,7 @@ stop_pid() {
   kill -9 "$pid" 2>/dev/null || true
 }
 
-# 仅当 pid 确认是“本项目服务进程”时才停止，避免误杀 ssh 端口转发
+# 仅当 pid 确认是"本项目服务进程"时才停止，避免误杀 ssh 端口转发
 stop_pid_if_matches() {
   local pid="$1"
   local label="$2"
@@ -126,7 +134,7 @@ stop_by_pidfile() {
   fi
 }
 
-# 通过端口兜底停止：只停“看起来属于本项目”的进程，绝不按端口盲杀
+# 通过端口兜底停止：只停"看起来属于本项目"的进程，绝不按端口盲杀
 stop_by_port_safely() {
   local port="$1"
   local label="$2"
@@ -190,22 +198,24 @@ stop_legacy_workers() {
 
 print_header() {
   echo "=========================================="
-  echo "  重启服务"
+  echo "  stock_datasource 服务管理"
   echo "=========================================="
   echo ""
 }
 
 stop_services() {
-  echo -e "${YELLOW}[1/4]${NC} 停止现有进程..."
+  echo -e "${YELLOW}[1/5]${NC} 停止现有进程..."
 
   # 先按 pidfile 停（最安全）
   stop_by_pidfile "$BACKEND_PID_FILE" "后端服务" "stock_datasource.services.http_server" "$SCRIPT_DIR"
+  stop_by_pidfile "$MCP_PID_FILE" "MCP 服务" "stock_datasource.services.mcp_server" "$SCRIPT_DIR"
   stop_by_pidfile "$FRONTEND_PID_FILE" "前端服务" "vite" "$SCRIPT_DIR/frontend"
 
   stop_legacy_workers
 
   # 再按端口兜底（带白名单校验，避免误杀 ssh 端口转发）
   stop_by_port_safely 8000 "后端服务" "stock_datasource.services.http_server" "$SCRIPT_DIR"
+  stop_by_port_safely 8001 "MCP 服务" "stock_datasource.services.mcp_server" "$SCRIPT_DIR"
 
   for port in 3000 3001 3002 3003 3004 3005 5173; do
     stop_by_port_safely "$port" "前端服务" "vite" "$SCRIPT_DIR/frontend"
@@ -215,13 +225,13 @@ stop_services() {
 }
 
 prepare_env() {
-  echo -e "${YELLOW}[2/4]${NC} 准备环境..."
+  echo -e "${YELLOW}[2/5]${NC} 准备环境..."
   echo -e "  ${GREEN}✓ 日志目录已准备${NC}"
   echo ""
 }
 
 start_backend() {
-  echo -e "${YELLOW}[3/4]${NC} 启动后端服务..."
+  echo -e "${YELLOW}[3/5]${NC} 启动后端服务..."
   cd "$SCRIPT_DIR"
 
   # 后台启动后端
@@ -239,6 +249,12 @@ start_backend() {
       echo ""
       return 0
     fi
+    # 检测进程是否提前退出
+    if ! pid_exists "$BACKEND_PID"; then
+      echo -e "  ${RED}✗ 后端进程已退出${NC}"
+      echo "  查看日志: tail -f $LOG_DIR/backend.log"
+      exit 1
+    fi
     if [[ "$i" -eq "$MAX_BACKEND_WAIT" ]]; then
       echo -e "  ${RED}✗ 后端启动超时（已等待 ${MAX_BACKEND_WAIT}s）${NC}"
       echo "  查看日志: tail -f $LOG_DIR/backend.log"
@@ -247,8 +263,39 @@ start_backend() {
   done
 }
 
+start_mcp() {
+  echo -e "${YELLOW}[4/5]${NC} 启动 MCP 服务..."
+  cd "$SCRIPT_DIR"
+
+  nohup uv run python -m stock_datasource.services.mcp_server > "$LOG_DIR/mcp.log" 2>&1 &
+  MCP_PID=$!
+  echo "$MCP_PID" > "$MCP_PID_FILE"
+  echo "  MCP PID: $MCP_PID"
+
+  # 等待 MCP 服务启动
+  MAX_MCP_WAIT=30
+  for i in $(seq 1 "$MAX_MCP_WAIT"); do
+    sleep 1
+    if curl -s http://localhost:8001/health > /dev/null 2>&1; then
+      echo -e "  ${GREEN}✓ MCP 服务已启动 (http://0.0.0.0:8001)${NC}"
+      echo ""
+      return 0
+    fi
+    if ! pid_exists "$MCP_PID"; then
+      echo -e "  ${RED}✗ MCP 进程已退出${NC}"
+      echo "  查看日志: tail -f $LOG_DIR/mcp.log"
+      exit 1
+    fi
+    if [[ "$i" -eq "$MAX_MCP_WAIT" ]]; then
+      echo -e "  ${YELLOW}⚠ MCP 服务启动较慢，请稍后检查${NC}"
+      echo "  查看日志: tail -f $LOG_DIR/mcp.log"
+    fi
+  done
+  echo ""
+}
+
 start_frontend() {
-  echo -e "${YELLOW}[4/4]${NC} 启动前端服务..."
+  echo -e "${YELLOW}[5/5]${NC} 启动前端服务..."
   cd "$SCRIPT_DIR/frontend"
 
   nohup npm run dev > "$LOG_DIR/frontend.log" 2>&1 &
@@ -283,21 +330,96 @@ start_frontend() {
     echo -e "  ${GREEN}✓ 前端已启动 (http://0.0.0.0:$FRONTEND_PORT)${NC}"
   fi
   echo ""
+}
 
-  # 完成
+print_summary() {
   echo "=========================================="
-  echo -e "${GREEN}  ✓ 所有服务已成功重启！${NC}"
+  echo -e "${GREEN}  ✓ 所有服务已成功启动！${NC}"
   echo "=========================================="
   echo ""
-  echo -e "${BLUE}后端 API:${NC} http://0.0.0.0:8000"
-  echo -e "${BLUE}前端界面:${NC} http://0.0.0.0:${FRONTEND_PORT:-5173}"
+  echo -e "${BLUE}服务地址:${NC}"
+  echo -e "  后端 API:   http://0.0.0.0:8000"
+  echo -e "  MCP 服务:   http://0.0.0.0:8001"
+  echo -e "  前端界面:   http://0.0.0.0:${FRONTEND_PORT:-3000}"
+  echo ""
+  echo -e "${BLUE}基础设施 (Docker):${NC}"
+  echo -e "  ClickHouse: localhost:9001 (native) / localhost:8124 (HTTP)"
+  echo -e "  Redis:      localhost:16379"
+  echo -e "  PostgreSQL: localhost:5433"
   echo ""
   echo -e "${BLUE}查看日志:${NC}"
   echo "  后端: tail -f $LOG_DIR/backend.log"
+  echo "  MCP:  tail -f $LOG_DIR/mcp.log"
   echo "  前端: tail -f $LOG_DIR/frontend.log"
   echo ""
   echo -e "${BLUE}停止服务:${NC}"
   echo "  停止全部: $SCRIPT_DIR/restart.sh stop"
+  echo ""
+}
+
+show_status() {
+  echo -e "${BLUE}服务状态:${NC}"
+  echo ""
+
+  # Backend
+  if [[ -f "$BACKEND_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$BACKEND_PID_FILE" 2>/dev/null || true)"
+    if pid_exists "$pid"; then
+      echo -e "  后端服务:  ${GREEN}运行中${NC} (PID: $pid, http://localhost:8000)"
+    else
+      echo -e "  后端服务:  ${RED}已停止${NC} (PID 文件过期)"
+    fi
+  else
+    echo -e "  后端服务:  ${RED}已停止${NC}"
+  fi
+
+  # MCP
+  if [[ -f "$MCP_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$MCP_PID_FILE" 2>/dev/null || true)"
+    if pid_exists "$pid"; then
+      echo -e "  MCP 服务:  ${GREEN}运行中${NC} (PID: $pid, http://localhost:8001)"
+    else
+      echo -e "  MCP 服务:  ${RED}已停止${NC} (PID 文件过期)"
+    fi
+  else
+    echo -e "  MCP 服务:  ${RED}已停止${NC}"
+  fi
+
+  # Frontend
+  if [[ -f "$FRONTEND_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$FRONTEND_PID_FILE" 2>/dev/null || true)"
+    if pid_exists "$pid"; then
+      # 查找前端实际端口
+      local fport=""
+      for port in 3000 3001 3002 3003 3004 3005 5173; do
+        if lsof -t -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+          fport=$port
+          break
+        fi
+      done
+      echo -e "  前端服务:  ${GREEN}运行中${NC} (PID: $pid, http://localhost:${fport:-?})"
+    else
+      echo -e "  前端服务:  ${RED}已停止${NC} (PID 文件过期)"
+    fi
+  else
+    echo -e "  前端服务:  ${RED}已停止${NC}"
+  fi
+
+  # Docker infra
+  echo ""
+  echo -e "${BLUE}基础设施 (Docker):${NC}"
+  for svc in stock-clickhouse stock-redis stock-postgres; do
+    status=$(sudo docker inspect -f '{{.State.Status}}' "$svc" 2>/dev/null || echo "not found")
+    if [[ "$status" == "running" ]]; then
+      echo -e "  $svc:  ${GREEN}运行中${NC}"
+    else
+      echo -e "  $svc:  ${RED}$status${NC}"
+    fi
+  done
+
   echo ""
 }
 
@@ -311,12 +433,19 @@ case "$ACTION" in
   start)
     prepare_env
     start_backend
+    start_mcp
     start_frontend
+    print_summary
+    ;;
+  status)
+    show_status
     ;;
   restart|*)
     stop_services
     prepare_env
     start_backend
+    start_mcp
     start_frontend
+    print_summary
     ;;
 esac

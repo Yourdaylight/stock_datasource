@@ -487,6 +487,24 @@ class BasePlugin(ABC):
         
         try:
             if self.db.table_exists(table_name):
+                try:
+                    existing_schema = self.db.get_table_schema(table_name)
+                    existing_cols = {col['column_name'] for col in existing_schema}
+                    for col in schema.get('columns', []):
+                        col_name = col['name']
+                        if col_name in existing_cols:
+                            continue
+
+                        col_type = col.get('type') or col.get('data_type', 'String')
+                        col_def = f"`{col_name}` {col_type}"
+                        if col.get('default'):
+                            col_def += f" DEFAULT {col['default']}"
+                        if col.get('comment'):
+                            col_def += f" COMMENT '{col['comment']}'"
+                        self.db.add_column(table_name, col_def)
+                        self.logger.info(f"[{self.name}] Added missing column {col_name} to {table_name}")
+                except Exception as e:
+                    self.logger.warning(f"[{self.name}] Failed to synchronize schema for {table_name}: {e}")
                 return
             
             # Build CREATE TABLE SQL

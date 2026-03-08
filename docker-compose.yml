@@ -51,11 +51,13 @@ services:
       WEKNORA_KB_IDS: ${WEKNORA_KB_IDS:-}
       WEKNORA_TIMEOUT: ${WEKNORA_TIMEOUT:-10}
     volumes:
+      - ./src:/app/src
       - ./logs:/app/logs
       - ./data:/app/data
     networks:
       - stock_network
       - langfuse_default
+    command: ["uv", "run", "--no-sync", "uvicorn", "stock_datasource.services.http_server:app", "--host", "0.0.0.0", "--port", "6666"]
     healthcheck:
       test: curl -f http://localhost:6666/health || exit 1
       interval: 30s
@@ -87,7 +89,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: stock-worker
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "stock_datasource.services.task_worker", "--workers", "2"]
+    command: ["uv", "run", "--no-sync", "python", "-m", "stock_datasource.services.task_worker", "--workers", "2"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -108,6 +110,7 @@ services:
       # API Keys
       TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
     volumes:
+      - ./src:/app/src
       - ./logs:/app/logs
       - ./data:/app/data
     networks:

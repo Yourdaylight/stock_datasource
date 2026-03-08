@@ -148,6 +148,14 @@ const handleLogout = async () => {
   router.push('/market')
 }
 
+const handleUserAction = (data: { value: string }) => {
+  if (data.value === 'logout') {
+    handleLogout()
+  } else if (data.value === 'user') {
+    router.push('/user')
+  }
+}
+
 onMounted(async () => {
   // Try to restore auth state
   if (authStore.token) {
@@ -219,7 +227,7 @@ onMounted(async () => {
         <h2>{{ currentTitle }}</h2>
         <t-space>
           <template v-if="authStore.isAuthenticated">
-            <t-dropdown :options="[{ content: '退出登录', value: 'logout' }]" @click="handleLogout">
+            <t-dropdown :options="[{ content: '个人中心', value: 'user' }, { content: '退出登录', value: 'logout' }]" @click="handleUserAction">
               <t-button variant="text">
                 <template #icon><UserIcon /></template>
                 {{ authStore.user?.username || authStore.user?.email }}

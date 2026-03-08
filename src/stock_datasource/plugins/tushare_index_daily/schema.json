@@ -1,5 +1,5 @@
 {
-  "table_name": "ods_idx_factor_pro",
+  "table_name": "ods_index_daily",
   "table_type": "ods",
   "columns": [
     {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "指数代码"},

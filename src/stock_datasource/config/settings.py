@@ -174,6 +174,16 @@ class Settings(BaseSettings):
     # Admin email list (comma-separated), these users will have is_admin=True
     AUTH_ADMIN_EMAILS: str = Field(default="")
 
+    # MCP JWT verification (for tokens issued by nps_enhanced management platform)
+    MCP_JWT_PUBLIC_KEY_PATH: Optional[str] = Field(
+        default=None,
+        description="Path to RSA public key PEM for verifying nps_enhanced JWT tokens"
+    )
+    MCP_USAGE_REPORT_KEY: Optional[str] = Field(
+        default=None,
+        description="Shared secret for nps_enhanced to pull usage reports"
+    )
+
 
 # Create settings instance
 settings = Settings()
@@ -221,6 +231,34 @@ def _apply_local_dev_overrides():
             if 'docker' in content or 'kubepods' in content:
                 return
 
+    import socket
+
+    # Not in Docker — fix ClickHouse hostname
+    _docker_ch_hosts = {"stock-clickhouse", "clickhouse", "langfuse-clickhouse-1"}
+    if settings.CLICKHOUSE_HOST in _docker_ch_hosts:
+        settings.CLICKHOUSE_HOST = "localhost"
+        # Docker exposes native port on 9001 (mapped from container 9000)
+        ch_native_port = os.environ.get("CLICKHOUSE_NATIVE_PORT")
+        if ch_native_port:
+            settings.CLICKHOUSE_PORT = int(ch_native_port)
+        elif settings.CLICKHOUSE_PORT == 9000:
+            try:
+                with socket.create_connection(("localhost", 9001), timeout=1):
+                    settings.CLICKHOUSE_PORT = 9001
+            except OSError:
+                pass
+        # Docker exposes HTTP port on 8124 (mapped from container 8123)
+        ch_http_port = os.environ.get("CLICKHOUSE_HTTP_EXPOSE_PORT")
+        if ch_http_port:
+            if hasattr(settings, 'CLICKHOUSE_HTTP_PORT'):
+                settings.CLICKHOUSE_HTTP_PORT = int(ch_http_port)
+        elif hasattr(settings, 'CLICKHOUSE_HTTP_PORT') and settings.CLICKHOUSE_HTTP_PORT == 8123:
+            try:
+                with socket.create_connection(("localhost", 8124), timeout=1):
+                    settings.CLICKHOUSE_HTTP_PORT = 8124
+            except OSError:
+                pass
+
     # Not in Docker — fix Redis hostname
     _docker_redis_hosts = {"stock-redis", "redis"}
     if settings.REDIS_HOST in _docker_redis_hosts:
@@ -230,7 +268,6 @@ def _apply_local_dev_overrides():
             settings.REDIS_PORT = int(expose_port)
         elif settings.REDIS_PORT == 6379:
             # Check if the expose port 16379 is reachable
-            import socket
             try:
                 with socket.create_connection(("localhost", 16379), timeout=1):
                     settings.REDIS_PORT = 16379

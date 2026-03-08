@@ -44,6 +44,23 @@ logging.basicConfig(
 logger = logging.getLogger("task_worker")
 
 
+def _classify_error_type(error_message: str) -> str:
+    """Best-effort classify task errors into retryable vs non-retryable buckets."""
+    msg = (error_message or "").strip()
+    if not msg:
+        return "retryable"
+
+    # TuShare quota/IP limit errors: retrying immediately only amplifies the problem.
+    if ("IP数量超限" in msg) or ("最大数量为2个" in msg):
+        return "ip_limit"
+
+    # Missing/invalid configuration should not be retried.
+    if "TUSHARE_TOKEN" in msg and ("not configured" in msg or "not set" in msg):
+        return "config_error"
+
+    return "retryable"
+
+
 def _detect_plugin_param_style(plugin) -> str:
     """Detect the parameter style a plugin expects.
 
@@ -127,7 +144,7 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
                         msg = f"{err}\n{detail}" if detail else err
-                        result_queue.put((False, total_records, "retryable", msg))
+                        result_queue.put((False, total_records, _classify_error_type(msg), msg))
                         return
                     total_records += int(result.get("steps", {}).get("load", {}).get("total_records", 0))
 
@@ -158,7 +175,7 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
                         msg = f"{err}\n{detail}" if detail else err
-                        result_queue.put((False, 0, "retryable", msg))
+                        result_queue.put((False, 0, _classify_error_type(msg), msg))
                         return
                     total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
                 elif param_style == "entity_code":
@@ -242,13 +259,14 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                 err = result.get("error", "插件执行失败")
                 detail = result.get("error_detail", "")
                 msg = f"{err}\n{detail}" if detail else err
-                result_queue.put((False, 0, "retryable", msg))
+                result_queue.put((False, 0, _classify_error_type(msg), msg))
                 return
 
             records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
             result_queue.put((True, records, "", ""))
     except Exception as e:
-        result_queue.put((False, 0, "retryable", str(e)))
+        msg = str(e)
+        result_queue.put((False, 0, _classify_error_type(msg), msg))
 
 
 class TaskWorker:
@@ -464,7 +482,7 @@ class TaskWorker:
             self.current_task_id = None
     
     def _is_retryable_error(self, error_type: str) -> bool:
-        if error_type in {"plugin_not_found", "config_error"}:
+        if error_type in {"plugin_not_found", "config_error", "ip_limit"}:
             return False
         return True
 

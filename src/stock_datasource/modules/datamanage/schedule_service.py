@@ -285,11 +285,20 @@ class ScheduleService:
             
             # Get saved schedule config
             saved_config = get_plugin_schedule_config(plugin_name)
+
+            # Allow plugins to provide default schedule flags in their config.json.
+            try:
+                plugin_default_cfg = plugin.get_config() if hasattr(plugin, "get_config") else {}
+            except Exception:
+                plugin_default_cfg = {}
+
+            default_schedule_enabled = plugin_default_cfg.get("schedule_enabled", True)
+            default_full_scan_enabled = plugin_default_cfg.get("full_scan_enabled", False)
             
             result.append({
                 "plugin_name": plugin_name,
-                "schedule_enabled": saved_config.get("schedule_enabled", True),
-                "full_scan_enabled": saved_config.get("full_scan_enabled", False),
+                "schedule_enabled": saved_config.get("schedule_enabled", default_schedule_enabled),
+                "full_scan_enabled": saved_config.get("full_scan_enabled", default_full_scan_enabled),
                 "category": plugin_category,
                 "category_label": CATEGORY_LABELS.get(plugin_category, plugin_category),
                 "role": plugin_role,

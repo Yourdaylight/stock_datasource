@@ -70,6 +70,8 @@ class TuShareCiDailyPlugin(BasePlugin):
     def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         if data.empty:
             return data
+        if 'pct_change' in data.columns and 'pct_chg' not in data.columns:
+            data = data.rename(columns={'pct_change': 'pct_chg'})
         numeric_columns = data.columns.difference(['ts_code', 'trade_date', 'name'])
         for col in numeric_columns:
             data[col] = pd.to_numeric(data[col], errors='coerce')
