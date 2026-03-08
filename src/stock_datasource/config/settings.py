@@ -267,6 +267,7 @@ def _apply_local_dev_overrides():
         if expose_port:
             settings.REDIS_PORT = int(expose_port)
         elif settings.REDIS_PORT == 6379:
+            # Check if the expose port 16379 is reachable
             try:
                 with socket.create_connection(("localhost", 16379), timeout=1):
                     settings.REDIS_PORT = 16379

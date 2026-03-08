@@ -2,8 +2,8 @@
 
 Provides news data retrieval, sentiment analysis, and hot topics tracking.
 Data sources:
-- Tushare: 上市公司公告数据 (anns 接口)
-- Sina: 财经新闻 (免费 API)
+- Tushare: news / major_news / cctv_news / anns_d / research_report / npr
+- Sina: 财经新闻（兜底）
 """
 
 import os
@@ -13,13 +13,12 @@ import hashlib
 import logging
 import asyncio
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 
 from .schemas import (
     NewsItem,
     NewsSentiment,
-    HotTopic,
     NewsCategory,
     SentimentType,
     ImpactLevel,
@@ -31,9 +30,22 @@ logger = logging.getLogger(__name__)
 
 # Redis 缓存配置
 NEWS_CACHE_PREFIX = "news:"
-NEWS_CACHE_TTL_FLASH = 300       # 快讯缓存5分钟
-NEWS_CACHE_TTL_ANNOUNCEMENT = 3600  # 公告缓存1小时
-NEWS_CACHE_TTL_HOT_TOPICS = 600  # 热点缓存10分钟
+NEWS_CACHE_TTL_FLASH = 300            # 快讯缓存5分钟
+NEWS_CACHE_TTL_ANNOUNCEMENT = 3600    # 公告缓存1小时
+NEWS_CACHE_TTL_HOT_TOPICS = int(os.getenv("NEWS_CACHE_TTL_HOT_TOPICS", "120"))  # 热点缓存默认2分钟
+NEWS_CACHE_TTL_MAJOR = 1800           # 通讯缓存30分钟
+NEWS_CACHE_TTL_CCTV = 7200            # 联播缓存2小时
+NEWS_CACHE_TTL_RESEARCH = 3600        # 研报缓存1小时
+NEWS_CACHE_TTL_NPR = 14400            # 政策缓存4小时
+
+NEWS_SRC_LIST = [
+    "sina", "wallstreetcn", "10jqka", "eastmoney", "yuncaijing",
+    "fenghuang", "jinrongjie", "cls", "yicai"
+]
+
+MAJOR_NEWS_SRC_LIST = [
+    "新华社", "凤凰财经", "同花顺", "新浪财经", "华尔街见闻", "中证网", "财新网", "第一财经", "财联社"
+]
 
 
 def _get_redis():
@@ -76,6 +88,11 @@ class NewsService:
     def __init__(self):
         self._tushare_pro = None
         self._llm_client = None
+        self._fetch_semaphore = asyncio.Semaphore(int(os.getenv("NEWS_FETCH_MAX_CONCURRENCY", "4")))
+        self._request_interval = float(os.getenv("NEWS_REQUEST_INTERVAL", "1.0"))
+        self._use_sina_fallback = os.getenv("NEWS_ENABLE_SINA_FALLBACK", "true").lower() in {"1", "true", "yes"}
+        self._last_failed_sources: List[str] = []
+        self._last_partial: bool = False
     
     @property
     def tushare_pro(self):
@@ -115,59 +132,114 @@ class NewsService:
                 redis.setex(f"{NEWS_CACHE_PREFIX}{key}", ttl, json.dumps(value, default=str))
             except Exception as e:
                 logger.debug(f"Cache set failed: {e}")
-    
+
+    def consume_fetch_meta(self) -> Tuple[bool, List[str]]:
+        """获取并清空最近一次抓取元数据。"""
+        partial = self._last_partial
+        failed_sources = list(self._last_failed_sources)
+        self._last_partial = False
+        self._last_failed_sources = []
+        return partial, failed_sources
+
+    def _set_fetch_meta(self, failed_sources: List[str]):
+        self._last_failed_sources = sorted(set(failed_sources))
+        self._last_partial = len(self._last_failed_sources) > 0
+
+    async def _run_tushare_with_retry(self, source_name: str, method_name: str, **kwargs):
+        if not self.tushare_pro:
+            raise RuntimeError("tushare unavailable")
+
+        max_retries = 3
+        delay = 0.8
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with self._fetch_semaphore:
+                    df = await asyncio.to_thread(getattr(self.tushare_pro, method_name), **kwargs)
+                await asyncio.sleep(self._request_interval)
+                return df
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(f"{source_name} failed on attempt {attempt}: {exc}")
+                if attempt < max_retries:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+
+        raise RuntimeError(f"{source_name} failed after {max_retries} retries") from last_exc
+
+    def _parse_datetime(self, value: Any) -> Optional[datetime]:
+        if value is None or value == "":
+            return None
+        value_str = str(value).strip()
+        if not value_str:
+            return None
+
+        candidates = [
+            ("%Y%m%d", 8),
+            ("%Y-%m-%d", 10),
+            ("%Y-%m-%d %H:%M:%S", 19),
+            ("%Y-%m-%d %H:%M", 16),
+            ("%Y%m%d %H:%M:%S", 17),
+            ("%Y%m%d%H%M%S", 14),
+        ]
+
+        for fmt, length in candidates:
+            try:
+                return datetime.strptime(value_str[:length], fmt)
+            except Exception:
+                continue
+
+        try:
+            return datetime.fromisoformat(value_str.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
     async def get_news_by_stock(
         self,
         stock_code: str,
         days: int = 7,
         limit: int = 20,
     ) -> List[NewsItem]:
-        """获取指定股票的相关新闻和公告
-        
-        Args:
-            stock_code: 股票代码，如 600519.SH
-            days: 查询天数，默认7天
-            limit: 返回数量，默认20条
-            
-        Returns:
-            新闻列表
-        """
-        # 尝试从缓存获取
+        """获取指定股票的相关新闻和公告。"""
         cache_key = f"stock:{stock_code}:{days}:{limit}"
         cached = self._get_cache(cache_key)
         if cached:
             logger.debug(f"Cache hit for stock news: {stock_code}")
+            self._set_fetch_meta([])
             return [NewsItem(**item) for item in cached]
-        
+
+        failed_sources: List[str] = []
         news_items: List[NewsItem] = []
-        
-        # 1. 获取 Tushare 公告数据
-        announcements = await self._get_tushare_announcements(stock_code, days, limit)
-        news_items.extend(announcements)
-        
-        # 2. 获取 Sina 新闻
-        sina_news = await self._get_sina_stock_news(stock_code, limit // 2)
-        news_items.extend(sina_news)
-        
-        # 按发布时间排序
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+
+        try:
+            anns_news = await self._fetch_tushare_anns_d(
+                ts_code=stock_code,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+            )
+            news_items.extend(anns_news)
+        except Exception as exc:
+            logger.warning(f"fetch anns_d stock news failed: {exc}")
+            failed_sources.append("tushare_anns")
+
+        if self._use_sina_fallback:
+            try:
+                sina_news = await self._get_sina_stock_news(stock_code, max(limit // 2, 5))
+                news_items.extend(sina_news)
+            except Exception as exc:
+                logger.warning(f"fetch sina stock news failed: {exc}")
+                failed_sources.append("sina")
+
         news_items.sort(key=lambda x: x.publish_time or datetime.min, reverse=True)
-        
-        # 限制返回数量
         news_items = news_items[:limit]
-        
-        # 异步补齐情绪分析（不阻塞返回）
-        self._schedule_sentiment_analysis(
-            news_items,
-            stock_context=f"股票代码: {stock_code}"
-        )
-        
-        # 缓存结果
-        self._set_cache(
-            cache_key,
-            [item.model_dump() for item in news_items],
-            NEWS_CACHE_TTL_ANNOUNCEMENT
-        )
-        
+
+        self._schedule_sentiment_analysis(news_items, stock_context=f"股票代码: {stock_code}")
+        self._set_cache(cache_key, [item.model_dump() for item in news_items], NEWS_CACHE_TTL_ANNOUNCEMENT)
+        self._set_fetch_meta(failed_sources)
         return news_items
     
     async def get_market_news(
@@ -176,113 +248,188 @@ class NewsService:
         limit: int = 20,
         force_refresh: bool = False,
     ) -> List[NewsItem]:
-        """获取市场整体财经新闻
-        
-        优先从本地文件缓存读取，大幅提升响应速度。
-        如果缓存为空或强制刷新，则从外部 API 获取并保存。
-        
-        Args:
-            category: 新闻分类
-            limit: 返回数量
-            force_refresh: 是否强制刷新（跳过缓存）
-            
-        Returns:
-            新闻列表
-        """
+        """获取市场整体财经新闻。"""
         category_str = category.value if isinstance(category, NewsCategory) else str(category)
-        
-        # 1. 尝试从本地文件缓存读取（毫秒级）
+
         if not force_refresh:
             try:
                 storage = get_news_storage()
                 cached_news = storage.get_latest_news(
-                    limit=limit * 2,  # 多获取一些，用于筛选
+                    limit=max(limit * 3, 30),
                     category=category_str if category_str != "all" else None,
                 )
                 if cached_news:
-                    logger.debug(f"File cache hit: {len(cached_news)} items")
-                    news_items = [NewsItem(**item) for item in cached_news]
-                    
-                    # 按分类过滤（双重保险）
-                    if category != NewsCategory.ALL:
-                        news_items = [n for n in news_items if n.category == category]
-                    
-                    news_items = news_items[:limit]
+                    news_items = [NewsItem(**item) for item in cached_news][:limit]
+                    self._set_fetch_meta([])
                     self._schedule_sentiment_analysis(news_items)
-                    
                     return news_items
             except Exception as e:
                 logger.warning(f"Failed to read from file storage: {e}")
-        
-        # 2. 尝试从 Redis 缓存获取
+
         cache_key = f"market:{category}:{limit}"
         if not force_refresh:
             cached = self._get_cache(cache_key)
             if cached:
-                logger.debug(f"Redis cache hit for market news: {category}")
                 news_items = [NewsItem(**item) for item in cached]
+                self._set_fetch_meta([])
                 self._schedule_sentiment_analysis(news_items)
                 return news_items
-        
-        # 3. 从外部 API 获取
-        logger.info("Fetching news from external API...")
+
+        failed_sources: List[str] = []
         news_items: List[NewsItem] = []
-        
-        # 获取 Sina 财经新闻
-        sina_news = await self._get_sina_finance_news(limit)
-        news_items.extend(sina_news)
-        
-        # 4. 保存到本地文件存储
-        if news_items:
-            self._save_news_to_storage(news_items)
-        
-        # 按分类过滤
+
+        async def _safe_fetch(name: str, coro):
+            try:
+                return await coro
+            except Exception as exc:
+                logger.warning(f"{name} fetch failed: {exc}")
+                failed_sources.append(name)
+                return []
+
+        now = datetime.now()
+        start_dt = (now - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+        end_dt = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        if category == NewsCategory.ALL:
+            start_date = (now - timedelta(days=2)).strftime("%Y%m%d")
+            end_date = now.strftime("%Y%m%d")
+            task_results = await asyncio.gather(
+                _safe_fetch("tushare_news", self._fetch_tushare_news(start_dt, end_dt, limit=limit)),
+                _safe_fetch("tushare_major", self._fetch_tushare_major_news(start_dt, end_dt, limit=max(limit // 2, 10))),
+                _safe_fetch("tushare_anns", self._fetch_tushare_anns_d(start_date=start_date, end_date=end_date, limit=max(limit, 20))),
+                _safe_fetch("tushare_cctv", self._fetch_tushare_cctv_news(now.strftime("%Y%m%d"))),
+                _safe_fetch("tushare_research", self._fetch_tushare_research_report(trade_date=now.strftime("%Y%m%d"), limit=max(limit, 20))),
+                _safe_fetch("tushare_npr", self._fetch_tushare_npr(start_date=start_dt, end_date=end_dt, limit=max(limit // 2, 10))),
+            )
+            for group in task_results:
+                news_items.extend(group)
+            if self._use_sina_fallback and not any(item.source == "tushare_news" for item in news_items):
+                news_items.extend(await _safe_fetch("sina", self._get_sina_finance_news(limit)))
+        else:
+            if category == NewsCategory.FLASH:
+                flash_news = await _safe_fetch("tushare_news", self._fetch_tushare_news(start_dt, end_dt, limit=limit))
+                news_items.extend(flash_news)
+                if self._use_sina_fallback and not flash_news:
+                    news_items.extend(await _safe_fetch("sina", self._get_sina_finance_news(limit)))
+
+            if category == NewsCategory.ANALYSIS:
+                news_items.extend(await _safe_fetch("tushare_major", self._fetch_tushare_major_news(start_dt, end_dt, limit=max(limit, 20))))
+
+            if category == NewsCategory.ANNOUNCEMENT:
+                start_date = (now - timedelta(days=2)).strftime("%Y%m%d")
+                end_date = now.strftime("%Y%m%d")
+                news_items.extend(await _safe_fetch("tushare_anns", self._fetch_tushare_anns_d(start_date=start_date, end_date=end_date, limit=max(limit, 20))))
+
+            if category == NewsCategory.CCTV:
+                news_items.extend(await _safe_fetch("tushare_cctv", self._fetch_tushare_cctv_news(now.strftime("%Y%m%d"))))
+
+            if category == NewsCategory.RESEARCH:
+                news_items.extend(await _safe_fetch("tushare_research", self._fetch_tushare_research_report(trade_date=now.strftime("%Y%m%d"), limit=max(limit, 20))))
+
+            if category in [NewsCategory.NPR, NewsCategory.POLICY]:
+                news_items.extend(await _safe_fetch("tushare_npr", self._fetch_tushare_npr(start_date=start_dt, end_date=end_dt, limit=max(limit, 20))))
+
         if category != NewsCategory.ALL:
-            news_items = [n for n in news_items if n.category == category]
-        
-        # 按发布时间排序
-        news_items.sort(key=lambda x: x.publish_time or datetime.min, reverse=True)
-        
-        # 限制返回数量
-        news_items = news_items[:limit]
-        
-        self._schedule_sentiment_analysis(news_items)
-        
-        # 缓存到 Redis
-        self._set_cache(
-            cache_key,
-            [item.model_dump() for item in news_items],
-            NEWS_CACHE_TTL_FLASH
-        )
-        
-        return news_items
+            news_items = [item for item in news_items if item.category == category]
+
+        deduped: Dict[str, NewsItem] = {}
+        for item in news_items:
+            deduped[item.id] = item
+
+        result = sorted(deduped.values(), key=lambda x: x.publish_time or datetime.min, reverse=True)[:limit]
+
+        if result:
+            self._save_news_to_storage(result)
+        self._schedule_sentiment_analysis(result)
+        self._set_cache(cache_key, [item.model_dump() for item in result], NEWS_CACHE_TTL_FLASH)
+        self._set_fetch_meta(failed_sources)
+
+        return result
     
+    async def get_cctv_news(self, date: str) -> List[NewsItem]:
+        """获取指定日期新闻联播。"""
+        failed_sources: List[str] = []
+        try:
+            items = await self._fetch_tushare_cctv_news(date=date)
+            self._set_fetch_meta([])
+            return items
+        except Exception as exc:
+            logger.warning(f"get_cctv_news failed: {exc}")
+            failed_sources.append("tushare_cctv")
+            self._set_fetch_meta(failed_sources)
+            return []
+
+    async def get_policy_news(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org: Optional[str] = None,
+        ptype: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[NewsItem]:
+        """获取政策法规新闻。"""
+        failed_sources: List[str] = []
+        try:
+            items = await self._fetch_tushare_npr(
+                start_date=start_date,
+                end_date=end_date,
+                org=org,
+                ptype=ptype,
+                limit=limit,
+            )
+            self._set_fetch_meta([])
+            return items
+        except Exception as exc:
+            logger.warning(f"get_policy_news failed: {exc}")
+            failed_sources.append("tushare_npr")
+            self._set_fetch_meta(failed_sources)
+            return []
+
+    async def get_research_reports(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        ts_code: Optional[str] = None,
+        report_type: Optional[str] = None,
+        inst_csname: Optional[str] = None,
+        ind_name: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[NewsItem]:
+        """获取券商研报。"""
+        failed_sources: List[str] = []
+        try:
+            items = await self._fetch_tushare_research_report(
+                start_date=start_date,
+                end_date=end_date,
+                ts_code=ts_code,
+                report_type=report_type,
+                inst_csname=inst_csname,
+                ind_name=ind_name,
+                limit=limit,
+            )
+            self._set_fetch_meta([])
+            return items
+        except Exception as exc:
+            logger.warning(f"get_research_reports failed: {exc}")
+            failed_sources.append("tushare_research")
+            self._set_fetch_meta(failed_sources)
+            return []
+
     def _save_news_to_storage(self, news_items: List[NewsItem]):
         """将新闻保存到本地文件存储"""
         try:
             storage = get_news_storage()
-            
-            # 按来源分组保存
-            sina_news = []
-            tushare_news = []
-            
+            grouped: Dict[str, List[Dict[str, Any]]] = {}
+
             for item in news_items:
                 item_dict = item.model_dump()
-                if item.source == "sina":
-                    sina_news.append(item_dict)
-                elif item.source == "tushare":
-                    tushare_news.append(item_dict)
-                else:
-                    sina_news.append(item_dict)  # 默认归类到 sina
-            
-            if sina_news:
-                saved = storage.save_news(sina_news, "sina")
-                logger.info(f"Saved {saved} sina news to file storage")
-            
-            if tushare_news:
-                saved = storage.save_news(tushare_news, "tushare")
-                logger.info(f"Saved {saved} tushare news to file storage")
-                
+                source_key = (item.source or "unknown").replace("/", "_")
+                grouped.setdefault(source_key, []).append(item_dict)
+
+            for source_key, source_items in grouped.items():
+                saved = storage.save_news(source_items, source_key)
+                logger.info(f"Saved {saved} {source_key} news to file storage")
+
         except Exception as e:
             logger.warning(f"Failed to save news to storage: {e}")
 
@@ -437,61 +584,6 @@ class NewsService:
         
         return results
     
-    async def get_hot_topics(
-        self,
-        limit: int = 10,
-        stock_code: Optional[str] = None,
-        days: int = 7,
-    ) -> List[HotTopic]:
-        """获取当前市场热点话题
-        
-        Args:
-            limit: 返回数量
-            stock_code: 股票代码（可选）
-            days: 查询天数（仅股票模式）
-            
-        Returns:
-            热点话题列表
-        """
-        cache_key = f"hot_topics:{stock_code or 'market'}:{days}:{limit}"
-        cached = self._get_cache(cache_key)
-        if cached:
-            logger.debug("Cache hit for hot topics")
-            return [HotTopic(**item) for item in cached]
-        
-        # 获取最近新闻
-        if stock_code:
-            fetch_limit = min(max(limit * 5, 30), 100)
-            recent_news = await self.get_news_by_stock(stock_code, days, fetch_limit)
-        else:
-            recent_news = await self.get_market_news(NewsCategory.ALL, limit=50)
-        
-        if not recent_news:
-            return []
-        
-        # 使用 LLM 提取热点（加硬超时，避免接口阻塞）
-        timeout_s = float(os.getenv("NEWS_HOT_TOPICS_TIMEOUT", "4.0"))
-        try:
-            topics = await asyncio.wait_for(
-                self._extract_hot_topics(recent_news, limit),
-                timeout=timeout_s,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"Hot topics extraction timed out after {timeout_s}s, fallback to simple mode")
-            topics = self._simple_hot_topics(recent_news, limit)
-        except Exception as e:
-            logger.warning(f"Hot topics extraction failed: {e}")
-            topics = self._simple_hot_topics(recent_news, limit)
-
-        # 缓存结果
-        self._set_cache(
-            cache_key,
-            [topic.model_dump() for topic in topics],
-            NEWS_CACHE_TTL_HOT_TOPICS
-        )
-
-        return topics
-    
     async def summarize_news(
         self,
         news_items: List[NewsItem],
@@ -534,70 +626,282 @@ class NewsService:
     # Tushare 数据源
     # =========================================================================
     
+    async def _fetch_tushare_news(
+        self,
+        start_date: str,
+        end_date: str,
+        src: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[NewsItem]:
+        """获取 Tushare 新闻快讯。"""
+        items: List[NewsItem] = []
+        src_list = [src] if src else NEWS_SRC_LIST
+
+        for one_src in src_list:
+            df = await self._run_tushare_with_retry(
+                f"tushare_news:{one_src}",
+                "news",
+                src=one_src,
+                start_date=start_date,
+                end_date=end_date,
+                fields="datetime,content,title,channels",
+            )
+            if df is None or df.empty:
+                continue
+
+            for _, row in df.head(limit).iterrows():
+                pub_time = self._parse_datetime(row.get("datetime"))
+                title = str(row.get("title") or "")
+                content = str(row.get("content") or "")[:1200]
+                item = NewsItem(
+                    id=_generate_news_id(f"tushare_news:{one_src}", title, pub_time),
+                    title=title,
+                    content=content,
+                    source="tushare_news",
+                    news_src=one_src,
+                    publish_time=pub_time,
+                    category=NewsCategory.FLASH,
+                )
+                items.append(item)
+
+        return items
+
+    async def _fetch_tushare_major_news(
+        self,
+        start_date: str,
+        end_date: str,
+        src: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[NewsItem]:
+        """获取 Tushare 新闻通讯。"""
+        items: List[NewsItem] = []
+        src_list = [src] if src else MAJOR_NEWS_SRC_LIST
+
+        for one_src in src_list:
+            df = await self._run_tushare_with_retry(
+                f"tushare_major:{one_src}",
+                "major_news",
+                src=one_src,
+                start_date=start_date,
+                end_date=end_date,
+                fields="title,content,pub_time,src",
+            )
+            if df is None or df.empty:
+                continue
+
+            for _, row in df.head(limit).iterrows():
+                pub_time = self._parse_datetime(row.get("pub_time"))
+                title = str(row.get("title") or "")
+                content = str(row.get("content") or "")[:3000]
+                src_name = str(row.get("src") or one_src)
+                items.append(NewsItem(
+                    id=_generate_news_id(f"tushare_major:{src_name}", title, pub_time),
+                    title=title,
+                    content=content,
+                    source="tushare_major",
+                    news_src=src_name,
+                    publish_time=pub_time,
+                    category=NewsCategory.ANALYSIS,
+                ))
+
+        return items
+
+    async def _fetch_tushare_cctv_news(self, date: str) -> List[NewsItem]:
+        """获取新闻联播文字稿。"""
+        df = await self._run_tushare_with_retry(
+            "tushare_cctv",
+            "cctv_news",
+            date=date,
+            fields="date,title,content",
+        )
+        if df is None or df.empty:
+            return []
+
+        items: List[NewsItem] = []
+        for _, row in df.iterrows():
+            pub_time = self._parse_datetime(row.get("date"))
+            title = str(row.get("title") or "")
+            content = str(row.get("content") or "")
+            items.append(NewsItem(
+                id=_generate_news_id("tushare_cctv", title, pub_time),
+                title=title,
+                content=content,
+                source="tushare_cctv",
+                news_src="cctv_news",
+                publish_time=pub_time,
+                category=NewsCategory.CCTV,
+            ))
+        return items
+
+    async def _fetch_tushare_anns_d(
+        self,
+        ts_code: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        ann_date: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[NewsItem]:
+        """获取上市公司公告。"""
+        kwargs: Dict[str, Any] = {
+            "fields": "ann_date,ts_code,name,title,url,rec_time"
+        }
+        if ts_code:
+            kwargs["ts_code"] = ts_code
+        if ann_date:
+            kwargs["ann_date"] = ann_date
+        if start_date:
+            kwargs["start_date"] = start_date
+        if end_date:
+            kwargs["end_date"] = end_date
+
+        df = await self._run_tushare_with_retry("tushare_anns", "anns_d", **kwargs)
+        if df is None or df.empty:
+            return []
+
+        items: List[NewsItem] = []
+        for _, row in df.head(limit).iterrows():
+            title = str(row.get("title") or "")
+            code = str(row.get("ts_code") or "")
+            pub_time = self._parse_datetime(row.get("rec_time") or row.get("ann_date"))
+            name = str(row.get("name") or "")
+            items.append(NewsItem(
+                id=_generate_news_id("tushare_anns", title, pub_time),
+                title=title,
+                content=name,
+                source="tushare_anns",
+                news_src="anns_d",
+                publish_time=pub_time,
+                stock_codes=[code] if code else [],
+                category=NewsCategory.ANNOUNCEMENT,
+                url=str(row.get("url") or "") or None,
+            ))
+        return items
+
+    async def _fetch_tushare_research_report(
+        self,
+        trade_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        report_type: Optional[str] = None,
+        ts_code: Optional[str] = None,
+        inst_csname: Optional[str] = None,
+        ind_name: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[NewsItem]:
+        """获取券商研报。"""
+        kwargs: Dict[str, Any] = {
+            "fields": "trade_date,abstr,title,report_type,author,name,ts_code,inst_csname,ind_name,url"
+        }
+        if trade_date:
+            kwargs["trade_date"] = trade_date
+        if start_date:
+            kwargs["start_date"] = start_date
+        if end_date:
+            kwargs["end_date"] = end_date
+        if report_type:
+            kwargs["report_type"] = report_type
+        if ts_code:
+            kwargs["ts_code"] = ts_code
+        if inst_csname:
+            kwargs["inst_csname"] = inst_csname
+        if ind_name:
+            kwargs["ind_name"] = ind_name
+
+        df = await self._run_tushare_with_retry("tushare_research", "research_report", **kwargs)
+        if df is None or df.empty:
+            return []
+
+        items: List[NewsItem] = []
+        for _, row in df.head(limit).iterrows():
+            pub_time = self._parse_datetime(row.get("trade_date"))
+            title = str(row.get("title") or "")
+            abstr = str(row.get("abstr") or "")
+            ts_code_val = str(row.get("ts_code") or "")
+            author = str(row.get("author") or "")
+            inst_name = str(row.get("inst_csname") or "")
+            ind_name_val = str(row.get("ind_name") or "")
+            report_kind = str(row.get("report_type") or "")
+            content_parts = [p for p in [abstr, f"机构: {inst_name}" if inst_name else "", f"行业: {ind_name_val}" if ind_name_val else ""] if p]
+            items.append(NewsItem(
+                id=_generate_news_id("tushare_research", title, pub_time),
+                title=title,
+                content="\n".join(content_parts),
+                source="tushare_research",
+                news_src="research_report",
+                author=author or None,
+                abstract=abstr or None,
+                publish_time=pub_time,
+                stock_codes=[ts_code_val] if ts_code_val else [],
+                category=NewsCategory.RESEARCH,
+                url=str(row.get("url") or "") or None,
+                sentiment_reasoning=report_kind or None,
+            ))
+        return items
+
+    async def _fetch_tushare_npr(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org: Optional[str] = None,
+        ptype: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[NewsItem]:
+        """获取国家政策法规。"""
+        kwargs: Dict[str, Any] = {
+            "fields": "pubtime,title,url,content_html,pcode,puborg,ptype"
+        }
+        if org:
+            kwargs["org"] = org
+        if start_date:
+            kwargs["start_date"] = start_date
+        if end_date:
+            kwargs["end_date"] = end_date
+        if ptype:
+            kwargs["ptype"] = ptype
+
+        df = await self._run_tushare_with_retry("tushare_npr", "npr", **kwargs)
+        if df is None or df.empty:
+            return []
+
+        items: List[NewsItem] = []
+        for _, row in df.head(limit).iterrows():
+            pub_time = self._parse_datetime(row.get("pubtime"))
+            title = str(row.get("title") or "")
+            content_html = str(row.get("content_html") or "")
+            puborg = str(row.get("puborg") or "")
+            ptype_val = str(row.get("ptype") or "")
+            pcode = str(row.get("pcode") or "")
+            content = content_html[:2000]
+            if puborg:
+                content = f"[{puborg}] {content}"
+            items.append(NewsItem(
+                id=_generate_news_id("tushare_npr", title, pub_time),
+                title=title,
+                content=content,
+                source="tushare_npr",
+                news_src=ptype_val or "npr",
+                abstract=pcode or None,
+                publish_time=pub_time,
+                category=NewsCategory.NPR,
+                url=str(row.get("url") or "") or None,
+            ))
+        return items
+
     async def _get_tushare_announcements(
         self,
         stock_code: str,
         days: int = 7,
         limit: int = 20,
     ) -> List[NewsItem]:
-        """获取 Tushare 公告数据"""
-        if not self.tushare_pro:
-            return []
-        
-        try:
-            # 计算日期范围
-            end_date = datetime.now().strftime("%Y%m%d")
-            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-            
-            # 调用 Tushare anns 接口
-            # 注意：anns 接口可能需要较高权限
-            df = self.tushare_pro.anns(
-                ts_code=stock_code,
-                start_date=start_date,
-                end_date=end_date,
-                fields="ts_code,ann_date,title,content,pub_time"
-            )
-            
-            if df is None or df.empty:
-                logger.debug(f"No announcements found for {stock_code}")
-                return []
-            
-            news_items = []
-            for _, row in df.head(limit).iterrows():
-                try:
-                    pub_time_str = row.get('pub_time') or row.get('ann_date')
-                    pub_time = None
-                    if pub_time_str:
-                        try:
-                            if len(str(pub_time_str)) == 8:
-                                pub_time = datetime.strptime(str(pub_time_str), "%Y%m%d")
-                            else:
-                                pub_time = datetime.strptime(str(pub_time_str)[:19], "%Y-%m-%d %H:%M:%S")
-                        except:
-                            pass
-                    
-                    title = str(row.get('title', ''))
-                    content = str(row.get('content', ''))[:500]  # 限制内容长度
-                    
-                    news_item = NewsItem(
-                        id=_generate_news_id("tushare", title, pub_time),
-                        title=title,
-                        content=content,
-                        source="tushare",
-                        publish_time=pub_time,
-                        stock_codes=[stock_code],
-                        category=NewsCategory.ANNOUNCEMENT,
-                    )
-                    news_items.append(news_item)
-                except Exception as e:
-                    logger.debug(f"Failed to parse announcement row: {e}")
-                    continue
-            
-            return news_items
-            
-        except Exception as e:
-            logger.warning(f"Failed to get Tushare announcements: {e}")
-            return []
+        """兼容旧方法，内部转 anns_d。"""
+        end_date = datetime.now().strftime("%Y%m%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        return await self._fetch_tushare_anns_d(
+            ts_code=stock_code,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
     
     # =========================================================================
     # Sina 数据源
@@ -867,109 +1171,6 @@ class NewsService:
                 score=score,
                 reasoning="基于关键词规则分析",
                 impact_level=ImpactLevel.LOW,
-            ))
-        
-        return results
-    
-    async def _extract_hot_topics(
-        self,
-        news_items: List[NewsItem],
-        limit: int,
-    ) -> List[HotTopic]:
-        """使用 LLM 提取热点话题"""
-        if not news_items:
-            return []
-        
-        # 构建 prompt
-        news_text = "\n".join([
-            f"- {item.title}" for item in news_items[:30]
-        ])
-        
-        prompt = f"""请从以下财经新闻中提取当前市场热点话题。
-
-新闻列表：
-{news_text}
-
-请提取 {limit} 个最热门的话题，对于每个话题：
-1. topic: 话题名称（简短）
-2. keywords: 3-5个关键词
-3. heat_score: 热度分数（0-100）
-4. summary: 话题简要描述（不超过100字）
-
-请以JSON数组格式输出，只输出JSON。"""
-        
-        try:
-            if self.llm_client:
-                result = await self.llm_client.chat(
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.5,
-                )
-                response = result.get("content", "") if isinstance(result, dict) else str(result)
-                return self._parse_hot_topics_response(response, limit)
-        except Exception as e:
-            logger.warning(f"LLM hot topics extraction failed: {e}")
-        
-        # 降级：简单关键词统计
-        return self._simple_hot_topics(news_items, limit)
-    
-    def _parse_hot_topics_response(
-        self,
-        response: str,
-        limit: int,
-    ) -> List[HotTopic]:
-        """解析热点话题响应"""
-        results = []
-        
-        try:
-            json_match = re.search(r'\[.*\]', response, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                
-                for item in data[:limit]:
-                    results.append(HotTopic(
-                        topic=item.get("topic", ""),
-                        keywords=item.get("keywords", []),
-                        heat_score=float(item.get("heat_score", 0)),
-                        related_stocks=[],
-                        news_count=1,
-                        summary=item.get("summary", ""),
-                    ))
-        except Exception as e:
-            logger.warning(f"Failed to parse hot topics response: {e}")
-        
-        return results
-    
-    def _simple_hot_topics(
-        self,
-        news_items: List[NewsItem],
-        limit: int,
-    ) -> List[HotTopic]:
-        """简单关键词统计提取热点（降级方案）"""
-        # 简单统计关键词频率
-        keyword_counts: Dict[str, int] = {}
-        
-        hot_keywords = [
-            "AI", "人工智能", "芯片", "半导体", "新能源", "光伏", "储能",
-            "消费", "医药", "银行", "地产", "汽车", "科技", "创新"
-        ]
-        
-        for item in news_items:
-            for kw in hot_keywords:
-                if kw in item.title:
-                    keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
-        
-        # 按频率排序
-        sorted_keywords = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)
-        
-        results = []
-        for kw, count in sorted_keywords[:limit]:
-            results.append(HotTopic(
-                topic=kw,
-                keywords=[kw],
-                heat_score=min(count * 10, 100),
-                related_stocks=[],
-                news_count=count,
-                summary=f"近期有{count}条新闻涉及{kw}相关内容",
             ))
         
         return results

@@ -1014,7 +1014,11 @@ class MarketService:
     async def search_stock(self, keyword: str) -> List[Dict[str, str]]:
         """Search stocks by keyword.
         
-        Searches both A-shares and HK stocks.
+        Searches A-shares, ETFs and HK stocks. Supports:
+        - Full ts_code: 000001.SZ, 510050.SH, 00700.HK
+        - Pure number: 000001, 510050, 00700
+        - Chinese name: 平安银行, 沪深300ETF
+        - Pinyin (HK): tx (for 腾讯)
         
         Args:
             keyword: Search keyword
@@ -1023,8 +1027,14 @@ class MarketService:
             List of matching stocks
         """
         results = []
+        keyword = keyword.strip()
+        if not keyword:
+            return results
         
-        # Search A-shares
+        # Normalize: if pure digits, also try with .SH / .SZ / .HK suffixes
+        is_pure_digits = keyword.replace('.', '').isdigit() and '.' not in keyword
+        
+        # Search A-shares via plugin
         if self.stock_basic_service:
             try:
                 a_share_results = self.stock_basic_service.search_stocks(keyword, limit=15)
@@ -1033,7 +1043,7 @@ class MarketService:
             except Exception as e:
                 logger.warning(f"A-share search via plugin failed: {e}")
         
-        # Search HK stocks
+        # Search HK stocks via plugin
         if self.hk_basic_service:
             try:
                 hk_results = self.hk_basic_service.search(keyword, limit=10)
@@ -1047,30 +1057,144 @@ class MarketService:
         
         # Fallback to direct DB query
         if self.db is None:
-            return [
-                {"code": "600519.SH", "name": "贵州茅台", "market": "a_share"},
-                {"code": "000001.SZ", "name": "平安银行", "market": "a_share"},
-                {"code": "00700.HK", "name": "腾讯控股", "market": "hk_stock"}
-            ]
+            return []
         
         try:
-            # Search both A-shares and HK stocks
-            query = """
-                SELECT ts_code as code, name, 'a_share' as market
-                FROM ods_stock_basic
-                WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s
-                LIMIT 15
-                UNION ALL
-                SELECT ts_code as code, name, 'hk_stock' as market
-                FROM ods_hk_basic
-                WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s OR cn_spell LIKE %(keyword)s
-                LIMIT 10
-            """
-            df = self.db.execute_query(query, {"keyword": f"%{keyword}%"})
+            # Build keyword pattern for LIKE
+            like_pattern = f"%{keyword}%"
+            
+            if is_pure_digits:
+                # For pure digits, also match against symbol column and try exact ts_code with suffixes
+                query = """
+                    SELECT ts_code as code, name, 'a_share' as market
+                    FROM ods_stock_basic
+                    WHERE ts_code LIKE %(keyword)s OR symbol LIKE %(keyword)s OR name LIKE %(keyword)s
+                    LIMIT 15
+                    UNION ALL
+                    SELECT ts_code as code, csname as name, 'etf' as market
+                    FROM ods_etf_basic
+                    WHERE ts_code LIKE %(keyword)s OR csname LIKE %(keyword)s
+                    LIMIT 10
+                    UNION ALL
+                    SELECT ts_code as code, name, 'hk_stock' as market
+                    FROM ods_hk_basic
+                    WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s OR cn_spell LIKE %(keyword)s
+                    LIMIT 10
+                """
+            else:
+                # For text or ts_code with suffix, standard search
+                query = """
+                    SELECT ts_code as code, name, 'a_share' as market
+                    FROM ods_stock_basic
+                    WHERE ts_code LIKE %(keyword)s OR symbol LIKE %(keyword)s OR name LIKE %(keyword)s
+                    LIMIT 15
+                    UNION ALL
+                    SELECT ts_code as code, csname as name, 'etf' as market
+                    FROM ods_etf_basic
+                    WHERE ts_code LIKE %(keyword)s OR csname LIKE %(keyword)s
+                    LIMIT 10
+                    UNION ALL
+                    SELECT ts_code as code, name, 'hk_stock' as market
+                    FROM ods_hk_basic
+                    WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s OR cn_spell LIKE %(keyword)s
+                    LIMIT 10
+                """
+            df = self.db.execute_query(query, {"keyword": like_pattern})
             return df.to_dict("records")
         except Exception as e:
             logger.error(f"Stock search failed: {e}")
             return []
+    
+    async def resolve_stock_code(self, code: str) -> Optional[Dict[str, str]]:
+        """Resolve a possibly incomplete stock code to its full ts_code.
+        
+        Handles cases like:
+        - '000001' -> '000001.SZ'
+        - '510050' -> '510050.SH' 
+        - '00700'  -> '00700.HK'
+        - '000001.SZ' -> '000001.SZ' (already complete)
+        
+        Args:
+            code: Stock code, with or without suffix
+            
+        Returns:
+            Dict with code, name, market or None if not found
+        """
+        code = code.strip()
+        if not code:
+            return None
+        
+        # If already has a suffix, validate it exists
+        if '.' in code:
+            suffix = code.split('.')[-1].upper()
+            code = code.upper()
+            if suffix in ('SH', 'SZ'):
+                # Try A-share
+                if self.db:
+                    try:
+                        df = self.db.execute_query(
+                            "SELECT ts_code, name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1",
+                            {"code": code}
+                        )
+                        if not df.empty:
+                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "a_share"}
+                        # Try ETF
+                        df = self.db.execute_query(
+                            "SELECT ts_code, csname as name FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1",
+                            {"code": code}
+                        )
+                        if not df.empty:
+                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "etf"}
+                    except Exception:
+                        pass
+            elif suffix == 'HK':
+                if self.db:
+                    try:
+                        df = self.db.execute_query(
+                            "SELECT ts_code, name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1",
+                            {"code": code}
+                        )
+                        if not df.empty:
+                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "hk_stock"}
+                    except Exception:
+                        pass
+            return None
+        
+        # Pure digits — try all markets
+        if not self.db:
+            return None
+        
+        try:
+            # Try A-share by symbol
+            df = self.db.execute_query(
+                "SELECT ts_code, name FROM ods_stock_basic WHERE symbol = %(code)s LIMIT 1",
+                {"code": code}
+            )
+            if not df.empty:
+                return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "a_share"}
+            
+            # Try ETF — ts_code starts with the code
+            for suffix in ['.SH', '.SZ']:
+                ts = f"{code}{suffix}"
+                df = self.db.execute_query(
+                    "SELECT ts_code, csname as name FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1",
+                    {"code": ts}
+                )
+                if not df.empty:
+                    return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "etf"}
+            
+            # Try HK stock
+            ts_hk = f"{code.zfill(5)}.HK"
+            df = self.db.execute_query(
+                "SELECT ts_code, name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1",
+                {"code": ts_hk}
+            )
+            if not df.empty:
+                return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "hk_stock"}
+        except Exception as e:
+            logger.warning(f"Failed to resolve stock code {code}: {e}")
+        
+        return None
     
     def _get_stock_name(self, code: str) -> str:
         """Get stock name by code.

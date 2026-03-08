@@ -335,11 +335,23 @@ async def get_ai_analysis(request: AnalysisRequest):
         if request.analysis_type == "comprehensive":
             # Use ReportAgent for comprehensive analysis
             from stock_datasource.agents.report_agent import get_comprehensive_financial_analysis
-            content = get_comprehensive_financial_analysis(normalized_code, request.periods)
+            result = get_comprehensive_financial_analysis(normalized_code, request.periods)
+            
+            # result is a dict like {"report": "...", "_visualization": ...}
+            if isinstance(result, dict):
+                content = result.get("report", str(result))
+                viz = result.get("_visualization")
+            else:
+                content = str(result)
+                viz = None
             
             # Also get structured insights
             insights_data = financial_service.get_investment_insights(normalized_code)
             insights = insights_data.get("insights", {}) if insights_data.get("status") == "success" else None
+            if viz and insights is not None:
+                insights["_visualization"] = viz
+            elif viz:
+                insights = {"_visualization": viz}
             
         elif request.analysis_type == "peer_comparison":
             from stock_datasource.agents.report_agent import get_peer_comparison_analysis

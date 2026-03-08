@@ -1,0 +1,17 @@
+{
+  "plugin_name": "tushare_rt_min",
+  "display_name": "A股实时分钟K线",
+  "description": "获取全A股票实时分钟K线数据，支持1/5/15/30/60分钟频率",
+  "api_name": "rt_min",
+  "rate_limit": 120,
+  "required_points": "单独开权限",
+  "max_records_per_call": 1000,
+  "update_schedule": "realtime",
+  "update_time": "交易时段",
+  "category": "CN_STOCK",
+  "role": "PRIMARY",
+  "tags": ["realtime", "kline", "minute", "quote"],
+  "dependencies": [],
+  "schedule_enabled": false,
+  "schedule_note": "实时分钟数据插件，仅在交易时段有数据，不适合定时调度"
+}

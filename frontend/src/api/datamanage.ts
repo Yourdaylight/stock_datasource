@@ -677,6 +677,41 @@ export interface SqlTemplateCreate {
   category?: string
 }
 
+// ============ Realtime Data Management Types ============
+
+export interface RealtimePluginInfo {
+  plugin_name: string
+  display_name: string
+  description: string
+  api_name: string
+  category: string
+  tags: string[]
+  enabled: boolean
+}
+
+export interface RealtimeConfig {
+  enabled: boolean
+  watchlist_monitor_enabled: boolean
+  collect_freq: string
+  plugin_configs: Record<string, { enabled: boolean }>
+}
+
+export interface RealtimeConfigUpdate {
+  enabled?: boolean
+  watchlist_monitor_enabled?: boolean
+  collect_freq?: string
+}
+
+export interface RealtimeStatus {
+  global_enabled: boolean
+  watchlist_monitor_enabled: boolean
+  collect_freq: string
+  total_plugins: number
+  enabled_plugins: number
+  watchlist_count: number
+  watchlist_codes: string[]
+}
+
 export const datamanageApi = {
   // Data Sources
   getDataSources(): Promise<DataSource[]> {
@@ -1058,5 +1093,31 @@ export const datamanageApi = {
   // Delete a knowledge document
   deleteKnowledgeDocument(knowledgeId: string): Promise<{ success: boolean; message: string }> {
     return request.delete(`/api/datamanage/knowledge/documents/${knowledgeId}`)
+  },
+
+  // ============ Realtime Data Management API ============
+
+  getRealtimeConfig(): Promise<RealtimeConfig> {
+    return request.get('/api/datamanage/realtime/config')
+  },
+
+  updateRealtimeConfig(config: RealtimeConfigUpdate): Promise<RealtimeConfig> {
+    return request.put('/api/datamanage/realtime/config', config)
+  },
+
+  getRealtimePlugins(): Promise<RealtimePluginInfo[]> {
+    return request.get('/api/datamanage/realtime/plugins')
+  },
+
+  updateRealtimePluginConfig(pluginName: string, enabled: boolean): Promise<RealtimeConfig> {
+    return request.put(`/api/datamanage/realtime/plugins/${pluginName}`, { enabled })
+  },
+
+  getRealtimeStatus(): Promise<RealtimeStatus> {
+    return request.get('/api/datamanage/realtime/status')
+  },
+
+  syncWatchlistToRealtime(): Promise<{ success: boolean; message: string }> {
+    return request.post('/api/datamanage/realtime/sync-watchlist')
   }
 }

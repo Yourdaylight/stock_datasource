@@ -1,5 +1,5 @@
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { NewsItem, NewsSentiment, HotTopic } from '@/types/news'
+import type { NewsItem, NewsSentiment } from '@/types/news'
 
 // 错误类型定义
 export enum NewsErrorType {
@@ -54,17 +54,6 @@ export const validateNewsSentiment = (sentiment: any): sentiment is NewsSentimen
     typeof sentiment.score === 'number' &&
     typeof sentiment.reasoning === 'string' &&
     ['high', 'medium', 'low'].includes(sentiment.impact_level)
-  )
-}
-
-export const validateHotTopic = (topic: any): topic is HotTopic => {
-  return (
-    typeof topic === 'object' &&
-    typeof topic.topic === 'string' &&
-    Array.isArray(topic.keywords) &&
-    typeof topic.heat_score === 'number' &&
-    Array.isArray(topic.related_stocks) &&
-    typeof topic.news_count === 'number'
   )
 }
 
@@ -205,29 +194,6 @@ export const validateNewsItems = (items: any[]): NewsItem[] => {
   }
 
   return validItems
-}
-
-export const validateHotTopics = (topics: any[]): HotTopic[] => {
-  if (!Array.isArray(topics)) {
-    throw new Error('热点话题数据必须是数组格式')
-  }
-
-  const validTopics: HotTopic[] = []
-  const invalidTopics: any[] = []
-
-  topics.forEach((topic, index) => {
-    if (validateHotTopic(topic)) {
-      validTopics.push(topic)
-    } else {
-      invalidTopics.push({ index, topic })
-    }
-  })
-
-  if (invalidTopics.length > 0) {
-    console.warn('发现无效的热点话题数据项:', invalidTopics)
-  }
-
-  return validTopics
 }
 
 // 错误处理中间件

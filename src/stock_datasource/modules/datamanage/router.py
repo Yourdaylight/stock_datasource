@@ -1852,3 +1852,61 @@ async def delete_knowledge_document(
     if not ok:
         raise HTTPException(status_code=500, detail="删除失败")
     return {"success": True, "message": "文档已删除"}
+
+
+# ============ Realtime Data Management Endpoints ============
+
+@router.get("/realtime/config")
+async def get_realtime_config():
+    """Get realtime data management configuration."""
+    from .realtime_manage_service import realtime_manage_service
+    return realtime_manage_service.get_config()
+
+
+@router.put("/realtime/config")
+async def update_realtime_config(
+    body: dict,
+):
+    """Update realtime data management configuration.
+    
+    Body params: enabled, watchlist_monitor_enabled, collect_freq
+    """
+    from .realtime_manage_service import realtime_manage_service
+    return realtime_manage_service.update_config(
+        enabled=body.get("enabled"),
+        watchlist_monitor_enabled=body.get("watchlist_monitor_enabled"),
+        collect_freq=body.get("collect_freq"),
+    )
+
+
+@router.get("/realtime/plugins")
+async def get_realtime_plugins():
+    """Get list of all realtime plugins with their status."""
+    from .realtime_manage_service import realtime_manage_service
+    return realtime_manage_service.get_realtime_plugins()
+
+
+@router.put("/realtime/plugins/{plugin_name}")
+async def update_realtime_plugin_config(
+    plugin_name: str,
+    body: dict,
+):
+    """Enable or disable a specific realtime plugin."""
+    from .realtime_manage_service import realtime_manage_service
+    enabled = body.get("enabled", False)
+    return realtime_manage_service.update_plugin_config(plugin_name, enabled)
+
+
+@router.get("/realtime/status")
+async def get_realtime_status():
+    """Get realtime system status summary."""
+    from .realtime_manage_service import realtime_manage_service
+    return realtime_manage_service.get_realtime_status()
+
+
+@router.post("/realtime/sync-watchlist")
+async def sync_watchlist_to_realtime():
+    """Manually sync watchlist codes to realtime collector."""
+    from .realtime_manage_service import realtime_manage_service
+    realtime_manage_service._sync_watchlist_to_collector()
+    return {"success": True, "message": "自选股已同步到实时采集"}

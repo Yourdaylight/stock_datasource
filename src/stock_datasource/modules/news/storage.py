@@ -273,7 +273,11 @@ class NewsFileStorage:
             "updated_at": datetime.now().isoformat(),
         }
         
-        for source in ["sina", "tushare"]:
+        dynamic_sources = [
+            p.name for p in self.base_dir.iterdir()
+            if p.is_dir() and p.name != "cache"
+        ]
+        for source in dynamic_sources:
             source_news = self._load_recent_days(source, days)
             cache[f"{source}_news"] = source_news
         

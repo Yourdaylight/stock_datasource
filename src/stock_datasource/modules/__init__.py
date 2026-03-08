@@ -110,8 +110,8 @@ def get_all_routers() -> list:
         pass
 
     try:
-        from .realtime_kline.router import router as realtime_kline_router
-        routers.append(("/realtime_kline", realtime_kline_router, ["实时日线"]))
+        from .realtime_minute.router import router as realtime_minute_router
+        routers.append(("/realtime", realtime_minute_router, ["实时分钟"]))
     except ImportError:
         pass
 

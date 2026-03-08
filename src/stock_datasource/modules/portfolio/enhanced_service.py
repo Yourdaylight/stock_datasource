@@ -489,10 +489,10 @@ class EnhancedPortfolioService:
         return stock_info.get(ts_code, (f"股票{ts_code}", "未知", "未知"))
     
     async def _update_position_prices(self, position: Position):
-        """Update position current price and calculations."""
+        """Update position current price and calculations. Supports A-shares, ETFs and HK stocks."""
         try:
             if self.db is not None:
-                # Try to get latest price from database
+                # Try ods_daily first (A-shares)
                 query = """
                     SELECT close FROM ods_daily 
                     WHERE ts_code = %(code)s 
@@ -503,19 +503,36 @@ class EnhancedPortfolioService:
                 if not df.empty:
                     position.current_price = float(df.iloc[0]['close'])
                     position.last_price_update = datetime.now()
+                else:
+                    # Try ETF daily table
+                    query_etf = """
+                        SELECT close FROM ods_etf_fund_daily 
+                        WHERE ts_code = %(code)s 
+                        ORDER BY trade_date DESC 
+                        LIMIT 1
+                    """
+                    df_etf = self.db.execute_query(query_etf, {'code': position.ts_code})
+                    if not df_etf.empty:
+                        position.current_price = float(df_etf.iloc[0]['close'])
+                        position.last_price_update = datetime.now()
+                    elif position.ts_code.endswith('.HK'):
+                        # Try HK daily table
+                        query_hk = """
+                            SELECT close FROM ods_hk_daily 
+                            WHERE ts_code = %(code)s 
+                            ORDER BY trade_date DESC 
+                            LIMIT 1
+                        """
+                        df_hk = self.db.execute_query(query_hk, {'code': position.ts_code})
+                        if not df_hk.empty:
+                            position.current_price = float(df_hk.iloc[0]['close'])
+                            position.last_price_update = datetime.now()
         except Exception as e:
             logger.warning(f"Failed to get current price from database: {e}")
         
-        # Fallback to mock prices
+        # Fallback: use cost_price if no price found
         if position.current_price is None:
-            mock_prices = {
-                '600519.SH': 1800.0,
-                '000001.SZ': 12.5,
-                '000002.SZ': 18.3,
-                '600036.SH': 35.2,
-                '000858.SZ': 150.8
-            }
-            position.current_price = mock_prices.get(position.ts_code, position.cost_price * 1.05)
+            position.current_price = position.cost_price
             position.last_price_update = datetime.now()
         
         # Calculate market value and profit/loss

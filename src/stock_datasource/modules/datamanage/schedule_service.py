@@ -235,7 +235,11 @@ class ScheduleService:
     # ============ Plugin Schedule Config ============
     
     def get_plugin_configs(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get schedule configuration for all plugins."""
+        """Get schedule configuration for all plugins.
+        
+        Excludes realtime plugins (update_schedule='realtime') which are
+        managed separately via the realtime data management panel.
+        """
         plugins = plugin_manager.list_plugins()
         result = []
         
@@ -243,6 +247,14 @@ class ScheduleService:
             plugin = plugin_manager.get_plugin(plugin_name)
             if not plugin:
                 continue
+            
+            # Skip realtime plugins - they should not appear in daily sync
+            try:
+                plugin_config = plugin.get_config()
+                if plugin_config.get("update_schedule") == "realtime":
+                    continue
+            except Exception:
+                pass
             
             # Get plugin category
             try:

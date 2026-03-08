@@ -16,6 +16,9 @@ class NewsCategory(str, Enum):
     ANALYSIS = "analysis"          # 分析解读
     POLICY = "policy"              # 政策法规
     INDUSTRY = "industry"          # 行业动态
+    CCTV = "cctv"                  # 新闻联播
+    RESEARCH = "research"          # 券商研报
+    NPR = "npr"                    # 国家政策
     ALL = "all"                    # 全部
 
 
@@ -41,7 +44,7 @@ class NewsSentiment(BaseModel):
     score: float = Field(default=0.0, ge=-1.0, le=1.0, description="情绪分数，-1.0到1.0")
     reasoning: str = Field(default="", description="分析理由")
     impact_level: ImpactLevel = Field(default=ImpactLevel.LOW, description="影响程度")
-    
+
     class Config:
         use_enum_values = True
 
@@ -52,6 +55,9 @@ class NewsItem(BaseModel):
     title: str = Field(..., description="新闻标题")
     content: str = Field(default="", description="新闻内容或摘要")
     source: str = Field(default="unknown", description="新闻来源（tushare/sina/etc）")
+    news_src: Optional[str] = Field(default=None, description="新闻源标识（如sina/cls/新华社）")
+    author: Optional[str] = Field(default=None, description="作者")
+    abstract: Optional[str] = Field(default=None, description="摘要")
     publish_time: Optional[datetime] = Field(default=None, description="发布时间")
     stock_codes: List[str] = Field(default_factory=list, description="关联股票代码")
     category: NewsCategory = Field(default=NewsCategory.ALL, description="新闻分类")
@@ -102,14 +108,27 @@ class NewsItem(BaseModel):
         use_enum_values = True
 
 
-class HotTopic(BaseModel):
-    """热点话题"""
-    topic: str = Field(..., description="话题名称")
-    keywords: List[str] = Field(default_factory=list, description="关键词")
-    heat_score: float = Field(default=0.0, description="热度分数")
-    related_stocks: List[str] = Field(default_factory=list, description="相关股票代码")
-    news_count: int = Field(default=0, description="相关新闻数量")
-    summary: str = Field(default="", description="话题摘要")
+class ResearchReport(BaseModel):
+    """券商研报"""
+    trade_date: str = Field(..., description="研报日期")
+    title: str = Field(..., description="研报标题")
+    abstract: Optional[str] = Field(default=None, description="研报摘要")
+    author: Optional[str] = Field(default=None, description="作者")
+    ts_code: Optional[str] = Field(default=None, description="股票代码")
+    inst_csname: Optional[str] = Field(default=None, description="券商名称")
+    ind_name: Optional[str] = Field(default=None, description="行业名称")
+    url: Optional[str] = Field(default=None, description="下载链接")
+
+
+class PolicyItem(BaseModel):
+    """政策法规"""
+    pubtime: Optional[datetime] = Field(default=None, description="发布时间")
+    title: str = Field(..., description="标题")
+    content_html: Optional[str] = Field(default=None, description="正文HTML")
+    pcode: Optional[str] = Field(default=None, description="发文字号")
+    puborg: Optional[str] = Field(default=None, description="发文机关")
+    ptype: Optional[str] = Field(default=None, description="主题分类")
+    url: Optional[str] = Field(default=None, description="原文链接")
 
 
 # API Request/Response schemas
@@ -136,6 +155,8 @@ class NewsListResponse(BaseModel):
     """新闻列表响应"""
     success: bool = Field(default=True)
     total: int = Field(default=0, description="总数")
+    partial: bool = Field(default=False, description="是否为部分结果")
+    failed_sources: List[str] = Field(default_factory=list, description="失败的数据源")
     data: List[NewsItem] = Field(default_factory=list)
     message: str = Field(default="")
 
@@ -147,13 +168,6 @@ class SentimentListResponse(BaseModel):
     data: List[NewsSentiment] = Field(default_factory=list)
     message: str = Field(default="")
 
-
-class HotTopicsResponse(BaseModel):
-    """热点话题响应"""
-    success: bool = Field(default=True)
-    trade_date: Optional[str] = Field(default=None, description="数据日期")
-    data: List[HotTopic] = Field(default_factory=list)
-    message: str = Field(default="")
 
 
 class NewsSummaryResponse(BaseModel):

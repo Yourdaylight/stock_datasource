@@ -4,6 +4,9 @@ export interface NewsItem {
   title: string
   content: string
   source: string
+  news_src?: string
+  author?: string
+  abstract?: string
   publish_time: string
   stock_codes: string[]
   category: string
@@ -18,15 +21,6 @@ export interface NewsSentiment {
   score: number // -1.0 到 1.0
   reasoning: string
   impact_level: 'high' | 'medium' | 'low'
-}
-
-// 热点话题
-export interface HotTopic {
-  topic: string
-  keywords: string[]
-  heat_score: number
-  related_stocks: string[]
-  news_count: number
 }
 
 // 筛选条件
@@ -91,7 +85,13 @@ export interface SentimentStats {
 export type NewsSortBy = 'time' | 'heat' | 'sentiment'
 
 // 新闻类别
-export type NewsCategory = 'announcement' | 'news' | 'analysis' | 'research'
+export type NewsCategory =
+  | 'all'
+  | 'announcement'
+  | 'flash'
+  | 'analysis'
+  | 'industry'
+  | 'research'
 
 // 情绪类型
 export type SentimentType = 'positive' | 'negative' | 'neutral'
