@@ -7,11 +7,20 @@ import pandas as pd
 from typing import Optional
 from pathlib import Path
 import tushare as ts
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 from stock_datasource.config.settings import settings
 from stock_datasource.core.proxy import proxy_context
 
 logger = logging.getLogger(__name__)
+
+
+class TuShareNonRetryableError(RuntimeError):
+    """Errors that should not be retried (e.g., TuShare IP quota limits)."""
+
+
+def _is_tushare_ip_limit_error(err: Exception) -> bool:
+    msg = str(err)
+    return ("IP数量超限" in msg) or ("最大数量为2个" in msg)
 
 
 class ETFStkMinsExtractor:
@@ -47,7 +56,11 @@ class ETFStkMinsExtractor:
         
         self._last_call_time = time.time()
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        retry=retry_if_not_exception_type(TuShareNonRetryableError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+    )
     def _call_api(self, api_func, **kwargs) -> pd.DataFrame:
         """Call TuShare API with rate limiting and retry."""
         self._rate_limit()
@@ -64,6 +77,8 @@ class ETFStkMinsExtractor:
             
         except Exception as e:
             logger.error(f"API call failed: {e}")
+            if _is_tushare_ip_limit_error(e):
+                raise TuShareNonRetryableError(str(e)) from e
             raise
     
     def extract(

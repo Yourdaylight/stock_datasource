@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "schedule_enabled": false,
   "rate_limit": 2,
   "timeout": 60,
   "retry_attempts": 3,

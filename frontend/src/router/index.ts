@@ -196,6 +196,25 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/quant/QuantConfigView.vue'),
     meta: { title: '模型配置', requiresAuth: true }
   },
+  // User center
+  {
+    path: '/user',
+    name: 'UserCenter',
+    component: () => import('@/views/user/UserCenter.vue'),
+    meta: { title: '个人中心', icon: 'user', requiresAuth: true }
+  },
+  {
+    path: '/user/llm-config',
+    name: 'UserLlmConfig',
+    component: () => import('@/views/user/UserCenter.vue'),
+    meta: { title: 'LLM配置', requiresAuth: true }
+  },
+  {
+    path: '/user/mcp-usage',
+    name: 'UserMcpUsage',
+    component: () => import('@/views/user/UserCenter.vue'),
+    meta: { title: 'MCP调用统计', requiresAuth: true }
+  },
   // Legacy routes redirect
   {
     path: '/report',

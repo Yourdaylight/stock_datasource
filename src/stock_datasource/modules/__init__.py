@@ -115,4 +115,16 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .token_usage.router import router as token_usage_router
+        routers.append(("/token", token_usage_router, ["Token用量"]))
+    except ImportError:
+        pass
+
+    try:
+        from .mcp_usage.router import router as mcp_usage_router
+        routers.append(("/mcp-usage", mcp_usage_router, ["MCP调用统计"]))
+    except ImportError:
+        pass
+
     return routers

@@ -65,6 +65,27 @@ class TuShareETFStkMinsPlugin(BasePlugin):
         freq = kwargs.get('freq', '1min')
         start_date = kwargs.get('start_date')
         end_date = kwargs.get('end_date')
+        trade_date = kwargs.get('trade_date')
+
+        # Support incremental scheduler calls which provide `trade_date`.
+        # For minute data, running in batch mode for all ETFs is extremely expensive and
+        # should not be triggered implicitly.
+        if trade_date and not (start_date or end_date):
+            try:
+                # Accept YYYYMMDD or YYYY-MM-DD
+                date_str = trade_date.replace('-', '')
+                yyyy, mm, dd = date_str[:4], date_str[4:6], date_str[6:8]
+                start_date = f"{yyyy}-{mm}-{dd} 00:00:00"
+                end_date = f"{yyyy}-{mm}-{dd} 23:59:59"
+            except Exception:
+                self.logger.warning(f"Invalid trade_date={trade_date!r}; ignoring")
+
+        if trade_date and not ts_code:
+            self.logger.warning(
+                "trade_date was provided without ts_code; skip implicit batch scan for ETF minute data. "
+                "Trigger with ts_code or use explicit start_date/end_date for batch runs."
+            )
+            return pd.DataFrame()
         
         # If ts_code is specified, fetch only that ETF
         if ts_code:

@@ -1,17 +1,50 @@
 """Runtime configuration persistence for proxy, sync concurrency, and schedule.
 
-Stores small JSON file alongside settings to persist user changes
-from the admin UI. Safe to import anywhere; IO is guarded with a lock.
+Stores runtime_config.json in the data/ directory (volume-mounted in Docker)
+so that user changes from the admin UI survive container rebuilds and restarts.
+Safe to import anywhere; IO is guarded with a lock.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 import threading
 
-CONFIG_PATH = Path(__file__).parent / "runtime_config.json"
+logger = logging.getLogger(__name__)
+
+# Persistent path: data/ is volume-mounted in Docker (./data:/app/data)
+# Can be overridden via RUNTIME_CONFIG_PATH env var for custom deployments
+_DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parents[3] / "data")))
+CONFIG_PATH = Path(os.environ.get("RUNTIME_CONFIG_PATH", str(_DATA_DIR / "runtime_config.json")))
+
+# Legacy path: where config used to live (inside the source tree)
+_LEGACY_CONFIG_PATH = Path(__file__).parent / "runtime_config.json"
+
+
+def _migrate_legacy_config() -> None:
+    """Migrate runtime_config.json from legacy source-tree location to data/ dir.
+
+    Only runs once at import time.  If the new path already has a file we skip.
+    If only the legacy path has a file we copy it (not move, to stay safe).
+    """
+    if CONFIG_PATH.exists():
+        return  # already migrated or was created in the new location
+    if not _LEGACY_CONFIG_PATH.exists():
+        return  # nothing to migrate
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(_LEGACY_CONFIG_PATH), str(CONFIG_PATH))
+        logger.info("Migrated runtime_config.json from %s to %s", _LEGACY_CONFIG_PATH, CONFIG_PATH)
+    except Exception as exc:
+        logger.warning("Failed to migrate legacy runtime_config.json: %s", exc)
+
+
+_migrate_legacy_config()
 DEFAULT_CONFIG: Dict[str, Any] = {
     "proxy": {
         "enabled": False,
