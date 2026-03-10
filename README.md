@@ -1,8 +1,11 @@
 # A股赛博操盘手 🤖📈
 
 **AI 原生的 A 股智能投资助手——赛博操盘手** —— 基于大语言模型和 LangGraph 多智能体架构，为个人投资者提供专业级的股票分析、智能选股、投资组合管理、策略回测、AI 生成量化策略能力。
+
 ![alt text](screenshot/chat.png)
+
 --------
+
 
 ## 🧠 AI 原生能力
 
@@ -14,21 +17,22 @@
 用户输入 → OrchestratorAgent → 意图识别 → 路由到专业Agent → 工具调用 → 自然语言回复
 ```
 
-| Agent                     | 功能定位  | 典型场景                                       |
-| ------------------------- | --------- | ---------------------------------------------- |
-| **OverviewAgent**   | 市场概览  | "今日大盘走势"、"市场情绪如何"                 |
-| **MarketAgent**     | 技术分析  | "分析贵州茅台走势"、"600519 估值如何"          |
-| **ScreenerAgent**   | 智能选股  | "找出低估值高成长股票"、"筛选股息率>5%的股票"  |
-| **ReportAgent**     | 财报分析  | "分析宁德时代财务状况"、"比较茅台和五粮液财报" |
-| **PortfolioAgent**  | 持仓管理  | "查看我的持仓"、"分析投资组合风险"             |
-| **BacktestAgent**   | 策略回测  | "回测双均线策略"、"测试选股条件历史收益"       |
-| **IndexAgent**      | 指数分析  | "分析沪深300走势"、"创业板指技术形态"          |
-| **EtfAgent**        | ETF 分析  | "分析科创50ETF"、"对比各行业ETF表现"           |
-| **TopListAgent**    | 龙虎榜    | "今日龙虎榜"、"查看机构席位动向"               |
-| **MemoryAgent**     | 用户记忆  | "记住我的自选股"、"我的投资偏好是什么"         |
-| **DataManageAgent** | 数据管理  | "更新今日数据"、"检查数据质量"                 |
-| **WorkflowAgent**   | AI 工作流 | "创建每日复盘工作流"、"执行选股策略流程"       |
-| **ChatAgent**       | 通用对话  | 其他投资相关问题                               |
+| Agent                     | 功能定位   | 典型场景                                        |
+| ------------------------- | ---------- | ----------------------------------------------- |
+| **OverviewAgent**         | 市场概览   | "今日大盘走势"、"市场情绪如何"                |
+| **MarketAgent**           | 技术分析   | "分析贵州茅台走势"、"600519 估值如何"         |
+| **ScreenerAgent**         | 智能选股   | "找出低估值高成长股票"、"筛选股息率>5%的股票" |
+| **ReportAgent**           | 财报分析   | "分析宁德时代财务状况"、"比较茅台和五粮液财报"|
+| **HKReportAgent**         | 港股财报   | "分析腾讯财报"、"00700 财务健康度"            |
+| **PortfolioAgent**        | 持仓管理   | "查看我的持仓"、"分析投资组合风险"            |
+| **BacktestAgent**         | 策略回测   | "回测双均线策略"、"测试选股条件历史收益"      |
+| **IndexAgent**            | 指数分析   | "分析沪深300走势"、"创业板指技术形态"         |
+| **EtfAgent**              | ETF 分析   | "分析科创50ETF"、"对比各行业ETF表现"          |
+| **TopListAgent**          | 龙虎榜     | "今日龙虎榜"、"查看机构席位动向"              |
+| **MemoryAgent**           | 用户记忆   | "记住我的自选股"、"我的投资偏好是什么"        |
+| **DataManageAgent**       | 数据管理   | "更新今日数据"、"检查数据质量"                |
+| **WorkflowAgent**         | AI 工作流  | "创建每日复盘工作流"、"执行选股策略流程"      |
+| **ChatAgent**             | 通用对话   | 其他投资相关问题                                |
 
 ### 核心 AI 能力
 
@@ -41,9 +45,33 @@
 
 ### 可AI拓展的数据采集能力
 
-我们定义了一套Skill可以一键基于tushare的文档生成插件代码，插件是我们整套系统的数据采集基础，可以方便的扩展新的数据源和数据表。每个插件包括数据采集、数据清洗、数据入库等功能模块并提供统一的http接口与Mcp tool给Agent调用。 当然也支持除了tushare之外的akshare， baostock等数据源。具体可以参看plugins目录下的实现。
+我们定义了一套 Skill 可以一键基于 Tushare 的文档生成插件代码，插件是我们整套系统的数据采集基础，可以方便地扩展新的数据源和数据表。每个插件包括数据采集、数据清洗、数据入库等功能模块，并提供统一的 HTTP 接口与 MCP Tool 给 Agent 调用。当然也支持除 Tushare 之外的 AKShare、Baostock 等数据源。
 
 ![alt text](screenshot/plugins.png)
+
+### 🔍 数据探索中心
+
+可视化浏览所有插件数据表，支持 SQL 查询、数据预览、导出等功能：
+
+- **数据表浏览**：按分类查看所有插件数据表（A股、港股、指数、ETF等）
+- **SQL 查询**：在线执行 SQL，支持语法高亮和自动补全
+- **数据导出**：支持 CSV、Excel、JSON 格式导出
+- **SQL 模板**：保存常用查询模板，方便复用
+
+![数据探索](screenshot/data_explorer.png)
+
+### 📊 AI 财报分析中心
+
+专业级财报分析平台，支持 A股/港股 财报浏览与 AI 深度分析：
+
+- **公司列表**：支持按市场、行业筛选，关键词搜索
+- **财报浏览**：查看历史财报列表，快速定位报告期
+- **双模式 AI 分析**：
+  - ⚡ **快速规则分析**：基于预设规则引擎，秒级出结果
+  - 🤖 **AI 大模型深度分析**：调用 LLM 深度分析，约 10-60 秒，洞察更深
+- **分析历史**：保存分析记录，支持对比查看
+
+![财报分析](screenshot/financial_analysis.png)
 
 ### 🇭🇰 港股数据获取
 
@@ -149,7 +177,12 @@ steps:
 使用Weknora开源知识库，需要手动配置
 基于该知识库实现将财报内容存入知识库用于后续分析
 ------------------------------------------------
+## 📱联动OpenClaw
+这里我们基于这个项目构建了财经股，基于财经库制作了基于热点新闻与各个公司的财报分析
 
+![AI看公司](image.png)
+AI看公司
+--------
 ## 🚀 快速开始
 
 ### 场景一：从 0 到 1 一键部署（新用户推荐）
@@ -515,15 +548,15 @@ uv run python -m stock_datasource.services.mcp_server
 
 ### 技术栈
 
-| 层级             | 技术                                         |
-| ---------------- | -------------------------------------------- |
-| **前端**   | Vue 3, TypeScript, TDesign, ECharts, Pinia   |
-| **后端**   | Python 3.11+, FastAPI, LangGraph, DeepAgents |
-| **数据库** | ClickHouse（列式存储，高性能分析）           |
-| **缓存**   | Redis（会话缓存、数据缓存）                  |
-| **数据源** | TuShare Pro（A股全量数据）                   |
-| **AI**     | OpenAI GPT-4 / 国产大模型，Function Calling  |
-| **可观测** | Langfuse（AI 调用链路追踪）                  |
+| 层级       | 技术                                                    |
+| ---------- | ------------------------------------------------------- |
+| **前端**   | Vue 3, TypeScript, TDesign, ECharts, Pinia              |
+| **后端**   | Python 3.11+, FastAPI, LangGraph, DeepAgents            |
+| **数据库** | ClickHouse（列式存储，高性能分析）                      |
+| **缓存**   | Redis（会话缓存、数据缓存）                             |
+| **数据源** | TuShare Pro（A股）、AKShare（港股）                     |
+| **AI**     | OpenAI GPT-4 / Kimi / 国产大模型，Function Calling      |
+| **可观测** | Langfuse（AI 调用链路追踪）                             |
 
 ---
 
@@ -538,7 +571,8 @@ stock_datasource/
 │   │   ├── overview_agent.py  # 市场概览
 │   │   ├── market_agent.py    # 技术分析
 │   │   ├── screener_agent.py  # 智能选股
-│   │   ├── report_agent.py    # 财报分析
+│   │   ├── report_agent.py    # A股财报分析
+│   │   ├── hk_report_agent.py # 港股财报分析
 │   │   ├── portfolio_agent.py # 持仓管理
 │   │   ├── backtest_agent.py  # 策略回测
 │   │   ├── index_agent.py     # 指数分析
@@ -551,6 +585,8 @@ stock_datasource/
 │   │   ├── auth/              # 认证模块
 │   │   ├── overview/          # 市场概览
 │   │   ├── screener/          # 选股模块
+│   │   ├── financial_analysis/# 财报分析中心
+│   │   ├── datamanage/        # 数据探索中心
 │   │   └── ...
 │   └── core/                  # 核心组件
 ├── frontend/                  # Vue 前端

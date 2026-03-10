@@ -4,6 +4,11 @@ import { useAuthStore } from '@/stores/auth'
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/market', '/research']
 
+// Helper: check if path is public (including sub-paths)
+function isPublicPath(path: string): boolean {
+  return PUBLIC_ROUTES.some(p => path === p || path.startsWith(p + '/'))
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
@@ -23,9 +28,30 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/research',
-    name: 'Research',
     component: () => import('@/views/research/ResearchView.vue'),
-    meta: { title: '财报分析', icon: 'file-search', public: true }
+    meta: { title: '财报分析', icon: 'file-search', public: true },
+    children: [
+      {
+        path: '',
+        name: 'Research',
+        component: () => import('@/views/research/CompanyListView.vue'),
+        meta: { title: '财报分析', public: true }
+      },
+      {
+        path: ':code',
+        name: 'ReportList',
+        component: () => import('@/views/research/ReportListView.vue'),
+        meta: { title: '财报列表', public: true },
+        props: true
+      },
+      {
+        path: ':code/:period',
+        name: 'ReportDetail',
+        component: () => import('@/views/research/ReportDetailView.vue'),
+        meta: { title: '财报详情', public: true },
+        props: true
+      }
+    ]
   },
   {
     path: '/news',
@@ -234,7 +260,7 @@ router.beforeEach(async (to, from, next) => {
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth === true
   const requiresAdmin = to.meta.requiresAdmin === true
-  const isPublic = to.meta.public === true || PUBLIC_ROUTES.includes(to.path)
+  const isPublic = to.meta.public === true || isPublicPath(to.path)
 
   // If route is public, allow access
   if (isPublic) {

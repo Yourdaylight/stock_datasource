@@ -237,6 +237,13 @@ async def lifespan(app: FastAPI):
         ensure_portfolio_tables()
     except Exception as e:
         logger.warning(f"Portfolio table initialization failed: {e}")
+
+    # Initialize financial analysis tables
+    try:
+        from stock_datasource.modules.financial_analysis.tables import ensure_financial_analysis_tables
+        ensure_financial_analysis_tables()
+    except Exception as e:
+        logger.warning(f"Financial analysis table initialization failed: {e}")
     
     # Initialize plugin manager
     try:
