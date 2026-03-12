@@ -675,4 +675,8 @@ MIT License
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+6. 开启 Pull Request
+   
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=lndyzwdxhs/soulhub&type=date)](https://star-history.com/#lndyzwdxhs/soulhub&Date)
