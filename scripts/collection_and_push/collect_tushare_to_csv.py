@@ -52,7 +52,7 @@ MARKET_QUERIES: Dict[str, List[Dict[str, str]]] = {
         {"api": "rt_idx_k", "ts_code": "0*.SH,399*.SZ", "fields": "ts_code,name,trade_time,close,vol,pct_chg"},
     ],
     "hk": [
-        {"api": "rt_hk_k", "ts_code": "0*.HK"},
+        {"api": "rt_hk_k", "ts_code": "*.HK"},
     ],
 }
 
@@ -68,7 +68,6 @@ class CollectConfig:
     retry_min_seconds: float
     retry_max_seconds: float
     market_inner_concurrency: int
-    hk_patterns_per_round: int
 
 
 class RateLimiter:
@@ -92,8 +91,6 @@ class TuShareRealtimeCollector:
         self.cfg = cfg
         self._api_limiters: Dict[str, RateLimiter] = {}
         self._api_limiters_lock = threading.Lock()
-        self._hk_cursor = 0
-        self._hk_cursor_lock = threading.Lock()
 
         self._configure_http(proxy_url=cfg.proxy_url, api_url=cfg.api_url)
         ts.set_token(cfg.token)
@@ -165,18 +162,6 @@ class TuShareRealtimeCollector:
                 time.sleep(backoff)
 
         raise RuntimeError(f"API call failed api={api_name} params={params}: {last_error}")
-
-    def _pick_hk_queries(self) -> List[Dict[str, str]]:
-        queries = MARKET_QUERIES["hk"]
-        if not queries:
-            return []
-
-        per_round = max(1, min(self.cfg.hk_patterns_per_round, len(queries)))
-        with self._hk_cursor_lock:
-            start = self._hk_cursor
-            selected = [queries[(start + i) % len(queries)] for i in range(per_round)]
-            self._hk_cursor = (start + per_round) % len(queries)
-        return selected
 
     def _normalize(self, market: str, df: pd.DataFrame) -> List[Dict[str, Any]]:
         if df.empty:
@@ -256,7 +241,7 @@ class TuShareRealtimeCollector:
         if market not in MARKET_QUERIES:
             return []
 
-        queries = self._pick_hk_queries() if market == "hk" else MARKET_QUERIES[market]
+        queries = MARKET_QUERIES[market]
         if not queries:
             return []
 
@@ -371,7 +356,6 @@ def build_args() -> argparse.Namespace:
     parser.add_argument("--retry-max-seconds", type=float, default=10.0, help="Max retry backoff")
 
     parser.add_argument("--market-inner-concurrency", type=int, default=3, help="Parallel queries per market")
-    parser.add_argument("--hk-patterns-per-round", type=int, default=1, help="HK shards per round")
 
     parser.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
     return parser.parse_args()
@@ -405,7 +389,6 @@ def main() -> int:
         retry_min_seconds=max(0.1, float(args.retry_min_seconds)),
         retry_max_seconds=max(float(args.retry_min_seconds), float(args.retry_max_seconds)),
         market_inner_concurrency=max(1, int(args.market_inner_concurrency)),
-        hk_patterns_per_round=max(1, int(args.hk_patterns_per_round)),
     )
 
     collector = TuShareRealtimeCollector(cfg)

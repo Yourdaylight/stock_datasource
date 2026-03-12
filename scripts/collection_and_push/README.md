@@ -36,7 +36,7 @@ CSV_DIR=data/tushare_csv                        # 可选，默认 data/tushare_c
 ### 完整流水线：采集 + 推送 + 清理
 
 ```bash
-python scripts/csv_pipeline.py \
+python scripts/collection_and_push/csv_pipeline.py \
   --token $TUSHARE_TOKEN \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN
@@ -45,13 +45,13 @@ python scripts/csv_pipeline.py \
 ### 使用 .env 文件（更简洁）
 
 ```bash
-python scripts/csv_pipeline.py --env-file .env
+python scripts/collection_and_push/csv_pipeline.py --env-file .env
 ```
 
 ### 2C4G 推荐参数
 
 ```bash
-python scripts/csv_pipeline.py \
+python scripts/collection_and_push/csv_pipeline.py \
   --env-file .env \
   --collect-interval 2.0 \
   --push-interval 5.0 \
@@ -66,7 +66,7 @@ python scripts/csv_pipeline.py \
 ### 只采集 + 清理（不推送到云端）
 
 ```bash
-python scripts/csv_pipeline.py \
+python scripts/collection_and_push/csv_pipeline.py \
   --token $TUSHARE_TOKEN \
   --disable-push
 ```
@@ -74,7 +74,7 @@ python scripts/csv_pipeline.py \
 ### 只推送（CSV 由其他方式生成）
 
 ```bash
-python scripts/csv_pipeline.py \
+python scripts/collection_and_push/csv_pipeline.py \
   --disable-collect --disable-cleanup \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN
@@ -83,7 +83,7 @@ python scripts/csv_pipeline.py \
 ### 只采集（不推送不清理）
 
 ```bash
-python scripts/csv_pipeline.py \
+python scripts/collection_and_push/csv_pipeline.py \
   --token $TUSHARE_TOKEN \
   --disable-push --disable-cleanup
 ```
@@ -98,27 +98,27 @@ python scripts/csv_pipeline.py \
 
 ```bash
 # 单次采集（不循环）
-python scripts/collect_tushare_to_csv.py --token $TUSHARE_TOKEN
+python scripts/collection_and_push/collect_tushare_to_csv.py --token $TUSHARE_TOKEN
 
 # 持续循环采集（追加模式，每 2 秒一轮）
-python scripts/collect_tushare_to_csv.py \
+python scripts/collection_and_push/collect_tushare_to_csv.py \
   --token $TUSHARE_TOKEN \
   --loop --interval 2.0 --append
 
 # 指定市场
-python scripts/collect_tushare_to_csv.py \
+python scripts/collection_and_push/collect_tushare_to_csv.py \
   --token $TUSHARE_TOKEN \
   --loop --append \
   --markets a_stock,etf
 
 # 忽略交易时段限制（调试用）
-python scripts/collect_tushare_to_csv.py \
+python scripts/collection_and_push/collect_tushare_to_csv.py \
   --token $TUSHARE_TOKEN \
   --loop --append \
   --ignore-trading-window
 
 # 指定 API 地址和代理
-python scripts/collect_tushare_to_csv.py \
+python scripts/collection_and_push/collect_tushare_to_csv.py \
   --token $TUSHARE_TOKEN \
   --api-url https://api.tushare.pro \
   --proxy-url http://127.0.0.1:7890 \
@@ -148,18 +148,18 @@ python scripts/collect_tushare_to_csv.py \
 
 ```bash
 # 单次推送
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN
 
 # 持续循环推送（每 5 秒检查一次增量）
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN \
   --loop --interval 5.0
 
 # 指定市场和批量大小
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --markets a_stock,etf \
   --batch-size 500 \
@@ -185,21 +185,21 @@ python scripts/push_csv_to_cloud.py \
 
 ```bash
 # 预览将要删除的文件（不实际删除）
-python scripts/cleanup_csv.py --csv-dir data/tushare_csv --dry-run
+python scripts/collection_and_push/cleanup_csv.py --csv-dir data/tushare_csv --dry-run
 
 # 清理 2 天以外的 CSV（一次性）
-python scripts/cleanup_csv.py --csv-dir data/tushare_csv
+python scripts/collection_and_push/cleanup_csv.py --csv-dir data/tushare_csv
 
 # 清理 1 天以外的 CSV
-python scripts/cleanup_csv.py --csv-dir data/tushare_csv --max-age-days 1
+python scripts/collection_and_push/cleanup_csv.py --csv-dir data/tushare_csv --max-age-days 1
 
 # 循环模式（每 2 小时清理一次）
-python scripts/cleanup_csv.py \
+python scripts/collection_and_push/cleanup_csv.py \
   --csv-dir data/tushare_csv \
   --loop --interval 7200
 
 # 清理 12 小时以外的（支持小数）
-python scripts/cleanup_csv.py --csv-dir data/tushare_csv --max-age-days 0.5
+python scripts/collection_and_push/cleanup_csv.py --csv-dir data/tushare_csv --max-age-days 0.5
 ```
 
 **常用参数：**
@@ -257,7 +257,7 @@ python scripts/cleanup_csv.py --csv-dir data/tushare_csv --max-age-days 0.5
 ### 使用 nohup
 
 ```bash
-nohup python scripts/csv_pipeline.py --env-file .env \
+nohup python scripts/collection_and_push/csv_pipeline.py --env-file .env \
   --collect-interval 2.0 --push-interval 5.0 \
   > logs/csv_pipeline.log 2>&1 &
 ```
@@ -276,7 +276,7 @@ Type=simple
 User=deploy
 WorkingDirectory=/path/to/stock_datasource
 EnvironmentFile=/path/to/stock_datasource/.env
-ExecStart=/usr/bin/python3 scripts/csv_pipeline.py \
+ExecStart=/usr/bin/python3 scripts/collection_and_push/csv_pipeline.py \
   --env-file .env \
   --collect-interval 2.0 \
   --push-interval 5.0 \
@@ -304,12 +304,12 @@ journalctl -u csv-pipeline -f
 
 | 场景 | 命令 |
 |------|------|
-| 开发调试（忽略交易时段） | `python scripts/csv_pipeline.py --env-file .env --ignore-trading-window --disable-push` |
-| 生产环境一键启动 | `python scripts/csv_pipeline.py --env-file .env --collect-interval 2.0 --push-interval 5.0` |
-| 只跑采集看数据 | `python scripts/collect_tushare_to_csv.py --token $TUSHARE_TOKEN --append --ignore-trading-window` |
-| 检查哪些 CSV 会被清理 | `python scripts/cleanup_csv.py --csv-dir data/tushare_csv --dry-run` |
-| 手动推送一次 | `python scripts/push_csv_to_cloud.py --push-url $RT_KLINE_CLOUD_PUSH_URL` |
-| 后台常驻（nohup） | `nohup python scripts/csv_pipeline.py --env-file .env > logs/pipeline.log 2>&1 &` |
+| 开发调试（忽略交易时段） | `python scripts/collection_and_push/csv_pipeline.py --env-file .env --ignore-trading-window --disable-push` |
+| 生产环境一键启动 | `python scripts/collection_and_push/csv_pipeline.py --env-file .env --collect-interval 2.0 --push-interval 5.0` |
+| 只跑采集看数据 | `python scripts/collection_and_push/collect_tushare_to_csv.py --token $TUSHARE_TOKEN --append --ignore-trading-window` |
+| 检查哪些 CSV 会被清理 | `python scripts/collection_and_push/cleanup_csv.py --csv-dir data/tushare_csv --dry-run` |
+| 手动推送一次 | `python scripts/collection_and_push/push_csv_to_cloud.py --push-url $RT_KLINE_CLOUD_PUSH_URL` |
+| 后台常驻（nohup） | `nohup python scripts/collection_and_push/csv_pipeline.py --env-file .env > logs/pipeline.log 2>&1 &` |
 
 ---
 
