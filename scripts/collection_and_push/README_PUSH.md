@@ -60,7 +60,7 @@ export CSV_DIR=data/tushare_csv
 ### 单次推送
 
 ```bash
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN
 ```
@@ -68,7 +68,7 @@ python scripts/push_csv_to_cloud.py \
 ### 持续循环推送（每 5 秒检查增量）
 
 ```bash
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN \
   --loop --interval 5.0
@@ -77,7 +77,7 @@ python scripts/push_csv_to_cloud.py \
 ### 指定市场和批量大小
 
 ```bash
-python scripts/push_csv_to_cloud.py \
+python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --markets a_stock,etf \
   --batch-size 500 \
@@ -87,7 +87,7 @@ python scripts/push_csv_to_cloud.py \
 ### 后台运行
 
 ```bash
-nohup python scripts/push_csv_to_cloud.py \
+nohup python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url $RT_KLINE_CLOUD_PUSH_URL \
   --push-token $RT_KLINE_CLOUD_PUSH_TOKEN \
   --loop --interval 5.0 \
@@ -302,13 +302,75 @@ CSV 文件按前缀匹配，支持带日期后缀的文件名（如 `a_stock_202
 
 | 场景 | 命令 |
 |------|------|
-| 手动推送一次 | `python scripts/push_csv_to_cloud.py --push-url $RT_KLINE_CLOUD_PUSH_URL` |
+| 手动推送一次 | `python scripts/collection_and_push/push_csv_to_cloud.py --push-url $RT_KLINE_CLOUD_PUSH_URL` |
 | 持续推送 | 加 `--loop --interval 5.0` |
 | 只推 A 股和 ETF | 加 `--markets a_stock,etf` |
 | 减小单批大小 | 加 `--batch-size 200` |
 | 增加重试 | 加 `--max-retry 5 --retry-backoff-max 30` |
 | 调试查看详细日志 | 加 `--log-level DEBUG` |
 | 重置断点重新推送 | 删除 `data/push_checkpoint.json` |
+
+---
+
+## 接收端脚本 `receive_push_data.py`
+
+配套的接收端脚本，启动一个 HTTP 服务接收本脚本推送的数据。
+
+### 快速启动
+
+```bash
+# 启动接收服务（默认 0.0.0.0:9100）
+python scripts/collection_and_push/receive_push_data.py
+
+# 指定端口 + Token 鉴权
+python scripts/collection_and_push/receive_push_data.py --port 9100 --token my_secret_token
+
+# 同时将 tick 数据转存为 CSV
+python scripts/collection_and_push/receive_push_data.py --save-csv
+```
+
+### 参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--host` | `0.0.0.0` | 监听地址 |
+| `--port` | `9100` | 监听端口 |
+| `--token` | `$RT_KLINE_CLOUD_PUSH_TOKEN` | Bearer Token（为空则不鉴权） |
+| `--data-dir` | `data/received_push` | 数据落地目录 |
+| `--save-csv` | 关闭 | 同时转存 CSV |
+| `--max-dedup-window` | `100000` | 去重滑动窗口大小 |
+| `--debug` | 关闭 | Flask debug 模式 |
+
+### 提供的接口
+
+| 接口 | 说明 |
+|------|------|
+| `POST /api/v1/rt-kline/push` | 接收推送数据（与 push_csv_to_cloud.py 对接） |
+| `GET /api/v1/rt-kline/latest?market=&ts_code=&limit=` | 查询最新行情快照 |
+| `GET /stats` | 统计信息（各市场接收批次数、条数等） |
+| `GET /health` | 健康检查 |
+
+### 数据落地
+
+- **JSONL 文件**：`data/received_push/{market}.jsonl`，每行一条记录
+- **CSV 文件**（可选，加 `--save-csv` 开启）：
+  - 按日期分片：`data/received_push/{market}_{YYYYMMDD}.csv`
+  - 日期来源：优先取 tick 中的 `trade_date`，其次 `datetime` 前 8 位，回退到当天日期
+  - 每行包含元信息列：`received_at`, `stream_id`, `ts_code`, `shard_id` + tick 全部字段
+  - 列头自动扩展：遇到新字段时自动重写文件头（已有数据不丢失）
+  - 示例文件：`a_stock_20260313.csv`, `etf_20260313.csv`
+
+### 推送 + 接收联调示例
+
+```bash
+# 终端 1：启动接收端
+python scripts/collection_and_push/receive_push_data.py --port 9100 --save-csv
+
+# 终端 2：启动推送端，指向接收端
+python scripts/collection_and_push/push_csv_to_cloud.py \
+  --push-url http://localhost:9100/api/v1/rt-kline/push \
+  --loop --interval 5.0
+```
 
 ---
 
