@@ -195,7 +195,7 @@ class ClickHouseClient:
         self.password = password or settings.CLICKHOUSE_PASSWORD
         self.database = database or settings.CLICKHOUSE_DATABASE
         self.name = name
-        self.http_port = http_port
+        self.http_port = http_port if http_port != 8123 else getattr(settings, 'CLICKHOUSE_HTTP_PORT', 8123)
         self.client = None
         self._http_client = None
         self._use_http = prefer_http

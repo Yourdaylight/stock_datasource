@@ -80,6 +80,13 @@ services:
       redis:
         condition: service_healthy
 
+  mcp:
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   clickhouse_data:
   clickhouse_logs:

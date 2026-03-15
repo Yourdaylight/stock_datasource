@@ -442,43 +442,6 @@ def create_app():
         except Exception as e:
             logger.warning(f"Usage logging failed: {e}")
     
-    async def _report_usage_to_nps(user_info: dict, tool_name: str, record_count: int):
-        """Report usage to nps_enhanced for quota deduction (fire-and-forget)."""
-        try:
-            import httpx
-            from datetime import datetime
-            
-            scope = user_info.get("scope", {})
-            node_id = scope.get("node_id", 0)
-            username = user_info.get("username", "") or user_info.get("id", "")
-            
-            if not username or not node_id:
-                return
-            
-            # nps_enhanced runs on localhost:8081
-            nps_url = "http://127.0.0.1:8081/nps/mcp-query/usage-report"
-            
-            payload = {
-                "node_id": node_id,
-                "records": [
-                    {
-                        "username": username,
-                        "tool_name": tool_name,
-                        "record_count": record_count,
-                        "reported_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                ],
-            }
-            
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.post(nps_url, json=payload)
-                if resp.status_code != 200:
-                    logger.warning(f"nps usage report failed: status={resp.status_code}, body={resp.text[:200]}")
-                else:
-                    logger.info(f"Reported usage to nps: user={username}, records={record_count}")
-        except Exception as e:
-            logger.warning(f"Failed to report usage to nps: {e}", exc_info=True)
-    
     # MCP HTTP Streamable protocol endpoint - GET for probing
     @app.get("/messages")
     async def messages_get():
@@ -637,10 +600,6 @@ def create_app():
                     # Count records and log usage
                     record_count = _count_records_in_result(result_str)
                     await _log_mcp_usage(user_info, tool_name, record_count, auth_type)
-                    
-                    # Report usage to nps_enhanced for quota deduction
-                    if auth_type == "jwt" and record_count > 0:
-                        await _report_usage_to_nps(user_info, tool_name, record_count)
                     
                     # Build response with usage metadata
                     response_content = [{"type": "text", "text": result_str}]
