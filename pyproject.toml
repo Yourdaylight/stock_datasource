@@ -26,6 +26,7 @@ dependencies = [
     "loguru>=0.7.0",
     "click>=8.1.0",
     "fastapi>=0.104.0",
+    "flask>=3.0.0",
     "uvicorn>=0.24.0",
     "fastmcp>=0.1.0",
     "pyjwt>=2.8.0",
