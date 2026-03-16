@@ -35,11 +35,11 @@ import os
 import sys
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Deque, Dict, List, Optional, Set
 
 logger = logging.getLogger("receive_push_data")
 
@@ -73,13 +73,22 @@ class ReceiverConfig:
 # ---------------------------------------------------------------------------
 
 class PushDataStore:
-    """Thread-safe store for received push data."""
+    """Thread-safe store for received push data.
+    
+    优化：
+    - per-market 锁（不同市场并行推送不互相阻塞）
+    - deque 替代 list 做去重窗口（popleft O(1) vs pop(0) O(n)）
+    - 锁外执行磁盘 IO
+    """
 
     def __init__(self, cfg: ReceiverConfig):
         self._cfg = cfg
-        self._lock = threading.Lock()
         self._data_dir = Path(cfg.data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
+
+        # per-market 锁
+        self._locks: Dict[str, threading.Lock] = defaultdict(threading.Lock)
+        self._stats_lock = threading.Lock()
 
         # 统计
         self._stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
@@ -91,9 +100,9 @@ class PushDataStore:
             "last_received_at": "",
         })
 
-        # 去重：每个 market 保留最近的 stream_id 集合
+        # 去重：每个 market 保留最近的 stream_id（deque + set）
         self._seen_ids: Dict[str, Set[str]] = defaultdict(set)
-        self._seen_order: Dict[str, list] = defaultdict(list)
+        self._seen_order: Dict[str, Deque[str]] = defaultdict(deque)
 
         # 最新数据快照：market -> {ts_code -> tick}
         self._latest: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)
@@ -110,7 +119,8 @@ class PushDataStore:
         rejected = 0
         new_items: List[Dict[str, Any]] = []
 
-        with self._lock:
+        # per-market 锁，不同市场并行不阻塞
+        with self._locks[market]:
             for item in items:
                 stream_id = item.get("stream_id", "")
 
@@ -119,13 +129,13 @@ class PushDataStore:
                     rejected += 1
                     continue
 
-                # 记录 stream_id（滑动窗口去重）
+                # 记录 stream_id（deque 滑动窗口去重，popleft O(1)）
                 if stream_id:
                     self._seen_ids[market].add(stream_id)
                     self._seen_order[market].append(stream_id)
                     # 超过窗口大小则淘汰最早的
                     while len(self._seen_order[market]) > self._cfg.max_dedup_window:
-                        old_id = self._seen_order[market].pop(0)
+                        old_id = self._seen_order[market].popleft()
                         self._seen_ids[market].discard(old_id)
 
                 # 更新最新快照
@@ -137,7 +147,8 @@ class PushDataStore:
                 new_items.append(item)
                 accepted += 1
 
-            # 更新统计
+        # 更新统计（用独立的 stats_lock，减少 per-market 锁持有时间）
+        with self._stats_lock:
             stats = self._stats[market]
             if not stats["first_received_at"]:
                 stats["first_received_at"] = now
@@ -295,7 +306,7 @@ class PushDataStore:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return aggregated stats."""
-        with self._lock:
+        with self._stats_lock:
             return {
                 "markets": dict(self._stats),
                 "latest_counts": {
@@ -306,7 +317,7 @@ class PushDataStore:
     def get_latest(self, market: Optional[str] = None, ts_code: Optional[str] = None,
                    limit: int = 100) -> Dict[str, Any]:
         """Query latest tick snapshots."""
-        with self._lock:
+        with self._stats_lock:
             if ts_code:
                 # 查单只
                 for mkt, ticks in self._latest.items():
@@ -548,7 +559,7 @@ def main() -> int:
 ╔══════════════════════════════════════════════════╗
 ║          Push Data Receiver v1.0.0               ║
 ╠══════════════════════════════════════════════════╣
-║  Listen   : {cfg.host}:{cfg.port:<30s}  ║
+║  Listen   : {f'{cfg.host}:{cfg.port}':<30s}  ║
 ║  Push URL : /api/v1/rt-kline/push                ║
 ║  Auth     : {'Token Required' if cfg.token else 'No Auth (open)':<33s} ║
 ║  Data Dir : {cfg.data_dir:<33s}  ║
