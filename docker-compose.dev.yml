@@ -16,6 +16,20 @@ services:
       DEBUG: "true"
       LOG_LEVEL: DEBUG
 
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+      target: development
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      # Enable debug mode
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+
   frontend:
     build:
       context: ./frontend

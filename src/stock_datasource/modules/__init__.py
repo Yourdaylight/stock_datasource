@@ -127,4 +127,10 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .financial_analysis.router import router as financial_analysis_router
+        routers.append(("/financial-analysis", financial_analysis_router, ["财务分析"]))
+    except ImportError:
+        pass
+
     return routers

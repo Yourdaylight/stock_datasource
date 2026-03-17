@@ -316,6 +316,12 @@ CSV 文件按前缀匹配，支持带日期后缀的文件名（如 `a_stock_202
 
 配套的接收端脚本，启动一个 HTTP 服务接收本脚本推送的数据。
 
+当前实现采用轻量的三段式模型：
+
+- `push` 请求只负责把 tick 追加写入 spool JSONL 文件
+- 后台单个 builder 线程按固定时间窗口批量把增量数据刷入 SQLite 最新快照表
+- 查询接口直接读取 SQLite，不再依赖常驻内存快照
+
 ### 快速启动
 
 ```bash
@@ -325,8 +331,8 @@ python scripts/collection_and_push/receive_push_data.py
 # 指定端口 + Token 鉴权
 python scripts/collection_and_push/receive_push_data.py --port 9100 --token my_secret_token
 
-# 同时将 tick 数据转存为 CSV
-python scripts/collection_and_push/receive_push_data.py --save-csv
+# 每 3 秒批量刷一次 SQLite，并额外导出市场级 CSV 快照
+python scripts/collection_and_push/receive_push_data.py --flush-interval-seconds 3 --save-csv
 ```
 
 ### 参数
@@ -335,10 +341,18 @@ python scripts/collection_and_push/receive_push_data.py --save-csv
 |------|--------|------|
 | `--host` | `0.0.0.0` | 监听地址 |
 | `--port` | `9100` | 监听端口 |
-| `--token` | `$RT_KLINE_CLOUD_PUSH_TOKEN` | Bearer Token（为空则不鉴权） |
+| `--token` | `$RT_KLINE_CLOUD_PUSH_TOKEN` | 兼容旧参数，等同 `--push-token` |
+| `--push-token` | `$RT_KLINE_CLOUD_PUSH_TOKEN` | Push 写入 Bearer Token |
+| `--policy-token` | `$RT_STOCK_POLICY_TOKEN` | 接收管理平台下发 policy 的 Bearer Token |
+| `--jwt-public-key-path` | `$RT_STOCK_JWT_PUBLIC_KEY_PATH` | 实时订阅 JWT 公钥路径 |
 | `--data-dir` | `data/received_push` | 数据落地目录 |
-| `--save-csv` | 关闭 | 同时转存 CSV |
-| `--max-dedup-window` | `100000` | 去重滑动窗口大小 |
+| `--spool-dir` | `<data-dir>/spool` | 原始 push 追加写目录 |
+| `--snapshot-dir` | `<data-dir>/snapshot` | SQLite/CSV 快照目录 |
+| `--sqlite-path` | `<snapshot-dir>/rt_snapshot.db` | SQLite 快照文件路径 |
+| `--save-csv` | 关闭 | 每次刷盘后导出市场级最新快照 CSV |
+| `--flush-interval-seconds` | `3` | builder 批量刷 SQLite 的时间间隔 |
+| `--flush-max-items` | `2000` | 单次 builder 最多处理的 spool 记录数 |
+| `--subscription-step-seconds` | `3` | skills 拉取订阅数据的时间步长 |
 | `--debug` | 关闭 | Flask debug 模式 |
 
 ### 提供的接口
@@ -346,30 +360,165 @@ python scripts/collection_and_push/receive_push_data.py --save-csv
 | 接口 | 说明 |
 |------|------|
 | `POST /api/v1/rt-kline/push` | 接收推送数据（与 push_csv_to_cloud.py 对接） |
+| `POST /api/v1/rt-kline/policies/apply` | 接收 nps_enhanced 下发的订阅 policy 快照 |
+| `POST /api/v1/rt-kline/subscription/sync` | 按 JWT + policy 同步当前用户的批量订阅 symbols |
+| `GET /api/v1/rt-kline/subscription/list` | 查看当前用户已登记的订阅清单 |
 | `GET /api/v1/rt-kline/latest?market=&ts_code=&limit=` | 查询最新行情快照 |
-| `GET /stats` | 统计信息（各市场接收批次数、条数等） |
+| `GET /api/v1/rt-kline/subscription/latest` | 返回当前用户已登记订阅的最新快照，可选 `?symbols=` 取子集 |
+| `GET /stats` | 查看 spool/SQLite 刷盘状态 |
 | `GET /health` | 健康检查 |
+
+### 订阅节点模式
+
+当前实时订阅节点按“**独立脚本 + spool + SQLite 快照查询**”工作，不要求部署完整 `stock_datasource` 服务。
+
+- `push_csv_to_cloud.py` 或其他采集脚本持续把实时 tick 写入该节点
+- `nps_enhanced` 把用户的 realtime policy 下发到 `POST /api/v1/rt-kline/policies/apply`
+- 用户的 skills 使用管理平台签发的 JWT，先通过 `POST /api/v1/rt-kline/subscription/sync` 批量登记自己当前订阅的 symbols
+- 然后通过 `GET /api/v1/rt-kline/subscription/latest` 轮询读取自己已登记订阅的最新快照
+- 当前默认返回 **3 秒步长** 的快照数据，适合 skills 直接轮询
+
+### skills 侧订阅与拉取示例
+
+先登记当前用户的批量订阅：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $STOCK_RT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"replace","symbols":["000001.SZ","600519.SH"]}' \
+  http://your-node:9100/api/v1/rt-kline/subscription/sync
+```
+
+查看当前已登记的订阅清单：
+
+```bash
+curl -H "Authorization: Bearer $STOCK_RT_TOKEN" \
+  http://your-node:9100/api/v1/rt-kline/subscription/list
+```
+
+再拉取最新快照：
+
+```bash
+curl -H "Authorization: Bearer $STOCK_RT_TOKEN" \
+  http://your-node:9100/api/v1/rt-kline/subscription/latest
+```
+
+返回示例：
+
+```json
+{
+  "status": "ok",
+  "code": 0,
+  "user_id": "alice",
+  "revision": 3,
+  "max_subs": 5,
+  "registered_symbols": ["000001.SZ", "600519.SH"],
+  "accepted_symbols": ["000001.SZ", "600519.SH"],
+  "rejected_symbols": [],
+  "step_seconds": 3,
+  "count": 2,
+  "data": [
+    {"ts_code": "000001.SZ", "market": "a_stock", "close": 10.52},
+    {"ts_code": "600519.SH", "market": "a_stock", "close": 1690.00}
+  ],
+  "missing": []
+}
+```
+
+如果 `sync` 请求中的 symbol 超过 JWT/Policy 的 `max_subs`，超额部分会出现在 `rejected_symbols` 中，并标记 `quota_exceeded`。
+
+如果 `latest` 请求显式传了 `?symbols=`，只有已经登记订阅的 symbol 才会返回；未登记的会以 `not_subscribed` 出现在 `rejected_symbols` 中。
 
 ### 数据落地
 
-- **JSONL 文件**：`data/received_push/{market}.jsonl`，每行一条记录
-- **CSV 文件**（可选，加 `--save-csv` 开启）：
-  - 按日期分片：`data/received_push/{market}_{YYYYMMDD}.csv`
-  - 日期来源：优先取 tick 中的 `trade_date`，其次 `datetime` 前 8 位，回退到当天日期
-  - 每行包含元信息列：`received_at`, `stream_id`, `ts_code`, `shard_id` + tick 全部字段
-  - 列头自动扩展：遇到新字段时自动重写文件头（已有数据不丢失）
-  - 示例文件：`a_stock_20260313.csv`, `etf_20260313.csv`
+- **spool JSONL**：`data/received_push/spool/{market}/{YYYYMMDD}.jsonl`，接收端只做追加写
+- **SQLite 快照**：`data/received_push/snapshot/rt_snapshot.db`，保存每个 `(market, ts_code)` 的最新一条记录
+- **CSV 快照**（可选，加 `--save-csv` 开启）：
+  - `data/received_push/snapshot/{market}_latest.csv`
+  - 每次 builder 刷盘完成后原子重写
+  - 适合排查或离线导出，不建议作为高频查询主路径
 
 ### 推送 + 接收联调示例
 
 ```bash
 # 终端 1：启动接收端
-python scripts/collection_and_push/receive_push_data.py --port 9100 --save-csv
+python scripts/collection_and_push/receive_push_data.py --port 9100 --flush-interval-seconds 3 --save-csv
 
 # 终端 2：启动推送端，指向接收端
 python scripts/collection_and_push/push_csv_to_cloud.py \
   --push-url http://localhost:9100/api/v1/rt-kline/push \
   --loop --interval 5.0
+```
+
+### 现网快速验证
+
+如果你只是想在现网环境快速确认节点是否可用，建议按下面顺序验证。这样能最短路径覆盖：服务存活、push 入站、SQLite 刷盘、policy 下发、用户订阅同步、订阅查询。
+
+#### 1. 启动接收端
+
+```bash
+python scripts/collection_and_push/receive_push_data.py \
+  --host 0.0.0.0 \
+  --port 9100 \
+  --push-token "$RT_KLINE_CLOUD_PUSH_TOKEN" \
+  --policy-token "$RT_STOCK_POLICY_TOKEN" \
+  --jwt-public-key-path "$RT_STOCK_JWT_PUBLIC_KEY_PATH" \
+  --flush-interval-seconds 3 \
+  --save-csv
+```
+
+#### 2. 用内置验证脚本跑一遍
+
+```bash
+BASE_URL=http://127.0.0.1:9100 \
+PUSH_TOKEN="$RT_KLINE_CLOUD_PUSH_TOKEN" \
+POLICY_TOKEN="$RT_STOCK_POLICY_TOKEN" \
+STOCK_RT_TOKEN="$STOCK_RT_TOKEN" \
+bash scripts/collection_and_push/verify_receiver_flow.sh
+```
+
+如果当前只想先验证 push 和 SQLite 刷盘，不想验证订阅接口：
+
+```bash
+BASE_URL=http://127.0.0.1:9100 \
+PUSH_TOKEN="$RT_KLINE_CLOUD_PUSH_TOKEN" \
+bash scripts/collection_and_push/verify_receiver_flow.sh --skip-policy --skip-subscription
+```
+
+#### 3. 预期看到的关键结果
+
+1. `/health` 返回 `{"status":"ok"...}`。
+2. `/stats` 里能看到 `flush_interval_seconds`，并且在 push 之后 `last_flush_at`、`last_flush_items` 会更新。
+3. `POST /api/v1/rt-kline/push` 返回 `status=ok`，`accepted_count > 0`。
+4. `GET /api/v1/rt-kline/latest?ts_code=000001.SZ` 返回 `count=1`，说明数据已经进入 SQLite 最新快照。
+5. `POST /api/v1/rt-kline/subscription/sync` 返回 `accepted_symbols`，说明用户订阅清单已经登记。
+6. `GET /api/v1/rt-kline/subscription/list` 返回 `subscribed_symbols`。
+7. `GET /api/v1/rt-kline/subscription/latest` 返回 `data`，说明 JWT、policy、订阅态、快照查询都串起来了。
+
+#### 4. 现网排障时优先看这几个位置
+
+1. `data/received_push/spool/` 下是否持续有新的 JSONL 文件增长。
+2. `data/received_push/snapshot/rt_snapshot.db` 是否生成。
+3. `data/received_push/snapshot/*_latest.csv` 在开启 `--save-csv` 时是否更新。
+4. `/stats` 里的 `subscription_rows`、`subscription_users` 是否增长。
+5. 如果 `latest` 查不到数据，但 push 已成功，优先看 `last_flush_at` 是否没有更新，说明 builder 没有正常刷盘。
+
+#### 5. 现网验证完成后的最小保留检查
+
+建议至少保留下面两条命令，后续上线后排查最快：
+
+```bash
+curl -sS http://127.0.0.1:9100/health
+curl -sS http://127.0.0.1:9100/stats
+```
+
+如果这两条正常，再跑：
+
+```bash
+BASE_URL=http://127.0.0.1:9100 \
+PUSH_TOKEN="$RT_KLINE_CLOUD_PUSH_TOKEN" \
+bash scripts/collection_and_push/verify_receiver_flow.sh --skip-policy --skip-subscription
 ```
 
 ---

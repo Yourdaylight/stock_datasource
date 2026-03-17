@@ -66,6 +66,12 @@ class TuShareTopListPlugin(BasePlugin):
         if data.empty:
             return data
         
+        # Rename columns to match schema (TuShare returns different names)
+        column_mapping = {
+            'pct_change': 'pct_chg',
+        }
+        data = data.rename(columns=column_mapping)
+        
         # Convert trade_date to proper date format
         if 'trade_date' in data.columns:
             data['trade_date'] = pd.to_datetime(data['trade_date'], format='%Y%m%d').dt.date
