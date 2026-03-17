@@ -348,6 +348,21 @@ class CSVCloudPusher:
 
         x = df.copy()
 
+        # pandas 3.0+ 兼容：将 StringDtype / ArrowDtype 等扩展类型转为 object
+        # 避免 np.issubdtype 对非 numpy 原生 dtype 报错
+        for col in x.columns:
+            if isinstance(x[col].dtype, pd.api.types.CategoricalDtype):
+                x[col] = x[col].astype(object)
+            elif hasattr(x[col].dtype, "name") and x[col].dtype.name in ("string", "String", "boolean", "Boolean"):
+                x[col] = x[col].astype(object)
+            elif not hasattr(x[col].dtype, "numpy_dtype") and not hasattr(x[col].dtype, "kind"):
+                # 任何 numpy 不认识的扩展 dtype，统一降级为 object
+                try:
+                    if not np.issubdtype(x[col].dtype, np.generic):
+                        x[col] = x[col].astype(object)
+                except TypeError:
+                    x[col] = x[col].astype(object)
+
         # 确保 market 列
         if "market" not in x.columns:
             x["market"] = market
@@ -365,13 +380,16 @@ class CSVCloudPusher:
         # 这比逐字段 isinstance 快得多
         for col in x.columns:
             dtype = x[col].dtype
-            if np.issubdtype(dtype, np.integer):
-                # numpy int → python int，保留 NaN 为 None
-                x[col] = x[col].astype("Int64")  # nullable int
-            elif np.issubdtype(dtype, np.floating):
-                pass  # float64 的 to_dict 已经产生 Python float
-            elif np.issubdtype(dtype, np.bool_):
-                x[col] = x[col].astype(bool)
+            try:
+                if np.issubdtype(dtype, np.integer):
+                    # numpy int → python int，保留 NaN 为 None
+                    x[col] = x[col].astype("Int64")  # nullable int
+                elif np.issubdtype(dtype, np.floating):
+                    pass  # float64 的 to_dict 已经产生 Python float
+                elif np.issubdtype(dtype, np.bool_):
+                    x[col] = x[col].astype(bool)
+            except TypeError:
+                pass  # 已经是 object 或其他安全类型，跳过
 
         # 批量转为 records（NaN 自动变成 float('nan')）
         records = x.to_dict("records")
