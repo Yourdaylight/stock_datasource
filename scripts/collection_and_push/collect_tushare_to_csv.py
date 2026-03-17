@@ -5,6 +5,7 @@
 1) 不依赖 Redis / ClickHouse
 2) 采集逻辑内置（a_stock / etf / index / hk）
 3) 支持 HTTP 接口地址与代理设置（可通过参数覆盖）
+4) 市场间并行采集，港股分片轮转，normalize 向量化
 """
 
 from __future__ import annotations
@@ -51,8 +52,9 @@ MARKET_QUERIES: Dict[str, List[Dict[str, str]]] = {
     "index": [
         {"api": "rt_idx_k", "ts_code": "0*.SH,399*.SZ", "fields": "ts_code,name,trade_time,close,vol,pct_chg"},
     ],
+    # 港股：一次查询覆盖全部号段（总计 ~3400 只，远低于 6000 限制）
     "hk": [
-        {"api": "rt_hk_k", "ts_code": "*.HK"},
+        {"api": "rt_hk_k", "ts_code": "00*.HK,01*.HK,02*.HK,03*.HK,04*.HK,06*.HK,08*.HK,09*.HK,11*.HK"},
     ],
 }
 
@@ -163,87 +165,72 @@ class TuShareRealtimeCollector:
 
         raise RuntimeError(f"API call failed api={api_name} params={params}: {last_error}")
 
-    def _normalize(self, market: str, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _normalize(self, market: str, df: pd.DataFrame) -> pd.DataFrame:
+        """向量化标准化，返回 DataFrame 而非 list[dict]，减少内存拷贝和循环开销"""
         if df.empty:
-            return []
+            return pd.DataFrame()
 
         x = df.copy()
 
+        # --- trade_time / trade_date ---
         if "trade_time" in x.columns:
             x["trade_time"] = pd.to_datetime(x["trade_time"], errors="coerce")
-            x["trade_date"] = x["trade_time"].apply(
-                lambda v: v.strftime("%Y%m%d") if pd.notna(v) else datetime.now().strftime("%Y%m%d")
-            )
-            x["trade_time"] = x["trade_time"].apply(
-                lambda v: v.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(v) else None
-            )
+            x["trade_date"] = x["trade_time"].dt.strftime("%Y%m%d").fillna(datetime.now().strftime("%Y%m%d"))
+            x["trade_time"] = x["trade_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
             x["trade_time"] = None
             x["trade_date"] = datetime.now().strftime("%Y%m%d")
 
-        for col in [
-            "ts_code", "name", "open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask",
-        ]:
+        # --- 补齐缺失列 ---
+        for col in ("ts_code", "name", "open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
             if col not in x.columns:
                 x[col] = None
 
-        if ("bid" not in x.columns or x["bid"].isna().all()) and "bid_price1" in x.columns:
+        # --- bid/ask 回退 ---
+        if x["bid"].isna().all() and "bid_price1" in x.columns:
             x["bid"] = x["bid_price1"]
-        if ("ask" not in x.columns or x["ask"].isna().all()) and "ask_price1" in x.columns:
+        if x["ask"].isna().all() and "ask_price1" in x.columns:
             x["ask"] = x["ask_price1"]
 
+        # --- 指数/港股无成交额 ---
         if market in ("index", "hk"):
             x["amount"] = None
 
+        # --- 补算涨跌幅（向量化） ---
         mask = x["pct_chg"].isna() & x["pre_close"].notna() & x["close"].notna()
         if mask.any():
-            x.loc[mask, "pct_chg"] = ((x.loc[mask, "close"] - x.loc[mask, "pre_close"]) / x.loc[mask, "pre_close"] * 100).round(2)
+            x.loc[mask, "pct_chg"] = ((x.loc[mask, "close"].astype(float) - x.loc[mask, "pre_close"].astype(float)) / x.loc[mask, "pre_close"].astype(float) * 100).round(2)
 
-        for col in ("open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
-            x[col] = pd.to_numeric(x[col], errors="coerce")
+        # --- 数值类型统一转换 ---
+        num_cols = ["open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"]
+        x[num_cols] = x[num_cols].apply(pd.to_numeric, errors="coerce")
 
+        # --- 元数据列 ---
         now = datetime.now()
-        collected_at = now.strftime("%Y-%m-%d %H:%M:%S")
-        version = int(now.timestamp() * 1000)
+        x["market"] = market
+        x["collected_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        x["version"] = int(now.timestamp() * 1000)
 
-        rows: List[Dict[str, Any]] = []
-        for _, row in x.iterrows():
-            rows.append(
-                {
-                    "ts_code": row.get("ts_code"),
-                    "name": self._safe_value(row.get("name")),
-                    "trade_date": row.get("trade_date"),
-                    "trade_time": row.get("trade_time"),
-                    "open": self._safe_value(row.get("open")),
-                    "high": self._safe_value(row.get("high")),
-                    "low": self._safe_value(row.get("low")),
-                    "close": self._safe_value(row.get("close")),
-                    "pre_close": self._safe_value(row.get("pre_close")),
-                    "vol": self._safe_value(row.get("vol")),
-                    "amount": self._safe_value(row.get("amount")),
-                    "pct_chg": self._safe_value(row.get("pct_chg")),
-                    "bid": self._safe_value(row.get("bid")),
-                    "ask": self._safe_value(row.get("ask")),
-                    "market": market,
-                    "collected_at": collected_at,
-                    "version": version,
-                }
-            )
-        return rows
+        # --- 只保留目标列（避免传输多余字段） ---
+        target_cols = [
+            "ts_code", "name", "trade_date", "trade_time",
+            "open", "high", "low", "close", "pre_close",
+            "vol", "amount", "pct_chg", "bid", "ask",
+            "market", "collected_at", "version",
+        ]
+        # NaN → None for JSON-safe output
+        result = x[target_cols].where(x[target_cols].notna(), None)
+        return result
 
-    @staticmethod
-    def _safe_value(v: Any) -> Any:
-        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-            return None
-        return v
-
-    def collect_market(self, market: str) -> List[Dict[str, Any]]:
+    def collect_market(self, market: str) -> pd.DataFrame:
+        """采集单个市场，返回标准化后的 DataFrame"""
         if market not in MARKET_QUERIES:
-            return []
+            return pd.DataFrame()
 
         queries = MARKET_QUERIES[market]
+
         if not queries:
-            return []
+            return pd.DataFrame()
 
         max_workers = min(len(queries), max(1, self.cfg.market_inner_concurrency))
         dfs: List[pd.DataFrame] = []
@@ -274,10 +261,35 @@ class TuShareRealtimeCollector:
                         logger.warning("collect market=%s query=%s failed: %s", market, query, e)
 
         if not dfs:
-            return []
+            return pd.DataFrame()
 
         merged = pd.concat(dfs, ignore_index=True)
         return self._normalize(market, merged)
+
+    def collect_markets_parallel(self, markets: List[str]) -> Dict[str, pd.DataFrame]:
+        """多市场并行采集：不同 API 互不限频，充分利用网络 IO"""
+        results: Dict[str, pd.DataFrame] = {}
+
+        if len(markets) <= 1:
+            for m in markets:
+                try:
+                    results[m] = self.collect_market(m)
+                except Exception as e:
+                    logger.error("market=%s failed: %s", m, e)
+                    results[m] = pd.DataFrame()
+            return results
+
+        with ThreadPoolExecutor(max_workers=len(markets), thread_name_prefix="mkt") as executor:
+            future_map = {executor.submit(self.collect_market, m): m for m in markets}
+            for future in as_completed(future_map):
+                market = future_map[future]
+                try:
+                    results[market] = future.result()
+                except Exception as e:
+                    logger.error("market=%s failed: %s", market, e)
+                    results[market] = pd.DataFrame()
+
+        return results
 
 
 def parse_markets(raw: str) -> List[str]:
@@ -304,17 +316,17 @@ def should_collect_market(market: str, ignore_trading_window: bool) -> bool:
     return False
 
 
-def write_csv(output_dir: Path, data: Dict[str, List[Dict[str, Any]]], timestamp: str, append: bool) -> Dict[str, int]:
+def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, append: bool) -> Dict[str, int]:
+    """将各市场 DataFrame 写入 CSV，返回条数统计"""
     output_dir.mkdir(parents=True, exist_ok=True)
     stats: Dict[str, int] = {}
 
-    for market, rows in data.items():
-        count = len(rows)
+    for market, df in data.items():
+        count = len(df)
         stats[market] = count
         if count <= 0:
             continue
 
-        df = pd.DataFrame(rows)
         if append:
             out_file = output_dir / f"{market}.csv"
             write_header = not out_file.exists()
@@ -412,25 +424,25 @@ def main() -> int:
                 time.sleep(args.idle_sleep)
                 continue
 
-        batch: Dict[str, List[Dict[str, Any]]] = {}
-        for market in active_markets:
-            try:
-                rows = collector.collect_market(market)
-                batch[market] = rows
-            except Exception as e:
-                logger.error("round=%s market=%s failed: %s", round_no, market, e)
-                batch[market] = []
+        # ---- 核心优化：市场间并行采集 ----
+        batch = collector.collect_markets_parallel(active_markets)
+
+        t_collect = time.monotonic() - t0
 
         stats = write_csv(output_dir=output_dir, data=batch, timestamp=ts_tag, append=args.append)
         total = sum(stats.values())
-        logger.info("round=%s total=%s details=%s output=%s", round_no, total, stats, output_dir)
+
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "round=%s total=%s details=%s collect=%.2fs total=%.2fs output=%s",
+            round_no, total, stats, t_collect, elapsed, output_dir,
+        )
 
         if not args.loop:
             break
         if args.rounds > 0 and round_no >= args.rounds:
             break
 
-        elapsed = time.monotonic() - t0
         wait_s = max(0.0, float(args.interval) - elapsed)
         if wait_s > 0:
             time.sleep(wait_s)
