@@ -32,37 +32,18 @@ from .base_agent import (
 )
 from stock_datasource.services.mcp_client import MCPClient
 from stock_datasource.services.agent_cache import get_agent_cache, AgentSharedCache
+from stock_datasource.services.agent_runtime import is_runtime_enabled, get_agent_runtime
+from stock_datasource.services.execution_planner import (
+    CONCURRENT_AGENT_GROUPS,
+    AGENT_HANDOFF_MAP,
+    can_run_concurrently,
+)
 
 logger = logging.getLogger(__name__)
 
 
 AGENT_MODULE_SUFFIX = "_agent"
 AGENT_EXCLUDE_CLASS_NAMES = {"OrchestratorAgent", "StockDeepAgent"}
-
-# Agents that can run concurrently (independent, no data dependencies)
-CONCURRENT_AGENT_GROUPS = [
-    # Market + Report can run together for comprehensive stock analysis
-    {"MarketAgent", "ReportAgent"},
-    # Index + ETF can run together for market overview
-    {"IndexAgent", "EtfAgent"},
-    # Overview + TopList for market trends
-    {"OverviewAgent", "TopListAgent"},
-    # HK Report can run alongside Market for cross-market analysis
-    {"MarketAgent", "HKReportAgent"},
-    # Knowledge + Market for RAG-enhanced technical analysis
-    {"KnowledgeAgent", "MarketAgent"},
-    # Knowledge + Report for document-backed financial analysis
-    {"KnowledgeAgent", "ReportAgent"},
-]
-
-# Agent handoff configurations: agent_from -> [possible handoff targets]
-AGENT_HANDOFF_MAP = {
-    "MarketAgent": ["ReportAgent", "HKReportAgent", "BacktestAgent"],
-    "ScreenerAgent": ["MarketAgent", "ReportAgent"],
-    "ReportAgent": ["BacktestAgent", "MarketAgent", "HKReportAgent"],
-    "HKReportAgent": ["MarketAgent", "ReportAgent"],
-    "OverviewAgent": ["MarketAgent", "IndexAgent"],
-}
 
 
 class OrchestratorAgent:
@@ -328,19 +309,8 @@ class OrchestratorAgent:
         return plan
 
     def _can_run_concurrently(self, agents: List[str]) -> bool:
-        """Check if agents can run concurrently.
-        
-        Args:
-            agents: List of agent names
-            
-        Returns:
-            True if all agents in the list can run concurrently
-        """
-        agent_set = set(agents)
-        for concurrent_group in CONCURRENT_AGENT_GROUPS:
-            if agent_set.issubset(concurrent_group):
-                return True
-        return False
+        """Check if agents can run concurrently (delegates to execution_planner)."""
+        return can_run_concurrently(agents)
 
     def _get_handoff_targets(self, agent_name: str) -> List[str]:
         """Get possible handoff targets for an agent.
@@ -890,6 +860,9 @@ Action Input: {{}}
     async def execute(self, query: str, context: Dict[str, Any] = None) -> AgentResult:
         """Execute query by routing to appropriate agent.
         
+        When the runtime feature flag is enabled, this collects streaming
+        events and returns them as a single AgentResult for backward compat.
+        
         Args:
             query: User's query
             context: Optional context
@@ -897,6 +870,31 @@ Action Input: {{}}
         Returns:
             AgentResult from the specialized agent
         """
+        # ---- New runtime delegation (feature-flagged) ----
+        if is_runtime_enabled():
+            runtime = get_agent_runtime()
+            content_parts = []
+            metadata = {}
+            tool_calls = []
+            async for event in runtime.execute_stream_sse(query, context):
+                etype = event.get("type")
+                if etype == "content":
+                    content_parts.append(event.get("content", ""))
+                elif etype == "done":
+                    metadata = event.get("metadata", {})
+                elif etype == "tool":
+                    tool_calls.append({
+                        "name": event.get("tool", ""),
+                        "args": event.get("args", {}),
+                    })
+            return AgentResult(
+                response="".join(content_parts),
+                success=True,
+                metadata=metadata,
+                tool_calls=tool_calls,
+            )
+
+        # ---- Original logic ----
         context = context or {}
         
         # Classify intent + agent via LLM
@@ -980,6 +978,11 @@ Action Input: {{}}
         
         Shows Plan-To-Do thinking process before execution.
         
+        When the ``AGENT_RUNTIME_ENABLED`` feature flag is set, delegates
+        execution to the unified ``AgentRuntime`` which emits legacy
+        SSE-compatible events.  Otherwise falls back to the original
+        orchestration logic below.
+        
         Args:
             query: User's query
             context: Optional context
@@ -987,6 +990,14 @@ Action Input: {{}}
         Yields:
             Event dicts from the specialized agent
         """
+        # ---- New runtime delegation (feature-flagged) ----
+        if is_runtime_enabled():
+            runtime = get_agent_runtime()
+            async for event in runtime.execute_stream_sse(query, context):
+                yield event
+            return
+
+        # ---- Original orchestration logic ----
         context = context or {}
         session_id = context.get("session_id", "")
         

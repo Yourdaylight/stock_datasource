@@ -3,6 +3,10 @@ Multi-Agent Arena Manager
 
 The main orchestrator for the multi-agent strategy competition system.
 Coordinates all arena lifecycle operations.
+
+Task 4.5: ``MultiAgentArena`` can be registered as a runtime adapter
+via ``register_arena_adapter()`` so the unified ``AgentRuntime`` can
+discover and route arena-related requests to it.
 """
 
 import asyncio
@@ -553,3 +557,58 @@ def delete_arena(arena_id: str) -> bool:
         del _active_arenas[arena_id]
         return True
     return False
+
+
+# =============================================================================
+# Task 4.5: Runtime adapter registration
+# =============================================================================
+
+def register_arena_adapter() -> None:
+    """Register MultiAgentArena as a runtime adapter.
+
+    This allows the unified ``AgentRuntime`` to discover arena
+    capabilities and route arena-related intents (strategy competition,
+    multi-agent discussion) through the same unified event model.
+    """
+    try:
+        from stock_datasource.services.agent_registry import (
+            AgentDescriptor,
+            AgentRole,
+            CapabilityDescriptor,
+            get_agent_registry,
+        )
+        from stock_datasource.agents.base_agent import LangGraphAgent
+
+        registry = get_agent_registry()
+        if registry.get_descriptor("ArenaAdapter") is not None:
+            return  # Already registered
+
+        # ArenaAdapter is not a LangGraphAgent subclass, so we create a
+        # thin wrapper class that the registry can hold.
+        class _ArenaAdapterStub:
+            """Stub so the registry has an agent_class entry."""
+            def __init__(self):
+                from stock_datasource.agents.base_agent import AgentConfig
+                self.config = AgentConfig(
+                    name="ArenaAdapter",
+                    description="多Agent策略竞技场 - 管理策略生成、讨论、回测和模拟盘竞争",
+                )
+            def get_tools(self):
+                return []
+            def get_system_prompt(self):
+                return ""
+
+        desc = AgentDescriptor(
+            name="ArenaAdapter",
+            description="多Agent策略竞技场 - 管理策略生成、讨论、回测和模拟盘竞争",
+            agent_class=_ArenaAdapterStub,
+            role=AgentRole.ADAPTER,
+            capability=CapabilityDescriptor(
+                intents=["strategy_competition", "arena"],
+                tags=["arena", "competition", "multi_agent"],
+            ),
+        )
+        registry.register(desc)
+        logger.info("Registered ArenaAdapter in AgentRegistry")
+    except Exception as exc:
+        logger.warning("Failed to register arena adapter: %s", exc)

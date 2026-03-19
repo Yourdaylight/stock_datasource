@@ -1,4 +1,10 @@
-"""Chat service implementation with database persistence."""
+"""Chat service implementation with database persistence.
+
+Task 2.4: ``_session_cache`` removed – hot session data is now served
+exclusively by ``SessionMemoryService``, eliminating the duplicate
+in-memory store that was never synchronized with the canonical memory
+pipeline.  ChatService is now a pure persistence layer (ClickHouse).
+"""
 
 import uuid
 import json
@@ -13,13 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 class ChatService:
-    """Chat service for handling conversations with database persistence."""
+    """Chat service for handling conversations with database persistence.
+
+    This service is the *persistence* layer only.  In-memory hot state
+    (conversation history, tool-result caches) lives in
+    ``SessionMemoryService`` – see task 2.4.
+    """
     
     def __init__(self):
         self.client = db_client
         self._tables_initialized = False
-        # In-memory cache for hot sessions
-        self._session_cache: Dict[str, List[Dict[str, Any]]] = {}
     
     def _ensure_tables(self) -> None:
         """Ensure chat tables exist (lazy initialization)."""
@@ -75,12 +84,9 @@ class ChatService:
         
         try:
             self.client.execute(insert_query, params)
-            self._session_cache[session_id] = []
             logger.info(f"Created chat session {session_id} for user {user_id}")
         except Exception as e:
             logger.error(f"Failed to create chat session: {e}")
-            # Fallback to memory-only mode
-            self._session_cache[session_id] = []
         
         return session_id
     
@@ -187,12 +193,6 @@ class ChatService:
         Returns:
             List of messages
         """
-        # Check cache first
-        if session_id in self._session_cache:
-            cached = self._session_cache[session_id]
-            if cached:
-                return cached
-        
         self._ensure_tables()
         
         query = """
@@ -221,12 +221,10 @@ class ChatService:
                     "metadata": metadata,
                 })
             
-            # Update cache
-            self._session_cache[session_id] = messages
             return messages
         except Exception as e:
             logger.error(f"Failed to get session history: {e}")
-            return self._session_cache.get(session_id, [])
+            return []
     
     def add_message(
         self, 
@@ -300,11 +298,6 @@ class ChatService:
         except Exception as e:
             logger.error(f"Failed to save message to database: {e}")
         
-        # Update cache
-        if session_id not in self._session_cache:
-            self._session_cache[session_id] = []
-        self._session_cache[session_id].append(message)
-        
         return message
     
     def delete_session(self, session_id: str, user_id: str) -> bool:
@@ -337,10 +330,6 @@ class ChatService:
                 WHERE session_id = %(session_id)s
             """
             self.client.execute(delete_session, {"session_id": session_id})
-            
-            # Clear cache
-            if session_id in self._session_cache:
-                del self._session_cache[session_id]
             
             logger.info(f"Deleted session {session_id}")
             return True
@@ -413,7 +402,8 @@ class ChatService:
         context = {
             "session_id": session_id,
             "user_id": user_id,
-            "history": self.get_session_history(session_id)
+            # Task 3.2: pass only recent history to reduce context size
+            "history": self.get_session_history(session_id)[-10:],
         }
         
         try:
