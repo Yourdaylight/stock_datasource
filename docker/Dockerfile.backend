@@ -4,8 +4,8 @@ FROM python:3.11-slim AS base
 WORKDIR /app
 
 ARG APT_MIRROR=mirrors.aliyun.com
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # Set timezone to Asia/Shanghai
 ENV TZ=Asia/Shanghai
@@ -22,7 +22,9 @@ RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster dependency management
-RUN pip install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
+    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
 
 # Copy dependency files and README (required by pyproject.toml)
 COPY pyproject.toml uv.lock README.md ./
@@ -33,6 +35,10 @@ RUN uv sync --frozen --no-dev
 # Copy source code
 COPY src/ ./src/
 COPY cli.py ./
+
+# Ensure writable directories for logs and data
+RUN mkdir -p /app/src/stock_datasource/logs /app/src/stock_datasource/data \
+    && chmod 777 /app/src/stock_datasource/logs /app/src/stock_datasource/data
 
 # Install project package after source is available
 RUN uv sync --frozen --no-dev
