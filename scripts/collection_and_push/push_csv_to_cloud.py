@@ -8,13 +8,16 @@
 4) 支持循环监控模式（--loop），持续监控 CSV 文件增量
 5) 支持断点续传（记录每个文件已推送行数）
 6) 市场间并行推送，DataFrame 向量化转换
+7) 支持多目标推送：一份数据序列化一次，并行推送到多个节点（省进程+CPU）
 
-性能优化（v2）：
+性能优化（v2 → v3）：
 - chunksize 流式迭代器：一次打开 CSV 顺序读取，消灭 skiprows O(N²) 回扫
 - orjson 加速 JSON 序列化（fallback 到 stdlib json）
 - 向量化 NaN 清洗 + numpy→python 批量转换，消灭逐字段 isinstance 循环
 - 读/推流水线：读下一批的同时推当前批（可选 --pipeline）
 - gzip 压缩（可选 --compress）：降低带宽占用 60%+
+- 多目标推送：--push-url 支持逗号分隔多个 URL，一次序列化并行推送，省掉重复进程
+- _df_to_items_vectorized 去掉 df.copy()，原地操作减少内存和 CPU
 """
 
 from __future__ import annotations
@@ -84,7 +87,7 @@ _RETRYABLE_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 @dataclass
 class PushConfig:
-    push_url: str
+    push_urls: List[str]      # 支持多目标 URL（逗号分隔输入，合并推送）
     push_token: str
     csv_dir: str
     markets: List[str]
@@ -154,15 +157,15 @@ class CheckpointStore:
 # ---------------------------------------------------------------------------
 
 class CSVCloudPusher:
-    """Read CSV files incrementally and push to cloud endpoint."""
+    """Read CSV files incrementally and push to cloud endpoint(s)."""
 
     def __init__(self, cfg: PushConfig):
         self.cfg = cfg
         self._session = requests.Session()
         # 连接池优化：增大池大小 + 启用 keep-alive
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=4,
-            pool_maxsize=8,
+            pool_connections=max(4, len(cfg.push_urls) * 2),
+            pool_maxsize=max(8, len(cfg.push_urls) * 4),
             max_retries=0,  # 我们自己控制重试
         )
         self._session.mount("http://", adapter)
@@ -170,6 +173,11 @@ class CSVCloudPusher:
         self._checkpoint = CheckpointStore(cfg.checkpoint_file)
         self._batch_seq: Dict[str, int] = {}
         self._batch_seq_lock = threading.Lock()
+        # 多目标并行推送线程池（复用于所有推送）
+        self._multi_push_pool = ThreadPoolExecutor(
+            max_workers=max(2, len(cfg.push_urls)),
+            thread_name_prefix="multi-push",
+        )
         # 流水线用的线程池（读一批+推一批并行）
         if cfg.pipeline:
             self._pipe_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipe")
@@ -231,15 +239,45 @@ class CSVCloudPusher:
         核心优化：使用 pd.read_csv(chunksize=N) 返回迭代器，
         文件只打开一次、顺序读取，彻底消灭 skiprows 回扫。
         对于已推送的 offset，用迭代器 skip 跳过（O(N) 顺序扫描，只扫一次）。
-        """
-        offset = self._checkpoint.get_offset(csv_file)
 
-        # 用 chunksize 迭代器流式读取
+        v7 简化（配合采集器休市清理）：
+        - 采集器在休市时自动清空 CSV（只留 header）和 checkpoint 文件。
+        - 开盘时 CSV 从 0 行开始追加，checkpoint 也从 0 开始，不会卡住。
+        - 保留 offset > total_lines 的安全检测（应对进程重启等边缘情况）。
+        - **CSV 并发读写保护**：使用 on_bad_lines='skip' 容忍并发写入的脏行。
+        """
+        offset = int(self._checkpoint.get_offset(csv_file))
+
+        # --- 探测 CSV 实际行数 ---
+        try:
+            total_lines = sum(1 for _ in open(csv_file, "rb")) - 1  # 减去 header
+            if total_lines < 0:
+                total_lines = 0
+        except OSError:
+            total_lines = 0
+
+        # Checkpoint 越界保护：如果 offset > CSV 行数（CSV 被清空/截断），重置到 0
+        if offset > total_lines:
+            logger.warning(
+                "Checkpoint offset=%d > CSV lines=%d for %s (CSV was cleared). "
+                "Resetting offset to 0.",
+                offset, total_lines, Path(csv_file).name,
+            )
+            offset = 0
+            self._checkpoint.set_offset(csv_file, 0)
+            self._checkpoint.flush()
+
+        # 没有新数据
+        if offset >= total_lines:
+            return 0
+
+        # 用 chunksize 迭代器流式读取，on_bad_lines='skip' 容忍并发写入的脏行
         try:
             reader = pd.read_csv(
                 csv_file,
                 encoding="utf-8-sig",
                 chunksize=self.cfg.batch_size,
+                on_bad_lines="skip",
             )
         except Exception as e:
             logger.error("Failed to open CSV reader %s: %s", csv_file, e)
@@ -297,7 +335,7 @@ class CSVCloudPusher:
                     )
                 else:
                     # 同步模式
-                    success = self._push_bytes_with_retry(market, payload_bytes)
+                    success = self._push_bytes_to_all(market, payload_bytes)
                     if success:
                         self._checkpoint.set_offset(csv_file, new_offset)
                         pushed += len(items)
@@ -331,7 +369,7 @@ class CSVCloudPusher:
     def _push_and_report(self, market: str, payload_bytes: bytes,
                          count: int, new_offset: int, csv_file: str) -> tuple:
         """流水线推送回调。返回 (success, count, new_offset)。"""
-        success = self._push_bytes_with_retry(market, payload_bytes)
+        success = self._push_bytes_to_all(market, payload_bytes)
         if success:
             logger.info("Pushed market=%s file=%s rows=%d offset=%d",
                         market, Path(csv_file).name, count, new_offset)
@@ -342,75 +380,35 @@ class CSVCloudPusher:
     # ------------------------------------------------------------------
 
     def _df_to_items_vectorized(self, df: pd.DataFrame, market: str) -> List[Dict[str, Any]]:
-        """向量化 DataFrame → items，比 _safe_value 逐字段循环快 5-10x。"""
+        """向量化 DataFrame → items。
+
+        CPU 优化（v4）：
+        - 去掉逐列 dtype 检查循环（最大 CPU 热点），直接用 .values.tolist() 转原生类型
+        - NaN 清洗放在 DataFrame 层面用 where() 一次搞定
+        - items 构造合并进同一个循环，减少一次遍历
+        """
         if df.empty:
             return []
 
-        x = df.copy()
-
-        # pandas 3.0+ 兼容：将 StringDtype / ArrowDtype 等扩展类型转为 object
-        # 避免 np.issubdtype 对非 numpy 原生 dtype 报错
-        for col in x.columns:
-            if isinstance(x[col].dtype, pd.api.types.CategoricalDtype):
-                x[col] = x[col].astype(object)
-            elif hasattr(x[col].dtype, "name") and x[col].dtype.name in ("string", "String", "boolean", "Boolean"):
-                x[col] = x[col].astype(object)
-            elif not hasattr(x[col].dtype, "numpy_dtype") and not hasattr(x[col].dtype, "kind"):
-                # 任何 numpy 不认识的扩展 dtype，统一降级为 object
-                try:
-                    if not np.issubdtype(x[col].dtype, np.generic):
-                        x[col] = x[col].astype(object)
-                except TypeError:
-                    x[col] = x[col].astype(object)
-
         # 确保 market 列
-        if "market" not in x.columns:
-            x["market"] = market
+        if "market" not in df.columns:
+            df["market"] = market
         else:
-            x["market"] = x["market"].fillna(market)
+            df["market"] = df["market"].fillna(market)
 
-        # 向量化清洗：NaN/Inf → None（在 DataFrame 层面处理）
-        # 找到所有 float 列，统一处理
-        float_cols = x.select_dtypes(include=["float64", "float32"]).columns
-        if len(float_cols) > 0:
-            # 将 inf/-inf 替换为 NaN，后续统一转 None
-            x[float_cols] = x[float_cols].replace([np.inf, -np.inf], np.nan)
+        # 向量化清洗：inf → NaN，NaN → None（一次操作）
+        df = df.replace([np.inf, -np.inf], np.nan).where(df.notna(), None)
 
-        # to_dict 前：将 numpy 类型统一转换为 Python 原生类型
-        # 这比逐字段 isinstance 快得多
-        for col in x.columns:
-            dtype = x[col].dtype
-            try:
-                if np.issubdtype(dtype, np.integer):
-                    # numpy int → python int，保留 NaN 为 None
-                    x[col] = x[col].astype("Int64")  # nullable int
-                elif np.issubdtype(dtype, np.floating):
-                    pass  # float64 的 to_dict 已经产生 Python float
-                elif np.issubdtype(dtype, np.bool_):
-                    x[col] = x[col].astype(bool)
-            except TypeError:
-                pass  # 已经是 object 或其他安全类型，跳过
+        # 直接转 records — pandas 会自动将 numpy 类型转为 Python 原生类型
+        # NaN 已被替换为 None，无需逐字段检查
+        records = df.to_dict("records")
 
-        # 批量转为 records（NaN 自动变成 float('nan')）
-        records = x.to_dict("records")
-
-        # 只需一次遍历，处理 NaN → None（比之前每个字段 isinstance 少很多分支）
-        ticks: List[Dict[str, Any]] = []
-        for rec in records:
-            tick = {}
-            for k, v in rec.items():
-                if v is pd.NA or (isinstance(v, float) and v != v):  # NaN check: v != v
-                    tick[k] = None
-                else:
-                    tick[k] = v
-            ticks.append(tick)
-
-        # 生成 items
+        # 生成 items（合并 tick 清洗和 items 构造到同一个循环）
         base_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         shards = self.cfg.shards
 
         items: List[Dict[str, Any]] = []
-        for i, tick in enumerate(ticks):
+        for i, tick in enumerate(records):
             ts_code = tick.get("ts_code") or ""
             version = tick.get("version")
             if version is None:
@@ -456,13 +454,47 @@ class CSVCloudPusher:
 
         return _json_dumps(payload)
 
-    def _push_bytes_with_retry(self, market: str, payload_bytes: bytes) -> bool:
-        """Push pre-serialized payload bytes with retry logic.
+    def _push_bytes_to_all(self, market: str, payload_bytes: bytes) -> bool:
+        """Push pre-serialized payload bytes to ALL configured URLs.
+
+        多目标并行推送：一份数据同时推到多个节点。
+        只要任一目标失败就返回 False（保证数据一致性）。
+        """
+        urls = self.cfg.push_urls
+        if not urls:
+            logger.warning("No push URL configured, skipping")
+            return True
+
+        if len(urls) == 1:
+            return self._push_bytes_with_retry(market, payload_bytes, urls[0])
+
+        # 多目标并行推送
+        futures = {
+            self._multi_push_pool.submit(
+                self._push_bytes_with_retry, market, payload_bytes, url
+            ): url
+            for url in urls
+        }
+
+        all_ok = True
+        for future in as_completed(futures):
+            url = futures[future]
+            try:
+                if not future.result():
+                    logger.error("Push failed to url=%s market=%s", url, market)
+                    all_ok = False
+            except Exception as e:
+                logger.error("Push exception to url=%s market=%s: %s", url, market, e)
+                all_ok = False
+
+        return all_ok
+
+    def _push_bytes_with_retry(self, market: str, payload_bytes: bytes, url: str) -> bool:
+        """Push pre-serialized payload bytes to a single URL with retry logic.
 
         直接发送 bytes 避免 requests 内部 json.dumps 二次序列化。
         可选 gzip 压缩降低带宽。
         """
-        url = self.cfg.push_url
         if not url:
             logger.warning("No push URL configured, skipping")
             return True
@@ -487,27 +519,27 @@ class CSVCloudPusher:
                     result = self._check_ack(resp)
                     if result == "ok":
                         logger.debug(
-                            "Push OK market=%s latency=%.0fms size=%.1fKB",
-                            market, latency_ms, len(body) / 1024,
+                            "Push OK market=%s url=%s latency=%.0fms size=%.1fKB",
+                            market, url, latency_ms, len(body) / 1024,
                         )
                         return True
                     if result == "failed":
                         logger.error(
-                            "Push ACK non-retryable market=%s resp=%s",
-                            market, resp.text[:200],
+                            "Push ACK non-retryable market=%s url=%s resp=%s",
+                            market, url, resp.text[:200],
                         )
                         return False
 
                 elif resp.status_code not in _RETRYABLE_HTTP_STATUS:
                     logger.error(
-                        "Push HTTP non-retryable market=%s status=%d body=%s",
-                        market, resp.status_code, resp.text[:200],
+                        "Push HTTP non-retryable market=%s url=%s status=%d body=%s",
+                        market, url, resp.status_code, resp.text[:200],
                     )
                     return False
 
                 logger.warning(
-                    "Push retryable market=%s status=%d attempt=%d/%d latency=%.0fms",
-                    market, resp.status_code, attempt, self.cfg.max_retry, latency_ms,
+                    "Push retryable market=%s url=%s status=%d attempt=%d/%d latency=%.0fms",
+                    market, url, resp.status_code, attempt, self.cfg.max_retry, latency_ms,
                 )
 
             except requests.exceptions.Timeout:
@@ -535,7 +567,10 @@ class CSVCloudPusher:
             return "retryable"
 
         status = str(ack.get("status", "")).strip().lower()
-        code = int(ack.get("code", 0))
+        try:
+            code = int(ack.get("code", 0))
+        except (TypeError, ValueError):
+            code = -1
 
         if status in _SUCCESS_ACK_STATUS and code in _SUCCESS_ACK_CODES:
             return "ok"
@@ -571,9 +606,9 @@ def build_args() -> argparse.Namespace:
 
     # 推送目标
     parser.add_argument("--push-url", default=os.getenv("RT_KLINE_CLOUD_PUSH_URL", ""),
-                        help="云端推送 URL")
+                        help="云端推送 URL（支持逗号分隔多个 URL，同时推送到多个节点）")
     parser.add_argument("--push-token", default=os.getenv("RT_KLINE_CLOUD_PUSH_TOKEN", ""),
-                        help="推送鉴权 Token")
+                        help="推送鉴权 Token（所有目标共用）")
 
     # 批量/重试
     parser.add_argument("--batch-size", type=int, default=3000,
@@ -629,6 +664,14 @@ def main() -> int:
         print("[ERROR] missing --push-url or env RT_KLINE_CLOUD_PUSH_URL")
         return 1
 
+    # 解析多目标 URL（逗号分隔）
+    push_urls = [u.strip() for u in args.push_url.split(",") if u.strip()]
+    if not push_urls:
+        print("[ERROR] --push-url is empty after parsing")
+        return 1
+
+    logger.info("Push targets: %d URL(s) — %s", len(push_urls), push_urls)
+
     try:
         markets = parse_markets(args.markets)
     except Exception as e:
@@ -645,7 +688,7 @@ def main() -> int:
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
     cfg = PushConfig(
-        push_url=args.push_url.strip(),
+        push_urls=push_urls,
         push_token=args.push_token.strip(),
         csv_dir=str(csv_dir),
         markets=markets,

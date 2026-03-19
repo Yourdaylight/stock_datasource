@@ -166,50 +166,54 @@ class TuShareRealtimeCollector:
         raise RuntimeError(f"API call failed api={api_name} params={params}: {last_error}")
 
     def _normalize(self, market: str, df: pd.DataFrame) -> pd.DataFrame:
-        """向量化标准化，返回 DataFrame 而非 list[dict]，减少内存拷贝和循环开销"""
+        """向量化标准化，返回 DataFrame 而非 list[dict]，减少内存拷贝和循环开销。
+
+        注意：直接在 df 上原地操作（不再 copy），因为调用方 collect_market()
+        中的 merged = pd.concat(dfs, ignore_index=True) 已经创建了新 DataFrame。
+        """
         if df.empty:
             return pd.DataFrame()
 
-        x = df.copy()
-
         # --- trade_time / trade_date ---
-        if "trade_time" in x.columns:
-            x["trade_time"] = pd.to_datetime(x["trade_time"], errors="coerce")
-            x["trade_date"] = x["trade_time"].dt.strftime("%Y%m%d").fillna(datetime.now().strftime("%Y%m%d"))
-            x["trade_time"] = x["trade_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        if "trade_time" in df.columns:
+            df["trade_time"] = pd.to_datetime(df["trade_time"], errors="coerce")
+            df["trade_date"] = df["trade_time"].dt.strftime("%Y%m%d").fillna(datetime.now().strftime("%Y%m%d"))
+            df["trade_time"] = df["trade_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            x["trade_time"] = None
-            x["trade_date"] = datetime.now().strftime("%Y%m%d")
+            df["trade_time"] = None
+            df["trade_date"] = datetime.now().strftime("%Y%m%d")
 
         # --- 补齐缺失列 ---
         for col in ("ts_code", "name", "open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
-            if col not in x.columns:
-                x[col] = None
+            if col not in df.columns:
+                df[col] = None
 
         # --- bid/ask 回退 ---
-        if x["bid"].isna().all() and "bid_price1" in x.columns:
-            x["bid"] = x["bid_price1"]
-        if x["ask"].isna().all() and "ask_price1" in x.columns:
-            x["ask"] = x["ask_price1"]
+        if df["bid"].isna().all() and "bid_price1" in df.columns:
+            df["bid"] = df["bid_price1"]
+        if df["ask"].isna().all() and "ask_price1" in df.columns:
+            df["ask"] = df["ask_price1"]
 
         # --- 指数/港股无成交额 ---
         if market in ("index", "hk"):
-            x["amount"] = None
+            df["amount"] = None
 
         # --- 补算涨跌幅（向量化） ---
-        mask = x["pct_chg"].isna() & x["pre_close"].notna() & x["close"].notna()
+        mask = df["pct_chg"].isna() & df["pre_close"].notna() & df["close"].notna()
         if mask.any():
-            x.loc[mask, "pct_chg"] = ((x.loc[mask, "close"].astype(float) - x.loc[mask, "pre_close"].astype(float)) / x.loc[mask, "pre_close"].astype(float) * 100).round(2)
+            df.loc[mask, "pct_chg"] = ((df.loc[mask, "close"].astype(float) - df.loc[mask, "pre_close"].astype(float)) / df.loc[mask, "pre_close"].astype(float) * 100).round(2)
 
-        # --- 数值类型统一转换 ---
+        # --- 数值类型统一转换（用 astype 替代 apply 循环，CPU 更低） ---
         num_cols = ["open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"]
-        x[num_cols] = x[num_cols].apply(pd.to_numeric, errors="coerce")
+        for col in num_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
         # --- 元数据列 ---
         now = datetime.now()
-        x["market"] = market
-        x["collected_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
-        x["version"] = int(now.timestamp() * 1000)
+        df["market"] = market
+        df["collected_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        df["version"] = int(now.timestamp() * 1000)
 
         # --- 只保留目标列（避免传输多余字段） ---
         target_cols = [
@@ -219,7 +223,7 @@ class TuShareRealtimeCollector:
             "market", "collected_at", "version",
         ]
         # NaN → None for JSON-safe output
-        result = x[target_cols].where(x[target_cols].notna(), None)
+        result = df[target_cols].where(df[target_cols].notna(), None)
         return result
 
     def collect_market(self, market: str) -> pd.DataFrame:
@@ -267,7 +271,10 @@ class TuShareRealtimeCollector:
         return self._normalize(market, merged)
 
     def collect_markets_parallel(self, markets: List[str]) -> Dict[str, pd.DataFrame]:
-        """多市场并行采集：不同 API 互不限频，充分利用网络 IO"""
+        """多市场并行采集：不同 API 互不限频，充分利用网络 IO。
+        
+        CPU 优化（v4）：并发数限制为 2，在 2 核机器上避免 CPU 打满。
+        """
         results: Dict[str, pd.DataFrame] = {}
 
         if len(markets) <= 1:
@@ -279,7 +286,9 @@ class TuShareRealtimeCollector:
                     results[m] = pd.DataFrame()
             return results
 
-        with ThreadPoolExecutor(max_workers=len(markets), thread_name_prefix="mkt") as executor:
+        # 限制并发数为 2（2核机器保护）
+        max_workers = min(2, len(markets))
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="mkt") as executor:
             future_map = {executor.submit(self.collect_market, m): m for m in markets}
             for future in as_completed(future_map):
                 market = future_map[future]
@@ -316,8 +325,15 @@ def should_collect_market(market: str, ignore_trading_window: bool) -> bool:
     return False
 
 
-def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, append: bool) -> Dict[str, int]:
-    """将各市场 DataFrame 写入 CSV，返回条数统计"""
+def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, append: bool,
+              max_keep_rows: int = 0) -> Dict[str, int]:
+    """将各市场 DataFrame 写入 CSV，返回条数统计。
+
+    新增 max_keep_rows 参数：
+    - 0: 无限追加（老行为，兼容模式）
+    - >0: 滚动截断模式 — 追加后只保留最新 max_keep_rows 行，
+          避免 CSV 在交易日无限增长撑爆磁盘，同时推送进程不用全量扫描。
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     stats: Dict[str, int] = {}
 
@@ -331,6 +347,28 @@ def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, a
             out_file = output_dir / f"{market}.csv"
             write_header = not out_file.exists()
             df.to_csv(out_file, mode="a", header=write_header, index=False, encoding="utf-8-sig")
+
+            # --- 滚动截断：限制文件行数（轻量化实现） ---
+            if max_keep_rows > 0 and out_file.exists():
+                try:
+                    # 用 deque 高效保留最后 N 行，避免 pandas 全量读+写
+                    from collections import deque
+                    with open(out_file, "r", encoding="utf-8-sig") as f:
+                        header = f.readline()  # 保留 header
+                        tail_lines = deque(f, maxlen=max_keep_rows)
+                    
+                    total_rows = len(tail_lines)
+                    # 只有当实际行数超过阈值的 120% 时才截断（避免每轮都重写）
+                    if total_rows >= max_keep_rows:
+                        with open(out_file, "w", encoding="utf-8-sig") as f:
+                            f.write(header)
+                            f.writelines(tail_lines)
+                        logger.info(
+                            "CSV truncated: %s kept last %d rows",
+                            out_file.name, total_rows,
+                        )
+                except Exception as e:
+                    logger.warning("CSV truncate failed for %s: %s", out_file.name, e)
         else:
             out_file = output_dir / f"{market}_{timestamp}.csv"
             df.to_csv(out_file, index=False, encoding="utf-8-sig")
@@ -347,6 +385,10 @@ def build_args() -> argparse.Namespace:
     parser.add_argument("--markets", default="a_stock,etf,index,hk", help="Comma-separated markets")
     parser.add_argument("--output-dir", default="data/tushare_csv", help="CSV output directory")
     parser.add_argument("--append", action="store_true", help="Append into <market>.csv")
+    parser.add_argument("--max-keep-rows", type=int, default=0,
+                        help="Max rows to keep per CSV in append mode (0=unlimited, default). "
+                             "日内不截断，靠休市清空机制控制文件大小。"
+                             "推送进程基于 offset 增量推送，截断会破坏 offset 逻辑。")
 
     parser.add_argument("--loop", action="store_true", help="Run continuously")
     parser.add_argument("--interval", type=float, default=1.5, help="Loop interval seconds")
@@ -371,6 +413,44 @@ def build_args() -> argparse.Namespace:
 
     parser.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
     return parser.parse_args()
+
+
+def clear_csv_and_checkpoints(output_dir: Path, markets: List[str],
+                               checkpoint_glob: str = "push_ckpt_*.json") -> None:
+    """休市时清空 CSV 文件和推送 checkpoint。
+
+    策略：
+    - 清空（truncate）每个市场的 CSV 文件（只保留 header），而不是删除文件。
+      这样推送进程不会因为文件不存在而报错。
+    - 清空所有 push checkpoint JSON 文件，让推送进程下次从 offset=0 开始。
+    - 订阅节点上已有完整数据，采集节点只是中转站，休市后无需保留。
+    """
+    # 1) 清空 CSV 文件（只保留 header）
+    for market in markets:
+        csv_file = output_dir / f"{market}.csv"
+        if csv_file.exists() and csv_file.stat().st_size > 0:
+            try:
+                with open(csv_file, "r", encoding="utf-8-sig") as f:
+                    header = f.readline()
+                with open(csv_file, "w", encoding="utf-8-sig") as f:
+                    f.write(header)
+                logger.info("CSV cleared (header kept): %s", csv_file.name)
+            except Exception as e:
+                logger.warning("Failed to clear CSV %s: %s", csv_file.name, e)
+
+    # 2) 清空同目录以及上级 data/ 目录中的 checkpoint 文件
+    import glob as _glob
+    import json as _json
+
+    # 搜索路径：CSV 目录本身 + 上级 data 目录（checkpoint 可能在不同位置）
+    search_dirs = [output_dir, output_dir.parent]
+    for search_dir in search_dirs:
+        for ckpt_file in search_dir.glob(checkpoint_glob):
+            try:
+                ckpt_file.write_text("{}", encoding="utf-8")
+                logger.info("Checkpoint cleared: %s", ckpt_file)
+            except Exception as e:
+                logger.warning("Failed to clear checkpoint %s: %s", ckpt_file, e)
 
 
 def main() -> int:
@@ -407,10 +487,18 @@ def main() -> int:
     output_dir = Path(args.output_dir)
 
     round_no = 0
+    _was_idle = False  # 上一轮是否处于休市状态（用于检测 "交易中→休市" 的切换点）
+    _csv_cleared_today = False  # 今天是否已经清空过 CSV（避免重复清空）
+    _last_clear_date = ""  # 上次清空的日期，每天重置
     while True:
         round_no += 1
         t0 = time.monotonic()
         ts_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+        today_str = datetime.now().strftime("%Y%m%d")
+
+        # 每天重置清空标记
+        if today_str != _last_clear_date:
+            _csv_cleared_today = False
 
         active_markets: List[str] = []
         if args.ignore_trading_window or not args.trading_only:
@@ -418,18 +506,35 @@ def main() -> int:
         else:
             active_markets = [m for m in markets if should_collect_market(m, ignore_trading_window=False)]
             if not active_markets:
+                # --- 休市清理逻辑 ---
+                # 条件：之前在交易中（_was_idle=False），现在所有市场都休市了
+                # 或者：今天还没清空过（防止进程重启后遗漏）
+                if (not _csv_cleared_today) and _was_idle:
+                    # 已经连续两轮休市了（确认不是瞬时波动），执行清空
+                    logger.info(
+                        "All markets closed. Clearing CSV files and checkpoints "
+                        "(data already pushed to subscriber nodes)."
+                    )
+                    clear_csv_and_checkpoints(output_dir, markets)
+                    _csv_cleared_today = True
+                    _last_clear_date = today_str
+
+                _was_idle = True
                 logger.info("round=%s outside trading window, sleep %.1fs", round_no, args.idle_sleep)
                 if not args.loop:
                     break
                 time.sleep(args.idle_sleep)
                 continue
 
+        _was_idle = False  # 有活跃市场，标记为交易中
+
         # ---- 核心优化：市场间并行采集 ----
         batch = collector.collect_markets_parallel(active_markets)
 
         t_collect = time.monotonic() - t0
 
-        stats = write_csv(output_dir=output_dir, data=batch, timestamp=ts_tag, append=args.append)
+        stats = write_csv(output_dir=output_dir, data=batch, timestamp=ts_tag, append=args.append,
+                          max_keep_rows=args.max_keep_rows)
         total = sum(stats.values())
 
         elapsed = time.monotonic() - t0

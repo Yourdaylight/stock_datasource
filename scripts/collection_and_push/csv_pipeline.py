@@ -358,6 +358,9 @@ def build_args() -> argparse.Namespace:
                     help="追加模式写入 CSV（默认开启）")
     c.add_argument("--no-collect-append", action="store_true",
                     help="关闭追加模式，每轮生成带时间戳的独立文件")
+    c.add_argument("--max-keep-rows", type=int, default=0,
+                    help="CSV 滚动截断：追加模式下每文件最大保留行数（0=不截断，默认不截断）。"
+                         "日内不截断，靠休市清空控制文件大小，避免截断破坏推送 offset 增量逻辑。")
     c.add_argument("--trading-only", action=argparse.BooleanOptionalAction, default=True,
                     help="仅在交易时段采集")
     c.add_argument("--ignore-trading-window", action="store_true",
@@ -398,6 +401,7 @@ def build_collect_args(args: argparse.Namespace) -> List[str]:
         pass  # 不加 --append
     elif args.collect_append:
         cmd.append("--append")
+        cmd.extend(["--max-keep-rows", str(args.max_keep_rows)])
 
     if args.api_url:
         cmd.extend(["--api-url", args.api_url])
