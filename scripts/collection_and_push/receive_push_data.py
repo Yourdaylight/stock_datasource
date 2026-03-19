@@ -42,7 +42,7 @@ class ReceiverConfig:
     sqlite_path: str = ""
     save_csv: bool = False
     flush_interval_seconds: int = 3
-    flush_max_items: int = 2000
+    flush_max_items: int = 10000
     subscription_step_seconds: int = 3
     log_level: str = "INFO"
     debug: bool = False
@@ -292,18 +292,29 @@ class PushDataStore:
             self._builder_thread = None
 
     def _builder_loop(self) -> None:
+        consecutive_empty = 0
         while not self._stop_event.is_set():
             try:
                 result = self.process_spool_once(max_items=self._cfg.flush_max_items)
-                if result.get("processed", 0):
+                processed = result.get("processed", 0)
+                if processed:
                     logger.info(
                         "Flushed spool to SQLite processed=%d upserts=%d",
-                        result.get("processed", 0),
+                        processed,
                         result.get("upserts", 0),
                     )
+                    consecutive_empty = 0
+                    # 还有积压数据时不等待，立即继续处理下一批
+                    if processed >= self._cfg.flush_max_items:
+                        continue
+                else:
+                    consecutive_empty += 1
             except Exception as exc:
                 logger.error("Snapshot builder failed: %s", exc, exc_info=True)
-            self._stop_event.wait(self._cfg.flush_interval_seconds)
+                consecutive_empty += 1
+            # 空闲时才等待，且用短间隔快速响应新数据
+            wait_time = min(self._cfg.flush_interval_seconds, 1) if consecutive_empty <= 2 else self._cfg.flush_interval_seconds
+            self._stop_event.wait(wait_time)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path, timeout=30, check_same_thread=False)
@@ -997,7 +1008,7 @@ def build_args() -> argparse.Namespace:
     parser.add_argument("--sqlite-path", default=os.getenv("RT_KLINE_SQLITE_PATH", ""), help="SQLite 快照文件路径，默认 <snapshot-dir>/rt_snapshot.db")
     parser.add_argument("--save-csv", action="store_true", help="每次刷盘后导出市场级最新快照 CSV")
     parser.add_argument("--flush-interval-seconds", type=int, default=3, help="builder 批量刷 SQLite 的时间间隔，默认 3 秒")
-    parser.add_argument("--flush-max-items", type=int, default=2000, help="单次 builder 最多处理的 spool 记录数，默认 2000")
+    parser.add_argument("--flush-max-items", type=int, default=10000, help="单次 builder 最多处理的 spool 记录数，默认 10000")
     parser.add_argument("--subscription-step-seconds", type=int, default=3, help="订阅查询返回的时间步长，默认 3 秒")
     parser.add_argument("--log-level", default="INFO", help="日志级别: DEBUG/INFO/WARNING/ERROR")
     parser.add_argument("--debug", action="store_true", help="Flask debug 模式（开发用）")
@@ -1035,7 +1046,7 @@ def main() -> int:
 ╔══════════════════════════════════════════════════╗
 ║      Push Data Receiver + SQLite Snapshot       ║
 ╠══════════════════════════════════════════════════╣
-║  Listen      : {cfg.host}:{cfg.port:<27s}║
+║  Listen      : {cfg.host + ':' + str(cfg.port):<27s}║
 ║  Push URL    : /api/v1/rt-kline/push            ║
 ║  Policy API  : /api/v1/rt-kline/policies/apply  ║
 ║  Skills API  : /api/v1/rt-kline/subscription/latest║

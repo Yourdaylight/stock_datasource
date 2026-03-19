@@ -1,10 +1,17 @@
 __pycache__/
 .env
+.env.*
+!.env.example
 .venv/
 data/exports/
 data/news/**/*.json
 !data/news/.gitkeep
 !data/news/cache/.gitkeep
+data/tushare_csv/
+data/received_push/
+data/subscribe_ticks.jsonl
+data/push_ckpt_*.json
+data/push_checkpoint.json
 logs/
 *.log
 .python-version
@@ -18,3 +25,11 @@ runtime_config.json
 
 # Docker
 docker-compose.override.yml
+servers.conf
+
+# 敏感文件
+*.backup
+docs/Test_Plan.md
+
+# 迁移脚本（一次性工具，不需要入库）
+migrate_*.py
