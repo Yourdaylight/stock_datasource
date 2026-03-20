@@ -204,7 +204,10 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
     context = {
         "session_id": session_id,
         "user_id": user_id,
-        "history": service.get_session_history(session_id),
+        # Task 3.2: Pass only recent scoped history (not full DB dump)
+        # to avoid O(N) context growth.  Sub-agents use
+        # SessionMemoryService.get_scoped_history() for even lighter context.
+        "history": service.get_session_history(session_id)[-10:],
     }
     
     async def generate():
@@ -295,12 +298,12 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     metadata.setdefault("tool_calls", tool_calls)
                     if tool_errors:
                         metadata["tool_errors"] = tool_errors
-                    # Attach collected debug events for persistence
+                    # Task 3.4: Only persist lightweight counters, not full
+                    # debug payloads, to reduce ClickHouse write amplification.
                     if debug_events:
-                        metadata["debug_events"] = debug_events
-                    # Attach visualization data for history re-rendering
+                        metadata["debug_event_count"] = len(debug_events)
                     if visualizations:
-                        metadata["visualizations"] = visualizations
+                        metadata["visualization_count"] = len(visualizations)
                     if full_response:
                         service.add_message(session_id, user_id, "assistant", full_response, metadata=metadata)
                     

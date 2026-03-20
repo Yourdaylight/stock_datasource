@@ -17,7 +17,7 @@ services:
       - ./docker/init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "${CLICKHOUSE_HTTP_EXPOSE_PORT:-8124}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT:-9001}:9000"
+      - "${CLICKHOUSE_NATIVE_PORT:-19000}:9000"
     networks:
       - stock_network
     healthcheck:

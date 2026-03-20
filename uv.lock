@@ -2049,6 +2049,33 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-supervisor"
+version = "0.0.31"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/15/a0/6e9286a2e4a9ed8c9d299d0131b323cae376316a63286d2880031bb01082/langgraph_supervisor-0.0.31.tar.gz", hash = "sha256:0f71d5098fa1ac274423eff08750345450045c1e0dd2480ab7f3e5c1848f6016", size = 21910, upload-time = "2025-11-19T18:34:29.795Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/7f/bb73da8db36c96f32cdd0292f2cd75e2d671150b0d177575da560ad994a1/langgraph_supervisor-0.0.31-py3-none-any.whl", hash = "sha256:6bbe5311f536d38779766cc6f074005e3e892d37edbfd875731923221daa1889", size = 16505, upload-time = "2025-11-19T18:34:28.481Z" },
+]
+
+[[package]]
+name = "langgraph-swarm"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/9c/b76ce5eb38584097e671464632fdb854ab28457dd9e8ec3912f7208a1d9a/langgraph_swarm-0.1.0.tar.gz", hash = "sha256:e0f189fc2471d06108fc293da05771d0106d72f755cd130ee37d579561942479", size = 12432, upload-time = "2025-12-04T19:04:05.56Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/1f/a2fd04e6ba6f34609ae37a290b198f37155516ed67e34c12948c5a742437/langgraph_swarm-0.1.0-py3-none-any.whl", hash = "sha256:7020b9a1ba6959b8ddd0168e49b236e8f9967ea40a8a2ccd14c28ec57fe6c227", size = 10227, upload-time = "2025-12-04T19:04:04.72Z" },
+]
+
+[[package]]
 name = "langsmith"
 version = "0.6.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4478,6 +4505,8 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langfuse" },
     { name = "langgraph" },
+    { name = "langgraph-supervisor" },
+    { name = "langgraph-swarm" },
     { name = "loguru" },
     { name = "numpy" },
     { name = "openai" },
@@ -4529,7 +4558,9 @@ requires-dist = [
     { name = "langchain", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=0.3.0" },
     { name = "langfuse", specifier = ">=2.0.0" },
-    { name = "langgraph", specifier = ">=0.2.0" },
+    { name = "langgraph", specifier = ">=1.0.0" },
+    { name = "langgraph-supervisor", specifier = ">=0.0.30" },
+    { name = "langgraph-swarm", specifier = ">=0.1.0" },
     { name = "loguru", specifier = ">=0.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "numpy", specifier = ">=1.24.0" },

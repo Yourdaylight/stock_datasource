@@ -11,6 +11,8 @@ services:
       - ./src:/app/src:ro
       - ./logs:/app/logs
       - ./data:/app/data
+      - backend-logs:/app/src/stock_datasource/logs
+      - backend-data:/app/src/stock_datasource/data
     environment:
       # Enable debug mode
       DEBUG: "true"
@@ -25,6 +27,8 @@ services:
       - ./src:/app/src:ro
       - ./logs:/app/logs
       - ./data:/app/data
+      - mcp-logs:/app/src/stock_datasource/logs
+      - mcp-data:/app/src/stock_datasource/data
     environment:
       # Enable debug mode
       DEBUG: "true"
@@ -40,3 +44,9 @@ services:
       - ./frontend/public:/app/public:ro
     environment:
       NODE_ENV: development
+
+volumes:
+  backend-logs:
+  backend-data:
+  mcp-logs:
+  mcp-data:

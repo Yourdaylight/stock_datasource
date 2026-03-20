@@ -1,6 +1,8 @@
-"""工作流执行Agent。
+"""工作流执行Agent (Runtime Adapter).
 
-根据用户定义的工作流配置，动态加载工具并执行分析任务。
+Task 4.4: ``WorkflowAgent`` is now a runtime adapter that registers
+itself with ``AgentRole.ADAPTER`` in the ``AgentRegistry``.  Tool
+loading integrates with ``SkillRegistry`` when available.
 """
 
 import re
@@ -209,3 +211,42 @@ def create_workflow_agent(workflow: AIWorkflow) -> WorkflowAgent:
         WorkflowAgent实例
     """
     return WorkflowAgent(workflow)
+
+
+def register_workflow_adapter(workflow: AIWorkflow) -> None:
+    """Task 4.4: Register a workflow as a runtime adapter.
+
+    Creates a ``WorkflowAgent`` and registers it in the ``AgentRegistry``
+    with ``AgentRole.ADAPTER`` so the runtime can discover and invoke it.
+
+    Args:
+        workflow: AI workflow configuration to register
+    """
+    try:
+        from stock_datasource.services.agent_registry import (
+            AgentDescriptor,
+            AgentRole,
+            CapabilityDescriptor,
+            get_agent_registry,
+        )
+        registry = get_agent_registry()
+        name = f"workflow_{workflow.id}"
+        # Avoid duplicate registration
+        if registry.get_descriptor(name) is not None:
+            return
+        desc = AgentDescriptor(
+            name=name,
+            description=workflow.description or workflow.name,
+            agent_class=WorkflowAgent,
+            role=AgentRole.ADAPTER,
+            capability=CapabilityDescriptor(
+                intents=["workflow"],
+                tags=["workflow", f"wf_{workflow.id}"],
+            ),
+        )
+        # Pre-set the instance since WorkflowAgent needs a workflow arg
+        desc._instance = WorkflowAgent(workflow)
+        registry.register(desc)
+        logger.info("Registered workflow adapter: %s", name)
+    except Exception as exc:
+        logger.warning("Failed to register workflow adapter: %s", exc)

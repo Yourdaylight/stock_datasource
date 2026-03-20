@@ -11,12 +11,10 @@ Memory Architecture (A + B + D):
 import os
 import time
 import asyncio
-import hashlib
 import logging
 from urllib.parse import urlparse
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, AsyncGenerator, Optional, Callable
-from collections import defaultdict
 from deepagents import create_deep_agent
 from pydantic import BaseModel, Field
 
@@ -190,159 +188,45 @@ def get_memory_saver():
 # =============================================================================
 # Memory Management (D: Shared State Storage)
 # =============================================================================
+# Task 2.2: SessionMemory is now a thin compatibility facade that delegates
+# to the unified SessionMemoryService. This eliminates the duplicate in-memory
+# stores that previously existed.
+
 
 class SessionMemory:
-    """Session-based memory manager for conversation history and shared state.
-    
-    Features:
-    - Conversation history with TTL
-    - Automatic summarization when context grows too large
-    - Shared state cache for tool results
+    """Compatibility facade – delegates to ``SessionMemoryService``.
+
+    All state (history, cache, session lifecycle) is owned by the
+    singleton ``SessionMemoryService``. This class exists only so
+    existing code that calls ``get_session_memory()`` keeps working.
     """
-    
+
     def __init__(self):
-        # Conversation history: {session_id: [{"role": str, "content": str, "timestamp": float}]}
-        self._history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        # Shared state cache: {session_id: {key: {"value": Any, "timestamp": float}}}
-        self._cache: Dict[str, Dict[str, Any]] = defaultdict(dict)
-        # Session metadata: {session_id: {"created": float, "last_access": float}}
-        self._sessions: Dict[str, Dict[str, float]] = {}
-    
+        from stock_datasource.services.session_memory_service import get_session_memory_service
+        self._svc = get_session_memory_service()
+
+    # -- forwarded methods (same signatures as before) --
+
     def get_session_id(self, agent_name: str, user_id: str = "default", context_key: str = "") -> str:
-        """Generate unique session ID."""
-        key = f"{agent_name}:{user_id}:{context_key}"
-        return hashlib.md5(key.encode()).hexdigest()[:16]
-    
-    def add_message(
-        self, 
-        session_id: str, 
-        role: str, 
-        content: str,
-        max_messages: int = 20
-    ):
-        """Add message to conversation history."""
-        now = time.time()
-        
-        # Initialize session if needed
-        if session_id not in self._sessions:
-            self._sessions[session_id] = {"created": now, "last_access": now}
-        else:
-            self._sessions[session_id]["last_access"] = now
-        
-        # Add message
-        self._history[session_id].append({
-            "role": role,
-            "content": content,
-            "timestamp": now
-        })
-        
-        # Trim if exceeds max
-        if len(self._history[session_id]) > max_messages:
-            self._history[session_id] = self._history[session_id][-max_messages:]
-    
-    def get_history(
-        self, 
-        session_id: str, 
-        ttl_seconds: int = 3600,
-        max_chars: int = 12000
-    ) -> List[Dict[str, str]]:
-        """Get conversation history, filtering expired messages and applying summarization if needed."""
-        now = time.time()
-        history = self._history.get(session_id, [])
-        
-        # Filter by TTL
-        valid_history = [
-            {"role": h["role"], "content": h["content"]}
-            for h in history
-            if now - h["timestamp"] < ttl_seconds
-        ]
-        
-        # Check if summarization needed
-        total_chars = sum(len(h["content"]) for h in valid_history)
-        if total_chars > max_chars and len(valid_history) > 4:
-            valid_history = self._summarize_history(valid_history, max_chars)
-        
-        return valid_history
-    
-    def _summarize_history(
-        self, 
-        history: List[Dict[str, str]], 
-        max_chars: int
-    ) -> List[Dict[str, str]]:
-        """Summarize middle portion of history to reduce context size.
-        
-        Strategy: Keep first 2 + last 2 messages, summarize middle.
-        """
-        if len(history) <= 4:
-            return history
-        
-        first_msgs = history[:2]
-        last_msgs = history[-2:]
-        middle_msgs = history[2:-2]
-        
-        if not middle_msgs:
-            return history
-        
-        # Create summary of middle messages
-        summary_parts = []
-        for msg in middle_msgs:
-            role = msg["role"]
-            content = msg["content"]
-            # Truncate long content
-            if len(content) > 150:
-                content = content[:150] + "..."
-            summary_parts.append(f"[{role}]: {content}")
-        
-        summary = {
-            "role": "system",
-            "content": f"[对话历史摘要 - {len(middle_msgs)}条消息]\n" + "\n".join(summary_parts)
-        }
-        
-        result = first_msgs + [summary] + last_msgs
-        logger.debug(f"Summarized history: {len(history)} -> {len(result)} messages")
-        return result
-    
+        return self._svc.make_session_id(agent_name, user_id, context_key)
+
+    def add_message(self, session_id: str, role: str, content: str, max_messages: int = 20):
+        self._svc.add_message(session_id, role, content, max_messages=max_messages)
+
+    def get_history(self, session_id: str, ttl_seconds: int = 3600, max_chars: int = 12000):
+        return self._svc.get_history(session_id, ttl_seconds=ttl_seconds, max_chars=max_chars)
+
     def set_cache(self, session_id: str, key: str, value: Any, ttl_seconds: int = 300):
-        """Set cached value for session (default 5 min TTL)."""
-        self._cache[session_id][key] = {
-            "value": value,
-            "timestamp": time.time(),
-            "ttl": ttl_seconds
-        }
-    
+        self._svc.set_cache(session_id, key, value, ttl=ttl_seconds)
+
     def get_cache(self, session_id: str, key: str) -> Optional[Any]:
-        """Get cached value if not expired."""
-        cache_entry = self._cache.get(session_id, {}).get(key)
-        if not cache_entry:
-            return None
-        
-        if time.time() - cache_entry["timestamp"] > cache_entry["ttl"]:
-            # Expired
-            del self._cache[session_id][key]
-            return None
-        
-        return cache_entry["value"]
-    
+        return self._svc.get_cache(session_id, key)
+
     def clear_session(self, session_id: str):
-        """Clear all data for a session."""
-        if session_id in self._history:
-            del self._history[session_id]
-        if session_id in self._cache:
-            del self._cache[session_id]
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-    
+        self._svc.clear_session(session_id)
+
     def cleanup_expired(self, ttl_seconds: int = 3600):
-        """Clean up expired sessions."""
-        now = time.time()
-        expired = [
-            sid for sid, meta in self._sessions.items()
-            if now - meta["last_access"] > ttl_seconds
-        ]
-        for sid in expired:
-            self.clear_session(sid)
-        if expired:
-            logger.info(f"Cleaned up {len(expired)} expired sessions")
+        self._svc.cleanup_expired(ttl_seconds=ttl_seconds)
 
 
 # Global session memory instance
