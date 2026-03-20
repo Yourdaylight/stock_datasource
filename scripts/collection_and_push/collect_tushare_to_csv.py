@@ -325,14 +325,74 @@ def should_collect_market(market: str, ignore_trading_window: bool) -> bool:
     return False
 
 
+def _trim_state_file(output_dir: Path) -> Path:
+    return output_dir.parent / "csv_trim_state.json"
+
+
+def _load_trim_state(state_file: Path) -> Dict[str, int]:
+    if not state_file.exists():
+        return {}
+    try:
+        import json
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): int(v) for k, v in data.items()}
+    except Exception as e:
+        logger.warning("Failed to load trim state %s: %s", state_file, e)
+        return {}
+
+
+def _save_trim_state(state_file: Path, state: Dict[str, int]) -> None:
+    import json
+
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_file.with_suffix(state_file.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, state_file)
+
+
+def _record_trimmed_rows(output_dir: Path, csv_file: Path, dropped_rows: int) -> None:
+    if dropped_rows <= 0:
+        return
+    state_file = _trim_state_file(output_dir)
+    state = _load_trim_state(state_file)
+    key = csv_file.name
+    state[key] = int(state.get(key, 0)) + int(dropped_rows)
+    _save_trim_state(state_file, state)
+
+
+def _truncate_csv_tail(csv_file: Path, max_keep_rows: int) -> tuple[int, int]:
+    from collections import deque
+
+    with open(csv_file, "r", encoding="utf-8-sig") as f:
+        header = f.readline()
+        tail_lines = deque(maxlen=max_keep_rows)
+        total_rows = 0
+        for line in f:
+            total_rows += 1
+            tail_lines.append(line)
+
+    dropped_rows = max(0, total_rows - max_keep_rows)
+    if dropped_rows <= 0:
+        return (0, total_rows)
+
+    tmp_file = csv_file.with_suffix(csv_file.suffix + ".tmp")
+    with open(tmp_file, "w", encoding="utf-8-sig") as f:
+        f.write(header)
+        f.writelines(tail_lines)
+    os.replace(tmp_file, csv_file)
+    return (dropped_rows, len(tail_lines))
+
+
 def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, append: bool,
-              max_keep_rows: int = 0) -> Dict[str, int]:
+              max_keep_rows: int = 100000) -> Dict[str, int]:
     """将各市场 DataFrame 写入 CSV，返回条数统计。
 
-    新增 max_keep_rows 参数：
-    - 0: 无限追加（老行为，兼容模式）
-    - >0: 滚动截断模式 — 追加后只保留最新 max_keep_rows 行，
-          避免 CSV 在交易日无限增长撑爆磁盘，同时推送进程不用全量扫描。
+    max_keep_rows:
+    - 0: 无限追加（不建议，文件会持续膨胀）
+    - >0: 追加后只保留最新 N 行，同时维护 trim state，
+          让推送进程能够在截断后继续按逻辑 offset 增量推送。
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     stats: Dict[str, int] = {}
@@ -348,24 +408,14 @@ def write_csv(output_dir: Path, data: Dict[str, pd.DataFrame], timestamp: str, a
             write_header = not out_file.exists()
             df.to_csv(out_file, mode="a", header=write_header, index=False, encoding="utf-8-sig")
 
-            # --- 滚动截断：限制文件行数（轻量化实现） ---
             if max_keep_rows > 0 and out_file.exists():
                 try:
-                    # 用 deque 高效保留最后 N 行，避免 pandas 全量读+写
-                    from collections import deque
-                    with open(out_file, "r", encoding="utf-8-sig") as f:
-                        header = f.readline()  # 保留 header
-                        tail_lines = deque(f, maxlen=max_keep_rows)
-                    
-                    total_rows = len(tail_lines)
-                    # 只有当实际行数超过阈值的 120% 时才截断（避免每轮都重写）
-                    if total_rows >= max_keep_rows:
-                        with open(out_file, "w", encoding="utf-8-sig") as f:
-                            f.write(header)
-                            f.writelines(tail_lines)
+                    dropped_rows, kept_rows = _truncate_csv_tail(out_file, max_keep_rows)
+                    if dropped_rows > 0:
+                        _record_trimmed_rows(output_dir, out_file, dropped_rows)
                         logger.info(
-                            "CSV truncated: %s kept last %d rows",
-                            out_file.name, total_rows,
+                            "CSV truncated: %s dropped=%d kept=%d",
+                            out_file.name, dropped_rows, kept_rows,
                         )
                 except Exception as e:
                     logger.warning("CSV truncate failed for %s: %s", out_file.name, e)
@@ -385,10 +435,9 @@ def build_args() -> argparse.Namespace:
     parser.add_argument("--markets", default="a_stock,etf,index,hk", help="Comma-separated markets")
     parser.add_argument("--output-dir", default="data/tushare_csv", help="CSV output directory")
     parser.add_argument("--append", action="store_true", help="Append into <market>.csv")
-    parser.add_argument("--max-keep-rows", type=int, default=0,
-                        help="Max rows to keep per CSV in append mode (0=unlimited, default). "
-                             "日内不截断，靠休市清空机制控制文件大小。"
-                             "推送进程基于 offset 增量推送，截断会破坏 offset 逻辑。")
+    parser.add_argument("--max-keep-rows", type=int, default=100000,
+                        help="Max rows to keep per CSV in append mode (default 100000, 0=unlimited). "
+                             "超过上限后会滚动截断，并维护 trim state 以保持推送断点连续。")
 
     parser.add_argument("--loop", action="store_true", help="Run continuously")
     parser.add_argument("--interval", type=float, default=1.5, help="Loop interval seconds")
@@ -417,15 +466,7 @@ def build_args() -> argparse.Namespace:
 
 def clear_csv_and_checkpoints(output_dir: Path, markets: List[str],
                                checkpoint_glob: str = "push_ckpt_*.json") -> None:
-    """休市时清空 CSV 文件和推送 checkpoint。
-
-    策略：
-    - 清空（truncate）每个市场的 CSV 文件（只保留 header），而不是删除文件。
-      这样推送进程不会因为文件不存在而报错。
-    - 清空所有 push checkpoint JSON 文件，让推送进程下次从 offset=0 开始。
-    - 订阅节点上已有完整数据，采集节点只是中转站，休市后无需保留。
-    """
-    # 1) 清空 CSV 文件（只保留 header）
+    """休市时清空 CSV、推送 checkpoint 和 trim state。"""
     for market in markets:
         csv_file = output_dir / f"{market}.csv"
         if csv_file.exists() and csv_file.stat().st_size > 0:
@@ -438,11 +479,6 @@ def clear_csv_and_checkpoints(output_dir: Path, markets: List[str],
             except Exception as e:
                 logger.warning("Failed to clear CSV %s: %s", csv_file.name, e)
 
-    # 2) 清空同目录以及上级 data/ 目录中的 checkpoint 文件
-    import glob as _glob
-    import json as _json
-
-    # 搜索路径：CSV 目录本身 + 上级 data 目录（checkpoint 可能在不同位置）
     search_dirs = [output_dir, output_dir.parent]
     for search_dir in search_dirs:
         for ckpt_file in search_dir.glob(checkpoint_glob):
@@ -451,6 +487,13 @@ def clear_csv_and_checkpoints(output_dir: Path, markets: List[str],
                 logger.info("Checkpoint cleared: %s", ckpt_file)
             except Exception as e:
                 logger.warning("Failed to clear checkpoint %s: %s", ckpt_file, e)
+
+    trim_state_file = _trim_state_file(output_dir)
+    try:
+        _save_trim_state(trim_state_file, {})
+        logger.info("Trim state cleared: %s", trim_state_file)
+    except Exception as e:
+        logger.warning("Failed to clear trim state %s: %s", trim_state_file, e)
 
 
 def main() -> int:

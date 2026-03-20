@@ -358,9 +358,9 @@ def build_args() -> argparse.Namespace:
                     help="追加模式写入 CSV（默认开启）")
     c.add_argument("--no-collect-append", action="store_true",
                     help="关闭追加模式，每轮生成带时间戳的独立文件")
-    c.add_argument("--max-keep-rows", type=int, default=0,
-                    help="CSV 滚动截断：追加模式下每文件最大保留行数（0=不截断，默认不截断）。"
-                         "日内不截断，靠休市清空控制文件大小，避免截断破坏推送 offset 增量逻辑。")
+    c.add_argument("--max-keep-rows", type=int, default=100000,
+                    help="CSV 滚动截断：追加模式下每文件最大保留行数（默认 100000，0=不截断）。"
+                         "配合 trim state 可在截断后保持推送断点连续，避免文件持续膨胀。")
     c.add_argument("--trading-only", action=argparse.BooleanOptionalAction, default=True,
                     help="仅在交易时段采集")
     c.add_argument("--ignore-trading-window", action="store_true",
@@ -372,8 +372,8 @@ def build_args() -> argparse.Namespace:
                     help="云端推送 URL")
     p.add_argument("--push-token", default=os.getenv("RT_KLINE_CLOUD_PUSH_TOKEN", ""),
                     help="推送鉴权 Token")
-    p.add_argument("--push-interval", type=float, default=3.0,
-                    help="推送轮次间隔（秒）")
+    p.add_argument("--push-interval", type=float, default=None,
+                    help="推送轮次间隔（秒，默认与 collect-interval 一致）")
     p.add_argument("--batch-size", type=int, default=1000,
                     help="每批推送条数")
 
@@ -417,11 +417,12 @@ def build_collect_args(args: argparse.Namespace) -> List[str]:
 
 def build_push_args(args: argparse.Namespace) -> List[str]:
     """构建推送脚本的命令行参数。"""
+    push_interval = args.collect_interval if args.push_interval is None else args.push_interval
     cmd: List[str] = [
         "--csv-dir", args.csv_dir,
         "--markets", args.markets,
         "--push-url", args.push_url,
-        "--interval", str(args.push_interval),
+        "--interval", str(push_interval),
         "--batch-size", str(args.batch_size),
         "--loop",
         "--log-level", args.log_level,

@@ -98,6 +98,7 @@ class PushConfig:
     timeout: int
     shards: int
     checkpoint_file: str
+    trim_state_file: str      # CSV 截断累计偏移
     pipeline: bool            # 读/推流水线
     compress: bool            # gzip 压缩
 
@@ -233,45 +234,64 @@ class CSVCloudPusher:
         prefix = MARKET_FILE_PREFIXES.get(market, market)
         return [str(f) for f in sorted(csv_dir.glob(f"{prefix}*.csv"))]
 
+    def _load_trim_state(self) -> Dict[str, int]:
+        trim_state_file = Path(self.cfg.trim_state_file)
+        if not trim_state_file.exists():
+            return {}
+        try:
+            data = json.loads(trim_state_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            return {str(k): int(v) for k, v in data.items()}
+        except Exception as e:
+            logger.warning("Failed to load trim state %s: %s", trim_state_file, e)
+            return {}
+
+    def _get_trimmed_rows(self, csv_file: str) -> int:
+        trim_state = self._load_trim_state()
+        return max(0, int(trim_state.get(Path(csv_file).name, 0)))
+
     def _process_csv(self, market: str, csv_file: str) -> int:
         """流式读取 CSV 并推送。
 
-        核心优化：使用 pd.read_csv(chunksize=N) 返回迭代器，
-        文件只打开一次、顺序读取，彻底消灭 skiprows 回扫。
-        对于已推送的 offset，用迭代器 skip 跳过（O(N) 顺序扫描，只扫一次）。
-
-        v7 简化（配合采集器休市清理）：
-        - 采集器在休市时自动清空 CSV（只留 header）和 checkpoint 文件。
-        - 开盘时 CSV 从 0 行开始追加，checkpoint 也从 0 开始，不会卡住。
-        - 保留 offset > total_lines 的安全检测（应对进程重启等边缘情况）。
-        - **CSV 并发读写保护**：使用 on_bad_lines='skip' 容忍并发写入的脏行。
+        checkpoint 存的是“逻辑行偏移”而不是当前物理文件中的行号：
+        逻辑 offset = 已被截断掉的累计行数 + 当前文件内的 offset。
+        这样 CSV 即使滚动只保留最近 10 万行，推送端也不会因为文件被裁剪而回推整段历史。
         """
         offset = int(self._checkpoint.get_offset(csv_file))
+        trimmed_rows = self._get_trimmed_rows(csv_file)
 
-        # --- 探测 CSV 实际行数 ---
         try:
-            total_lines = sum(1 for _ in open(csv_file, "rb")) - 1  # 减去 header
+            total_lines = sum(1 for _ in open(csv_file, "rb")) - 1
             if total_lines < 0:
                 total_lines = 0
         except OSError:
             total_lines = 0
 
-        # Checkpoint 越界保护：如果 offset > CSV 行数（CSV 被清空/截断），重置到 0
-        if offset > total_lines:
+        logical_total_lines = trimmed_rows + total_lines
+
+        if offset < trimmed_rows:
             logger.warning(
-                "Checkpoint offset=%d > CSV lines=%d for %s (CSV was cleared). "
-                "Resetting offset to 0.",
-                offset, total_lines, Path(csv_file).name,
+                "Checkpoint offset=%d < trim base=%d for %s. Fast-forwarding to trim base.",
+                offset, trimmed_rows, Path(csv_file).name,
             )
-            offset = 0
-            self._checkpoint.set_offset(csv_file, 0)
+            offset = trimmed_rows
+            self._checkpoint.set_offset(csv_file, offset)
             self._checkpoint.flush()
 
-        # 没有新数据
-        if offset >= total_lines:
+        if offset > logical_total_lines:
+            logger.warning(
+                "Checkpoint offset=%d > logical CSV lines=%d for %s. Resetting to trim base=%d.",
+                offset, logical_total_lines, Path(csv_file).name, trimmed_rows,
+            )
+            offset = trimmed_rows
+            self._checkpoint.set_offset(csv_file, offset)
+            self._checkpoint.flush()
+
+        resume_offset = max(0, offset - trimmed_rows)
+        if resume_offset >= total_lines:
             return 0
 
-        # 用 chunksize 迭代器流式读取，on_bad_lines='skip' 容忍并发写入的脏行
         try:
             reader = pd.read_csv(
                 csv_file,
@@ -285,22 +305,20 @@ class CSVCloudPusher:
 
         pushed = 0
         current_offset = 0
-        pending_future: Optional[Future] = None  # 流水线模式：上一批推送的 future
+        pending_future: Optional[Future] = None
 
         try:
             for chunk_df in reader:
                 chunk_len = len(chunk_df)
 
-                # 跳过已推送的行（顺序 skip，只扫一次，不回头）
-                if current_offset + chunk_len <= offset:
+                if current_offset + chunk_len <= resume_offset:
                     current_offset += chunk_len
                     continue
 
-                # 部分跳过（offset 落在 chunk 中间）
-                if current_offset < offset:
-                    skip_rows = offset - current_offset
+                if current_offset < resume_offset:
+                    skip_rows = resume_offset - current_offset
                     chunk_df = chunk_df.iloc[skip_rows:]
-                    current_offset = offset
+                    current_offset = resume_offset
                     chunk_len = len(chunk_df)
 
                 if chunk_df.empty:
@@ -314,9 +332,7 @@ class CSVCloudPusher:
 
                 payload_bytes = self._build_payload_bytes(market, items)
 
-                # ---------- 流水线模式 ----------
                 if self._pipe_pool is not None and pending_future is not None:
-                    # 等上一批推送完成
                     prev_ok, prev_count, prev_offset = pending_future.result()
                     if prev_ok:
                         self._checkpoint.set_offset(csv_file, prev_offset)
@@ -327,32 +343,30 @@ class CSVCloudPusher:
                         break
 
                 new_offset = current_offset + chunk_len
+                new_logical_offset = trimmed_rows + new_offset
 
                 if self._pipe_pool is not None:
-                    # 异步提交推送，同时迭代器继续读下一批
                     pending_future = self._pipe_pool.submit(
-                        self._push_and_report, market, payload_bytes, len(items), new_offset, csv_file
+                        self._push_and_report, market, payload_bytes, len(items), new_logical_offset, csv_file
                     )
                 else:
-                    # 同步模式
                     success = self._push_bytes_to_all(market, payload_bytes)
                     if success:
-                        self._checkpoint.set_offset(csv_file, new_offset)
+                        self._checkpoint.set_offset(csv_file, new_logical_offset)
                         pushed += len(items)
                         logger.info(
                             "Pushed market=%s file=%s rows=%d offset=%d",
-                            market, Path(csv_file).name, len(items), new_offset,
+                            market, Path(csv_file).name, len(items), new_logical_offset,
                         )
                     else:
                         logger.error(
                             "Push failed, stopping market=%s file=%s at offset=%d",
-                            market, Path(csv_file).name, current_offset,
+                            market, Path(csv_file).name, trimmed_rows + current_offset,
                         )
                         break
 
                 current_offset = new_offset
 
-            # 处理流水线中最后一批
             if pending_future is not None:
                 prev_ok, prev_count, prev_offset = pending_future.result()
                 if prev_ok:
@@ -699,6 +713,7 @@ def main() -> int:
         timeout=max(1, args.timeout),
         shards=max(1, args.shards),
         checkpoint_file=str(ckpt_path),
+        trim_state_file=str(csv_dir.parent / "csv_trim_state.json"),
         pipeline=args.pipeline,
         compress=args.compress,
     )
