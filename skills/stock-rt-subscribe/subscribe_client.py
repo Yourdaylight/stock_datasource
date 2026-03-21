@@ -117,6 +117,18 @@ def _dim(t: str) -> str:
 # ── 数据类 ────────────────────────────────────────────────────
 
 
+def _to_optional_float(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _to_optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    return int(value)
+
+
 @dataclass
 class TickData:
     """一条实时行情快照"""
@@ -124,14 +136,20 @@ class TickData:
     ts_code: str = ""
     name: str = ""
     market: str = ""
+    trade_time: Optional[str] = None
     open: float = 0.0
     high: float = 0.0
     low: float = 0.0
     close: float = 0.0
     vol: int = 0
     amount: float = 0.0
+    num: Optional[int] = None
     pre_close: float = 0.0
     pct_chg: float = 0.0
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    bid_volume1: Optional[int] = None
+    ask_volume1: Optional[int] = None
     trade_date: int = 0
     collected_at: str = ""
     version: int = 0
@@ -142,14 +160,20 @@ class TickData:
             ts_code=str(d.get("ts_code", "")),
             name=str(d.get("name", "")),
             market=str(d.get("market", "")),
+            trade_time=None if d.get("trade_time") in (None, "") else str(d.get("trade_time")),
             open=float(d.get("open") or 0),
             high=float(d.get("high") or 0),
             low=float(d.get("low") or 0),
             close=float(d.get("close") or 0),
             vol=int(d.get("vol") or 0),
             amount=float(d.get("amount") or 0),
+            num=_to_optional_int(d.get("num")),
             pre_close=float(d.get("pre_close") or 0),
             pct_chg=float(d.get("pct_chg") or 0),
+            bid=_to_optional_float(d.get("bid")),
+            ask=_to_optional_float(d.get("ask")),
+            bid_volume1=_to_optional_int(d.get("bid_volume1")),
+            ask_volume1=_to_optional_int(d.get("ask_volume1")),
             trade_date=int(d.get("trade_date") or 0),
             collected_at=str(d.get("collected_at", "")),
             version=int(d.get("version") or 0),
@@ -160,14 +184,20 @@ class TickData:
             "ts_code": self.ts_code,
             "name": self.name,
             "market": self.market,
+            "trade_time": self.trade_time,
             "open": self.open,
             "high": self.high,
             "low": self.low,
             "close": self.close,
             "vol": self.vol,
             "amount": self.amount,
+            "num": self.num,
             "pre_close": self.pre_close,
             "pct_chg": self.pct_chg,
+            "bid": self.bid,
+            "ask": self.ask,
+            "bid_volume1": self.bid_volume1,
+            "ask_volume1": self.ask_volume1,
             "trade_date": self.trade_date,
             "collected_at": self.collected_at,
             "version": self.version,

@@ -66,6 +66,14 @@ if [[ -z "${NODE3_URL:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 运行参数（默认让推送与采集同频，并限制每个 CSV 只保留最近 10 万行）
+# ---------------------------------------------------------------------------
+COLLECT_INTERVAL="${COLLECT_INTERVAL:-3.0}"
+PUSH_INTERVAL="${PUSH_INTERVAL:-$COLLECT_INTERVAL}"
+CSV_MAX_KEEP_ROWS="${CSV_MAX_KEEP_ROWS:-100000}"
+PUSH_BATCH_SIZE="${PUSH_BATCH_SIZE:-3000}"
+
+# ---------------------------------------------------------------------------
 # 准备目录
 # ---------------------------------------------------------------------------
 mkdir -p "$LOG_DIR"
@@ -89,8 +97,9 @@ rm -f "$PROJECT_DIR/data/push_ckpt_node1_3.json" \
       "$PROJECT_DIR/data/push_ckpt_node1.json" \
       "$PROJECT_DIR/data/push_ckpt_node3.json" \
       "$PROJECT_DIR/data/push_ckpt_local.json" \
-      "$PROJECT_DIR/data/push_checkpoint.json" 2>/dev/null || true
-echo "[OK]   推送断点已清理"
+      "$PROJECT_DIR/data/push_checkpoint.json" \
+      "$PROJECT_DIR/data/csv_trim_state.json" 2>/dev/null || true
+echo "[OK]   推送断点与 trim state 已清理"
 
 # 清理旧日志
 find "$LOG_DIR" -name "*.log" -mtime +0 -delete 2>/dev/null || true
@@ -117,7 +126,8 @@ nohup $NICE python3 "$SCRIPT_DIR/csv_pipeline.py" \
   --env-file "$ENV_FILE" \
   --disable-push \
   --markets a_stock,etf,index,hk \
-  --collect-interval 3.0 \
+  --collect-interval "$COLLECT_INTERVAL" \
+  --max-keep-rows "$CSV_MAX_KEEP_ROWS" \
   --cleanup-interval 7200 \
   --max-age-days 1 \
   > "$LOG_DIR/collect.log" 2>&1 &
@@ -134,8 +144,9 @@ nohup $NICE python3 "$SCRIPT_DIR/push_csv_to_cloud.py" \
   --markets a_stock \
   --push-url "$NODE1_URL,$NODE3_URL" \
   --push-token "$RT_KLINE_CLOUD_PUSH_TOKEN" \
-  --batch-size 3000 \
-  --loop --interval 5.0 \
+  --batch-size "$PUSH_BATCH_SIZE" \
+  --pipeline \
+  --loop --interval "$PUSH_INTERVAL" \
   --checkpoint-file "$PROJECT_DIR/data/push_ckpt_node1_3.json" \
   > "$LOG_DIR/push_node1_3.log" 2>&1 &
 PUSH1_PID=$!
@@ -150,8 +161,9 @@ nohup $NICE python3 "$SCRIPT_DIR/push_csv_to_cloud.py" \
   --markets etf \
   --push-url "$NODE2_URL" \
   --push-token "$RT_KLINE_CLOUD_PUSH_TOKEN" \
-  --batch-size 3000 \
-  --loop --interval 5.0 \
+  --batch-size "$PUSH_BATCH_SIZE" \
+  --pipeline \
+  --loop --interval "$PUSH_INTERVAL" \
   --checkpoint-file "$PROJECT_DIR/data/push_ckpt_node2.json" \
   > "$LOG_DIR/push_node2.log" 2>&1 &
 PUSH2_PID=$!
@@ -167,8 +179,9 @@ nohup $NICE python3 "$SCRIPT_DIR/push_csv_to_cloud.py" \
   --markets hk \
   --push-url "$NODE1_URL,$NODE2_URL,$NODE3_URL" \
   --push-token "$RT_KLINE_CLOUD_PUSH_TOKEN" \
-  --batch-size 3000 \
-  --loop --interval 5.0 \
+  --batch-size "$PUSH_BATCH_SIZE" \
+  --pipeline \
+  --loop --interval "$PUSH_INTERVAL" \
   --checkpoint-file "$PROJECT_DIR/data/push_ckpt_hk_all.json" \
   > "$LOG_DIR/push_hk_all.log" 2>&1 &
 PUSH3_PID=$!
@@ -186,7 +199,9 @@ echo "    推送→节点2     PID=$PUSH2_PID (ETF, nice 19)"
 echo "    推送→三节点    PID=$PUSH3_PID (港股→节点1+2+3, nice 19)"
 echo ""
 echo "  CPU 保护: nice -n 19 + ionice -c 3 (SSH/系统进程优先)"
-echo "  推送频率: 不变 (interval=5.0s)"
+echo "  采集频率: ${COLLECT_INTERVAL}s"
+echo "  推送频率: ${PUSH_INTERVAL}s (与采集同频)"
+echo "  CSV 保留 : 最近 ${CSV_MAX_KEEP_ROWS} 行 / 文件"
 echo ""
 echo "  查看日志:"
 echo "    tail -f $LOG_DIR/collect.log"

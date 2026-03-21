@@ -184,7 +184,9 @@ class TuShareRealtimeCollector:
             df["trade_date"] = datetime.now().strftime("%Y%m%d")
 
         # --- 补齐缺失列 ---
-        for col in ("ts_code", "name", "open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
+        for col in ("ts_code", "name", "open", "close", "high", "low", "pre_close",
+                     "vol", "amount", "num", "pct_chg",
+                     "bid", "ask", "bid_volume1", "ask_volume1"):
             if col not in df.columns:
                 df[col] = None
 
@@ -219,7 +221,8 @@ class TuShareRealtimeCollector:
         target_cols = [
             "ts_code", "name", "trade_date", "trade_time",
             "open", "high", "low", "close", "pre_close",
-            "vol", "amount", "pct_chg", "bid", "ask",
+            "vol", "amount", "num", "pct_chg",
+            "bid", "ask", "bid_volume1", "ask_volume1",
             "market", "collected_at", "version",
         ]
         # NaN → None for JSON-safe output
