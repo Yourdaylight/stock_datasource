@@ -232,6 +232,11 @@ class StockWSServer:
 
     后台线程轮询 Receiver 节点 HTTP API，通过 WebSocket 长连接将行情推送给所有连接的客户端。
 
+    订阅管理原则：
+      - 如果配置了 JWT Token，数据拉取优先使用 /subscription/latest（服务端按已登记订阅过滤）
+      - 客户端发送 subscribe/unsubscribe 指令时，同步到服务端订阅表，保证重启后订阅不丢失
+      - 无 JWT 时降级为本地 symbols 过滤模式
+
     Example:
         server = StockWSServer("http://YOUR_NODE_IP:9100", symbols=["00700.HK", "600519.SH"])
         server.run(port=8765)
@@ -246,10 +251,13 @@ class StockWSServer:
         timeout: int = 10,
     ):
         self.node_url = (node_url or os.getenv("STOCK_RT_NODE_URL", "")).rstrip("/")
-        self.token = token or os.getenv("STOCK_RT_TOKEN", "")
+        # 支持两种 Token：JWT（订阅鉴权）和 Bearer（写入鉴权）
+        self.token = token or os.getenv("STOCK_RT_JWT_TOKEN", "") or os.getenv("STOCK_RT_TOKEN", "")
         self.symbols: Set[str] = set(symbols or [])
         self.poll_interval = poll_interval
         self.timeout = timeout
+        # 是否使用服务端订阅接口（有 JWT Token 时自动开启）
+        self._use_subscription_api: bool = bool(self.token)
 
         self._session = requests.Session()
         if self.token:
@@ -288,6 +296,36 @@ class StockWSServer:
         resp.raise_for_status()
         return resp.json()
 
+    def _sync_subscription_to_server(self, symbols: List[str], mode: str = "add") -> Dict[str, Any]:
+        """
+        将订阅变更同步到服务端（同步调用，在 executor 中运行）
+
+        参数:
+            symbols: 要同步的股票代码列表
+            mode: "add" | "remove" | "replace"
+        返回: 服务端响应 dict，失败时返回 {"status": "error", "message": ...}
+        """
+        if not self._use_subscription_api or not symbols:
+            return {"status": "skipped"}
+        try:
+            resp = self._session.post(
+                f"{self.node_url}/api/v1/rt-kline/subscription/sync",
+                json={"symbols": symbols, "mode": mode},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            logger.info(
+                "订阅同步到服务端 mode=%s symbols=%s accepted=%s rejected=%s",
+                mode, symbols,
+                result.get("accepted_symbols", []),
+                result.get("rejected_symbols", []),
+            )
+            return result
+        except Exception as exc:
+            logger.warning("订阅同步到服务端失败 mode=%s: %s", mode, exc)
+            return {"status": "error", "message": str(exc)}
+
     def _fetch_latest(self, ts_code: str) -> Optional[TickData]:
         """从 HTTP API 获取单只最新行情"""
         try:
@@ -304,24 +342,71 @@ class StockWSServer:
             logger.error("获取 %s 行情失败: %s", ts_code, exc)
             return None
 
+    def _fetch_batch(self) -> List[TickData]:
+        """
+        拉取最新行情。
+        - 有 JWT Token：使用 /subscription/latest（服务端按已登记订阅过滤，数据有效性有保证）
+        - 无 JWT Token：降级为批量接口 + 本地过滤
+        """
+        if self._use_subscription_api:
+            try:
+                resp = self._session.get(
+                    f"{self.node_url}/api/v1/rt-kline/subscription/latest",
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("data", [])
+                # 同时更新本地 symbols（以服务端登记的订阅为准）
+                server_symbols = set(data.get("accepted_symbols") or data.get("registered_symbols") or [])
+                if server_symbols:
+                    self.symbols = server_symbols
+                return [TickData.from_dict(item) for item in items]
+            except Exception as exc:
+                logger.warning("订阅接口拉取失败，降级为批量接口: %s", exc)
+                self._use_subscription_api = False  # 降级后不再重试订阅接口
+
+        # 降级模式：批量拉取全量 + 本地过滤
+        try:
+            resp = self._session.get(
+                f"{self.node_url}/api/v1/rt-kline/latest",
+                params={"limit": 5000},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("data", [])
+            return [TickData.from_dict(item) for item in items]
+        except Exception as exc:
+            logger.error("批量拉取行情失败: %s", exc)
+            return []
+
     def _poll_once(self) -> List[TickData]:
-        """轮询一次所有订阅的 symbol，返回有更新的 tick 列表"""
+        """
+        轮询一次所有订阅的 symbol，返回有更新的 tick 列表。
+
+        有效性保证：
+          - 使用 /subscription/latest 时，服务端已按登记订阅过滤，不会推送已退订的 symbol
+          - 降级模式下，本地 all_symbols 过滤确保只推送已订阅的 symbol
+        """
         all_symbols = set(self.symbols)
         for syms in self._client_symbols.values():
             all_symbols |= syms
 
+        # 拉取行情（订阅接口或批量接口）
+        all_ticks = self._fetch_batch()
+
         updated: List[TickData] = []
-        for symbol in all_symbols:
-            tick = self._fetch_latest(symbol)
-            if tick is None:
+        for tick in all_ticks:
+            # 降级模式下需要本地过滤；订阅接口模式下服务端已过滤，但仍做一层防御
+            if all_symbols and tick.ts_code not in all_symbols:
                 continue
 
-            last_ver = self._last_versions.get(symbol, 0)
+            last_ver = self._last_versions.get(tick.ts_code, 0)
             if tick.version and tick.version == last_ver:
                 continue
 
-            self._last_versions[symbol] = tick.version
-            self._latest_ticks[symbol] = tick
+            self._last_versions[tick.ts_code] = tick.version
+            self._latest_ticks[tick.ts_code] = tick
             updated.append(tick)
 
         return updated
@@ -416,10 +501,19 @@ class StockWSServer:
                         self._client_symbols[ws_id] |= new_symbols
                         # 同时添加到全局轮询列表
                         self.symbols |= new_symbols
+
+                        # 同步到服务端订阅表（保证重启后订阅不丢失）
+                        sync_result: Dict[str, Any] = {}
+                        if self._use_subscription_api and new_symbols:
+                            sync_result = await asyncio.get_event_loop().run_in_executor(
+                                None, self._sync_subscription_to_server, list(new_symbols), "add"
+                            )
+
                         resp = {
                             "type": "subscribed",
                             "added": sorted(new_symbols),
                             "current": sorted(self._client_symbols[ws_id]),
+                            "server_sync": sync_result.get("status", "skipped"),
                             "timestamp": datetime.now().isoformat(),
                         }
                         await ws.send(json.dumps(resp, ensure_ascii=False))
@@ -428,10 +522,26 @@ class StockWSServer:
                         rm_symbols = set(msg.get("symbols", []))
                         if ws_id in self._client_symbols:
                             self._client_symbols[ws_id] -= rm_symbols
+
+                        # 检查是否还有其他客户端订阅了这些 symbol
+                        still_needed = set()
+                        for other_id, other_syms in self._client_symbols.items():
+                            if other_id != ws_id:
+                                still_needed |= other_syms
+                        # 只有当前客户端订阅且没有其他客户端订阅时，才从全局列表移除
+                        truly_removed = rm_symbols - still_needed - self.symbols
+                        # 同步退订到服务端
+                        sync_result = {}
+                        if self._use_subscription_api and truly_removed:
+                            sync_result = await asyncio.get_event_loop().run_in_executor(
+                                None, self._sync_subscription_to_server, list(truly_removed), "remove"
+                            )
+
                         resp = {
                             "type": "unsubscribed",
                             "removed": sorted(rm_symbols),
                             "current": sorted(self._client_symbols.get(ws_id, self.symbols)),
+                            "server_sync": sync_result.get("status", "skipped"),
                             "timestamp": datetime.now().isoformat(),
                         }
                         await ws.send(json.dumps(resp, ensure_ascii=False))
