@@ -25,7 +25,8 @@ import {
   NotificationIcon,
   DataDisplayIcon,
   BookOpenIcon,
-  PreciseMonitorIcon
+  PreciseMonitorIcon,
+  LinkIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -86,6 +87,13 @@ const menuItems: MenuItem[] = [
     path: '/system-logs',
     title: '系统日志',
     icon: FileIcon,
+    requiresAuth: true,
+    requiresAdmin: true
+  },
+  {
+    path: '/api-access',
+    title: '开放API',
+    icon: LinkIcon,
     requiresAuth: true,
     requiresAdmin: true
   },

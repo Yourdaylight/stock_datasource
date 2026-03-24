@@ -1,8 +1,15 @@
-"""Cache management API routes."""
+"""Cache management API routes.
 
-from fastapi import APIRouter, HTTPException
+Read operations (stats, health, get) are public.
+Write operations (set, delete) require login.
+Destructive operations (flush) require admin.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Any
+
+from stock_datasource.modules.auth.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/cache", tags=["cache"])
 
@@ -48,8 +55,11 @@ async def get_cache(key: str):
 
 
 @router.post("/set")
-async def set_cache(request: CacheSetRequest):
-    """Set cache value."""
+async def set_cache(
+    request: CacheSetRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Set cache value. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
     cache = get_cache_service()
     
@@ -58,8 +68,11 @@ async def set_cache(request: CacheSetRequest):
 
 
 @router.delete("/delete/{key:path}")
-async def delete_cache(key: str):
-    """Delete cache by key."""
+async def delete_cache(
+    key: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete cache by key. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
     cache = get_cache_service()
     
@@ -68,8 +81,11 @@ async def delete_cache(key: str):
 
 
 @router.post("/delete-pattern")
-async def delete_cache_pattern(request: CacheDeleteRequest):
-    """Delete cache by pattern."""
+async def delete_cache_pattern(
+    request: CacheDeleteRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete cache by pattern. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
     cache = get_cache_service()
     
@@ -78,8 +94,10 @@ async def delete_cache_pattern(request: CacheDeleteRequest):
 
 
 @router.post("/flush")
-async def flush_cache():
-    """Flush all cache in namespace (stock:*)."""
+async def flush_cache(
+    admin_user: dict = Depends(require_admin),
+):
+    """Flush all cache in namespace (stock:*). Requires admin."""
     from stock_datasource.services.cache_service import get_cache_service
     cache = get_cache_service()
     

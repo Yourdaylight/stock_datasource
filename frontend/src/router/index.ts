@@ -144,6 +144,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '系统日志', icon: 'file-list', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/api-access',
+    name: 'ApiAccess',
+    component: () => import('@/views/apiAccess/ApiAccessView.vue'),
+    meta: { title: '开放API管理', icon: 'link', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/workflow',
     name: 'Workflow',
     component: () => import('@/views/workflow/WorkflowList.vue'),

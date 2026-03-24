@@ -244,6 +244,13 @@ async def lifespan(app: FastAPI):
         ensure_financial_analysis_tables()
     except Exception as e:
         logger.warning(f"Financial analysis table initialization failed: {e}")
+
+    # Initialize Open API Gateway tables
+    try:
+        from stock_datasource.modules.open_api.service import _ensure_tables as _ensure_open_api_tables
+        _ensure_open_api_tables()
+    except Exception as e:
+        logger.warning(f"Open API Gateway table initialization failed: {e}")
     
     # Initialize plugin manager
     try:
@@ -444,6 +451,9 @@ def create_app() -> FastAPI:
     # Register cache routes
     _register_cache_routes(app)
     
+    # Register Open API Gateway routes
+    _register_open_api_routes(app)
+    
     # Health check endpoint with cache stats
     @app.get("/health")
     async def health_check():
@@ -570,6 +580,35 @@ def _register_cache_routes(app: FastAPI) -> None:
         logger.info("Registered cache routes")
     except Exception as e:
         logger.warning(f"Failed to register cache routes: {e}")
+
+
+def _register_open_api_routes(app: FastAPI) -> None:
+    """Register Open API Gateway routes.
+
+    - /api/open/*           — public data query endpoints (API Key auth)
+    - /api/open-api-admin/* — admin management endpoints (JWT admin auth)
+    """
+    try:
+        from stock_datasource.modules.open_api.router import router as open_api_router
+        app.include_router(
+            open_api_router,
+            prefix="/api/open",
+            tags=["开放API"],
+        )
+        logger.info("Registered Open API Gateway routes: /api/open/*")
+    except Exception as e:
+        logger.warning(f"Failed to register Open API Gateway routes: {e}")
+
+    try:
+        from stock_datasource.modules.open_api.admin_router import admin_router
+        app.include_router(
+            admin_router,
+            prefix="/api/open-api-admin",
+            tags=["开放API管理"],
+        )
+        logger.info("Registered Open API admin routes: /api/open-api-admin/*")
+    except Exception as e:
+        logger.warning(f"Failed to register Open API admin routes: {e}")
 
 
 def _get_or_create_service(service_class, service_name: str):
