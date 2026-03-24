@@ -1,0 +1,862 @@
+{
+  "300502.SZ": [
+    {
+      "time": "2026-03-20 15:22:47",
+      "signal": "BUY",
+      "price": 1622.531,
+      "reasons": [
+        "RSI=0.0 超卖(<28)"
+      ],
+      "indicators": {
+        "ma10": 1636.5306,
+        "rsi": 0.0,
+        "boll_upper": 1686.0862,
+        "boll_mid": 1651.4907,
+        "boll_lower": 1616.8952
+      }
+    }
+  ],
+  "600519.SH": [
+    {
+      "time": "2026-03-20 17:18:18",
+      "signal": "BUY",
+      "price": 109.8,
+      "reasons": [
+        "开盘偏离+9.80%（>3.0%），强势后回调风险",
+        "接近涨停(110.00)，距离0.18%，强势信号"
+      ],
+      "indicators": {
+        "open_deviation_pct": 9.8,
+        "open_price": 100.0,
+        "vwap": 109.8,
+        "vwap_deviation_pct": 0.0,
+        "up_limit": 110.0,
+        "down_limit": 90.0,
+        "up_limit_dist_pct": 0.182,
+        "down_limit_dist_pct": 18.033
+      }
+    },
+    {
+      "time": "2026-03-20 17:18:18",
+      "signal": "SELL",
+      "price": 105.0,
+      "reasons": [
+        "开盘偏离+5.00%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 5.0,
+        "open_price": 100.0,
+        "vwap": 105.96,
+        "vwap_deviation_pct": -0.906,
+        "intraday_high": 109.8,
+        "intraday_low": 99.5,
+        "up_limit": 110.0,
+        "down_limit": 90.0,
+        "up_limit_dist_pct": 4.762,
+        "down_limit_dist_pct": 14.286
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 1689.51,
+      "reasons": [
+        "跌破日内最低价(1698.99)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.958,
+        "open_price": 1705.86,
+        "intraday_high": 1720.93,
+        "intraday_low": 1698.99
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 1743.34,
+      "reasons": [
+        "突破日内最高价(1731.85)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 2.197,
+        "open_price": 1705.86,
+        "intraday_high": 1731.85,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 1724.45,
+      "reasons": [
+        "MA5(1729.92)>MA20(1713.37) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1729.92,
+        "ma20": 1713.368,
+        "rsi": 55.1018,
+        "boll_upper": 1745.895,
+        "boll_mid": 1713.368,
+        "boll_lower": 1680.841
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 1759.75,
+      "reasons": [
+        "开盘偏离+3.16%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.159,
+        "open_price": 1705.86,
+        "intraday_high": 1780.25,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 1729.57,
+      "reasons": [
+        "MA5(1730.62)<MA20(1731.66) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1730.622,
+        "ma20": 1731.66,
+        "rsi": 51.41,
+        "boll_upper": 1765.5821,
+        "boll_mid": 1731.66,
+        "boll_lower": 1697.7379
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 1736.27,
+      "reasons": [
+        "MA5(1734.52)>MA20(1732.56) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1734.524,
+        "ma20": 1732.5635,
+        "rsi": 46.7663,
+        "boll_upper": 1765.962,
+        "boll_mid": 1732.5635,
+        "boll_lower": 1699.165
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 1722.45,
+      "reasons": [
+        "MA5(1731.61)<MA20(1733.04) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1731.61,
+        "ma20": 1733.042,
+        "rsi": 46.8253,
+        "boll_upper": 1765.5614,
+        "boll_mid": 1733.042,
+        "boll_lower": 1700.5226
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 1757.2,
+      "reasons": [
+        "MA5(1740.42)>MA20(1737.74) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1740.42,
+        "ma20": 1737.7375,
+        "rsi": 58.0733,
+        "boll_upper": 1767.9583,
+        "boll_mid": 1737.7375,
+        "boll_lower": 1707.5167
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 1699.19,
+      "reasons": [
+        "MA5(1729.63)<MA20(1734.78) 死叉",
+        "MACD(2.8108)<Signal(7.8532) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1729.634,
+        "ma20": 1734.778,
+        "rsi": 34.0346,
+        "macd": 2.8108,
+        "macd_signal": 7.8532,
+        "macd_hist": -5.0424,
+        "boll_upper": 1768.9371,
+        "boll_mid": 1734.778,
+        "boll_lower": 1700.6189
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 1689.51,
+      "reasons": [
+        "跌破日内最低价(1698.99)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.958,
+        "open_price": 1705.86,
+        "intraday_high": 1720.93,
+        "intraday_low": 1698.99
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 1743.34,
+      "reasons": [
+        "突破日内最高价(1731.85)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 2.197,
+        "open_price": 1705.86,
+        "intraday_high": 1731.85,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 1724.45,
+      "reasons": [
+        "MA5(1729.92)>MA20(1713.37) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1729.92,
+        "ma20": 1713.368,
+        "rsi": 55.1018,
+        "boll_upper": 1745.895,
+        "boll_mid": 1713.368,
+        "boll_lower": 1680.841
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 1759.75,
+      "reasons": [
+        "开盘偏离+3.16%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.159,
+        "open_price": 1705.86,
+        "intraday_high": 1780.25,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 1729.57,
+      "reasons": [
+        "MA5(1730.62)<MA20(1731.66) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1730.622,
+        "ma20": 1731.66,
+        "rsi": 51.41,
+        "boll_upper": 1765.5821,
+        "boll_mid": 1731.66,
+        "boll_lower": 1697.7379
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 1736.27,
+      "reasons": [
+        "MA5(1734.52)>MA20(1732.56) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1734.524,
+        "ma20": 1732.5635,
+        "rsi": 46.7663,
+        "boll_upper": 1765.962,
+        "boll_mid": 1732.5635,
+        "boll_lower": 1699.165
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 1722.45,
+      "reasons": [
+        "MA5(1731.61)<MA20(1733.04) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1731.61,
+        "ma20": 1733.042,
+        "rsi": 46.8253,
+        "boll_upper": 1765.5614,
+        "boll_mid": 1733.042,
+        "boll_lower": 1700.5226
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 1757.2,
+      "reasons": [
+        "MA5(1740.42)>MA20(1737.74) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1740.42,
+        "ma20": 1737.7375,
+        "rsi": 58.0733,
+        "boll_upper": 1767.9583,
+        "boll_mid": 1737.7375,
+        "boll_lower": 1707.5167
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 1699.19,
+      "reasons": [
+        "MA5(1729.63)<MA20(1734.78) 死叉",
+        "MACD(2.8108)<Signal(7.8532) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1729.634,
+        "ma20": 1734.778,
+        "rsi": 34.0346,
+        "macd": 2.8108,
+        "macd_signal": 7.8532,
+        "macd_hist": -5.0424,
+        "boll_upper": 1768.9371,
+        "boll_mid": 1734.778,
+        "boll_lower": 1700.6189
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 1689.51,
+      "reasons": [
+        "跌破日内最低价(1698.99)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.958,
+        "open_price": 1705.86,
+        "intraday_high": 1720.93,
+        "intraday_low": 1698.99
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 1743.34,
+      "reasons": [
+        "突破日内最高价(1731.85)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 2.197,
+        "open_price": 1705.86,
+        "intraday_high": 1731.85,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 1724.45,
+      "reasons": [
+        "MA5(1729.92)>MA20(1713.37) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1729.92,
+        "ma20": 1713.368,
+        "rsi": 55.1018,
+        "boll_upper": 1745.895,
+        "boll_mid": 1713.368,
+        "boll_lower": 1680.841
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 1759.75,
+      "reasons": [
+        "开盘偏离+3.16%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.159,
+        "open_price": 1705.86,
+        "intraday_high": 1780.25,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 1729.57,
+      "reasons": [
+        "MA5(1730.62)<MA20(1731.66) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1730.622,
+        "ma20": 1731.66,
+        "rsi": 51.41,
+        "boll_upper": 1765.5821,
+        "boll_mid": 1731.66,
+        "boll_lower": 1697.7379
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 1736.27,
+      "reasons": [
+        "MA5(1734.52)>MA20(1732.56) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1734.524,
+        "ma20": 1732.5635,
+        "rsi": 46.7663,
+        "boll_upper": 1765.962,
+        "boll_mid": 1732.5635,
+        "boll_lower": 1699.165
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 1722.45,
+      "reasons": [
+        "MA5(1731.61)<MA20(1733.04) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1731.61,
+        "ma20": 1733.042,
+        "rsi": 46.8253,
+        "boll_upper": 1765.5614,
+        "boll_mid": 1733.042,
+        "boll_lower": 1700.5226
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 1757.2,
+      "reasons": [
+        "MA5(1740.42)>MA20(1737.74) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1740.42,
+        "ma20": 1737.7375,
+        "rsi": 58.0733,
+        "boll_upper": 1767.9583,
+        "boll_mid": 1737.7375,
+        "boll_lower": 1707.5167
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 1699.19,
+      "reasons": [
+        "MA5(1729.63)<MA20(1734.78) 死叉",
+        "MACD(2.8108)<Signal(7.8532) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1729.634,
+        "ma20": 1734.778,
+        "rsi": 34.0346,
+        "macd": 2.8108,
+        "macd_signal": 7.8532,
+        "macd_hist": -5.0424,
+        "boll_upper": 1768.9371,
+        "boll_mid": 1734.778,
+        "boll_lower": 1700.6189
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 1689.51,
+      "reasons": [
+        "跌破日内最低价(1698.99)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.958,
+        "open_price": 1705.86,
+        "intraday_high": 1720.93,
+        "intraday_low": 1698.99
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 1743.34,
+      "reasons": [
+        "突破日内最高价(1731.85)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 2.197,
+        "open_price": 1705.86,
+        "intraday_high": 1731.85,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 1724.45,
+      "reasons": [
+        "MA5(1729.92)>MA20(1713.37) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1729.92,
+        "ma20": 1713.368,
+        "rsi": 55.1018,
+        "boll_upper": 1745.895,
+        "boll_mid": 1713.368,
+        "boll_lower": 1680.841
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 1759.75,
+      "reasons": [
+        "开盘偏离+3.16%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.159,
+        "open_price": 1705.86,
+        "intraday_high": 1780.25,
+        "intraday_low": 1679.12
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 1729.57,
+      "reasons": [
+        "MA5(1730.62)<MA20(1731.66) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1730.622,
+        "ma20": 1731.66,
+        "rsi": 51.41,
+        "boll_upper": 1765.5821,
+        "boll_mid": 1731.66,
+        "boll_lower": 1697.7379
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 1736.27,
+      "reasons": [
+        "MA5(1734.52)>MA20(1732.56) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1734.524,
+        "ma20": 1732.5635,
+        "rsi": 46.7663,
+        "boll_upper": 1765.962,
+        "boll_mid": 1732.5635,
+        "boll_lower": 1699.165
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 1722.45,
+      "reasons": [
+        "MA5(1731.61)<MA20(1733.04) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1731.61,
+        "ma20": 1733.042,
+        "rsi": 46.8253,
+        "boll_upper": 1765.5614,
+        "boll_mid": 1733.042,
+        "boll_lower": 1700.5226
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 1757.2,
+      "reasons": [
+        "MA5(1740.42)>MA20(1737.74) 金叉"
+      ],
+      "indicators": {
+        "ma5": 1740.42,
+        "ma20": 1737.7375,
+        "rsi": 58.0733,
+        "boll_upper": 1767.9583,
+        "boll_mid": 1737.7375,
+        "boll_lower": 1707.5167
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 1699.19,
+      "reasons": [
+        "MA5(1729.63)<MA20(1734.78) 死叉",
+        "MACD(2.8108)<Signal(7.8532) 死叉"
+      ],
+      "indicators": {
+        "ma5": 1729.634,
+        "ma20": 1734.778,
+        "rsi": 34.0346,
+        "macd": 2.8108,
+        "macd_signal": 7.8532,
+        "macd_hist": -5.0424,
+        "boll_upper": 1768.9371,
+        "boll_mid": 1734.778,
+        "boll_lower": 1700.6189
+      }
+    }
+  ],
+  "00700.HK": [
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 380.74,
+      "reasons": [
+        "跌破日内最低价(380.89)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.338,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 380.89
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 384.84,
+      "reasons": [
+        "突破日内最高价(384.71)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 0.736,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "SELL",
+      "price": 394.38,
+      "reasons": [
+        "开盘偏离+3.23%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.233,
+        "open_price": 382.03,
+        "intraday_high": 401.07,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:01",
+      "signal": "BUY",
+      "price": 403.88,
+      "reasons": [
+        "MA5(404.63)>MA20(392.96) 金叉"
+      ],
+      "indicators": {
+        "ma5": 404.634,
+        "ma20": 392.96,
+        "rsi": 64.0815,
+        "boll_upper": 409.8446,
+        "boll_mid": 392.96,
+        "boll_lower": 376.0754
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 380.74,
+      "reasons": [
+        "跌破日内最低价(380.89)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.338,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 380.89
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 384.84,
+      "reasons": [
+        "突破日内最高价(384.71)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 0.736,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "SELL",
+      "price": 394.38,
+      "reasons": [
+        "开盘偏离+3.23%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.233,
+        "open_price": 382.03,
+        "intraday_high": 401.07,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:08:10",
+      "signal": "BUY",
+      "price": 403.88,
+      "reasons": [
+        "MA5(404.63)>MA20(392.96) 金叉"
+      ],
+      "indicators": {
+        "ma5": 404.634,
+        "ma20": 392.96,
+        "rsi": 64.0815,
+        "boll_upper": 409.8446,
+        "boll_mid": 392.96,
+        "boll_lower": 376.0754
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 380.74,
+      "reasons": [
+        "跌破日内最低价(380.89)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.338,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 380.89
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 384.84,
+      "reasons": [
+        "突破日内最高价(384.71)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 0.736,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "SELL",
+      "price": 394.38,
+      "reasons": [
+        "开盘偏离+3.23%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.233,
+        "open_price": 382.03,
+        "intraday_high": 401.07,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-23 14:09:34",
+      "signal": "BUY",
+      "price": 403.88,
+      "reasons": [
+        "MA5(404.63)>MA20(392.96) 金叉"
+      ],
+      "indicators": {
+        "ma5": 404.634,
+        "ma20": 392.96,
+        "rsi": 64.0815,
+        "boll_upper": 409.8446,
+        "boll_mid": 392.96,
+        "boll_lower": 376.0754
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 380.74,
+      "reasons": [
+        "跌破日内最低价(380.89)，下行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": -0.338,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 380.89
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 384.84,
+      "reasons": [
+        "突破日内最高价(384.71)，上行动能强"
+      ],
+      "indicators": {
+        "open_deviation_pct": 0.736,
+        "open_price": 382.03,
+        "intraday_high": 384.71,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "SELL",
+      "price": 394.38,
+      "reasons": [
+        "开盘偏离+3.23%（>3.0%），强势后回调风险"
+      ],
+      "indicators": {
+        "open_deviation_pct": 3.233,
+        "open_price": 382.03,
+        "intraday_high": 401.07,
+        "intraday_low": 378.84
+      }
+    },
+    {
+      "time": "2026-03-24 11:28:51",
+      "signal": "BUY",
+      "price": 403.88,
+      "reasons": [
+        "MA5(404.63)>MA20(392.96) 金叉"
+      ],
+      "indicators": {
+        "ma5": 404.634,
+        "ma20": 392.96,
+        "rsi": 64.0815,
+        "boll_upper": 409.8446,
+        "boll_mid": 392.96,
+        "boll_lower": 376.0754
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "_comment": "交易策略配置文件 — 每只股票可独立配置策略参数，未配置的标的使用 default",
+  "default": {
+    "strategy": "combined",
+    "ma_short": 5,
+    "ma_long": 20,
+    "rsi_period": 14,
+    "rsi_overbought": 70,
+    "rsi_oversold": 30,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "boll_period": 20,
+    "boll_std": 2.0,
+    "min_data_points": 20,
+    "signal_cooldown_seconds": 300,
+    "intraday": {
+      "_comment": "日内策略配置（从第1个tick即可生效）",
+      "enabled": true,
+      "open_deviation_threshold": 3.0,
+      "vwap_deviation_threshold": 1.5,
+      "volume_spike_multiplier": 3.0,
+      "limit_alert_pct": 1.0,
+      "signal_cooldown_seconds": 120
+    },
+    "risk": {
+      "max_loss_pct": 3.0,
+      "max_gain_pct": 8.0,
+      "max_consecutive_signals": 3
+    },
+    "notify": {
+      "console": true,
+      "log_file": true
+    }
+  },
+  "symbols": {
+    "600519.SH": {
+      "name": "贵州茅台",
+      "strategy": "trend",
+      "ma_short": 5,
+      "ma_long": 20,
+      "rsi_overbought": 75,
+      "rsi_oversold": 25,
+      "signal_cooldown_seconds": 600,
+      "risk": {
+        "max_loss_pct": 2.0,
+        "max_gain_pct": 6.0
+      }
+    },
+    "600089.SH": {
+      "name": "特变电工",
+      "strategy": "combined",
+      "ma_short": 5,
+      "ma_long": 20,
+      "rsi_overbought": 70,
+      "rsi_oversold": 30,
+      "signal_cooldown_seconds": 300
+    },
+    "300502.SZ": {
+      "name": "新易盛",
+      "strategy": "mean_reversion",
+      "ma_short": 10,
+      "ma_long": 30,
+      "rsi_overbought": 72,
+      "rsi_oversold": 28,
+      "signal_cooldown_seconds": 180,
+      "risk": {
+        "max_loss_pct": 4.0,
+        "max_gain_pct": 10.0
+      }
+    }
+  }
+}
