@@ -2,7 +2,7 @@
 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Type
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, create_model
 
 from stock_datasource.core.base_service import BaseService
@@ -15,9 +15,20 @@ class ServiceGenerator:
         self.service = service
         self.methods = service.get_query_methods()
     
-    def generate_http_routes(self) -> APIRouter:
-        """Generate FastAPI router with all query methods as endpoints."""
+    def generate_http_routes(self, require_auth: bool = True) -> APIRouter:
+        """Generate FastAPI router with all query methods as endpoints.
+        
+        Args:
+            require_auth: If True, all generated endpoints require user login.
+                         Defaults to True for security.
+        """
         router = APIRouter()
+        
+        # Build dependencies list
+        dependencies = []
+        if require_auth:
+            from stock_datasource.modules.auth.dependencies import get_current_user
+            dependencies = [Depends(get_current_user)]
         
         for method_name, info in self.methods.items():
             # Create request model dynamically
@@ -48,7 +59,7 @@ class ServiceGenerator:
                         )
                 return handler
             
-            # Add route
+            # Add route with optional auth dependency
             router.add_api_route(
                 f"/{method_name}",
                 make_handler(method_name, info),
@@ -56,6 +67,7 @@ class ServiceGenerator:
                 name=method_name,
                 description=info['metadata']['description'],
                 response_model=response_model,
+                dependencies=dependencies,
             )
         
         return router

@@ -1,5 +1,7 @@
 """
 龙虎榜相关的API路由
+
+数据查询(GET)需要登录，写操作(POST)需要登录。
 """
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
@@ -10,6 +12,7 @@ from ..services.toplist_service import TopListService
 from ..services.toplist_analysis_service import TopListAnalysisService
 from ..services.anomaly_detection_service import AnomalyDetectionService
 from ..agents.toplist_agent import TopListAgent
+from ..modules.auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/toplist", tags=["toplist"])
 
@@ -117,7 +120,8 @@ def get_toplist_agent() -> TopListAgent:
 async def get_top_list_by_date(
     trade_date: str,
     ts_code: Optional[str] = Query(None, description="股票代码，可选"),
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定日期的龙虎榜数据"""
     try:
@@ -156,7 +160,8 @@ async def get_top_list_by_date(
 async def get_institutional_seats(
     trade_date: str,
     ts_code: Optional[str] = Query(None, description="股票代码，可选"),
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定日期的机构席位数据"""
     try:
@@ -186,7 +191,8 @@ async def get_institutional_seats(
 @router.get("/analysis/institutional/{trade_date}", response_model=InstitutionalAnalysisResponse)
 async def get_institutional_analysis(
     trade_date: str,
-    service: TopListAnalysisService = Depends(get_analysis_service)
+    service: TopListAnalysisService = Depends(get_analysis_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取机构资金流向分析"""
     try:
@@ -210,7 +216,8 @@ async def get_institutional_analysis(
 @router.get("/analysis/hot-money")
 async def get_hot_money_targets(
     days: int = Query(5, ge=1, le=30, description="分析天数"),
-    service: TopListAnalysisService = Depends(get_analysis_service)
+    service: TopListAnalysisService = Depends(get_analysis_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取游资目标股票"""
     try:
@@ -232,7 +239,8 @@ async def get_hot_money_targets(
 async def get_seat_concentration(
     ts_code: str,
     days: int = Query(10, ge=1, le=30, description="分析天数"),
-    service: TopListAnalysisService = Depends(get_analysis_service)
+    service: TopListAnalysisService = Depends(get_analysis_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取股票席位集中度分析"""
     try:
@@ -249,7 +257,8 @@ async def get_seat_concentration(
 
 @router.get("/anomalies/detection", response_model=AnomalyResponse)
 async def get_anomaly_detection(
-    service: AnomalyDetectionService = Depends(get_anomaly_service)
+    service: AnomalyDetectionService = Depends(get_anomaly_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取异动检测结果"""
     try:
@@ -292,7 +301,8 @@ async def get_anomaly_detection(
 async def get_stock_toplist_history(
     ts_code: str,
     days: int = Query(30, ge=1, le=90, description="查询天数"),
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取股票龙虎榜历史"""
     try:
@@ -314,7 +324,8 @@ async def get_stock_toplist_history(
 @router.get("/analysis/sector/{trade_date}")
 async def get_sector_analysis(
     trade_date: str,
-    service: TopListAnalysisService = Depends(get_analysis_service)
+    service: TopListAnalysisService = Depends(get_analysis_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取板块资金流向分析"""
     try:
@@ -338,7 +349,8 @@ async def get_sector_analysis(
 @router.get("/report/{trade_date}")
 async def get_comprehensive_report(
     trade_date: str,
-    agent: TopListAgent = Depends(get_toplist_agent)
+    agent: TopListAgent = Depends(get_toplist_agent),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取龙虎榜综合分析报告"""
     try:
@@ -358,7 +370,8 @@ async def get_comprehensive_report(
 @router.get("/active-stocks")
 async def get_active_stocks(
     days: int = Query(7, ge=1, le=30, description="查询天数"),
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取活跃股票（频繁上榜）"""
     try:
@@ -379,7 +392,8 @@ async def get_active_stocks(
 @router.get("/statistics/reasons/{trade_date}")
 async def get_reason_statistics(
     trade_date: str,
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取上榜原因统计"""
     try:
@@ -411,7 +425,8 @@ class PortfolioAnalyzeRequest(BaseModel):
 @router.post("/portfolio/analyze")
 async def analyze_portfolio_toplist(
     request: PortfolioAnalyzeRequest,
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """分析持仓组合的龙虎榜情况"""
     try:
@@ -448,7 +463,8 @@ async def analyze_portfolio_toplist(
 @router.post("/portfolio/status")
 async def check_portfolio_status(
     request: PortfolioAnalyzeRequest,
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """检查持仓在龙虎榜上的状态"""
     try:
@@ -470,7 +486,8 @@ async def check_portfolio_status(
 async def analyze_portfolio_capital_flow(
     request: PortfolioAnalyzeRequest,
     days: int = Query(5, ge=1, le=30, description="分析天数"),
-    service: TopListService = Depends(get_toplist_service)
+    service: TopListService = Depends(get_toplist_service),
+    current_user: dict = Depends(get_current_user),
 ):
     """分析持仓资金流向"""
     try:
