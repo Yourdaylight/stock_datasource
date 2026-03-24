@@ -46,6 +46,18 @@
   },
   
   "actions": {
+    "install": {
+      "description": "安装 skill：检查依赖、初始化 .env 配置、验证节点和 MCP 连通性，一键完成安装",
+      "method": "install",
+      "usage": "agent = StockDataAgent(); agent.install()",
+      "steps": [
+        "检查并自动安装 Python 依赖（requests、websockets）",
+        "若 .env 不存在则交互式引导配置节点地址、Token、MCP 地址",
+        "验证 Receiver 节点 /health 连通性",
+        "验证 MCP 服务可达性",
+        "打印安装成功摘要和快速开始示例"
+      ]
+    },
     "start_service": {
       "description": "启动WebSocket订阅服务",
       "command": "python3 subscribe_client.py --node-url {node_url} --symbols {symbols} --ws-port {ws_port}",
