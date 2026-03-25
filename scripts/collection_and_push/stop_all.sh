@@ -20,6 +20,7 @@ PATTERNS=(
   "push_csv_to_cloud.py"
   "cleanup_csv.py"
   "receive_push_data.py"
+  "rt-receiver"
 )
 
 # ---------------------------------------------------------------------------
