@@ -20,10 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # ---------------------------------------------------------------------------
-# Python 依赖列表
+# Python 依赖列表（仅 proxy 需要 Python）
 # ---------------------------------------------------------------------------
 PIP_DEPS_PROXY="pandas tushare requests flask PyJWT numpy"
-PIP_DEPS_RECEIVER="flask PyJWT requests"
 
 # ---------------------------------------------------------------------------
 # 部署单台服务器
@@ -69,33 +68,50 @@ deploy_one() {
   # 5) 设置执行权限
   remote_ssh "$name" "chmod +x '$remote_dir'/*.sh" 2>/dev/null || true
 
-  # 6) 安装 Python 依赖
-  info "[$name] 安装 Python 依赖..."
-  local pip_deps
+  # 6) 安装依赖（proxy 装 Python，receiver 上传 Go 二进制）
   if [[ "$role" == "proxy" ]]; then
-    pip_deps="$PIP_DEPS_PROXY"
+    info "[$name] 安装 Python 依赖..."
+    if ! remote_ssh "$name" "python3 -m pip install --quiet $PIP_DEPS_PROXY 2>/dev/null" 2>/dev/null; then
+      warn "[$name] pip3 安装失败，尝试安装 pip..."
+      remote_ssh "$name" "curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && python3 /tmp/get-pip.py --quiet 2>/dev/null && python3 -m pip install --quiet $PIP_DEPS_PROXY" 2>/dev/null || {
+        err "[$name] Python 依赖安装失败！请手动处理"
+        return 1
+      }
+    fi
   else
-    pip_deps="$PIP_DEPS_RECEIVER"
-  fi
-
-  # 尝试多种方式安装 pip 依赖
-  if ! remote_ssh "$name" "python3 -m pip install --quiet $pip_deps 2>/dev/null" 2>/dev/null; then
-    warn "[$name] pip3 安装失败，尝试安装 pip..."
-    remote_ssh "$name" "curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && python3 /tmp/get-pip.py --quiet 2>/dev/null && python3 -m pip install --quiet $pip_deps" 2>/dev/null || {
-      err "[$name] Python 依赖安装失败！请手动处理"
+    # Receiver 节点：上传 Go 二进制
+    local binary_path="$SCRIPT_DIR/rt-receiver"
+    if [[ ! -f "$binary_path" ]]; then
+      err "[$name] 找不到 Go 二进制: $binary_path"
+      err "        请先在开发机编译: cd go-rt-receiver && make"
+      return 1
+    fi
+    info "[$name] 上传 Go 二进制 rt-receiver..."
+    remote_scp "$name" "$binary_path" "$remote_dir/rt-receiver" || {
+      err "[$name] 二进制上传失败"
       return 1
     }
+    remote_ssh "$name" "chmod +x '$remote_dir/rt-receiver'" || true
   fi
 
   # 7) 验证部署
   info "[$name] 验证文件..."
-  local file_count
-  file_count=$(remote_ssh "$name" "ls -1 '$remote_dir'/*.py 2>/dev/null | wc -l") || file_count=0
-  if [[ "$file_count" -gt 0 ]]; then
-    ok "[$name] 部署成功！${file_count} 个 Python 脚本已同步"
+  if [[ "$role" == "proxy" ]]; then
+    local file_count
+    file_count=$(remote_ssh "$name" "ls -1 '$remote_dir'/*.py 2>/dev/null | wc -l") || file_count=0
+    if [[ "$file_count" -gt 0 ]]; then
+      ok "[$name] 部署成功！${file_count} 个 Python 脚本已同步"
+    else
+      err "[$name] 部署可能失败，未发现 .py 文件"
+      return 1
+    fi
   else
-    err "[$name] 部署可能失败，未发现 .py 文件"
-    return 1
+    if remote_ssh "$name" "test -x '$remote_dir/rt-receiver'" 2>/dev/null; then
+      ok "[$name] 部署成功！Go 二进制 rt-receiver 已就绪"
+    else
+      err "[$name] 部署可能失败，rt-receiver 不存在或不可执行"
+      return 1
+    fi
   fi
 
   echo ""

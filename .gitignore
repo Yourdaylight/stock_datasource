@@ -33,3 +33,7 @@ docs/Test_Plan.md
 
 # 迁移脚本（一次性工具，不需要入库）
 migrate_*.py
+
+# Go 编译产物
+scripts/collection_and_push/rt-receiver
+scripts/collection_and_push/rt-receiver-arm64

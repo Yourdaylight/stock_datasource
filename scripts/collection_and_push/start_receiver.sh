@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# start_receiver.sh — 在订阅节点上启动接收服务
+# start_receiver.sh — 在订阅节点上启动接收服务 (Go 二进制 rt-receiver)
 # 位置: scripts/collection_and_push/start_receiver.sh
 #
 # 用法:
 #   cd /root/stock_datasource  (或 /home/ubuntu/stock_datasource)
 #   bash scripts/collection_and_push/start_receiver.sh
+#
+# 数据清理策略:
+#   - 每天 9:00 由 Go 服务自动清理前一天的 spool / SQLite 数据
+#   - 当天数据始终保留
+#   - 启动脚本不再删除任何数据
 # =============================================================================
 set -euo pipefail
 
@@ -13,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 LOG_DIR="$PROJECT_DIR/logs"
+BINARY="$SCRIPT_DIR/rt-receiver"
 
 # ---------------------------------------------------------------------------
 # 加载 .env
@@ -28,6 +34,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 检查二进制
+# ---------------------------------------------------------------------------
+if [[ ! -x "$BINARY" ]]; then
+  echo "[ERROR] 找不到可执行文件: $BINARY"
+  echo "        请先在开发机执行: cd go-rt-receiver && make"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # 准备目录
 # ---------------------------------------------------------------------------
 mkdir -p "$LOG_DIR"
@@ -36,37 +51,13 @@ mkdir -p "$PROJECT_DIR/data/received_push"
 cd "$PROJECT_DIR"
 
 # ---------------------------------------------------------------------------
-# 清理前一天的旧数据（spool / snapshot / checkpoint / 旧日志）
+# 清理旧日志（仅清日志文件，数据由 Go 服务 9 点自动清理）
 # ---------------------------------------------------------------------------
-echo "[INFO] 清理前一天的旧数据..."
-DATA_DIR="$PROJECT_DIR/data/received_push"
-
-# 清理 spool 目录中的 .jsonl 文件（按日期命名，如 20260317.jsonl）
-if [[ -d "$DATA_DIR/spool" ]]; then
-  find "$DATA_DIR/spool" -name "*.jsonl" -mtime +0 -delete 2>/dev/null || true
-  # 删除空目录
-  find "$DATA_DIR/spool" -mindepth 1 -type d -empty -delete 2>/dev/null || true
-  echo "[OK]   spool 旧文件已清理"
-fi
-
-# 清理 snapshot 中的 SQLite 数据库（直接删除重建更干净）
-if [[ -f "$DATA_DIR/snapshot/rt_snapshot.db" ]]; then
-  rm -f "$DATA_DIR/snapshot/rt_snapshot.db" \
-        "$DATA_DIR/snapshot/rt_snapshot.db-shm" \
-        "$DATA_DIR/snapshot/rt_snapshot.db-wal" \
-        "$DATA_DIR/snapshot/.builder.lock" 2>/dev/null || true
-  echo "[OK]   snapshot 旧数据库已清理"
-fi
-
-# 清理旧的 CSV 快照
-find "$DATA_DIR/snapshot" -name "*.csv" -mtime +0 -delete 2>/dev/null || true
-
-# 清理旧日志
-find "$LOG_DIR" -name "*.log" -mtime +0 -delete 2>/dev/null || true
+find "$LOG_DIR" -name "*.log" -mtime +1 -delete 2>/dev/null || true
 echo "[OK]   旧日志已清理"
 
 echo "============================================================"
-echo "  订阅节点启动 — 接收推送数据"
+echo "  订阅节点启动 — 接收推送数据 (Go)"
 echo "  工作目录: $PROJECT_DIR"
 echo "  日志目录: $LOG_DIR"
 echo "============================================================"
@@ -74,12 +65,13 @@ echo "============================================================"
 # ---------------------------------------------------------------------------
 # 启动接收服务
 # ---------------------------------------------------------------------------
-echo "[INFO] 启动接收服务 (端口 9100, spool 自动清理)..."
-nohup python3 "$SCRIPT_DIR/receive_push_data.py" \
+echo "[INFO] 启动接收服务 (端口 9100)..."
+nohup "$BINARY" \
   --port 9100 \
   --push-token "${RT_KLINE_CLOUD_PUSH_TOKEN:-}" \
+  --policy-token "${RT_STOCK_POLICY_TOKEN:-}" \
+  --jwt-public-key-path "${RT_STOCK_JWT_PUBLIC_KEY_PATH:-}" \
   --flush-interval-seconds 5 \
-  --spool-max-age-days 1 \
   --data-dir "$PROJECT_DIR/data/received_push" \
   > "$LOG_DIR/receiver.log" 2>&1 &
 RECEIVER_PID=$!
@@ -89,7 +81,7 @@ echo "[OK]   接收服务已启动 PID=$RECEIVER_PID"
 # 等待启动 + 健康检查
 # ---------------------------------------------------------------------------
 echo "[INFO] 等待服务就绪..."
-sleep 2
+sleep 1
 
 if curl -sS --connect-timeout 3 "http://127.0.0.1:9100/health" 2>/dev/null | grep -q '"ok"'; then
   echo "[OK]   健康检查通过"
