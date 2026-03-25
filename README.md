@@ -11,7 +11,7 @@
 
 ### 多智能体协作架构
 
-系统采用 **LangGraph** 构建的多智能体架构，由 **OrchestratorAgent（编排器）** 统一协调 **13 个专业 Agent**，实现智能意图识别和任务分发：
+系统采用 **LangGraph** 构建的多智能体架构，由 **OrchestratorAgent（编排器）** 统一协调 **15 个专业 Agent**，实现智能意图识别和任务分发：
 
 ```
 用户输入 → OrchestratorAgent → 意图识别 → 路由到专业Agent → 工具调用 → 自然语言回复
@@ -29,14 +29,15 @@
 | **IndexAgent**            | 指数分析   | "分析沪深300走势"、"创业板指技术形态"         |
 | **EtfAgent**              | ETF 分析   | "分析科创50ETF"、"对比各行业ETF表现"          |
 | **TopListAgent**          | 龙虎榜     | "今日龙虎榜"、"查看机构席位动向"              |
+| **NewsAnalystAgent**      | 新闻分析   | "今天有什么热点新闻"、"分析市场情绪"          |
+| **KnowledgeAgent**        | 知识库     | "搜索相关研报"、"查找财报公告"（RAG）        |
 | **MemoryAgent**           | 用户记忆   | "记住我的自选股"、"我的投资偏好是什么"        |
 | **DataManageAgent**       | 数据管理   | "更新今日数据"、"检查数据质量"                |
-| **WorkflowAgent**         | AI 工作流  | "创建每日复盘工作流"、"执行选股策略流程"      |
-| **ChatAgent**             | 通用对话   | 其他投资相关问题                                |
+| **ChatAgent**             | 通用对话   | 其他投资相关问题、AI工作流调用                 |
 
 ### 核心 AI 能力
 
-- **🎯 智能意图识别**：自动理解用户自然语言，精准路由到对应 Agent
+- **🎯 智能意图识别**：自动理解用户自然语言，精准路由到对应 Agent，支持并发执行和 Agent 间交接
 - **🔧 Function Calling**：每个 Agent 配备专业工具集，精准调用数据接口
 - **💬 流式响应**：实时展示 AI 思考过程和工具调用状态
 - **🔗 会话记忆**：支持多轮对话，保持上下文连贯
@@ -172,10 +173,31 @@ steps:
 - 多AI Agent对抗寻找最佳策略
   ![策略生成](screenshot/strategies.png)
 
+### 📊 量化选股系统
+
+- 全市场初筛：多因子模型初筛候选标的
+- RPS 排名：相对强度排名筛选强势股
+- 深度分析：基本面 + 技术面多维度综合评分
+- 交易信号：基于量化模型自动生成买卖信号
+- 模型配置：自定义因子权重和参数
+
 ### 知识库集成（可选配置）
 
 使用Weknora开源知识库，需要手动配置
 基于该知识库实现将财报内容存入知识库用于后续分析
+
+### 📰 新闻资讯中心
+
+- 实时新闻：自动抓取财经新闻，情绪分析
+- 热点追踪：追踪市场热点板块和概念
+- 新闻筛选：按情绪、板块、来源过滤
+
+### 🤖 多 Agent 竞技场
+
+- 策略对抗：多个 Agent 执行不同策略，对比表现
+- 淘汰赛制：自动淘汰弱势策略，留存强策略
+- 可视化分析：收益曲线对比、雷达图评分
+
 ------------------------------------------------
 ## 📱联动OpenClaw
 这里我们基于这个项目构建了财经股，基于财经库制作了基于热点新闻与各个公司的财报分析
@@ -185,163 +207,44 @@ AI看公司
 --------
 ## 🚀 快速开始
 
-### 场景一：从 0 到 1 一键部署（新用户推荐）
+### 方式一：Docker 一键部署（推荐新用户）
 
 适合**没有现成 ClickHouse/Redis** 的用户，所有基础设施由 docker-compose 一起启动。
 
-#### 1. 克隆项目 & 配置
-
 ```bash
+# 1. 克隆项目
 git clone https://github.com/Yourdaylight/stock_datasource.git
 cd stock_datasource
 
-# 复制配置模板
-cp .env.example .env.docker
-```
+# 2. 安装依赖
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
 
-编辑 `.env.docker`，填写 **必填项**：
+# 3. 交互式配置向导（自动验证 Tushare/LLM/数据库连通性，生成 .env）
+uv run cli.py setup
 
-```env
-# ======== 必填 ========
-TUSHARE_TOKEN=your_tushare_token          # https://tushare.pro 获取
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4
+# 4. 一键启动全部服务（ClickHouse + Redis + 后端 + 前端）
+uv run cli.py server start --docker --with-infra
 
-# ======== 使用默认值即可 ========
-CLICKHOUSE_HOST=clickhouse                # 容器名
-CLICKHOUSE_USER=clickhouse
-CLICKHOUSE_PASSWORD=clickhouse
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_PASSWORD=stockredis123
-REDIS_DB=1
-```
-
-#### 2. 一键启动
-
-```bash
-# 启动全部服务（ClickHouse + Redis + PostgreSQL + 后端 + 前端）
-docker-compose -f docker-compose.yml -f docker-compose.infra.yml --env-file .env.docker up -d
-
-# 查看状态
-docker-compose -f docker-compose.yml -f docker-compose.infra.yml ps
-```
-
-#### 3. 初始化数据
-
-```bash
-docker-compose exec backend bash -c "
+# 5. 初始化数据
+docker compose exec backend bash -c "
   uv run python cli.py init-db &&
   uv run python cli.py load-stock-basic &&
   uv run python cli.py load-trade-calendar --start-date 20240101 --end-date 20261231
 "
 ```
 
-#### 4. 访问
+访问：**前端** http://localhost:18080 | **API 文档** http://localhost:18080/docs
 
-- **前端**：http://localhost:18080
-- **API 文档**：http://localhost:18080/docs
-- **健康检查**：http://localhost:18080/health
+> 已有 ClickHouse/Langfuse？运行 `setup` 时选择自定义地址，向导会自动验证连通性。
 
----
-
-### 场景二：已有基础设施（ClickHouse/Langfuse 等）
-
-适合**已有 ClickHouse、Langfuse 等服务**的用户，只需启动应用容器。
-
-#### 1. 配置指向已有服务
+**Docker 日常运维：**
 
 ```bash
-cp .env.example .env.docker
-```
-
-编辑 `.env.docker`，关键是让容器能访问你的服务：
-
-```env
-# ======== 必填 ========
-TUSHARE_TOKEN=your_tushare_token
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4
-
-# ======== ClickHouse 配置 ========
-# 如果你的 ClickHouse 也是 Docker 容器，填容器名（需在同一网络）
-CLICKHOUSE_HOST=langfuse-clickhouse-1     # 或 your-clickhouse-container-name
-CLICKHOUSE_PORT=9000
-CLICKHOUSE_USER=clickhouse                # 或 default
-CLICKHOUSE_PASSWORD=clickhouse            # 或留空
-CLICKHOUSE_DATABASE=stock_datasource
-
-# 如果 ClickHouse 是宿主机本地安装（监听 0.0.0.0）
-# CLICKHOUSE_HOST=host.docker.internal
-# CLICKHOUSE_PORT=9000
-# CLICKHOUSE_USER=default
-# CLICKHOUSE_PASSWORD=
-
-# ======== Redis 配置 ========
-REDIS_HOST=redis                          # 使用 docker-compose.infra.yml 的 Redis
-REDIS_PORT=6379
-REDIS_PASSWORD=stockredis123
-REDIS_DB=1
-
-# ======== Langfuse 配置（可选）========
-# 如果有已运行的 Langfuse
-LANGFUSE_HOST=http://host.docker.internal:3000
-LANGFUSE_PUBLIC_KEY=your_public_key
-LANGFUSE_SECRET_KEY=your_secret_key
-```
-
-#### 2. 确保网络互通
-
-如果你的 ClickHouse 是另一个 Docker 容器，需要加入同一网络：
-
-```bash
-# 创建网络（如果不存在）
-docker network create stock_network
-
-# 把已有的 ClickHouse 容器加入网络
-docker network connect stock_network your-clickhouse-container
-```
-
-#### 3. 只启动应用
-
-```bash
-# 只启动后端 + 前端 + Redis（不启动 ClickHouse）
-docker-compose -f docker-compose.yml -f docker-compose.infra.yml --env-file .env.docker up -d backend frontend redis
-
-# 或者如果 Redis 也已有
-docker-compose --env-file .env.docker up -d
-```
-
-#### 4. 验证连接
-
-```bash
-# 检查健康状态
-curl http://localhost:18080/health
-
-# 应返回：{"status":"ok","clickhouse":"connected","cache":...}
-```
-
----
-
-### Docker 常用命令
-
-```bash
-# 代码更新后重建
-docker-compose up -d --build
-
-# 查看后端日志
-docker-compose logs -f backend
-
-# 进入容器调试
-docker-compose exec backend bash
-
-# 停止所有服务
-docker-compose down
-
-# 清理数据卷（危险！）
-docker-compose down -v
+uv run cli.py server start --docker          # 启动
+uv run cli.py server stop --docker            # 停止
+uv run cli.py server restart --docker         # 重启
+uv run cli.py server status --docker          # 查看状态
 ```
 
 ---
@@ -350,131 +253,82 @@ docker-compose down -v
 
 适合开发调试，需要本地安装依赖。
 
-#### 1. 环境要求
-
-- **Python 3.11+**
-- **Node.js 18+**（前端）
-- **ClickHouse**（数据库）
-- **Redis**（缓存，可选）
-- **uv**（Python 包管理器）
-
-#### 2. 安装依赖
-
 ```bash
-# 克隆项目
-git clone <repository-url>
+# 1. 克隆项目 & 安装依赖
+git clone https://github.com/Yourdaylight/stock_datasource.git
 cd stock_datasource
-
-# 安装 uv（如未安装）
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 安装 Python 依赖
 uv sync
-
-# 安装前端依赖
 cd frontend && npm install && cd ..
-```
 
-#### 3. 配置环境变量
+# 2. 启动基础设施（Docker 仅启动 ClickHouse + Redis）
+docker compose -f docker-compose.infra.yml up -d clickhouse redis
 
-```bash
-# 创建本地配置
-cp .env.example .env
-```
+# 3. 交互式配置（自动创建 .env 并验证所有连通性）
+uv run cli.py setup
 
-编辑 `.env` 文件：
+# 4. 环境健康检查（一键诊断 6 项依赖）
+uv run cli.py doctor
 
-```env
-# TuShare Token
-TUSHARE_TOKEN=your_tushare_token
-
-# OpenAI API
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4
-
-# ClickHouse（本地安装）
-CLICKHOUSE_HOST=localhost
-CLICKHOUSE_PORT=9000
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=
-CLICKHOUSE_DATABASE=stock_datasource
-
-# Redis（可选）
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-REDIS_DB=1
-```
-
-#### 4. 启动基础设施
-
-**方式 A：使用 Docker 启动基础设施（推荐）**
-
-```bash
-# 只启动 ClickHouse 和 Redis
-docker-compose -f docker-compose.infra.yml up -d clickhouse redis
-```
-
-**方式 B：本地安装 ClickHouse**
-
-参考 [ClickHouse 官方文档](https://clickhouse.com/docs/en/install) 安装。
-
-#### 5. 初始化数据库
-
-```bash
-# 初始化表结构
+# 5. 初始化数据库
 uv run cli.py init-db
-
-# 加载股票基础信息
 uv run cli.py load-stock-basic
-
-# 加载交易日历
 uv run cli.py load-trade-calendar --start-date 20240101 --end-date 20261231
+
+# 6. 一键启动所有服务（后端 + MCP + 前端，后台运行）
+uv run cli.py server start
 ```
 
-#### 6. 日线数据采集（A股/ETF/指数/港股）
+访问：**前端** http://localhost:5173 | **API 文档** http://localhost:6666/docs
+
+**日常开发命令：**
 
 ```bash
-# A股/ETF/指数：采集某一交易日（日线）
-uv run cli.py ingest-daily --date 20250119
-
-# A股/ETF/指数：采集区间回补（日线）
-uv run cli.py backfill --start-date 20250101 --end-date 20250119
-
-# 可选：跳过质量检查（排障用）
-uv run cli.py ingest-daily --date 20250119 --no-quality-checks
-
-# 可选：忽略插件调度限制，强制拉取（排障/补数用）
-uv run cli.py ingest-daily --date 20250119 --ignore-schedule
-
-# 港股：先加载港股股票列表
-uv run cli.py load-hk-stock-list
-
-# 港股：采集单只港股日线（示例：腾讯 00700）
-uv run cli.py load-hk-daily --symbol 00700 --start-date 20250101 --end-date 20250119
+uv run cli.py server restart                   # 重启所有服务
+uv run cli.py server stop -s backend           # 仅停止后端
+uv run cli.py server status                    # 查看服务状态
+uv run cli.py doctor                          # 环境健康检查
+uv run cli.py config show                     # 查看配置（密钥脱敏）
+uv run cli.py config set OPENAI_MODEL=gpt-4o  # 修改配置项
 ```
 
-#### 7. 启动服务
-
-**终端 1：启动后端**
+**数据采集：**
 
 ```bash
-uv run python -m stock_datasource.services.http_server
+# A股/ETF/指数日线
+uv run cli.py ingest-daily --date 20250119                # 采集单日
+uv run cli.py backfill --start-date 20250101 --end-date 20250119  # 区间回补
+
+# 港股
+uv run cli.py load-hk-stock-list                           # 加载港股列表
+uv run cli.py load-hk-daily --symbol 00700 --start-date 20250101  # 采集单只
+
+# 通用插件运行
+uv run cli.py run-plugin tushare_daily --trade-date 20250119     # 运行指定插件
+uv run cli.py list-plugins                                       # 查看所有插件
 ```
 
-**终端 2：启动前端**
+---
 
-```bash
-cd frontend
-npm run dev
-```
+### 🛠️ CLI 工具一览
 
-#### 8. 访问应用
+系统提供了完整的命令行工具，覆盖配置、部署、数据采集全流程：
 
-- **前端界面**：http://localhost:5173
-- **API 服务**：http://localhost:6666
-- **API 文档**：http://localhost:6666/docs
+| 命令 | 说明 |
+|------|------|
+| `uv run cli.py setup` | 交互式配置向导（自动验证连通性） |
+| `uv run cli.py doctor` | 环境健康检查（ClickHouse/Redis/Tushare/LLM/Proxy） |
+| `uv run cli.py server start/stop/restart/status` | 服务生命周期管理 |
+| `uv run cli.py config show/set` | 查看/修改配置（密钥自动脱敏） |
+| `uv run cli.py init-db` | 初始化数据库表结构 |
+| `uv run cli.py ingest-daily` | 采集单日数据 |
+| `uv run cli.py backfill` | 区间数据回补 |
+| `uv run cli.py run-plugin <name>` | 运行任意数据插件 |
+| `uv run cli.py list-plugins` | 查看所有已注册插件 |
+| `uv run cli.py proxy status/set/test` | 代理配置管理 |
+| `uv run cli.py task list/stats/cancel` | 任务队列管理 |
+
+详细用法请参考 [CLI 使用指南](docs/CLI_GUIDE.md)。
 
 ---
 
@@ -505,31 +359,85 @@ uv run python -m stock_datasource.services.mcp_server
 
 ---
 
+## 🔓 开放 API 网关（Open API Gateway）
+
+系统提供标准 HTTP 数据查询接口，复用 MCP API Key 认证体系，让外部用户可通过 `curl` / Python / 任何 HTTP 客户端查询数据。
+
+> **安全边界**：仅开放 Plugin 数据查询接口（纯数据库查询），AI/管理/用户隐私路由一律不开放。
+
+### 快速使用
+
+```bash
+# 1. 在前端「个人中心」创建 API Key (sk-xxx)
+
+# 2. 调用开放数据接口
+curl -X POST http://localhost:18080/api/open/v1/tushare_daily/query \
+  -H "Authorization: Bearer sk-YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"trade_date": "20250301", "ts_code": "600519.SH"}'
+
+# 3. 查看已开放的接口文档
+curl http://localhost:18080/api/open/docs \
+  -H "Authorization: Bearer sk-YOUR_API_KEY"
+```
+
+### 核心特性
+
+- **认证机制**：复用 MCP API Key (`sk-xxx`)，支持 Header 和 Query 两种传入方式
+- **访问策略**：每个接口独立控制启用/禁用、速率限制、最大返回记录数
+- **速率限制**：滑动窗口算法，按分钟（默认 60/min）和按天（默认 10000/day）两维度
+- **响应截断**：超出最大记录数自动截断（默认 5000 条）
+- **用量追踪**：每次调用记录到 ClickHouse `api_usage_log` 表
+- **管理面板**：管理员在 `/api-access` 页面配置可开放接口
+
+### 可开放接口范围
+
+| 类别 | 示例 | 状态 |
+|------|------|------|
+| A股日线 | `/api/open/v1/tushare_daily/query` | 需手动启用 |
+| ETF日线 | `/api/open/v1/tushare_etf_fund_daily/query` | 需手动启用 |
+| 港股日线 | `/api/open/v1/akshare_hk_daily/query` | 需手动启用 |
+| 股票基本信息 | `/api/open/v1/tushare_stock_basic/query` | 需手动启用 |
+| 财务报表 | `/api/open/v1/tushare_income/query` | 需手动启用 |
+| 其他插件 | 全部 80+ 数据插件 | 需手动启用 |
+
+> **绝对不开放的接口**：`/auth/*`、`/chat/*`、`/datamanage/*`、`/portfolio/*`、`/memory/*`、`/mcp_api_key/*` 等系统/管理/AI路由。
+
+---
+
 ## 🏗️ 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     前端 (Vue 3 + TypeScript)                    │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │
-│  │ 智能对话 │ │ 智能选股 │ │ 行情分析 │ │ 持仓管理 │ │ 策略回测 │   │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘   │
+│                     前端 (Vue 3 + TypeScript + TDesign)                 │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐     │
+│  │ 智能对话 │ │ 智能选股 │ │ 行情分析 │ │ 持仓管理 │ │ 财报分析  │     │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘     │
+│  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴─────┐     │
+│  │量化选股 │ │新闻资讯 │ │策略工具台│ │多Agent场│ │ 开放API  │     │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘     │
 └───────┼──────────┼──────────┼──────────┼──────────┼──────────┘
         │          │          │          │          │
         ▼          ▼          ▼          ▼          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      API Layer (FastAPI)                         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  OrchestratorAgent                        │
+│  │                  OrchestratorAgent (15 Agents)               │   │
 │  │    ┌──────────────────────────────────────────────┐      │   │
-│  │    │           意图识别 & 路由分发                   │      │   │
+│  │    │      意图识别 → 并发路由 → Agent交接 → 聚合    │      │   │
 │  │    └──────────────────────────────────────────────┘      │   │
 │  │         │         │         │         │         │         │   │
 │  │    ┌────▼───┐ ┌───▼────┐ ┌──▼───┐ ┌──▼───┐ ┌───▼────┐   │   │
 │  │    │Overview│ │Screener│ │Report│ │Market│ │Backtest│   │   │
 │  │    │ Agent  │ │ Agent  │ │Agent │ │Agent │ │ Agent  │   │   │
 │  │    └────────┘ └────────┘ └──────┘ └──────┘ └────────┘   │   │
-│  │    + IndexAgent, EtfAgent, PortfolioAgent, MemoryAgent   │   │
-│  │    + TopListAgent, WorkflowAgent, ChatAgent              │   │
+│  │    + IndexAgent, EtfAgent, PortfolioAgent, MemoryAgent      │   │
+│    + TopListAgent, NewsAnalystAgent, KnowledgeAgent         │   │
+│    + DataManageAgent, ChatAgent, WorkflowAgent              │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │            Open API Gateway (/api/open/v1/*)               │   │
+│  │      API Key 认证 → 速率限制 → Plugin数据查询 → 用量追踪  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
         │                                  │                │
@@ -542,7 +450,7 @@ uv run python -m stock_datasource.services.mcp_server
         ▼                                  ▼
 ┌───────────────────┐    ┌───────────────────┐
 │     Langfuse      │    │  ClickHouse DB    │
-│   AI 可观测平台    │    │   A股全量数据     │
+│   AI 可观测平台    │    │  A股/港股全量数据   │
 └───────────────────┘    └───────────────────┘
 ```
 
@@ -557,6 +465,7 @@ uv run python -m stock_datasource.services.mcp_server
 | **数据源** | TuShare Pro（A股）、AKShare（港股）                     |
 | **AI**     | OpenAI GPT-4 / Kimi / 国产大模型，Function Calling      |
 | **可观测** | Langfuse（AI 调用链路追踪）                             |
+| **开放接口** | Open API Gateway + MCP Server（外部数据查询）          |
 
 ---
 
@@ -565,8 +474,8 @@ uv run python -m stock_datasource.services.mcp_server
 ```
 stock_datasource/
 ├── src/stock_datasource/
-│   ├── agents/                # AI Agent 层
-│   │   ├── orchestrator.py    # 编排器（意图路由）
+│   ├── agents/                # AI Agent 层（15个专业Agent）
+│   │   ├── orchestrator.py    # 编排器（意图路由、并发执行、Agent交接）
 │   │   ├── base_agent.py      # Agent 基类
 │   │   ├── overview_agent.py  # 市场概览
 │   │   ├── market_agent.py    # 技术分析
@@ -577,19 +486,42 @@ stock_datasource/
 │   │   ├── backtest_agent.py  # 策略回测
 │   │   ├── index_agent.py     # 指数分析
 │   │   ├── etf_agent.py       # ETF分析
+│   │   ├── news_analyst_agent.py # 新闻分析
+│   │   ├── knowledge_agent.py # 知识库（RAG）
 │   │   ├── memory_agent.py    # 用户记忆
+│   │   ├── datamanage_agent.py # 数据管理
+│   │   ├── chat_agent.py      # 通用对话
+│   │   ├── workflow_agent.py  # 工作流执行
 │   │   └── *_tools.py         # Agent 工具集
-│   ├── plugins/               # 数据采集插件
-│   ├── services/              # HTTP / MCP 服务
-│   ├── modules/               # 功能模块
+│   ├── plugins/               # 数据采集插件（80+）
+│   ├── modules/               # 功能模块（22个）
 │   │   ├── auth/              # 认证模块
-│   │   ├── overview/          # 市场概览
+│   │   ├── chat/              # 对话交互
+│   │   ├── market/            # 行情分析
 │   │   ├── screener/          # 选股模块
-│   │   ├── financial_analysis/# 财报分析中心
-│   │   ├── datamanage/        # 数据探索中心
-│   │   └── ...
-│   └── core/                  # 核心组件
-├── frontend/                  # Vue 前端
+│   │   ├── report/            # 财报研读
+│   │   ├── hk_report/         # 港股财报
+│   │   ├── financial_analysis/ # 财务分析中心
+│   │   ├── overview/          # 市场概览
+│   │   ├── news/              # 新闻资讯
+│   │   ├── etf/               # ETF基金
+│   │   ├── index/             # 指数选股
+│   │   ├── portfolio/         # 持仓管理
+│   │   ├── backtest/          # 策略回测
+│   │   ├── arena/             # 多Agent竞技场
+│   │   ├── quant/             # 量化选股
+│   │   ├── memory/            # 用户记忆
+│   │   ├── datamanage/        # 数据管理
+│   │   ├── open_api/          # 开放API网关（NEW）
+│   │   ├── mcp_api_key/       # MCP API Key 管理
+│   │   ├── token_usage/       # Token用量统计
+│   │   └── mcp_usage/         # MCP调用统计
+│   ├── services/              # HTTP / MCP / 任务队列等核心服务
+│   ├── tasks/                 # 定时任务与调度
+│   └── core/                  # 核心组件（插件管理、服务生成器等）
+├── skills/                   # 技能包（tushare-plugin-builder、stock-rt-subscribe等）
+├── frontend/                  # Vue 3 前端
+├── scripts/                   # 数据采集脚本
 ├── docker/                    # Docker 配置
 ├── docs/                      # 文档
 ├── cli.py                     # 命令行工具
@@ -659,7 +591,7 @@ OPENAI_API_KEY=your-api-key
 
 ### Q: 数据采集失败？
 
-确保 TuShare Token 有效且有足够积分。可通过 `uv run cli.py check-tushare` 检查。
+确保 TuShare Token 有效且有足够积分。可通过 `uv run cli.py doctor` 检查所有依赖连通性。
 
 ---
 
