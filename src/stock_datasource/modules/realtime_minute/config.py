@@ -97,15 +97,18 @@ MIN_CALL_INTERVAL = 60.0 / RATE_LIMIT_PER_MINUTE  # ~0.5s
 MAX_RETRIES = 3
 
 # ---------------------------------------------------------------------------
-# Redis key configuration
+# SQLite 缓存配置（替代 Redis）
 # ---------------------------------------------------------------------------
 
-REDIS_KEY_PREFIX_ZSET = "stock:rt_min:zset"
-REDIS_KEY_PREFIX_LATEST = "stock:rt_min:latest"
-REDIS_KEY_STATUS = "stock:rt_min:status"
+# SQLite 数据库文件路径（可通过环境变量 RT_MINUTE_SQLITE_PATH 覆盖）
+import os as _os
+SQLITE_DB_PATH = _os.environ.get(
+    "RT_MINUTE_SQLITE_PATH",
+    _os.path.join(_os.path.dirname(__file__), "rt_minute_cache.db"),
+)
 
-# TTL for realtime data: expire at 03:00 next day (set dynamically)
-REDIS_DEFAULT_TTL = 18 * 3600  # 18 hours fallback
+# 保留此常量名以兼容 cache_store.py 的 store_bars 接口签名（SQLite 版本不使用 TTL）
+REDIS_DEFAULT_TTL = 18 * 3600  # 仅作接口兼容占位，SQLite 版本不使用
 
 # ---------------------------------------------------------------------------
 # Sync configuration

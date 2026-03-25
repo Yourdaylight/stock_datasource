@@ -1,14 +1,19 @@
-"""Redis cache store for realtime minute data.
+"""SQLite cache store for realtime minute data.
 
-Uses two Redis data structures per code:
-- ZSET (score=epoch): time-series minute bars for range queries.
-- HASH (latest): most recent bar snapshot for fast ranking / latest queries.
+替代 Redis，使用本地 SQLite 文件作为盘中临时缓存。
+- WAL 模式，支持并发读写
+- 对外接口与 Redis 版本完全兼容
+- 收盘后由 sync_service 批量同步到 ClickHouse，再清理
 """
 
 import json
 import logging
 import math
+import os
+import sqlite3
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -18,88 +23,139 @@ from . import config as cfg
 
 logger = logging.getLogger(__name__)
 
+# SQLite 文件路径（可通过环境变量覆盖）
+_DEFAULT_DB_PATH = os.path.join(
+    os.path.dirname(__file__), "rt_minute_cache.db"
+)
+SQLITE_DB_PATH = os.environ.get("RT_MINUTE_SQLITE_PATH", _DEFAULT_DB_PATH)
+
+# DDL
+_DDL_BARS = """
+CREATE TABLE IF NOT EXISTS rt_minute_bars (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_code     TEXT    NOT NULL,
+    market_type TEXT    NOT NULL,
+    freq        TEXT    NOT NULL,
+    trade_date  TEXT    NOT NULL,   -- YYYYMMDD
+    trade_time  TEXT    NOT NULL,   -- YYYY-MM-DD HH:MM:SS
+    epoch       REAL    NOT NULL,   -- unix timestamp，用于范围查询
+    open        REAL,
+    close       REAL,
+    high        REAL,
+    low         REAL,
+    vol         REAL,
+    amount      REAL,
+    UNIQUE (ts_code, freq, trade_time)  -- 幂等，重复写自动覆盖
+);
+"""
+
+_DDL_LATEST = """
+CREATE TABLE IF NOT EXISTS rt_minute_latest (
+    ts_code     TEXT NOT NULL,
+    market_type TEXT NOT NULL,
+    freq        TEXT NOT NULL,
+    trade_time  TEXT NOT NULL,
+    epoch       REAL NOT NULL,
+    open        REAL,
+    close       REAL,
+    high        REAL,
+    low         REAL,
+    vol         REAL,
+    amount      REAL,
+    PRIMARY KEY (ts_code, freq)
+);
+"""
+
+_DDL_STATUS = """
+CREATE TABLE IF NOT EXISTS rt_minute_status (
+    market          TEXT PRIMARY KEY,
+    last_collect_time TEXT,
+    records         INTEGER
+);
+"""
+
+_DDL_IDX = """
+CREATE INDEX IF NOT EXISTS idx_bars_code_freq_date
+    ON rt_minute_bars (ts_code, freq, trade_date);
+CREATE INDEX IF NOT EXISTS idx_bars_epoch
+    ON rt_minute_bars (epoch);
+"""
+
 
 def _safe_value(v: Any) -> Any:
-    """Replace NaN/Inf with None for JSON serialization."""
+    """Replace NaN/Inf with None for storage."""
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return None
     return v
 
 
 class RealtimeMinuteCacheStore:
-    """ZSET + HASH dual-structure Redis cache for minute bars."""
+    """SQLite-backed cache store for minute bars，接口与 Redis 版本完全兼容。"""
 
-    def __init__(self):
-        self._redis = None
+    def __init__(self, db_path: str = SQLITE_DB_PATH):
+        self._db_path = db_path
+        self._local = threading.local()  # 每个线程独立连接
+        self._init_db()
 
     # ------------------------------------------------------------------
-    # Redis access
+    # 连接管理
     # ------------------------------------------------------------------
 
-    def _get_redis(self):
-        if self._redis is not None:
-            return self._redis
+    def _get_conn(self) -> sqlite3.Connection:
+        """获取当前线程的 SQLite 连接（懒初始化）。"""
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=-32000")  # 32MB
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+        return self._local.conn
+
+    @contextmanager
+    def _tx(self):
+        """简单事务上下文管理器。"""
+        conn = self._get_conn()
         try:
-            from redis import Redis
-            from stock_datasource.config.settings import settings
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
-            if not settings.REDIS_ENABLED:
-                return None
-
-            self._redis = Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                password=settings.REDIS_PASSWORD or None,
-                db=settings.REDIS_DB,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-            )
-            self._redis.ping()
-            return self._redis
+    def _init_db(self):
+        """建表 + 建索引（幂等）。"""
+        try:
+            with self._tx() as conn:
+                conn.executescript(_DDL_BARS + _DDL_LATEST + _DDL_STATUS + _DDL_IDX)
+            logger.info("SQLite cache store initialized: %s", self._db_path)
         except Exception as e:
-            logger.warning("Redis connection failed: %s", e)
-            self._redis = None
-            return None
+            logger.error("SQLite init failed: %s", e)
 
     @property
     def available(self) -> bool:
-        return self._get_redis() is not None
+        """SQLite 始终可用（文件存在即可）。"""
+        try:
+            self._get_conn()
+            return True
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
-    # Key helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _zset_key(market: str, ts_code: str, freq: str, date: str) -> str:
-        return f"{cfg.REDIS_KEY_PREFIX_ZSET}:{market}:{ts_code}:{freq}:{date}"
-
-    @staticmethod
-    def _latest_key(market: str, ts_code: str, freq: str) -> str:
-        return f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:{ts_code}:{freq}"
-
-    @staticmethod
-    def _status_key() -> str:
-        return cfg.REDIS_KEY_STATUS
-
-    # ------------------------------------------------------------------
-    # Write
+    # 写入
     # ------------------------------------------------------------------
 
     def store_bars(self, df: pd.DataFrame, ttl: int = cfg.REDIS_DEFAULT_TTL) -> int:
-        """Write a DataFrame of minute bars into Redis.
+        """将 DataFrame 的分钟 bar 写入 SQLite。
 
-        Each row is added to the ZSET (keyed by date) and the latest
-        snapshot HASH is updated if the bar is newer.
-
-        Returns the number of bars written.
+        ttl 参数保留以兼容接口，SQLite 版本不使用（由 cleanup_date 手动清理）。
+        返回写入条数。
         """
-        redis = self._get_redis()
-        if redis is None or df is None or df.empty:
+        if df is None or df.empty:
             return 0
 
-        count = 0
-        pipe = redis.pipeline(transaction=False)
+        rows = []
+        latest_rows = []
 
         for _, row in df.iterrows():
             ts_code = row.get("ts_code", "")
@@ -110,71 +166,90 @@ class RealtimeMinuteCacheStore:
             if not ts_code or trade_time is None:
                 continue
 
-            # Determine date string and epoch score
             if isinstance(trade_time, pd.Timestamp):
                 dt = trade_time.to_pydatetime()
             elif isinstance(trade_time, datetime):
                 dt = trade_time
             else:
                 try:
-                    dt = pd.to_datetime(trade_time)
+                    dt = pd.to_datetime(trade_time).to_pydatetime()
                 except Exception:
                     continue
 
             date_str = dt.strftime("%Y%m%d")
+            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
             epoch = dt.timestamp()
 
-            bar_dict = {
-                "ts_code": ts_code,
-                "trade_time": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "open": _safe_value(row.get("open")),
-                "close": _safe_value(row.get("close")),
-                "high": _safe_value(row.get("high")),
-                "low": _safe_value(row.get("low")),
-                "vol": _safe_value(row.get("vol")),
-                "amount": _safe_value(row.get("amount")),
-                "market_type": market,
-                "freq": freq,
-            }
-            bar_json = json.dumps(bar_dict, ensure_ascii=False, default=str)
+            bar = (
+                ts_code, market, freq, date_str, time_str, epoch,
+                _safe_value(row.get("open")),
+                _safe_value(row.get("close")),
+                _safe_value(row.get("high")),
+                _safe_value(row.get("low")),
+                _safe_value(row.get("vol")),
+                _safe_value(row.get("amount")),
+            )
+            rows.append(bar)
+            latest_rows.append(bar)
 
-            # ZSET – add bar
-            zset_key = self._zset_key(market, ts_code, freq, date_str)
-            pipe.zadd(zset_key, {bar_json: epoch})
-            pipe.expire(zset_key, ttl)
-
-            # HASH – latest snapshot
-            latest_key = self._latest_key(market, ts_code, freq)
-            pipe.set(latest_key, bar_json)
-            pipe.expire(latest_key, ttl)
-
-            count += 1
-
-        try:
-            pipe.execute()
-        except Exception as e:
-            logger.error("Redis pipeline execute failed: %s", e)
+        if not rows:
             return 0
 
-        return count
+        try:
+            with self._tx() as conn:
+                # 幂等写入 bars（UNIQUE 冲突时覆盖）
+                conn.executemany(
+                    """INSERT INTO rt_minute_bars
+                       (ts_code, market_type, freq, trade_date, trade_time, epoch,
+                        open, close, high, low, vol, amount)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(ts_code, freq, trade_time) DO UPDATE SET
+                           open=excluded.open, close=excluded.close,
+                           high=excluded.high, low=excluded.low,
+                           vol=excluded.vol, amount=excluded.amount,
+                           epoch=excluded.epoch""",
+                    rows,
+                )
+                # 更新 latest（只保留最新一条）
+                conn.executemany(
+                    """INSERT INTO rt_minute_latest
+                       (ts_code, market_type, freq, trade_time, epoch,
+                        open, close, high, low, vol, amount)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(ts_code, freq) DO UPDATE SET
+                           trade_time=excluded.trade_time,
+                           epoch=excluded.epoch,
+                           market_type=excluded.market_type,
+                           open=excluded.open, close=excluded.close,
+                           high=excluded.high, low=excluded.low,
+                           vol=excluded.vol, amount=excluded.amount
+                       WHERE excluded.epoch >= rt_minute_latest.epoch""",
+                    [r[0:3] + r[4:] for r in latest_rows],  # 去掉 trade_date
+                )
+        except Exception as e:
+            logger.error("SQLite store_bars failed: %s", e)
+            return 0
+
+        return len(rows)
 
     def update_status(self, market: str, records: int) -> None:
-        """Update collection status in Redis."""
-        redis = self._get_redis()
-        if redis is None:
-            return
+        """更新采集状态。"""
         try:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            redis.hset(self._status_key(), market, json.dumps({
-                "last_collect_time": now_str,
-                "records": records,
-            }))
-            redis.expire(self._status_key(), cfg.REDIS_DEFAULT_TTL)
+            with self._tx() as conn:
+                conn.execute(
+                    """INSERT INTO rt_minute_status (market, last_collect_time, records)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(market) DO UPDATE SET
+                           last_collect_time=excluded.last_collect_time,
+                           records=excluded.records""",
+                    (market, now_str, records),
+                )
         except Exception as e:
             logger.warning("Failed to update status: %s", e)
 
     # ------------------------------------------------------------------
-    # Read
+    # 读取
     # ------------------------------------------------------------------
 
     def get_bars(
@@ -186,184 +261,161 @@ class RealtimeMinuteCacheStore:
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Query bars from ZSET by time range."""
-        redis = self._get_redis()
-        if redis is None:
-            return []
-
+        """按时间范围查询分钟 bar。"""
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
 
-        zset_key = self._zset_key(market, ts_code, freq, date)
+        params: List[Any] = [ts_code, freq, date]
+        sql = """SELECT ts_code, market_type, freq, trade_time,
+                        open, close, high, low, vol, amount
+                 FROM rt_minute_bars
+                 WHERE ts_code=? AND freq=? AND trade_date=?"""
 
-        min_score = "-inf"
-        max_score = "+inf"
         if start_time:
             try:
-                min_score = pd.to_datetime(start_time).timestamp()
+                min_epoch = pd.to_datetime(start_time).timestamp()
+                sql += " AND epoch >= ?"
+                params.append(min_epoch)
             except Exception:
                 pass
         if end_time:
             try:
-                max_score = pd.to_datetime(end_time).timestamp()
+                max_epoch = pd.to_datetime(end_time).timestamp()
+                sql += " AND epoch <= ?"
+                params.append(max_epoch)
             except Exception:
                 pass
 
+        sql += " ORDER BY epoch ASC"
+
         try:
-            raw = redis.zrangebyscore(zset_key, min_score, max_score)
-            return [json.loads(item) for item in raw]
+            conn = self._get_conn()
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
         except Exception as e:
-            logger.warning("Redis zrangebyscore failed: %s", e)
+            logger.warning("SQLite get_bars failed: %s", e)
             return []
 
     def get_latest(self, market: str, ts_code: str, freq: str = "1min") -> Optional[Dict[str, Any]]:
-        """Get the latest bar snapshot."""
-        redis = self._get_redis()
-        if redis is None:
-            return None
+        """获取最新一条 bar 快照。"""
         try:
-            data = redis.get(self._latest_key(market, ts_code, freq))
-            if data:
-                return json.loads(data)
+            conn = self._get_conn()
+            row = conn.execute(
+                """SELECT ts_code, market_type, freq, trade_time,
+                          open, close, high, low, vol, amount
+                   FROM rt_minute_latest
+                   WHERE ts_code=? AND freq=?""",
+                (ts_code, freq),
+            ).fetchone()
+            return dict(row) if row else None
         except Exception as e:
-            logger.warning("Redis get latest failed: %s", e)
-        return None
+            logger.warning("SQLite get_latest failed: %s", e)
+            return None
 
     def get_all_latest(self, market: Optional[str] = None, freq: str = "1min") -> List[Dict[str, Any]]:
-        """Scan all latest-snapshot keys, optionally filtered by market."""
-        redis = self._get_redis()
-        if redis is None:
+        """获取所有（或指定市场的）最新快照。"""
+        try:
+            conn = self._get_conn()
+            if market:
+                rows = conn.execute(
+                    """SELECT ts_code, market_type, freq, trade_time,
+                              open, close, high, low, vol, amount
+                       FROM rt_minute_latest
+                       WHERE market_type=? AND freq=?""",
+                    (market, freq),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT ts_code, market_type, freq, trade_time,
+                              open, close, high, low, vol, amount
+                       FROM rt_minute_latest
+                       WHERE freq=?""",
+                    (freq,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning("SQLite get_all_latest failed: %s", e)
             return []
 
-        pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
-        if market:
-            pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:*:{freq}"
-        else:
-            pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:*:*:{freq}"
-
-        results: List[Dict[str, Any]] = []
-        try:
-            cursor = 0
-            while True:
-                cursor, keys = redis.scan(cursor, match=pattern, count=500)
-                if keys:
-                    values = redis.mget(keys)
-                    for v in values:
-                        if v:
-                            results.append(json.loads(v))
-                if cursor == 0:
-                    break
-        except Exception as e:
-            logger.warning("Redis scan failed: %s", e)
-        return results
-
     def get_status(self) -> Dict[str, Any]:
-        """Get collection status."""
-        redis = self._get_redis()
-        if redis is None:
-            return {}
+        """获取采集状态。"""
         try:
-            raw = redis.hgetall(self._status_key())
-            return {k: json.loads(v) for k, v in raw.items()}
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT market, last_collect_time, records FROM rt_minute_status"
+            ).fetchall()
+            return {
+                r["market"]: {
+                    "last_collect_time": r["last_collect_time"],
+                    "records": r["records"],
+                }
+                for r in rows
+            }
         except Exception as e:
-            logger.warning("Redis get status failed: %s", e)
+            logger.warning("SQLite get_status failed: %s", e)
             return {}
 
     # ------------------------------------------------------------------
-    # Bulk read (for sync)
+    # 批量读取（供 sync_service 使用）
     # ------------------------------------------------------------------
 
     def get_all_bars_for_date(
         self,
         date: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Read ALL bars for a given date across all markets (for sync to ClickHouse)."""
-        redis = self._get_redis()
-        if redis is None:
-            return []
-
+        """读取指定日期的全部 bar（用于同步到 ClickHouse）。"""
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
 
-        pattern = f"{cfg.REDIS_KEY_PREFIX_ZSET}:*:*:*:{date}"
-        all_bars: List[Dict[str, Any]] = []
-
         try:
-            cursor = 0
-            while True:
-                cursor, keys = redis.scan(cursor, match=pattern, count=500)
-                for key in keys:
-                    raw_items = redis.zrange(key, 0, -1)
-                    for item in raw_items:
-                        all_bars.append(json.loads(item))
-                if cursor == 0:
-                    break
+            conn = self._get_conn()
+            rows = conn.execute(
+                """SELECT ts_code, market_type, freq, trade_time,
+                          open, close, high, low, vol, amount
+                   FROM rt_minute_bars
+                   WHERE trade_date=?
+                   ORDER BY ts_code, freq, epoch""",
+                (date,),
+            ).fetchall()
+            return [dict(r) for r in rows]
         except Exception as e:
-            logger.error("Redis scan for sync failed: %s", e)
-
-        return all_bars
+            logger.error("SQLite get_all_bars_for_date failed: %s", e)
+            return []
 
     # ------------------------------------------------------------------
-    # Cleanup
+    # 清理
     # ------------------------------------------------------------------
 
     def cleanup_date(self, date: str) -> int:
-        """Delete all ZSET keys for a specific date."""
-        redis = self._get_redis()
-        if redis is None:
-            return 0
-
-        pattern = f"{cfg.REDIS_KEY_PREFIX_ZSET}:*:*:*:{date}"
-        deleted = 0
+        """删除指定日期的所有 bar 数据。"""
         try:
-            cursor = 0
-            while True:
-                cursor, keys = redis.scan(cursor, match=pattern, count=500)
-                if keys:
-                    deleted += redis.delete(*keys)
-                if cursor == 0:
-                    break
+            with self._tx() as conn:
+                cur = conn.execute(
+                    "DELETE FROM rt_minute_bars WHERE trade_date=?", (date,)
+                )
+                return cur.rowcount
         except Exception as e:
-            logger.error("Redis cleanup failed: %s", e)
-        return deleted
+            logger.error("SQLite cleanup_date failed: %s", e)
+            return 0
 
     def cleanup_latest(self) -> int:
-        """Delete all latest-snapshot keys."""
-        redis = self._get_redis()
-        if redis is None:
-            return 0
-
-        pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
-        deleted = 0
+        """清空最新快照表。"""
         try:
-            cursor = 0
-            while True:
-                cursor, keys = redis.scan(cursor, match=pattern, count=500)
-                if keys:
-                    deleted += redis.delete(*keys)
-                if cursor == 0:
-                    break
+            with self._tx() as conn:
+                cur = conn.execute("DELETE FROM rt_minute_latest")
+                return cur.rowcount
         except Exception as e:
-            logger.error("Redis cleanup latest failed: %s", e)
-        return deleted
+            logger.error("SQLite cleanup_latest failed: %s", e)
+            return 0
 
     def get_cached_key_count(self) -> int:
-        """Count realtime minute keys in Redis."""
-        redis = self._get_redis()
-        if redis is None:
-            return 0
-        count = 0
+        """返回缓存中的 bar 总条数（兼容接口）。"""
         try:
-            for prefix in (cfg.REDIS_KEY_PREFIX_ZSET, cfg.REDIS_KEY_PREFIX_LATEST):
-                cursor = 0
-                while True:
-                    cursor, keys = redis.scan(cursor, match=f"{prefix}:*", count=500)
-                    count += len(keys)
-                    if cursor == 0:
-                        break
+            conn = self._get_conn()
+            row = conn.execute("SELECT COUNT(*) FROM rt_minute_bars").fetchone()
+            return row[0] if row else 0
         except Exception:
-            pass
-        return count
+            return 0
 
 
 # ---------------------------------------------------------------------------

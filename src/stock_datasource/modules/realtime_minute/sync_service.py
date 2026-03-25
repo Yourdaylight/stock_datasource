@@ -1,4 +1,4 @@
-"""Sync service: flush Redis minute data to ClickHouse after market close.
+"""Sync service: flush SQLite minute cache to ClickHouse after market close.
 
 Handles per-market ClickHouse table creation and data synchronization.
 Tables are named ``ods_min_kline_{market}`` and created lazily on first sync.
@@ -46,7 +46,7 @@ def _get_db():
 
 
 class RealtimeMinuteSyncService:
-    """Sync cached minute bars from Redis → ClickHouse (per-market tables)."""
+    """Sync cached minute bars from SQLite → ClickHouse (per-market tables)."""
 
     def __init__(self):
         self._ensured_tables: set = set()
@@ -92,7 +92,7 @@ class RealtimeMinuteSyncService:
     # ------------------------------------------------------------------
 
     def sync(self, date: Optional[str] = None) -> Dict[str, Any]:
-        """Read today's data from Redis and write to ClickHouse per-market tables.
+        """Read today's data from SQLite cache and write to ClickHouse per-market tables.
 
         Returns a summary dict.
         """
@@ -105,7 +105,7 @@ class RealtimeMinuteSyncService:
         bars = cache.get_all_bars_for_date(date)
 
         if not bars:
-            logger.info("No bars found in Redis for %s, nothing to sync", date)
+            logger.info("No bars found in SQLite cache for %s, nothing to sync", date)
             return {"date": date, "synced": 0}
 
         # Convert to DataFrame
@@ -164,7 +164,7 @@ class RealtimeMinuteSyncService:
     # ------------------------------------------------------------------
 
     def cleanup(self, date: Optional[str] = None) -> Dict[str, int]:
-        """Remove synced Redis data for a given date."""
+        """Remove synced SQLite cache data for a given date."""
         cache = get_cache_store()
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
