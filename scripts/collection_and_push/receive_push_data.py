@@ -44,6 +44,7 @@ class ReceiverConfig:
     flush_interval_seconds: int = 3
     flush_max_items: int = 10000
     subscription_step_seconds: int = 3
+    spool_max_age_days: float = 1.0
     log_level: str = "INFO"
     debug: bool = False
 
@@ -291,8 +292,72 @@ class PushDataStore:
             self._builder_thread.join(timeout=max(1, self._cfg.flush_interval_seconds + 1))
             self._builder_thread = None
 
+    def _cleanup_expired_spools(self) -> int:
+        """清理过期的 spool JSONL 文件和对应的 ingest_offsets 记录。
+
+        - 删除超过 spool_max_age_days 天的 .jsonl 文件
+        - 删除已被完全消费（offset >= file_size）且已过期的 spool 对应的 offset 记录
+        - 清理空目录
+
+        Returns:
+            删除的文件数
+        """
+        max_age = self._cfg.spool_max_age_days
+        if max_age <= 0:
+            return 0
+
+        now = time.time()
+        cutoff = now - max_age * 86400
+        deleted = 0
+
+        try:
+            for market_dir in list(self._spool_dir.iterdir()):
+                if not market_dir.is_dir():
+                    continue
+                for spool_file in list(market_dir.glob("*.jsonl")):
+                    try:
+                        mtime = spool_file.stat().st_mtime
+                        if mtime < cutoff:
+                            spool_file.unlink()
+                            logger.info("Cleaned expired spool: %s (age=%.1fd)",
+                                        spool_file.name, (now - mtime) / 86400)
+                            deleted += 1
+                    except OSError as e:
+                        logger.warning("Failed to check/delete spool %s: %s", spool_file, e)
+        except OSError as e:
+            logger.warning("Failed to scan spool directory: %s", e)
+
+        # 清理 ingest_offsets 中已不存在文件的记录
+        if deleted > 0:
+            try:
+                with self._connect() as conn:
+                    all_offsets = conn.execute("SELECT file_path FROM ingest_offsets").fetchall()
+                    orphaned = [row[0] for row in all_offsets if not os.path.exists(row[0])]
+                    if orphaned:
+                        placeholders = ",".join("?" for _ in orphaned)
+                        conn.execute(
+                            f"DELETE FROM ingest_offsets WHERE file_path IN ({placeholders})",
+                            orphaned,
+                        )
+                        logger.info("Cleaned %d orphaned offset records", len(orphaned))
+            except Exception as e:
+                logger.warning("Failed to clean orphaned offsets: %s", e)
+
+        # 清理空目录
+        try:
+            for market_dir in list(self._spool_dir.iterdir()):
+                if market_dir.is_dir() and not any(market_dir.iterdir()):
+                    market_dir.rmdir()
+        except OSError:
+            pass
+
+        return deleted
+
     def _builder_loop(self) -> None:
         consecutive_empty = 0
+        last_cleanup_time = 0.0
+        cleanup_interval = max(300.0, self._cfg.flush_interval_seconds * 100)  # 至少 5 分钟清理一次
+
         while not self._stop_event.is_set():
             try:
                 result = self.process_spool_once(max_items=self._cfg.flush_max_items)
@@ -312,6 +377,18 @@ class PushDataStore:
             except Exception as exc:
                 logger.error("Snapshot builder failed: %s", exc, exc_info=True)
                 consecutive_empty += 1
+
+            # 定期清理过期 spool 文件
+            now = time.monotonic()
+            if now - last_cleanup_time >= cleanup_interval:
+                try:
+                    cleaned = self._cleanup_expired_spools()
+                    if cleaned:
+                        logger.info("Spool cleanup: deleted %d expired files", cleaned)
+                except Exception as exc:
+                    logger.error("Spool cleanup failed: %s", exc)
+                last_cleanup_time = now
+
             # 空闲时才等待，且用短间隔快速响应新数据
             wait_time = min(self._cfg.flush_interval_seconds, 1) if consecutive_empty <= 2 else self._cfg.flush_interval_seconds
             self._stop_event.wait(wait_time)
@@ -1009,6 +1086,8 @@ def build_args() -> argparse.Namespace:
     parser.add_argument("--save-csv", action="store_true", help="每次刷盘后导出市场级最新快照 CSV")
     parser.add_argument("--flush-interval-seconds", type=int, default=3, help="builder 批量刷 SQLite 的时间间隔，默认 3 秒")
     parser.add_argument("--flush-max-items", type=int, default=10000, help="单次 builder 最多处理的 spool 记录数，默认 10000")
+    parser.add_argument("--spool-max-age-days", type=float, default=float(os.getenv("SPOOL_MAX_AGE_DAYS", "1")),
+                        help="spool 文件保留天数，超过则自动清理（默认 1 天，0=不清理）")
     parser.add_argument("--subscription-step-seconds", type=int, default=3, help="订阅查询返回的时间步长，默认 3 秒")
     parser.add_argument("--log-level", default="INFO", help="日志级别: DEBUG/INFO/WARNING/ERROR")
     parser.add_argument("--debug", action="store_true", help="Flask debug 模式（开发用）")
@@ -1037,6 +1116,7 @@ def main() -> int:
         save_csv=args.save_csv,
         flush_interval_seconds=max(1, int(args.flush_interval_seconds)),
         flush_max_items=max(100, int(args.flush_max_items)),
+        spool_max_age_days=max(0.0, float(args.spool_max_age_days)),
         subscription_step_seconds=max(1, int(args.subscription_step_seconds)),
         log_level=args.log_level,
         debug=args.debug,

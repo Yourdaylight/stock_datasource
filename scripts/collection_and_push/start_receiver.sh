@@ -74,11 +74,12 @@ echo "============================================================"
 # ---------------------------------------------------------------------------
 # 启动接收服务
 # ---------------------------------------------------------------------------
-echo "[INFO] 启动接收服务 (端口 9100)..."
+echo "[INFO] 启动接收服务 (端口 9100, spool 自动清理)..."
 nohup python3 "$SCRIPT_DIR/receive_push_data.py" \
   --port 9100 \
   --push-token "${RT_KLINE_CLOUD_PUSH_TOKEN:-}" \
   --flush-interval-seconds 5 \
+  --spool-max-age-days 1 \
   --data-dir "$PROJECT_DIR/data/received_push" \
   > "$LOG_DIR/receiver.log" 2>&1 &
 RECEIVER_PID=$!
