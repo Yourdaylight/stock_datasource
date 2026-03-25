@@ -27,7 +27,7 @@ CLEANUP_JOB_ID = "rt_minute_cleanup"
 # ------------------------------------------------------------------
 
 def run_collection(freq: str = "1min", markets=None) -> dict:
-    """Execute one round of data collection → Redis.
+    """Execute one round of data collection → SQLite cache.
 
     This is the function that the scheduler calls every minute
     during trading hours.
@@ -56,7 +56,7 @@ def run_collection(freq: str = "1min", markets=None) -> dict:
 
 
 def run_sync(date: str | None = None) -> dict:
-    """Sync today's Redis data to ClickHouse.
+    """Sync today's SQLite cache data to ClickHouse.
 
     Called once after market close (default 15:30).
     """
@@ -67,7 +67,7 @@ def run_sync(date: str | None = None) -> dict:
 
 
 def run_cleanup(date: str | None = None) -> dict:
-    """Clean up Redis cache for a given date.
+    """Clean up SQLite cache for a given date.
 
     Called daily at 03:00.
     """
@@ -147,22 +147,16 @@ def is_collection_paused() -> bool:
 def register_realtime_jobs(scheduler) -> None:
     """Register realtime minute jobs with an APScheduler BackgroundScheduler.
 
-    The collection job is registered in *paused* state by default.
-    Use ``resume_collection()`` (or the management API) to activate it
-    only when ``runtime_config.realtime.enabled`` is True.
+    All jobs start automatically upon registration.
     """
     global _scheduler_ref
     _scheduler_ref = scheduler
 
     from apscheduler.triggers.cron import CronTrigger
-    from stock_datasource.config.runtime_config import get_realtime_config
 
+    # Collection job
     # Collection job: every minute during trading hours (Mon-Fri)
     def _collection_wrapper():
-        # Double-check: honour the runtime config even if the job wasn't paused
-        rt_cfg = get_realtime_config()
-        if not rt_cfg.get("enabled", False):
-            return
         if is_trading_time():
             try:
                 run_collection()
@@ -197,15 +191,9 @@ def register_realtime_jobs(scheduler) -> None:
         run_cleanup,
         CronTrigger(hour=cleanup_h, minute=cleanup_m),
         id=CLEANUP_JOB_ID,
-        name="Realtime minute Redis cleanup",
+        name="Realtime minute SQLite cleanup",
         replace_existing=True,
     )
     logger.info("Registered %s job at %s daily", CLEANUP_JOB_ID, cfg.CLEANUP_TIME)
 
-    # Default state: pause collection if not enabled in config
-    rt_cfg = get_realtime_config()
-    if not rt_cfg.get("enabled", False):
-        scheduler.pause_job(COLLECT_JOB_ID)
-        logger.info("Collection job paused (realtime.enabled=False)")
-    else:
-        logger.info("Collection job active (realtime.enabled=True)")
+    logger.info("Collection job active (auto-start enabled)")

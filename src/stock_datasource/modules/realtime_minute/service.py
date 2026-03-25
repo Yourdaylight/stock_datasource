@@ -1,6 +1,6 @@
 """Query service layer for realtime minute data.
 
-Reads from Redis first, falls back to ClickHouse for historical data.
+Reads from SQLite cache first, falls back to ClickHouse for historical data.
 All ClickHouse queries use parameterized SQL.
 """
 
@@ -117,7 +117,7 @@ class RealtimeMinuteService:
         return self._cache.get_latest(market, ts_code, freq)
 
     def get_collect_status(self) -> Dict[str, Any]:
-        """Get collection status from Redis."""
+        """Get collection status from SQLite cache."""
         status = self._cache.get_status()
         key_count = self._cache.get_cached_key_count()
         last_time = None
