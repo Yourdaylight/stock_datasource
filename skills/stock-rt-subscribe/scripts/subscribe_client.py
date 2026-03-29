@@ -473,6 +473,20 @@ class StockWSServer:
             self._clients.discard(ws)
             return
 
+        # 如果当前没有订阅任何股票，提示用户
+        if not self.symbols:
+            hint = {
+                "type": "notice",
+                "message": "当前服务端未订阅任何股票，不会推送行情数据。请发送订阅指令添加股票。",
+                "example": {"action": "subscribe", "symbols": ["00700.HK", "600519.SH"]},
+                "timestamp": datetime.now().isoformat(),
+            }
+            try:
+                await ws.send(json.dumps(hint, ensure_ascii=False))
+            except Exception:
+                self._clients.discard(ws)
+                return
+
         # 发送当前最新快照
         if self._latest_ticks:
             snapshot = {
