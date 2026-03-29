@@ -142,6 +142,8 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     networks:
       - stock_network
+    dns:
+      - 127.0.0.11
     depends_on:
       backend:
         condition: service_healthy
