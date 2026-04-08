@@ -37,3 +37,8 @@ migrate_*.py
 # Go 编译产物
 scripts/collection_and_push/rt-receiver
 scripts/collection_and_push/rt-receiver-arm64
+
+# PicoClaw (微信联动) — 二进制 + 生成文件
+.local/
+
+data/

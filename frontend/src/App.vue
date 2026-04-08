@@ -26,7 +26,8 @@ import {
   DataDisplayIcon,
   BookOpenIcon,
   PreciseMonitorIcon,
-  LinkIcon
+  LinkIcon,
+  RootListIcon
 } from 'tdesign-icons-vue-next'
 
 const route = useRoute()
@@ -82,6 +83,7 @@ const menuItems: MenuItem[] = [
     ]
   },
   { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
+  { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
   {
     path: '/system-logs',

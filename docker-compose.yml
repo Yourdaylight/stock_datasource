@@ -52,6 +52,8 @@ services:
       WEKNORA_TIMEOUT: ${WEKNORA_TIMEOUT:-10}
     volumes:
       - ./src:/app/src
+      - ./skills:/app/skills
+      - ./.local:/app/.local
       - ./logs:/app/logs
       - ./data:/app/data
     networks:
