@@ -51,27 +51,6 @@ services:
       retries: 10
       start_period: 10s
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: stock-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5433}:5432"
-    networks:
-      - stock_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
   # Update backend to depend on infra services
   backend:
     depends_on:
@@ -91,7 +70,6 @@ volumes:
   clickhouse_data:
   clickhouse_logs:
   redis_data:
-  postgres_data:
 
 networks:
   stock_network:

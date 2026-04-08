@@ -235,6 +235,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/user/UserCenter.vue'),
     meta: { title: '个人中心', icon: 'user', requiresAuth: true }
   },
+  // WeChat Bridge
+  {
+    path: '/wechat-bridge',
+    name: 'WechatBridge',
+    component: () => import('@/views/wechatBridge/WechatBridgeView.vue'),
+    meta: { title: '微信联动', icon: 'wechat', requiresAuth: true }
+  },
   {
     path: '/user/llm-config',
     name: 'UserLlmConfig',

@@ -133,4 +133,10 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .wechat_bridge.router import router as wechat_bridge_router
+        routers.append(("/wechat-bridge", wechat_bridge_router, ["微信联动"]))
+    except ImportError:
+        pass
+
     return routers

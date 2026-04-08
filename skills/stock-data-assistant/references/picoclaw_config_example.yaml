@@ -1,0 +1,57 @@
+# ============================================
+# PicoClaw 配置示例 — stock_datasource 集成
+# ============================================
+# 此文件由 generate_picoclaw_config.py 自动生成
+# 也可手动复制修改使用
+
+# --- LLM 模型列表 ---
+# 支持多个模型，第一个作为默认模型
+model_list:
+  - model: "Kimi-K2-Thinking"
+    base_url: "https://api.haihub.cn/v1/"
+    api_key: "sk-d2d0dc36-f065-46ed-a897-0ddcbd0046eb"
+    model_type: "openai-chat"
+  # 可选：添加备用模型
+  # - model: "gpt-4o-mini"
+  #   base_url: "https://api.openai.com/v1"
+  #   api_key: "sk-xxxx"
+  #   model_type: "openai-chat"
+
+# --- Gateway 监听地址 ---
+gateway:
+  host: "127.0.0.1"
+  port: 18790
+
+# --- MCP Server 连接 ---
+# 连接 stock_datasource 的 MCP 服务，提供 76+ 数据查询工具
+mcp_servers:
+  stock-data:
+    type: "streamable-http"
+    url: "http://localhost:8001/messages"
+    headers:
+      Authorization: "Bearer YOUR_MCP_TOKEN_HERE"
+      # 替换 YOUR_MCP_TOKEN_HERE 为有效的 MCP token
+      # 获取方式：从管理平台购买或设置 sk-xxx API key
+
+# --- Channel 配置 ---
+channels:
+  weixin:
+    type: "weixin"
+    enabled: true
+    # 微信登录方式: picoclaw auth weixin (扫码登录)
+
+# --- 实时数据配置 ---
+# 供 Agent 参考使用的实时行情信息源
+realtime_data:
+  websocket_url: "ws://localhost:8765"
+  symbols_default:
+    - "00700.HK"    # 腾讯控股
+    - "09988.HK"    # 阿里巴巴
+    - "600519.SH"   # 贵州茅台
+
+# --- Agent 系统提示词增强（可选） ---
+# system_prompt: |
+#   你是一个专业的股票数据分析助手。
+#   用户可以通过微信向你提问股票相关问题。
+#   你可以使用 MCP 工具查询历史数据，使用实时数据接口获取最新行情。
+#   请用简洁清晰的语言回答问题。
