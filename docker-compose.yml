@@ -1,10 +1,13 @@
 # docker-compose.yml - Main application services
-# Usage:
-#   Full deployment:  docker-compose -f docker-compose.yml -f docker-compose.infra.yml up -d
-#   App only:         docker-compose up -d (connect to existing infra)
-#   Development:      docker-compose -f docker-compose.yml -f docker-compose.infra.yml -f docker-compose.dev.yml up
+# Architecture: backend container runs both HTTP API (port 6666) and MCP server (port 8001).
+# No separate stock-mcp container is needed.
 #
-# (If your machine supports Docker Compose v2 plugin, these also work: docker compose ...)
+# Usage:
+#   Full deployment:  docker compose -f docker-compose.yml -f docker-compose.infra.yml up -d
+#   App only:         docker compose up -d (connect to existing infra)
+#   Development:      docker compose -f docker-compose.yml -f docker-compose.infra.yml -f docker-compose.dev.yml up
+#
+# (docker-compose v1 also works: docker-compose ...)
 
 services:
   backend:
@@ -14,10 +17,10 @@ services:
     container_name: stock-backend
     restart: unless-stopped
     ports:
-      - "${MCP_PORT:-8001}:8001"
+      - "${MCP_PORT:-8001}:8001"   # MCP streamable HTTP endpoint (/messages)
     expose:
-      - "6666"
-      - "8001"
+      - "6666"    # Backend HTTP API
+      - "8001"    # MCP server (embedded in backend container)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

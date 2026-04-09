@@ -1,4 +1,5 @@
 # docker-compose.dev.yml - Development mode overrides
+# Architecture: MCP server is embedded in backend container, no separate stock-mcp container needed.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.infra.yml -f docker-compose.dev.yml up
 
 services:
@@ -28,6 +29,19 @@ services:
       - ./frontend/public:/app/public:ro
     environment:
       NODE_ENV: development
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+      target: development
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
 
 volumes:
   backend-logs:

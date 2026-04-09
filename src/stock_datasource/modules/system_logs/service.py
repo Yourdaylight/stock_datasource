@@ -43,49 +43,129 @@ class LogService:
         self.reader = LogFileReader(log_dir)
         self.ai_diagnosis_service = get_log_ai_diagnosis_service()
 
+    @property
+    def _ch_client(self):
+        """Lazy-access ClickHouse client."""
+        try:
+            from stock_datasource.models.database import db_client
+            return db_client
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # get_logs — ClickHouse-first with file fallback
+    # ------------------------------------------------------------------
     def get_logs(self, filters: LogFilter) -> LogListResponse:
-        """Get filtered logs.
+        """Get filtered logs. Queries ClickHouse first, falls back to file parsing."""
+        # Try ClickHouse path
+        ch_result = self._get_logs_from_clickhouse(filters)
+        if ch_result is not None:
+            return ch_result
 
-        Args:
-            filters: Log filter parameters
-
-        Returns:
-            Log list response
-        """
-        # Get filtered logs
+        # Fallback: file parsing
         logs = self.reader.read_logs(
-            log_file=None,  # Read all log files
+            log_file=None,
             start_time=filters.start_time,
             end_time=filters.end_time,
             level=filters.level,
             keyword=filters.keyword,
             limit=filters.page_size,
-            offset=(filters.page - 1) * filters.page_size
+            offset=(filters.page - 1) * filters.page_size,
         )
 
-        # Get total count
         total_logs = self.reader.read_logs(
             start_time=filters.start_time,
             end_time=filters.end_time,
             level=filters.level,
             keyword=filters.keyword,
-            limit=100000  # Large limit for count
+            limit=100000,
         )
 
-        # Convert to LogEntry objects
-        log_entries = [
-            LogEntry(**log) for log in logs
-        ]
-
+        log_entries = [LogEntry(**log) for log in logs]
         return LogListResponse(
             logs=log_entries,
             total=len(total_logs),
             page=filters.page,
-            page_size=filters.page_size
+            page_size=filters.page_size,
         )
+
+    def _get_logs_from_clickhouse(self, filters: LogFilter) -> Optional[LogListResponse]:
+        """Query logs from ClickHouse system_structured_logs table.
+
+        Returns None if ClickHouse is unavailable (caller should fall back).
+        """
+        ch = self._ch_client
+        if ch is None:
+            return None
+        try:
+            conditions = []
+            params: Dict[str, Any] = {}
+
+            if filters.start_time:
+                conditions.append("timestamp >= %(start_time)s")
+                params["start_time"] = filters.start_time.strftime("%Y-%m-%d %H:%M:%S")
+            if filters.end_time:
+                conditions.append("timestamp <= %(end_time)s")
+                params["end_time"] = filters.end_time.strftime("%Y-%m-%d %H:%M:%S")
+            if filters.level:
+                conditions.append("level = %(level)s")
+                params["level"] = filters.level.upper()
+            if filters.keyword:
+                conditions.append("message ILIKE %(keyword)s")
+                params["keyword"] = f"%{filters.keyword}%"
+            if filters.request_id and filters.request_id != "-":
+                conditions.append("request_id = %(request_id)s")
+                params["request_id"] = filters.request_id
+
+            where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+            # Count
+            count_sql = f"SELECT count() AS cnt FROM system_structured_logs{where}"
+            count_row = ch.query(count_sql, params)
+            total = count_row[0][0] if count_row else 0
+
+            # Data
+            offset = (filters.page - 1) * filters.page_size
+            data_sql = (
+                f"SELECT timestamp, level, request_id, user_id, module, function, line, "
+                f"message, exception FROM system_structured_logs{where} "
+                f"ORDER BY timestamp DESC LIMIT %(limit)s OFFSET %(offset)s"
+            )
+            params["limit"] = filters.page_size
+            params["offset"] = offset
+            rows = ch.query(data_sql, params)
+
+            log_entries = []
+            for row in rows:
+                ts, level, req_id, uid, module, func, line_no, msg, exc = row
+                log_entries.append(LogEntry(
+                    timestamp=ts if isinstance(ts, datetime) else datetime.now(),
+                    level=str(level),
+                    module=str(module),
+                    message=str(msg),
+                    raw_line=f"{ts} | {level} | {req_id} | {uid} | {module}:{func}:{line_no} - {msg}",
+                    request_id=str(req_id),
+                    user_id=str(uid),
+                ))
+
+            return LogListResponse(
+                logs=log_entries,
+                total=total,
+                page=filters.page,
+                page_size=filters.page_size,
+            )
+        except Exception as e:
+            logger.warning(f"ClickHouse log query failed, falling back to file: {e}")
+            return None
 
     def get_stats(self, filters: LogInsightFilter) -> LogStatsResponse:
         """Get log level stats and trend in a time window."""
+        # Try ClickHouse path
+        ch_result = self._get_stats_from_clickhouse(filters)
+        if ch_result is not None:
+            return ch_result
+
+        # Fallback: file parsing
         start_time, end_time = self._resolve_time_window(filters)
         logs = self.reader.read_logs(
             log_file=None,
@@ -132,9 +212,91 @@ class LogService:
             trend=trend,
         )
 
+    def _get_stats_from_clickhouse(self, filters: LogInsightFilter) -> Optional[LogStatsResponse]:
+        """Query stats from ClickHouse. Returns None on failure."""
+        ch = self._ch_client
+        if ch is None:
+            return None
+        try:
+            start_time, end_time = self._resolve_time_window(filters)
+            conditions = [
+                "timestamp >= %(start_time)s",
+                "timestamp <= %(end_time)s",
+            ]
+            params: Dict[str, Any] = {
+                "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if filters.level:
+                conditions.append("level = %(level)s")
+                params["level"] = filters.level.upper()
+            if filters.keyword:
+                conditions.append("message ILIKE %(keyword)s")
+                params["keyword"] = f"%{filters.keyword}%"
+            if filters.request_id and filters.request_id != "-":
+                conditions.append("request_id = %(request_id)s")
+                params["request_id"] = filters.request_id
+
+            where = f" WHERE {' AND '.join(conditions)}"
+
+            # Level counts
+            count_sql = (
+                f"SELECT level, count() AS cnt FROM system_structured_logs{where} "
+                f"GROUP BY level"
+            )
+            rows = ch.query(count_sql, params)
+            level_counter = {str(row[0]): int(row[1]) for row in rows}
+
+            # Hourly trend
+            trend_sql = (
+                f"SELECT toStartOfHour(timestamp) AS bucket, level, count() AS cnt "
+                f"FROM system_structured_logs{where} "
+                f"GROUP BY bucket, level ORDER BY bucket"
+            )
+            trend_rows = ch.query(trend_sql, params)
+            trend_bucket: Dict[datetime, Counter] = defaultdict(Counter)
+            for row in trend_rows:
+                bucket_dt = row[0] if isinstance(row[0], datetime) else start_time
+                lvl = str(row[1])
+                cnt = int(row[2])
+                trend_bucket[bucket_dt][lvl] += cnt
+
+            trend = []
+            for bucket in sorted(trend_bucket.keys()):
+                counter = trend_bucket[bucket]
+                trend.append(LogStatsTrendPoint(
+                    timestamp=bucket,
+                    total=sum(counter.values()),
+                    error=counter.get('ERROR', 0),
+                    warning=counter.get('WARNING', 0),
+                    info=counter.get('INFO', 0),
+                    debug=counter.get('DEBUG', 0),
+                ))
+
+            total = sum(level_counter.values())
+            return LogStatsResponse(
+                total=total,
+                error=level_counter.get('ERROR', 0),
+                warning=level_counter.get('WARNING', 0),
+                info=level_counter.get('INFO', 0),
+                debug=level_counter.get('DEBUG', 0),
+                by_level=level_counter,
+                trend=trend,
+            )
+        except Exception as e:
+            logger.warning(f"ClickHouse stats query failed, falling back: {e}")
+            return None
+
     def get_error_clusters(self, filters: LogInsightFilter) -> ErrorClusterResponse:
         """Cluster recent errors by signature."""
         start_time, end_time = self._resolve_time_window(filters)
+
+        # Try ClickHouse path
+        ch_result = self._get_error_clusters_from_clickhouse(filters, start_time, end_time)
+        if ch_result is not None:
+            return ch_result
+
+        # Fallback: file parsing
         logs = self.reader.read_logs(
             log_file=None,
             start_time=start_time,
@@ -180,9 +342,84 @@ class LogService:
         clusters.sort(key=lambda item: (item.level != 'ERROR', -item.count, item.latest_time), reverse=False)
         return ErrorClusterResponse(clusters=clusters[:filters.limit])
 
+    def _get_error_clusters_from_clickhouse(self, filters: LogInsightFilter, start_time: datetime, end_time: datetime) -> Optional[ErrorClusterResponse]:
+        """Query error clusters from ClickHouse. Returns None on failure."""
+        ch = self._ch_client
+        if ch is None:
+            return None
+        try:
+            level_filter = filters.level or "ERROR,WARNING"
+            level_list = [l.strip().upper() for l in level_filter.split(",")]
+            # Whitelist: only allow known log levels
+            allowed_levels = {"ERROR", "WARNING", "INFO", "DEBUG", "TRACE", "SUCCESS"}
+            safe_levels = [l for l in level_list if l in allowed_levels]
+            if not safe_levels:
+                safe_levels = ["ERROR", "WARNING"]
+            conditions = [
+                "timestamp >= %(start_time)s",
+                "timestamp <= %(end_time)s",
+            ]
+            params: Dict[str, Any] = {
+                "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            # Use array parameter for level IN clause
+            level_placeholders = []
+            for i, lvl in enumerate(safe_levels):
+                key = f"level_{i}"
+                level_placeholders.append(f"%({key})s")
+                params[key] = lvl
+            conditions.append(f"level IN ({','.join(level_placeholders)})")
+            if filters.keyword:
+                conditions.append("message ILIKE %(keyword)s")
+                params["keyword"] = f"%{filters.keyword}%"
+            if filters.request_id and filters.request_id != "-":
+                conditions.append("request_id = %(request_id)s")
+                params["request_id"] = filters.request_id
+
+            where = f" WHERE {' AND '.join(conditions)}"
+
+            # Simple clustering by module + first 80 chars of message
+            sql = (
+                f"SELECT level, module, substring(message, 1, 80) AS sig, "
+                f"count() AS cnt, max(timestamp) AS latest, any(message) AS sample "
+                f"FROM system_structured_logs{where} "
+                f"GROUP BY level, module, sig ORDER BY cnt DESC LIMIT %(limit)s"
+            )
+            params["limit"] = filters.limit
+            rows = ch.query(sql, params)
+
+            clusters = []
+            for row in rows:
+                level, module, signature, count, latest, sample = row
+                clusters.append(ErrorClusterItem(
+                    signature=str(signature),
+                    count=int(count),
+                    level=str(level),
+                    module=str(module),
+                    latest_time=latest if isinstance(latest, datetime) else datetime.now(),
+                    sample_message=str(sample)[:200],
+                ))
+            return ErrorClusterResponse(clusters=clusters)
+        except Exception as e:
+            logger.warning(f"ClickHouse error clusters query failed, falling back: {e}")
+            return None
+
     def get_operation_timeline(self, filters: LogInsightFilter) -> OperationTimelineResponse:
         """Build a mixed timeline from logs and schedule execution history."""
         start_time, end_time = self._resolve_time_window(filters)
+
+        # Try ClickHouse path for log items
+        ch_items = self._get_timeline_from_clickhouse(filters, start_time, end_time)
+
+        if ch_items is not None:
+            # Merge with schedule items
+            schedule_items = self._build_schedule_timeline_items(start_time=start_time, end_time=end_time)
+            ch_items.extend(schedule_items)
+            ch_items.sort(key=lambda item: item.timestamp, reverse=True)
+            return OperationTimelineResponse(items=ch_items[:filters.limit])
+
+        # Fallback: file parsing
         logs = self.reader.read_logs(
             log_file=None,
             start_time=start_time,
@@ -211,6 +448,57 @@ class LogService:
         items.extend(schedule_items)
         items.sort(key=lambda item: item.timestamp, reverse=True)
         return OperationTimelineResponse(items=items[:filters.limit])
+
+    def _get_timeline_from_clickhouse(self, filters: LogInsightFilter, start_time: datetime, end_time: datetime) -> Optional[List[OperationTimelineItem]]:
+        """Query timeline items from ClickHouse. Returns None on failure."""
+        ch = self._ch_client
+        if ch is None:
+            return None
+        try:
+            conditions = [
+                "timestamp >= %(start_time)s",
+                "timestamp <= %(end_time)s",
+            ]
+            params: Dict[str, Any] = {
+                "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if filters.level:
+                conditions.append("level = %(level)s")
+                params["level"] = filters.level.upper()
+            if filters.keyword:
+                conditions.append("message ILIKE %(keyword)s")
+                params["keyword"] = f"%{filters.keyword}%"
+            if filters.request_id and filters.request_id != "-":
+                conditions.append("request_id = %(request_id)s")
+                params["request_id"] = filters.request_id
+
+            where = f" WHERE {' AND '.join(conditions)}"
+
+            sql = (
+                f"SELECT timestamp, level, module, message "
+                f"FROM system_structured_logs{where} "
+                f"ORDER BY timestamp DESC LIMIT %(limit)s"
+            )
+            params["limit"] = min(filters.limit * 4, 500)
+            rows = ch.query(sql, params)
+
+            items = []
+            for row in rows:
+                ts, level, module, msg = row
+                message = str(msg).strip()
+                items.append(OperationTimelineItem(
+                    timestamp=ts if isinstance(ts, datetime) else datetime.now(),
+                    event_type='log',
+                    level=str(level),
+                    module=str(module),
+                    summary=message[:140],
+                    detail=message[:500],
+                ))
+            return items
+        except Exception as e:
+            logger.warning(f"ClickHouse timeline query failed, falling back: {e}")
+            return None
 
     def get_log_files(self) -> List[LogFileInfo]:
         """Get list of all log files.

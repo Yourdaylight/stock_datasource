@@ -27,7 +27,10 @@ const getColor = (level: string) => {
               <span class="event-title">{{ item.summary }}</span>
               <span class="event-time">{{ item.timestamp }}</span>
             </div>
-            <div class="event-meta">{{ item.event_type }} · {{ item.module }}</div>
+            <div class="event-meta">
+              {{ item.event_type }} · {{ item.module }}
+              <span v-if="item.request_id && item.request_id !== '-'" class="event-request-id" :title="`Request ID: ${item.request_id}`"> · {{ item.request_id }}</span>
+            </div>
             <div v-if="item.detail" class="event-detail">{{ item.detail }}</div>
           </div>
         </t-timeline-item>
@@ -64,5 +67,11 @@ const getColor = (level: string) => {
   color: #374151;
   font-size: 12px;
   line-height: 1.5;
+}
+.event-request-id {
+  color: #3b82f6;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: default;
 }
 </style>

@@ -14,7 +14,12 @@ class LogParser:
 
     # Common log format patterns
     PATTERNS = [
-        # Loguru format: 2026-01-26 10:30:45 | INFO     | name:function:line - message
+        # NEW Loguru format with request_id & user_id:
+        # 2026-01-26 10:30:45.123 | INFO     | abc123 | user1 | name:function:line - message
+        re.compile(
+            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
+        ),
+        # OLD Loguru format: 2026-01-26 10:30:45 | INFO     | name:function:line - message
         re.compile(
             r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
         ),
@@ -73,7 +78,9 @@ class LogParser:
             'level': 'INFO',
             'module': self._get_module_from_filename(filename),
             'message': line.strip(),
-            'raw_line': line
+            'raw_line': line,
+            'request_id': '-',
+            'user_id': '-',
         }
 
     def _parse_line_strict(self, line: str, filename: str = "unknown") -> Optional[dict]:
@@ -149,18 +156,35 @@ class LogParser:
         """
         groups = match.groups()
 
-        # Pattern with timestamp, level, location, message (loguru format)
-        if len(groups) == 4 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG'):
-            timestamp_str, level, location, message = groups
+        # NEW format with request_id & user_id: 6 groups
+        # timestamp, level, request_id, user_id, location, message
+        if len(groups) == 6 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
+            timestamp_str, level, request_id, user_id, location, message = groups
             timestamp = self._parse_timestamp(timestamp_str)
-            # Extract module from location (name:function:line)
             module = self._extract_module_from_location(location.strip())
             return {
                 'timestamp': timestamp,
                 'level': level.strip().upper(),
                 'module': module,
                 'message': message,
-                'raw_line': line
+                'raw_line': line,
+                'request_id': request_id.strip(),
+                'user_id': user_id.strip(),
+            }
+
+        # OLD Loguru format: 4 groups — timestamp, level, location, message
+        if len(groups) == 4 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
+            timestamp_str, level, location, message = groups
+            timestamp = self._parse_timestamp(timestamp_str)
+            module = self._extract_module_from_location(location.strip())
+            return {
+                'timestamp': timestamp,
+                'level': level.strip().upper(),
+                'module': module,
+                'message': message,
+                'raw_line': line,
+                'request_id': '-',
+                'user_id': '-',
             }
 
         # Pattern with timestamp, level, module, message
@@ -172,7 +196,9 @@ class LogParser:
                 'level': level.upper(),
                 'module': module,
                 'message': message,
-                'raw_line': line
+                'raw_line': line,
+                'request_id': '-',
+                'user_id': '-',
             }
 
         # Pattern with level, message only
@@ -183,7 +209,9 @@ class LogParser:
                 'level': level.upper(),
                 'module': self._get_module_from_filename(filename),
                 'message': message,
-                'raw_line': line
+                'raw_line': line,
+                'request_id': '-',
+                'user_id': '-',
             }
 
         return {
@@ -191,7 +219,9 @@ class LogParser:
             'level': 'INFO',
             'module': self._get_module_from_filename(filename),
             'message': line,
-            'raw_line': line
+            'raw_line': line,
+            'request_id': '-',
+            'user_id': '-',
         }
 
     def _is_continuation_line(self, line: str) -> bool:

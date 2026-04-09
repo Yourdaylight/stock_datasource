@@ -27,21 +27,9 @@ from stock_datasource.services.task_queue import task_queue, TaskPriority
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
 
-# Configure logging - use /data/log in Docker, local logs/ dir otherwise
-LOG_DIR = Path("/data/log") if Path("/data").exists() and os.access("/data", os.W_OK) else Path(__file__).resolve().parents[3] / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-log_file = LOG_DIR / "task_worker.log"
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("task_worker")
+# Use unified Loguru logging
+from stock_datasource.utils.logger import logger, setup_logging
+setup_logging()
 
 
 def _classify_error_type(error_message: str) -> str:
@@ -698,6 +686,8 @@ def run_worker(worker_id: int):
     Args:
         worker_id: Worker ID
     """
+    # Re-initialize logging in forked child process
+    setup_logging()
     worker = TaskWorker(worker_id)
     worker.run()
 

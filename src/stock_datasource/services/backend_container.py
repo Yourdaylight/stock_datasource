@@ -13,19 +13,24 @@ from pathlib import Path
 def _build_commands() -> list[list[str]]:
     python_bin = sys.executable
     api_port = os.getenv("BACKEND_PORT", "6666")
+    debug = os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+
+    api_cmd = [
+        python_bin,
+        "-u",
+        "-m",
+        "uvicorn",
+        "stock_datasource.services.http_server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        api_port,
+    ]
+    if debug:
+        api_cmd.append("--reload")
 
     return [
-        [
-            python_bin,
-            "-u",
-            "-m",
-            "uvicorn",
-            "stock_datasource.services.http_server:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            api_port,
-        ],
+        api_cmd,
         [
             python_bin,
             "-u",

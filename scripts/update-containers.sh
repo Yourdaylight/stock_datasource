@@ -2,6 +2,7 @@
 # =============================================================================
 # 容器代码更新脚本
 # 适用场景：宿主机已有 langfuse-clickhouse-1 和 Langfuse，只需更新应用容器
+# 架构说明：MCP 服务器内嵌于 backend 容器中，无需单独构建 stock-mcp 容器
 # =============================================================================
 
 set -e
@@ -21,11 +22,21 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Determine docker compose command (v1 vs v2)
+if command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+elif docker compose version &> /dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+else
+    log_error "Neither docker-compose nor docker compose found!"
+    exit 1
+fi
+
 # =============================================================================
 # 参数解析
 # =============================================================================
 BUILD_FLAG=""
-SERVICE="all"  # backend, frontend, all
+SERVICE="all"  # backend, frontend, worker, all
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -41,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             SERVICE="frontend"
             shift
             ;;
+        --worker)
+            SERVICE="worker"
+            shift
+            ;;
         --no-cache)
             BUILD_FLAG="--build --no-cache"
             shift
@@ -53,12 +68,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-cache    重新构建镜像（不使用缓存）"
             echo "  --backend     只更新后端"
             echo "  --frontend    只更新前端"
+            echo "  --worker      只更新 Worker"
             echo "  -h, --help    显示帮助"
             echo ""
             echo "示例:"
             echo "  $0                    # 快速重启（使用现有镜像）"
             echo "  $0 --build            # 重新构建并更新"
             echo "  $0 --backend --build  # 只重新构建后端"
+            echo "  $0 --worker --build   # 只重新构建 Worker"
             exit 0
             ;;
         *)
@@ -102,16 +119,20 @@ log_info "环境检查通过"
 # =============================================================================
 case $SERVICE in
     backend)
-        log_info "更新后端容器..."
-        docker-compose up -d --force-recreate $BUILD_FLAG backend
+        log_info "更新后端容器（含内嵌 MCP 服务）..."
+        $COMPOSE_CMD up -d --force-recreate $BUILD_FLAG backend
         ;;
     frontend)
         log_info "更新前端容器..."
-        docker-compose up -d --force-recreate $BUILD_FLAG frontend
+        $COMPOSE_CMD up -d --force-recreate $BUILD_FLAG frontend
+        ;;
+    worker)
+        log_info "更新 Worker 容器..."
+        $COMPOSE_CMD up -d --force-recreate $BUILD_FLAG worker
         ;;
     all)
-        log_info "更新所有应用容器..."
-        docker-compose up -d --force-recreate $BUILD_FLAG backend frontend
+        log_info "更新所有应用容器（backend 含内嵌 MCP, frontend, worker）..."
+        $COMPOSE_CMD up -d --force-recreate $BUILD_FLAG backend frontend worker
         ;;
 esac
 
@@ -124,19 +145,19 @@ log_info "等待服务启动..."
 if [[ "$SERVICE" == "backend" || "$SERVICE" == "all" ]]; then
     echo -n "等待后端健康检查"
     for i in {1..60}; do
-        if docker-compose ps backend | grep -q "healthy"; then
+        if $COMPOSE_CMD ps backend | grep -q "healthy"; then
             echo ""
-            log_info "后端启动成功"
+            log_info "后端启动成功（含 MCP 服务）"
             break
         fi
         echo -n "."
         sleep 2
     done
     
-    if ! docker-compose ps backend | grep -q "healthy"; then
+    if ! $COMPOSE_CMD ps backend | grep -q "healthy"; then
         echo ""
         log_error "后端启动超时，查看日志:"
-        docker-compose logs --tail=20 backend
+        $COMPOSE_CMD logs --tail=20 backend
         exit 1
     fi
 fi
@@ -144,11 +165,23 @@ fi
 # 检查前端
 if [[ "$SERVICE" == "frontend" || "$SERVICE" == "all" ]]; then
     sleep 3
-    if docker-compose ps frontend | grep -q "Up"; then
+    if $COMPOSE_CMD ps frontend | grep -q "Up"; then
         log_info "前端启动成功"
     else
         log_error "前端启动失败"
-        docker-compose logs --tail=10 frontend
+        $COMPOSE_CMD logs --tail=10 frontend
+        exit 1
+    fi
+fi
+
+# 检查 Worker
+if [[ "$SERVICE" == "worker" || "$SERVICE" == "all" ]]; then
+    sleep 3
+    if $COMPOSE_CMD ps worker | grep -q "Up"; then
+        log_info "Worker 启动成功"
+    else
+        log_error "Worker 启动失败"
+        $COMPOSE_CMD logs --tail=10 worker
         exit 1
     fi
 fi
@@ -158,11 +191,12 @@ fi
 # =============================================================================
 echo ""
 log_info "容器状态:"
-docker-compose ps backend frontend
+$COMPOSE_CMD ps backend frontend worker
 
 echo ""
 log_info "ClickHouse 连接:"
-docker-compose logs --tail=3 backend | grep -E "(ClickHouse|Connected)" || true
+$COMPOSE_CMD logs --tail=3 backend | grep -E "(ClickHouse|Connected)" || true
 
 echo ""
 log_info "更新完成！访问地址: http://localhost:18080"
+log_info "MCP 端点: http://localhost:${MCP_PORT:-8001}/messages"

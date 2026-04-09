@@ -20,6 +20,7 @@ const filter = ref<LogFilter>({
   start_time: undefined,
   end_time: undefined,
   keyword: undefined,
+  request_id: undefined,
   page: 1,
   page_size: 100
 })
@@ -59,7 +60,18 @@ const windowOptions = [
 ]
 
 const sortedLogs = computed(() => [...logs.value].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)))
-const formatLogText = (log: LogEntry) => log.raw_line || `${log.timestamp} [${log.level}] [${log.module}] ${log.message}`
+const formatLogText = (log: LogEntry) => {
+  if (log.raw_line) return log.raw_line
+  const reqId = log.request_id && log.request_id !== '-' ? ` [${log.request_id}]` : ''
+  return `${log.timestamp} [${log.level}]${reqId} [${log.module}] ${log.message}`
+}
+
+const copyRequestId = (id: string) => {
+  if (id && id !== '-') {
+    navigator.clipboard.writeText(id)
+    MessagePlugin.success('Request ID 已复制')
+  }
+}
 
 const getInsightParams = () => ({ ...filter.value, window_hours: windowHours.value })
 
@@ -120,6 +132,7 @@ const handleReset = () => {
     start_time: undefined,
     end_time: undefined,
     keyword: undefined,
+    request_id: undefined,
     page: 1,
     page_size: 100
   }
@@ -207,6 +220,9 @@ onMounted(() => {
         <t-form-item label="关键词">
           <t-input v-model="filter.keyword" placeholder="模块/错误签名/关键字" style="width: 220px" clearable />
         </t-form-item>
+        <t-form-item label="Request ID">
+          <t-input v-model="filter.request_id" placeholder="按请求 ID 过滤" style="width: 180px" clearable />
+        </t-form-item>
         <t-form-item label="分析窗口">
           <t-select v-model="windowHours" :options="windowOptions" style="width: 140px" />
         </t-form-item>
@@ -283,6 +299,7 @@ onMounted(() => {
 .log-line { flex: 1; white-space: pre-wrap; word-wrap: break-word; }
 .copy-button { margin-left: 8px; opacity: 0; }
 .log-line-wrapper:hover .copy-button { opacity: 1; }
+.request-id-tag { margin-left: 6px; cursor: pointer; font-family: 'Consolas', monospace; font-size: 11px; }
 .center { text-align: center; padding: 22px; }
 .mt-3 { margin-top: 12px; }
 .mt-4 { margin-top: 16px; }

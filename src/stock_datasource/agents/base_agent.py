@@ -153,11 +153,20 @@ def get_langfuse_handler(
             logger.debug("Langfuse disabled or not configured")
             return None
         
+        # Inject request_id from context into metadata for trace correlation
+        from stock_datasource.utils.request_context import get_request_id
+        _metadata = dict(metadata) if metadata else {}
+        _metadata["request_id"] = get_request_id()
+        if user_id:
+            _metadata["langfuse_user_id"] = user_id
+        if session_id:
+            _metadata["langfuse_session_id"] = session_id
+        
         # Langfuse 3.x: user_id and session_id are passed via LangChain config metadata
         # CallbackHandler now only needs update_trace flag
         handler = CallbackHandler(update_trace=True)
         
-        logger.info(f"Langfuse handler created for user={user_id}, session={session_id}, trace={trace_name}")
+        logger.info(f"Langfuse handler created for user={user_id}, session={session_id}, trace={trace_name}, request_id={_metadata.get('request_id')}")
         return handler
         
     except Exception as e:

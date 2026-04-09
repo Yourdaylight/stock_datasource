@@ -13,6 +13,8 @@ class LogEntry(BaseModel):
     module: str = Field(..., description="Module name (e.g., backend, worker, server)")
     message: str = Field(..., description="Log message")
     raw_line: str = Field(..., description="Original raw log line")
+    request_id: Optional[str] = Field("-", description="Request ID for log correlation")
+    user_id: Optional[str] = Field("-", description="User ID for log correlation")
 
     class Config:
         json_encoders = {
@@ -27,6 +29,7 @@ class LogFilter(BaseModel):
     start_time: Optional[datetime] = Field(None, description="Start time filter")
     end_time: Optional[datetime] = Field(None, description="End time filter")
     keyword: Optional[str] = Field(None, max_length=200, description="Keyword search in message")
+    request_id: Optional[str] = Field(None, max_length=32, description="Filter by request ID")
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(50, ge=1, le=1000, description="Page size")
 
@@ -43,6 +46,7 @@ class LogInsightFilter(BaseModel):
     start_time: Optional[datetime] = Field(None, description="Start time filter")
     end_time: Optional[datetime] = Field(None, description="End time filter")
     keyword: Optional[str] = Field(None, max_length=200, description="Keyword search in message")
+    request_id: Optional[str] = Field(None, max_length=32, description="Filter by request ID")
     window_hours: int = Field(2, ge=1, le=72, description="Fallback time window when start/end not provided")
     limit: int = Field(50, ge=1, le=500, description="Result limit")
 

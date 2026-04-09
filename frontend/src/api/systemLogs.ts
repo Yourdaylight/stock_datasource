@@ -6,6 +6,8 @@ export interface LogEntry {
   module: string
   message: string
   raw_line: string
+  request_id?: string
+  user_id?: string
 }
 
 export interface LogFilter {
@@ -13,6 +15,7 @@ export interface LogFilter {
   start_time?: string
   end_time?: string
   keyword?: string
+  request_id?: string
   page?: number
   page_size?: number
 }
@@ -113,6 +116,7 @@ export interface OperationTimelineItem {
   module: string
   summary: string
   detail?: string
+  request_id?: string
 }
 
 export interface OperationTimelineResponse {
