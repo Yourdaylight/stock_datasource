@@ -3,6 +3,7 @@
 import logging
 import importlib
 import inspect
+import os
 from pathlib import Path
 from typing import Any, Optional, Tuple
 import json
@@ -347,11 +348,20 @@ def create_app():
         """
         auth_header = request.headers.get("Authorization", "")
         if not auth_header:
-            return None, "none", ""
+            auth_header = ""
         
         token = auth_header
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
+
+        client_host = (request.client.host if request.client else "") or ""
+        internal_bearer = os.getenv("MCP_INTERNAL_BEARER", "").strip()
+        if internal_bearer and token == internal_bearer and client_host in {"127.0.0.1", "::1", "localhost"}:
+            return {
+                "id": "internal-backend",
+                "username": "internal-backend",
+                "source": "internal",
+            }, "internal", ""
         
         if not token:
             return None, "none", ""

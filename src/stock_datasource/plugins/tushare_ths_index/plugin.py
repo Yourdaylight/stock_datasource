@@ -104,8 +104,7 @@ class TuShareTHSIndexPlugin(BasePlugin):
         # Handle count field - convert to int, fill NA with None for Nullable(Int32)
         if "count" in data.columns:
             data["count"] = pd.to_numeric(data["count"], errors="coerce")
-            # Convert to object type to allow None values
-            data["count"] = data["count"].where(pd.notna(data["count"]), None)
+            data["count"] = data["count"].round().astype("Int32")
 
         # Handle list_date field
         if "list_date" in data.columns:

@@ -1,21 +1,45 @@
 """Pydantic schemas for authentication module."""
 
-from pydantic import BaseModel, EmailStr, Field
+import re
+
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, field_validator
 from datetime import datetime
 from typing import Optional
 
 
+LOCAL_EMAIL_PATTERN = re.compile(r"^[^@\s]+@localhost$", re.IGNORECASE)
+EMAIL_ADAPTER = TypeAdapter(EmailStr)
+
+
+def _normalize_auth_email(value: str) -> str:
+    """Allow standard emails and the seeded local admin address."""
+    email = value.strip().lower()
+    if LOCAL_EMAIL_PATTERN.match(email):
+        return email
+    return str(EMAIL_ADAPTER.validate_python(email))
+
+
 class UserRegisterRequest(BaseModel):
     """User registration request."""
-    email: EmailStr = Field(..., description="用户邮箱")
+    email: str = Field(..., description="用户邮箱")
     password: str = Field(..., min_length=6, max_length=128, description="密码，至少6位")
     username: Optional[str] = Field(None, max_length=50, description="用户名（可选，默认使用邮箱前缀）")
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return _normalize_auth_email(value)
 
 
 class UserLoginRequest(BaseModel):
     """User login request."""
-    email: EmailStr = Field(..., description="用户邮箱")
+    email: str = Field(..., description="用户邮箱")
     password: str = Field(..., description="密码")
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return _normalize_auth_email(value)
 
 
 class TokenResponse(BaseModel):
@@ -44,7 +68,12 @@ class RegisterResponse(BaseModel):
 
 class WhitelistEmailRequest(BaseModel):
     """Add email to whitelist request."""
-    email: EmailStr = Field(..., description="要添加的邮箱")
+    email: str = Field(..., description="要添加的邮箱")
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return _normalize_auth_email(value)
 
 
 class WhitelistEmailResponse(BaseModel):

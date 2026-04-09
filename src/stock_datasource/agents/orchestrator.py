@@ -342,6 +342,61 @@ class OrchestratorAgent:
                 return f"请对{hk_codes[0]}进行港股财务分析"
         return query
 
+    async def _execute_local_stock_fallback_stream(
+        self,
+        query: str,
+        intent: str,
+        stock_codes: List[str],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Handle common stock-analysis queries without any LLM dependency."""
+        if not stock_codes:
+            return
+
+        query_lower = query.lower()
+        tech_keywords = ['技术', '技术面', '技术指标', 'macd', 'rsi', 'kdj', '均线', '趋势']
+        kline_keywords = ['k线', 'kline', '日线', '走势', '蜡烛图']
+        wants_tech = any(keyword in query_lower for keyword in tech_keywords)
+        wants_kline = any(keyword in query_lower for keyword in kline_keywords)
+
+        if not wants_tech and not wants_kline:
+            return
+
+        from stock_datasource.agents.tools import calculate_technical_indicators, get_stock_kline
+
+        ts_code = stock_codes[0]
+        sections: List[str] = []
+
+        yield {
+            "type": "thinking",
+            "agent": "LocalFallback",
+            "status": f"正在直接分析 {ts_code}",
+            "intent": intent,
+            "stock_codes": stock_codes,
+        }
+
+        if wants_tech:
+            sections.append(calculate_technical_indicators(ts_code))
+        if wants_kline:
+            sections.append(get_stock_kline(ts_code, days=30))
+
+        content = "\n\n".join(section for section in sections if section)
+        if not content:
+            return
+
+        yield {
+            "type": "content",
+            "content": content,
+        }
+        yield {
+            "type": "done",
+            "metadata": {
+                "agent": "LocalFallback",
+                "intent": intent,
+                "stock_codes": stock_codes,
+                "routed_by": "OrchestratorAgent",
+            },
+        }
+
     def _share_data_to_next_agent(
         self,
         session_id: str,
@@ -490,7 +545,7 @@ class OrchestratorAgent:
         intent: str,
         stock_codes: List[str],
     ) -> AgentResult:
-        client = MCPClient(server_url=os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp"))
+        client = MCPClient()
         await client.connect()
         tool_calls = []
         try:
@@ -554,7 +609,7 @@ class OrchestratorAgent:
         intent: str,
         stock_codes: List[str],
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        client = MCPClient(server_url=os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp"))
+        client = MCPClient()
         tool_calls = []
         try:
             await client.connect()
@@ -640,7 +695,7 @@ class OrchestratorAgent:
         This method progressively reasons about the query and selects appropriate
         MCP tools, showing the thinking process to the user.
         """
-        client = MCPClient(server_url=os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp"))
+        client = MCPClient()
         tool_calls = []
         react_steps = []
         
@@ -1120,17 +1175,12 @@ Action Input: {{}}
                     elif event_type == "error":
                         has_error = True
                         error_msg = event.get("error", "Unknown error")
+                        continue
                     yield event
             except Exception as e:
                 has_error = True
                 error_msg = str(e)
                 logger.error(f"Agent {plan[0]} execution failed: {e}")
-                # Emit error event
-                yield {
-                    "type": "error",
-                    "error": f"{plan[0]} 执行出错: {error_msg}",
-                    "agent": plan[0],
-                }
             
             # If agent failed, try to provide a graceful response
             if has_error:
@@ -1138,8 +1188,15 @@ Action Input: {{}}
                     "type": "content",
                     "content": f"\n\n> ⚠️ {plan[0]} 在处理过程中遇到问题: {error_msg}\n\n我正在尝试其他方式为您解答...",
                 }
-                # Fallback to MCP ReAct mode
-                async for event in self._execute_with_mcp_react_stream(query, context, intent, stock_codes):
+
+                local_fallback_used = False
+                async for event in self._execute_local_stock_fallback_stream(query, intent, stock_codes):
+                    local_fallback_used = True
+                    yield event
+                if local_fallback_used:
+                    return
+
+                async for event in self._execute_with_mcp_stream(query, context, intent, stock_codes):
                     yield event
             return
         

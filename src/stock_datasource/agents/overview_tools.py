@@ -67,6 +67,15 @@ def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> Optional[str]:
     return None
 
 
+def _get_best_available_trade_date() -> Optional[str]:
+    """Pick the freshest populated market date across overview data sources."""
+    for table in ["ods_idx_factor_pro", "fact_daily_bar", "ods_etf_fund_daily"]:
+        latest = _get_latest_trade_date(table)
+        if latest:
+            return latest
+    return None
+
+
 def _to_ch_date(date_yyyymmdd: str) -> str:
     """Convert YYYYMMDD string to YYYY-MM-DD for ClickHouse Date comparison."""
     if len(date_yyyymmdd) == 8 and '-' not in date_yyyymmdd:
@@ -97,7 +106,7 @@ def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
         包含主要指数涨跌信息的字典
     """
     if not date:
-        date = _get_latest_trade_date()
+        date = _get_best_available_trade_date()
     
     if not date:
         return {"error": "无法获取交易日期"}
@@ -232,7 +241,7 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
         包含板块涨跌排名的字典
     """
     if not date:
-        date = _get_latest_trade_date()
+        date = _get_best_available_trade_date()
     
     if not date:
         return {"error": "无法获取交易日期"}
@@ -372,7 +381,7 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
         包含市场情绪指标的字典
     """
     if not date:
-        date = _get_latest_trade_date()
+        date = _get_best_available_trade_date()
     
     if not date:
         return {"error": "无法获取交易日期"}
@@ -465,7 +474,7 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
         包含完整市场摘要的字典
     """
     if not date:
-        date = _get_latest_trade_date()
+        date = _get_best_available_trade_date()
     
     # Empty-data defaults (stable structure for frontend)
     empty_sentiment = {"score": 50, "label": "中性", "description": "暂无数据"}

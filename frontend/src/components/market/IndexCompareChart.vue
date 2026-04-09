@@ -24,11 +24,11 @@ const dateRange = ref<'7' | '30' | '90'>('30')
 // Default colors for lines
 const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272']
 
-// Default indices to compare (major A-share indices)
+// Default indices to compare (valid THS broad-market indices with daily data)
 const defaultIndices = [
-  { ts_code: '885001.TI', name: '同花顺全A', color: colors[0] },
-  { ts_code: '885050.TI', name: '同花顺科技', color: colors[1] },
-  { ts_code: '885036.TI', name: '同花顺消费', color: colors[2] },
+  { ts_code: '700001.TI', name: '同花顺全A(加权)', color: colors[0] },
+  { ts_code: '700031.TI', name: '同花顺大盘', color: colors[1] },
+  { ts_code: '700030.TI', name: '同花顺小盘', color: colors[2] },
 ]
 
 const dateRangeOptions = [

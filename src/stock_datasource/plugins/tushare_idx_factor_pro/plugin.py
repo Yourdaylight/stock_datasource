@@ -137,10 +137,16 @@ class TuShareIdxFactorProPlugin(BasePlugin):
             'taq_up_bfq', 'trix_bfq', 'trma_bfq', 'vr_bfq', 'wr_bfq', 'wr1_bfq',
             'xsii_td1_bfq', 'xsii_td2_bfq', 'xsii_td3_bfq', 'xsii_td4_bfq'
         ]
+
+        integer_columns = ['downdays', 'updays', 'lowdays', 'topdays']
         
         for col in numeric_columns:
             if col in data.columns:
                 data[col] = pd.to_numeric(data[col], errors='coerce')
+
+        for col in integer_columns:
+            if col in data.columns:
+                data[col] = pd.to_numeric(data[col], errors='coerce').round().astype('Int64')
         
         # Rename pct_change to pct_chg for table compatibility
         if 'pct_change' in data.columns:

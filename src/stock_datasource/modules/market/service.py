@@ -10,6 +10,7 @@ This service provides market data and technical analysis capabilities:
 
 from typing import List, Dict, Any, Optional
 from enum import Enum
+import math
 import logging
 import pandas as pd
 from datetime import datetime, timedelta
@@ -22,6 +23,22 @@ from .indicators import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(value: Any, default: Optional[float] = 0.0) -> Optional[float]:
+    """Convert values to JSON-safe floats, collapsing NaN/Inf to a fallback."""
+    if value is None or pd.isna(value):
+        return default
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+
+    if not math.isfinite(numeric):
+        return default
+
+    return numeric
 
 
 class MarketType(Enum):
@@ -846,11 +863,11 @@ class MarketService:
                 data.append({
                     "ts_code": row.get("ts_code"),
                     "name": row.get("name") or row.get("ts_code", "").split(".")[0],
-                    "close": float(row.get("close") or 0),
-                    "pct_chg": float(row.get("pct_chg") or 0),
-                    "amount": float(row.get("amount") or 0),
-                    "turnover_rate": float(row.get("turnover_rate") or 0) if row.get("turnover_rate") else None,
-                    "circ_mv": float(row.get("circ_mv") or 0) if row.get("circ_mv") else None,
+                    "close": _safe_float(row.get("close"), 0.0),
+                    "pct_chg": _safe_float(row.get("pct_chg"), 0.0),
+                    "amount": _safe_float(row.get("amount"), 0.0),
+                    "turnover_rate": _safe_float(row.get("turnover_rate"), None),
+                    "circ_mv": _safe_float(row.get("circ_mv"), None),
                 })
             
             return {
