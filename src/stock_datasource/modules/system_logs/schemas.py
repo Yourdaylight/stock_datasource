@@ -165,6 +165,7 @@ class OperationTimelineItem(BaseModel):
     module: str
     summary: str
     detail: Optional[str] = None
+    request_id: Optional[str] = Field(None, description="Request ID for timeline correlation")
 
 
 class OperationTimelineResponse(BaseModel):

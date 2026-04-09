@@ -182,9 +182,19 @@ class TestImportPendingFiles:
             assert count == 1
             mock_import.assert_called_once()
 
-    def test_skips_active_jsonl(self, tmp_path):
+    def test_rotates_and_imports_active_jsonl(self, tmp_path):
         active = tmp_path / "stock_datasource.jsonl"
-        active.write_text("active")
+        active.write_text('{"level": "INFO", "line": 1}\n')
+
+        with patch("stock_datasource.utils.log_sink_clickhouse._import_file", return_value=True) as mock_import:
+            count = import_pending_files(tmp_path)
+            assert count == 1
+            assert not active.exists()
+            mock_import.assert_called_once()
+
+    def test_skips_empty_active_jsonl(self, tmp_path):
+        active = tmp_path / "stock_datasource.jsonl"
+        active.write_text("")
 
         with patch("stock_datasource.utils.log_sink_clickhouse._import_file") as mock_import:
             count = import_pending_files(tmp_path)

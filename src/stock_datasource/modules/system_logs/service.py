@@ -441,6 +441,7 @@ class LogService:
                     module=str(log.get('module', 'unknown')),
                     summary=message[:140],
                     detail=message[:500],
+                    request_id=str(log.get('request_id', '-') or '-'),
                 )
             )
 
@@ -476,7 +477,7 @@ class LogService:
             where = f" WHERE {' AND '.join(conditions)}"
 
             sql = (
-                f"SELECT timestamp, level, module, message "
+                f"SELECT timestamp, level, module, message, request_id "
                 f"FROM system_structured_logs{where} "
                 f"ORDER BY timestamp DESC LIMIT %(limit)s"
             )
@@ -485,7 +486,7 @@ class LogService:
 
             items = []
             for row in rows:
-                ts, level, module, msg = row
+                ts, level, module, msg, request_id = row
                 message = str(msg).strip()
                 items.append(OperationTimelineItem(
                     timestamp=ts if isinstance(ts, datetime) else datetime.now(),
@@ -494,6 +495,7 @@ class LogService:
                     module=str(module),
                     summary=message[:140],
                     detail=message[:500],
+                    request_id=str(request_id or '-'),
                 ))
             return items
         except Exception as e:

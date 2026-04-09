@@ -3,6 +3,7 @@
 import logging
 import threading
 import io
+import re
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import pandas as pd
@@ -12,6 +13,33 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _to_clickhouse_literal(value: Any) -> str:
+    """Serialize a Python value into a safe ClickHouse SQL literal."""
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, datetime):
+        return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
+    if isinstance(value, date):
+        return f"'{value.strftime('%Y-%m-%d')}'"
+    if isinstance(value, (list, tuple, set)):
+        return "[" + ", ".join(_to_clickhouse_literal(item) for item in value) + "]"
+
+    text = str(value)
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("\0", "")
+    )
+    return f"'{escaped}'"
 
 
 class ClickHouseHttpClient:
@@ -51,21 +79,16 @@ class ClickHouseHttpClient:
     
     def _request(self, query: str, params: Optional[Dict] = None, data: str = None) -> str:
         """Execute HTTP request to ClickHouse."""
-        # Handle parameterized queries by substituting params
+        # Safely render bound parameters into ClickHouse SQL literals for the
+        # HTTP fallback client. The native TCP client keeps true parameterization.
         if params:
             for key, value in params.items():
                 placeholder = f"%({key})s"
-                if isinstance(value, str):
-                    escaped = value.replace("'", "\\'")
-                    query = query.replace(placeholder, f"'{escaped}'")
-                elif isinstance(value, (int, float)):
-                    query = query.replace(placeholder, str(value))
-                elif isinstance(value, datetime):
-                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'")
-                elif isinstance(value, date):
-                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d')}'")
-                else:
-                    query = query.replace(placeholder, str(value))
+                query = query.replace(placeholder, _to_clickhouse_literal(value))
+
+            unreplaced = re.findall(r"%\(([^)]+)\)s", query)
+            if unreplaced:
+                raise ValueError(f"Unbound ClickHouse parameters in HTTP query: {unreplaced}")
         
         req_params = {"database": self.database}
         

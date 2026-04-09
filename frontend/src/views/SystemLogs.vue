@@ -241,7 +241,7 @@ onMounted(() => {
       </t-space>
     </t-card>
 
-    <OverviewCards :stats="stats" :loading="insightLoading" />
+    <OverviewCards :stats="stats" :window-hours="windowHours" :loading="insightLoading" />
 
     <t-row :gutter="16" class="mt-4">
       <t-col :span="4">

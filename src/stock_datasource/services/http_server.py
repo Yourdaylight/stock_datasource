@@ -560,28 +560,22 @@ def create_app() -> FastAPI:
 
         start_time = datetime.now()
 
-        # Process request
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
 
-        # Calculate duration
-        process_time = (datetime.now() - start_time).total_seconds()
+            process_time = (datetime.now() - start_time).total_seconds()
+            loguru_logger.info(
+                f"{request.client.host}:{request.client.port} - "
+                f'"{request.method} {request.url.path}'
+                f'{"?" + request.url.query if request.url.query else ""}" '
+                f"{response.status_code} - "
+                f"{process_time:.3f}s"
+            )
 
-        # Log with request context
-        loguru_logger.info(
-            f"{request.client.host}:{request.client.port} - "
-            f'"{request.method} {request.url.path}'
-            f'{"?" + request.url.query if request.url.query else ""}" '
-            f"{response.status_code} - "
-            f"{process_time:.3f}s"
-        )
-
-        # Write request ID into response headers
-        response.headers["X-Request-ID"] = req_id
-
-        # Reset context vars
-        reset_request_context()
-
-        return response
+            response.headers["X-Request-ID"] = req_id
+            return response
+        finally:
+            reset_request_context()
     
     return app
 

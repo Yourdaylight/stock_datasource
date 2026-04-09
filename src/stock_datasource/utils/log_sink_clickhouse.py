@@ -8,6 +8,7 @@ On success the source file is deleted; on failure it is kept for the next retry.
 import json
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -99,6 +100,24 @@ def _import_file(filepath: Path) -> bool:
         return False
 
 
+def _rotate_active_jsonl(logs_dir: Path) -> Optional[Path]:
+    """Rename the active JSONL file into an importable snapshot.
+
+    The logger writes one line at a time and reopens the file per write, so an
+    atomic rename is safe and lets the watcher ingest logs without waiting for a
+    process restart or an unsupported Loguru rotation callback.
+    """
+    active_file = logs_dir / "stock_datasource.jsonl"
+    if not active_file.exists() or active_file.stat().st_size == 0:
+        return None
+
+    rotated_file = logs_dir / (
+        f"stock_datasource.jsonl.{datetime.now().strftime('%Y-%m-%d_%H-%M-%S_%f')}.jsonl"
+    )
+    active_file.rename(rotated_file)
+    return rotated_file
+
+
 def import_pending_files(logs_dir: Path) -> int:
     """Scan for pending `.jsonl.N` files and import them.
 
@@ -111,11 +130,10 @@ def import_pending_files(logs_dir: Path) -> int:
         return 0
 
     count = 0
+    with _import_lock:
+        _rotate_active_jsonl(logs_dir)
+
     for filepath in sorted(logs_dir.glob("*.jsonl.*")):
-        # Skip the active .jsonl file (no numeric suffix that matches rotation pattern)
-        # Rotated files look like: stock_datasource.jsonl.2026-04-09_15-30-00_123456.jsonl
-        if filepath.name.endswith(".jsonl") and "." not in filepath.stem.replace("stock_datasource", ""):
-            continue
         with _import_lock:
             if _import_file(filepath):
                 count += 1
