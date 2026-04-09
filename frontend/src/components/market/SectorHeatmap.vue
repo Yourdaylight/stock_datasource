@@ -222,6 +222,9 @@ onUnmounted(() => {
       :class="{ loading }"
     >
       <t-loading v-if="loading" size="small" />
+      <div v-else-if="heatmapData.length === 0" class="empty-heatmap">
+        暂无板块热力数据
+      </div>
     </div>
   </div>
 </template>
@@ -273,5 +276,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.empty-heatmap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
 }
 </style>

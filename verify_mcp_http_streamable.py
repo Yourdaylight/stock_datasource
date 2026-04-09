@@ -51,7 +51,7 @@ def verify_fastapi_app():
             print(f"  - {route}")
         
         # Check for required endpoints
-        required_endpoints = ['/health', '/info', '/mcp']
+        required_endpoints = ['/health', '/info', '/messages']
         for endpoint in required_endpoints:
             if endpoint in routes:
                 print(f"  ✓ {endpoint} endpoint found")
@@ -153,13 +153,14 @@ def main():
         print_section("✓ All Verifications Passed!")
         print("MCP HTTP Streamable implementation is working correctly.")
         print("\nYou can now:")
-        print("  1. Start MCP server: python -m stock_datasource.services.mcp_server")
+        print("  1. Start MCP server locally: python -m stock_datasource.services.mcp_server")
+        print("     or start Docker backend container which now also hosts MCP")
         print("  2. Connect MCP client: MCPClient()")
         print("  3. Call tools: await client.call_tool('tool_name', **args)")
         print("\nEndpoints:")
         print("  • Health check: http://localhost:8001/health")
         print("  • Server info: http://localhost:8001/info")
-        print("  • MCP endpoint: http://localhost:8001/mcp")
+        print("  • MCP endpoint: http://localhost:8001/messages")
         print("  • API docs: http://localhost:8001/docs")
         
         return 0

@@ -26,7 +26,12 @@ const scrollToBottom = () => {
 }
 
 const handleSend = async (content: string) => {
-  await chatStore.sendMessage(content)
+  try {
+    await chatStore.sendMessage(content)
+  } catch (e) {
+    console.error('Failed to send chat message:', e)
+    MessagePlugin.error('发送消息失败，请重新登录后重试')
+  }
 }
 
 // Quick suggestions
@@ -63,15 +68,24 @@ const getSessionTitle = (session: any) => {
 
 // Create new conversation
 const handleNewConversation = async () => {
-  await chatStore.newConversation()
-  MessagePlugin.success('已创建新对话')
+  try {
+    await chatStore.newConversation()
+    MessagePlugin.success('已创建新对话')
+  } catch (e) {
+    console.error('Failed to create new conversation:', e)
+    MessagePlugin.error('创建新对话失败，请检查登录状态')
+  }
 }
 
 // Switch to a session
 const handleSwitchSession = async (sessionId: string) => {
   if (sessionId === chatStore.sessionId) return
-  await chatStore.switchSession(sessionId)
-  showSessionsSidebar.value = false
+  const success = await chatStore.switchSession(sessionId)
+  if (success) {
+    showSessionsSidebar.value = false
+  } else {
+    MessagePlugin.error('切换历史对话失败，请检查登录状态或会话权限')
+  }
 }
 
 // Delete a session
@@ -183,8 +197,12 @@ watch(
 )
 
 onMounted(async () => {
-  // Restore previous session or create new one
-  await chatStore.restoreOrInitSession()
+  try {
+    await chatStore.restoreOrInitSession()
+  } catch (e) {
+    console.error('Failed to restore chat session:', e)
+    MessagePlugin.error('加载历史对话失败，请重新登录后重试')
+  }
   
   // Preload workflows
   try {

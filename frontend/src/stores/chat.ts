@@ -209,50 +209,68 @@ export const useChatStore = defineStore('chat', () => {
 
   // ============ Session Management Functions ============
 
+  const applyActiveSession = (targetSessionId: string, title = '') => {
+    sessionId.value = targetSessionId
+    currentSessionTitle.value = title
+    saveSessionToStorage()
+  }
+
   // Initialize or create a new session
   const initSession = async () => {
-    try {
-      const result = await chatApi.createSession()
-      sessionId.value = result.session_id
-      currentSessionTitle.value = ''
-      messages.value = []
-      saveSessionToStorage()
-      // Reload sessions list
-      await loadSessions()
-    } catch (e) {
-      sessionId.value = `session_${Date.now()}`
-      saveSessionToStorage()
-    }
+    const result = await chatApi.createSession()
+    sessionId.value = result.session_id
+    currentSessionTitle.value = ''
+    messages.value = []
+    saveSessionToStorage()
+    await loadSessions()
   }
   
   // Restore session from localStorage or create new one
   const restoreOrInitSession = async () => {
     const savedSessionId = loadSessionFromStorage()
-    
+    await loadSessions()
+
     if (savedSessionId) {
-      // Try to restore saved session
-      sessionId.value = savedSessionId
-      
-      // First try to load from localStorage (instant)
+      const savedSession = sessions.value.find(s => s.session_id === savedSessionId)
+      if (savedSession) {
+        applyActiveSession(savedSession.session_id, savedSession.title || '')
+
+        const localMessages = loadMessagesFromStorage()
+        if (localMessages.length > 0) {
+          messages.value = localMessages
+        }
+
+        try {
+          await loadHistory(savedSession.session_id)
+          return
+        } catch (e) {
+          console.warn('Failed to restore saved session from server:', e)
+          clearSessionFromStorage(savedSession.session_id)
+        }
+      } else {
+        localStorage.removeItem(SESSION_STORAGE_KEY)
+      }
+    }
+
+    const latestSession = sessions.value[0]
+    if (latestSession) {
+      applyActiveSession(latestSession.session_id, latestSession.title || '')
+
       const localMessages = loadMessagesFromStorage()
       if (localMessages.length > 0) {
         messages.value = localMessages
       }
-      
-      // Then try to load from server (may have more recent data)
+
       try {
-        await loadHistory()
+        await loadHistory(latestSession.session_id)
       } catch (e) {
-        // If server load fails, keep localStorage messages
-        console.warn('Failed to load history from server, using localStorage:', e)
+        console.warn('Failed to load latest session from server:', e)
+        messages.value = localMessages
       }
-      
-      // Load sessions list
-      await loadSessions()
-    } else {
-      // No saved session, create new one
-      await initSession()
+      return
     }
+
+    await initSession()
   }
 
   // Load user's sessions
@@ -262,8 +280,10 @@ export const useChatStore = defineStore('chat', () => {
       const result = await chatApi.getSessions(limit, offset)
       sessions.value = result.sessions
       sessionsTotal.value = result.total
+      return true
     } catch (e) {
       console.warn('Failed to load sessions:', e)
+      return false
     } finally {
       sessionsLoading.value = false
     }
@@ -272,24 +292,32 @@ export const useChatStore = defineStore('chat', () => {
   // Switch to a different session
   const switchSession = async (newSessionId: string) => {
     if (newSessionId === sessionId.value) return
-    
-    sessionId.value = newSessionId
+
+    const previousSessionId = sessionId.value
+    const previousMessages = [...messages.value]
+    const previousTitle = currentSessionTitle.value
+    const session = sessions.value.find(s => s.session_id === newSessionId)
+
+    applyActiveSession(newSessionId, session?.title || '')
     messages.value = []
     streamingContent.value = ''
-    saveSessionToStorage()
-    
-    // Find session title
-    const session = sessions.value.find(s => s.session_id === newSessionId)
-    currentSessionTitle.value = session?.title || ''
-    
-    // First try to load from localStorage (instant)
+
     const localMessages = loadMessagesFromStorage()
     if (localMessages.length > 0) {
       messages.value = localMessages
     }
-    
-    // Then try to load from server (may have more recent data)
-    await loadHistory()
+
+    try {
+      await loadHistory(newSessionId)
+      return true
+    } catch (e) {
+      console.error('Failed to switch session:', e)
+      sessionId.value = previousSessionId
+      currentSessionTitle.value = previousTitle
+      messages.value = previousMessages
+      saveSessionToStorage()
+      return false
+    }
   }
 
   // Delete a session
@@ -645,23 +673,23 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  const loadHistory = async () => {
-    if (!sessionId.value) return
-    try {
-      const result = await chatApi.getHistory(sessionId.value)
-      messages.value = result.messages
-      // Load visualizations from historical message metadata
-      for (const msg of result.messages) {
-        if (msg.role === 'assistant' && msg.metadata?.visualizations) {
-          const vizList = msg.metadata.visualizations as VisualizationEvent['visualization'][]
-          if (vizList.length > 0) {
-            messageVisualizations.value[msg.id] = vizList
-          }
+  const loadHistory = async (targetSessionId = sessionId.value) => {
+    if (!targetSessionId) return false
+
+    const result = await chatApi.getHistory(targetSessionId)
+    messages.value = result.messages
+    messageVisualizations.value = {}
+
+    for (const msg of result.messages) {
+      if (msg.role === 'assistant' && msg.metadata?.visualizations) {
+        const vizList = msg.metadata.visualizations as VisualizationEvent['visualization'][]
+        if (vizList.length > 0) {
+          messageVisualizations.value[msg.id] = vizList
         }
       }
-    } catch (e) {
-      // Ignore
     }
+
+    return true
   }
 
   const clearMessages = () => {

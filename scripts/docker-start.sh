@@ -85,11 +85,17 @@ usage() {
 }
 
 load_env() {
-    # Load variables from .env so ports match docker-compose mappings
-    if [ -f ".env" ]; then
+    # Load variables from .env so ports match docker-compose mappings.
+    # Treat an empty .env as unconfigured and fall back to .env.docker.
+    if [ -s ".env" ]; then
         set -a
         # shellcheck disable=SC1091
         source .env
+        set +a
+    elif [ -f ".env.docker" ]; then
+        set -a
+        # shellcheck disable=SC1091
+        source .env.docker
         set +a
     fi
 

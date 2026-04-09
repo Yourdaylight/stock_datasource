@@ -74,9 +74,9 @@ done
 log_info "检查环境..."
 
 # 检查 .env 文件
-if [ ! -f ".env" ]; then
+if [ ! -s ".env" ]; then
     if [ -f ".env.docker" ]; then
-        log_warn ".env 不存在，从 .env.docker 复制"
+        log_warn ".env 不存在或为空，从 .env.docker 复制"
         cp .env.docker .env
     else
         log_error ".env 和 .env.docker 都不存在"

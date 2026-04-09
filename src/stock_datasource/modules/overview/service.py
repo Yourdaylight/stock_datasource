@@ -62,6 +62,14 @@ class OverviewService:
     
     def __init__(self):
         self.db = _get_db()
+
+    def _get_best_available_trade_date(self) -> Optional[str]:
+        """Pick the freshest available market date across overview sources."""
+        for table in ["ods_idx_factor_pro", "fact_daily_bar", "ods_etf_fund_daily"]:
+            latest = self._get_latest_trade_date(table)
+            if latest:
+                return latest
+        return None
     
     def _get_latest_trade_date(self, table: str = "ods_idx_factor_pro") -> Optional[str]:
         """Get latest trade date from table."""
@@ -95,7 +103,7 @@ class OverviewService:
         """
         # Get latest date if not specified
         if not date:
-            date = self._get_latest_trade_date()
+            date = self._get_best_available_trade_date()
         
         if not date:
             return {
@@ -235,7 +243,7 @@ class OverviewService:
             Dict with trade_date, sort_by, data
         """
         if not date:
-            date = self._get_latest_trade_date("ods_etf_fund_daily")
+            date = self._get_latest_trade_date("ods_etf_fund_daily") or self._get_best_available_trade_date()
         
         if not date:
             return {
@@ -263,7 +271,7 @@ class OverviewService:
             Dict with trade_date and indices data
         """
         if not date:
-            date = self._get_latest_trade_date()
+            date = self._get_best_available_trade_date()
         
         if not date:
             return {
@@ -300,7 +308,7 @@ class OverviewService:
         from stock_datasource.agents import get_overview_agent
         
         if not date:
-            date = self._get_latest_trade_date()
+            date = self._get_best_available_trade_date()
         
         agent = get_overview_agent()
         

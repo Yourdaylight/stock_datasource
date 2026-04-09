@@ -6,6 +6,7 @@ WORKDIR /app
 ARG APT_MIRROR=mirrors.aliyun.com
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ARG UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG UV_VERSION=0.11.4
 
 # Set timezone to Asia/Shanghai
 ENV TZ=Asia/Shanghai
@@ -21,10 +22,8 @@ RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for faster dependency management
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
-    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx
+# Install uv from the configured Python package index to avoid astral.sh latency in CN networks
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
 # Copy dependency files and README (required by pyproject.toml)
 COPY pyproject.toml uv.lock README.md ./

@@ -42,3 +42,7 @@ scripts/collection_and_push/rt-receiver-arm64
 .local/
 
 data/
+.gstack/
+src/stock_datasource/modules/realtime_minute/*.db
+src/stock_datasource/modules/realtime_minute/*.db-shm
+src/stock_datasource/modules/realtime_minute/*.db-wal
