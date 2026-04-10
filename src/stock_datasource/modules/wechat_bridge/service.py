@@ -28,6 +28,13 @@ LOG_FILE = LOCAL_DIR / "picoclaw.log"
 # GitHub release info
 PICOCLAW_GITHUB_REPO = "sipeed/picoclaw"
 
+# 国内镜像列表（按优先级排列，DIRECT 表示 GitHub 直连）
+_DEFAULT_MIRRORS = [
+    "https://ghfast.top",
+    "https://ghproxy.cc",
+    "DIRECT",
+]
+
 
 def _detect_arch() -> tuple[str, str]:
     """Detect system architecture for binary download.
@@ -65,9 +72,15 @@ def _detect_arch() -> tuple[str, str]:
 
 
 def _get_latest_version() -> str:
-    """Query GitHub API for latest picoclaw release tag."""
-    url = f"https://api.github.com/repos/{PICOCLAW_GITHUB_REPO}/releases/latest"
-    req = urllib.request.Request(url, headers={
+    """Query GitHub API for latest picoclaw release tag.
+
+    Tries GitHub API directly first, then falls back to mirror proxies
+    for users in China where api.github.com may be blocked.
+    """
+    api_url = f"https://api.github.com/repos/{PICOCLAW_GITHUB_REPO}/releases/latest"
+
+    # Try direct connection first
+    req = urllib.request.Request(api_url, headers={
         "User-Agent": "stock-datasource",
         "Accept": "application/vnd.github+json",
     })
@@ -75,19 +88,76 @@ def _get_latest_version() -> str:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
         tag = data.get("tag_name")
-        if not tag:
-            raise RuntimeError("No tag_name in GitHub release response")
-        return tag
+        if tag:
+            return tag
     except Exception as e:
-        # Fallback to a known good version
-        logger.warning(f"Failed to fetch latest version from GitHub API ({e}), falling back to v0.2.5")
-        return "v0.2.5"
+        logger.warning(f"GitHub API direct failed ({e}), trying mirrors...")
+
+    # Fallback to mirror proxies for GitHub API
+    for mirror in _DEFAULT_MIRRORS:
+        if mirror == "DIRECT":
+            continue
+        mirrored_url = f"{mirror}/{api_url}"
+        try:
+            req = urllib.request.Request(mirrored_url, headers={"User-Agent": "stock-datasource"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+            tag = data.get("tag_name")
+            if tag:
+                logger.info(f"Got version via mirror {mirror}: {tag}")
+                return tag
+        except Exception:
+            continue
+
+    # Last resort: known good version
+    logger.warning("All GitHub API sources failed, falling back to v0.2.6")
+    return "v0.2.6"
+
+
+def _download_with_mirrors(github_path: str, dest_path: str) -> None:
+    """Download a file from GitHub with mirror fallback for China users.
+
+    Tries each mirror in order.  The PICOCLAW_MIRROR env var can be set
+    to force a specific mirror prefix (e.g. "https://ghfast.top").
+    """
+    mirrors = list(_DEFAULT_MIRRORS)
+    custom = os.environ.get("PICOCLAW_MIRROR")
+    if custom:
+        mirrors = [custom, "DIRECT"]
+
+    github_base = "https://github.com"
+    errors: list[str] = []
+
+    for mirror in mirrors:
+        if mirror == "DIRECT":
+            url = f"{github_base}{github_path}"
+        else:
+            url = f"{mirror}/{github_base}{github_path}"
+
+        logger.info(f"Trying download: {url}")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "stock-datasource"})
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                with open(dest_path, "wb") as f:
+                    shutil.copyfileobj(resp, f)
+            logger.info(f"Download succeeded via {mirror}")
+            return
+        except Exception as e:
+            errors.append(f"{mirror}: {e}")
+            logger.warning(f"Download failed via {mirror}: {e}")
+            continue
+
+    raise RuntimeError(
+        f"All download sources failed for {github_path}. Errors:\n"
+        + "\n".join(f"  - {e}" for e in errors)
+    )
 
 
 def _download_picoclaw(version: Optional[str] = None) -> str:
     """Download picoclaw binary from GitHub releases and install to BIN_DIR.
-    
-    The release asset is a .tar.gz archive containing the 'picoclaw' binary.
+
+    Uses mirror proxies (ghfast.top, ghproxy.cc) as fallback when GitHub
+    is not directly accessible (common in mainland China).
     Returns version string of installed binary.
     """
     # Detect architecture
@@ -99,29 +169,24 @@ def _download_picoclaw(version: Optional[str] = None) -> str:
     elif not version.startswith("v"):
         version = f"v{version}"
 
-    # Build download URL — matches GoReleaser output format:
-    #   https://github.com/sipeed/picoclaw/releases/download/v0.2.5/picoclaw_Linux_x86_64.tar.gz
+    # Build download path — matches GoReleaser output format:
+    #   /sipeed/picoclaw/releases/download/v0.2.5/picoclaw_Linux_x86_64.tar.gz
     filename = f"picoclaw_{os_part}_{arch_part}.tar.gz"
-    download_url = (
-        f"https://github.com/{PICOCLAW_GITHUB_REPO}"
+    github_path = (
+        f"/{PICOCLAW_GITHUB_REPO}"
         f"/releases/download/{version}/{filename}"
     )
 
-    logger.info(f"Downloading picoclaw {version} ({os_part}-{arch_part}) -> {download_url}")
+    logger.info(f"Downloading picoclaw {version} ({os_part}-{arch_part})")
 
-    # Download tar.gz to temp file
+    # Download tar.gz to temp file (with mirror fallback)
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tar.gz", prefix="picoclaw_")
     try:
-        req = urllib.request.Request(download_url, headers={"User-Agent": "stock-datasource"})
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            with os.fdopen(tmp_fd, "wb") as f:
-                shutil.copyfileobj(resp, f)
+        os.close(tmp_fd)  # _download_with_mirrors opens its own file handle
+        _download_with_mirrors(github_path, tmp_path)
     except Exception:
         os.unlink(tmp_path)
-        raise RuntimeError(
-            f"Failed to download picoclaw from {download_url}. "
-            f"Check network connectivity and verify URL."
-        )
+        raise
 
     # Extract tar.gz and install binary
     BIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -295,6 +360,9 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
     PICOCLAW_CONFIG.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info(f"Config written to {PICOCLAW_CONFIG}")
 
+    # Auto-inject workspace md files (AGENTS.md, SOUL.md, etc.)
+    _inject_workspace_md(token)
+
     return {
         "llm_model": model,
         "llm_base_url": base_url,
@@ -303,6 +371,194 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
         "channel_weixin_enabled": True,
         "config_path": str(PICOCLAW_CONFIG),
     }
+
+
+PICOCLAW_WORKSPACE = Path.home() / ".picoclaw" / "workspace"
+
+
+def _inject_workspace_md(mcp_token: Optional[str] = None) -> dict:
+    """Inject workspace md files into PicoClaw's ~/.picoclaw/workspace/.
+
+    This ensures PicoClaw has full knowledge of stock_datasource's
+    agent capabilities, personality, and tool configuration.
+
+    Each md file serves a distinct purpose:
+      AGENTS.md     — Agent behavior guide + capability routing (highest priority)
+      SOUL.md       — Personality and communication style
+      IDENTITY.md   — Agent name and role definition
+      USER.md       — User preferences (language, markets, data habits)
+      TOOLS.md      — MCP / WebSocket tool descriptions
+      HEARTBEAT.md  — Periodic task prompts (checked every 30 min)
+    """
+    try:
+        from stock_datasource.services.agent_registrations import register_all_agents
+        from stock_datasource.services.agent_registry import get_agent_registry, AgentRole
+
+        register_all_agents()
+        registry = get_agent_registry()
+
+        agents = []
+        for desc in registry.list_descriptors(role=AgentRole.AGENT, enabled_only=True):
+            agents.append({
+                "name": desc.name,
+                "description": desc.description,
+                "markets": desc.capability.markets,
+                "intents": desc.capability.intents,
+                "tags": desc.capability.tags,
+                "priority": desc.priority,
+            })
+    except Exception as e:
+        logger.warning(f"Failed to collect agent capabilities from registry: {e}")
+        agents = []
+
+    PICOCLAW_WORKSPACE.mkdir(parents=True, exist_ok=True)
+    for subdir in ("memory", "sessions", "state", "cron", "skills"):
+        (PICOCLAW_WORKSPACE / subdir).mkdir(exist_ok=True)
+
+    mcp_url = "http://localhost:8001/messages"
+    ws_url = "ws://localhost:8765"
+
+    # Generate and write each md file
+    files_to_write = {
+        "AGENTS.md": _build_agents_md(agents),
+        "SOUL.md": _build_soul_md(),
+        "IDENTITY.md": _build_identity_md(),
+        "USER.md": _build_user_md(),
+        "TOOLS.md": _build_tools_md(mcp_url, ws_url, mcp_token),
+        "HEARTBEAT.md": _build_heartbeat_md(),
+    }
+
+    written = []
+    for filename, content in files_to_write.items():
+        path = PICOCLAW_WORKSPACE / filename
+        path.write_text(content, encoding="utf-8")
+        written.append(filename)
+
+    logger.info(f"Injected {len(written)} workspace md files to {PICOCLAW_WORKSPACE}: {', '.join(written)}")
+    return {"workspace_dir": str(PICOCLAW_WORKSPACE), "files": written}
+
+
+def _build_agents_md(agents: list[dict]) -> str:
+    """Build AGENTS.md — Agent behavior guide (highest priority)."""
+    if not agents:
+        agent_section = "- MarketAgent: A股和港股行情分析 (市场: A, HK)\n- ChatAgent: 通用对话助手 (市场: 通用)"
+    else:
+        lines = []
+        for a in sorted(agents, key=lambda x: -x["priority"]):
+            markets = ", ".join(a["markets"]) if a["markets"] else "通用"
+            lines.append(f"- **{a['name']}**: {a['description']} (市场: {markets})")
+        agent_section = "\n".join(lines)
+
+    return f"""# Stock Datasource — Agent 行为指南
+
+你是 **Stock Datasource** 智能股票分析平台的 AI 助手。
+
+## 可用 Agent
+
+{agent_section}
+
+## 路由规则
+
+1. 行情/K线/技术分析 → MarketAgent
+2. A股财报/基本面 → ReportAgent
+3. 港股财报 → HKReportAgent
+4. 选股筛选 → ScreenerAgent
+5. 策略回测 → BacktestAgent
+6. 投资组合 → PortfolioAgent
+7. 指数分析 → IndexAgent
+8. ETF分析 → EtfAgent
+9. 市场概览 → OverviewAgent
+10. 龙虎榜 → TopListAgent
+11. 新闻 → NewsAnalystAgent
+12. 研报/公告 → KnowledgeAgent
+13. 自选股/偏好 → MemoryAgent
+14. 数据管理 → DataManageAgent
+15. 一般对话 → ChatAgent
+
+## MCP 工具
+
+通过 MCP Server 连接 76+ 数据查询工具。优先使用 MCP 获取数据。
+A股代码: 600519.SH | 港股代码: 00700.HK
+
+## 安全边界
+
+- 不提供投资建议
+- 不预测股价涨跌
+- 历史数据不代表未来表现
+"""
+
+
+def _build_soul_md() -> str:
+    return """# Stock Datasource — 灵魂设定
+
+## 性格
+专业、严谨、耐心的股票数据分析助手。
+
+## 沟通风格
+- 中文回复，专业术语保留英文
+- 数据标注来源和时效
+- 先结论后细节
+- 表格整理对比数据
+- 模糊问题主动澄清
+
+## 决策原则
+1. 数据准确 > 回复速度
+2. 客观事实 > 主观判断
+3. 风险提示 > 收益描述
+"""
+
+
+def _build_identity_md() -> str:
+    return """# Stock Datasource — 身份设定
+
+- **名称**: Stock Datasource 助手
+- **类型**: 专业股票数据分析 AI
+- **版本**: 1.0
+"""
+
+
+def _build_user_md() -> str:
+    return """# Stock Datasource — 用户偏好
+
+- **语言**: 中文
+- **时区**: Asia/Shanghai (UTC+8)
+- **A股交易时间**: 09:30-15:00
+- **港股交易时间**: 09:30-16:00
+- **金额单位**: 人民币(CNY)，港股标注港币(HKD)
+"""
+
+
+def _build_tools_md(mcp_url: str, ws_url: str, mcp_token: Optional[str]) -> str:
+    auth = f"Bearer {mcp_token}" if mcp_token else "未设置"
+    return f"""# Stock Datasource — 工具配置
+
+## MCP Server
+- URL: {mcp_url}
+- 认证: {auth}
+- 工具数: 76+
+
+## 实时数据
+- WebSocket: {ws_url}
+- 默认订阅: 00700.HK, 09988.HK, 600519.SH
+
+## 微信 Channel
+- 类型: weixin
+- 状态: 已启用
+"""
+
+
+def _build_heartbeat_md() -> str:
+    return """# Stock Datasource — 周期任务
+
+## 每30分钟检查
+- 检查新用户消息
+- 关注股票涨跌幅超5%时推送提醒
+- 盘中检查实时数据连接
+
+## 注意
+- 非交易时段不推送行情
+- 不主动打扰用户
+"""
 
 
 def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
