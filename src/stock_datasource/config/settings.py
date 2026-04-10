@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     
     # Logging
     LOG_LEVEL: str = Field(default="INFO")
+    LOG_ROTATION_SIZE: str = Field(default="100 MB", description="Log file rotation size")
+    LOG_CH_SINK_ENABLED: bool = Field(default=True, description="Enable ClickHouse structured log sink")
+    LOG_CH_SINK_BATCH_SIZE: int = Field(default=5000, description="Batch size for CH log import")
+    LOG_RETENTION_DAYS: str = Field(default="90 days", description="Log retention period")
     
     # Database settings
     DATABASE_URL: Optional[str] = Field(default=None)

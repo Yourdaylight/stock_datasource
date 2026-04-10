@@ -4,8 +4,16 @@ import type { LogStatsResponse } from '@/api/systemLogs'
 
 const props = defineProps<{
   stats: LogStatsResponse | null
+  windowHours?: number
   loading?: boolean
 }>()
+
+const windowLabel = computed(() => {
+  const hours = props.windowHours ?? 2
+  if (hours <= 1) return '最近1小时'
+  if (hours < 24) return `最近${hours}小时`
+  return `最近${Math.round(hours / 24)}天`
+})
 
 const riskLevel = computed(() => {
   const error = props.stats?.error ?? 0
@@ -44,7 +52,7 @@ const cards = computed(() => {
     <t-col :span="3">
       <t-card :bordered="false" class="overview-card">
         <div class="title">分析窗口</div>
-        <div class="value text-[#7C3AED]">最近2小时</div>
+        <div class="value text-[#7C3AED]">{{ windowLabel }}</div>
         <div v-if="loading" class="tip">统计刷新中...</div>
         <div v-else class="tip">支持筛选联动</div>
       </t-card>

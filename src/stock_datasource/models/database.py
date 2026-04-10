@@ -3,6 +3,7 @@
 import logging
 import threading
 import io
+import re
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import pandas as pd
@@ -12,6 +13,33 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from stock_datasource.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _to_clickhouse_literal(value: Any) -> str:
+    """Serialize a Python value into a safe ClickHouse SQL literal."""
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, datetime):
+        return f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'"
+    if isinstance(value, date):
+        return f"'{value.strftime('%Y-%m-%d')}'"
+    if isinstance(value, (list, tuple, set)):
+        return "[" + ", ".join(_to_clickhouse_literal(item) for item in value) + "]"
+
+    text = str(value)
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("\0", "")
+    )
+    return f"'{escaped}'"
 
 
 class ClickHouseHttpClient:
@@ -38,6 +66,8 @@ class ClickHouseHttpClient:
         self._lock = threading.Lock()
         self._base_url = f"http://{host}:{port}/"
         self._auth = (user, password) if password else None
+        # Registry of table schemas for auto-create on UNKNOWN_TABLE
+        self._table_schemas: Dict[str, Dict[str, Any]] = {}
         # Use a Session with trust_env=False to completely bypass OS-level proxy
         # env vars (HTTP_PROXY/HTTPS_PROXY) that may be set by plugin discovery.
         import requests as _requests
@@ -49,21 +79,16 @@ class ClickHouseHttpClient:
     
     def _request(self, query: str, params: Optional[Dict] = None, data: str = None) -> str:
         """Execute HTTP request to ClickHouse."""
-        # Handle parameterized queries by substituting params
+        # Safely render bound parameters into ClickHouse SQL literals for the
+        # HTTP fallback client. The native TCP client keeps true parameterization.
         if params:
             for key, value in params.items():
                 placeholder = f"%({key})s"
-                if isinstance(value, str):
-                    escaped = value.replace("'", "\\'")
-                    query = query.replace(placeholder, f"'{escaped}'")
-                elif isinstance(value, (int, float)):
-                    query = query.replace(placeholder, str(value))
-                elif isinstance(value, datetime):
-                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'")
-                elif isinstance(value, date):
-                    query = query.replace(placeholder, f"'{value.strftime('%Y-%m-%d')}'")
-                else:
-                    query = query.replace(placeholder, str(value))
+                query = query.replace(placeholder, _to_clickhouse_literal(value))
+
+            unreplaced = re.findall(r"%\(([^)]+)\)s", query)
+            if unreplaced:
+                raise ValueError(f"Unbound ClickHouse parameters in HTTP query: {unreplaced}")
         
         req_params = {"database": self.database}
         
@@ -84,7 +109,11 @@ class ClickHouseHttpClient:
         return resp.text.strip()
     
     def execute(self, query: str, params: Optional[Dict] = None) -> List[tuple]:
-        """Execute a query and return results as list of tuples."""
+        """Execute a query and return results as list of tuples.
+        
+        On UNKNOWN_TABLE errors, automatically creates the table from registered
+        schema and retries once.
+        """
         with self._lock:
             try:
                 # Add FORMAT for SELECT queries
@@ -109,8 +138,59 @@ class ClickHouseHttpClient:
                         rows.append(tuple(line.split("\t")))
                 return rows
             except Exception as e:
+                # Auto-create table on UNKNOWN_TABLE and retry once
+                table_name = self._extract_unknown_table(e)
+                if table_name and self._try_auto_create_table(table_name):
+                    # Retry the original query
+                    try:
+                        query_upper = query.strip().upper()
+                        if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                            query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
+                        result = self._request(query, params)
+                        if not result:
+                            return []
+                        lines = result.split("\n")
+                        if len(lines) <= 1:
+                            return []
+                        rows = []
+                        for line in lines[1:]:
+                            if line.strip():
+                                rows.append(tuple(line.split("\t")))
+                        return rows
+                    except Exception:
+                        pass  # Retry failed, fall through to original error
                 logger.error(f"HTTP query execution failed [{self.name}]: {e}")
                 raise
+    
+    @staticmethod
+    def _extract_unknown_table(exc: Exception) -> Optional[str]:
+        """Extract table name from a ClickHouse UNKNOWN_TABLE error.
+        
+        The error body is in exc.response.text for HTTPError,
+        or in str(exc) for other exceptions.
+        """
+        import re
+        error_text = ""
+        # For requests.HTTPError, the body is in response.text
+        if hasattr(exc, 'response') and exc.response is not None:
+            error_text = getattr(exc.response, 'text', '') or ''
+        if not error_text:
+            error_text = str(exc)
+        
+        if 'UNKNOWN_TABLE' not in error_text:
+            return None
+        
+        # Pattern: "Unknown table expression identifier 'table_name'"
+        match = re.search(r"Unknown table expression identifier\s+'(\w+)'", error_text)
+        if match:
+            return match.group(1)
+        
+        # Fallback: try to extract from FROM clause context
+        match = re.search(r"from\s+`?(\w+)`?", error_text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        return None
     
     def execute_query(self, query: str, params: Optional[Dict] = None) -> pd.DataFrame:
         """Execute query and return results as DataFrame."""
@@ -160,6 +240,78 @@ class ClickHouseHttpClient:
                 logger.error(f"Failed to insert data into {table_name} [{self.name}]: {e}")
                 raise
     
+    def register_table_schema(self, table_name: str, schema: Dict[str, Any]) -> None:
+        """Register a table schema for auto-creation on UNKNOWN_TABLE errors."""
+        self._table_schemas[table_name] = schema
+    
+    def _try_auto_create_table(self, table_name: str) -> bool:
+        """Try to auto-create a table from registered schema.
+        
+        Returns True if table was created, False if no schema found or creation failed.
+        """
+        schema = self._table_schemas.get(table_name)
+        if not schema:
+            return False
+        
+        try:
+            create_sql = self._build_create_table_sql(table_name, schema)
+            if create_sql:
+                logger.info(f"Auto-creating table {table_name} from registered schema [{self.name}]")
+                self._request(create_sql)
+                logger.info(f"Table {table_name} auto-created successfully [{self.name}]")
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to auto-create table {table_name} [{self.name}]: {e}")
+        return False
+    
+    @staticmethod
+    def _build_create_table_sql(table_name: str, schema: Dict[str, Any]) -> Optional[str]:
+        """Build CREATE TABLE IF NOT EXISTS SQL from schema dict."""
+        columns = schema.get('columns', [])
+        if not columns:
+            return None
+        
+        engine = schema.get('engine', 'MergeTree')
+        engine_params = schema.get('engine_params', [])
+        partition_by = schema.get('partition_by')
+        order_by = schema.get('order_by', [])
+        comment = schema.get('comment', '')
+        
+        col_defs = []
+        for col in columns:
+            col_type = col.get('type') or col.get('data_type', 'String')
+            col_def = f"`{col['name']}` {col_type}"
+            if col.get('default'):
+                col_def += f" DEFAULT {col['default']}"
+            if col.get('comment'):
+                col_def += f" COMMENT '{col['comment']}'"
+            col_defs.append(col_def)
+        
+        create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
+        create_sql += ",\n".join(f"    {col}" for col in col_defs)
+        
+        if engine_params:
+            engine_str = f"{engine}({', '.join(engine_params)})"
+        elif '(' not in engine:
+            engine_str = f"{engine}()"
+        else:
+            engine_str = engine
+        create_sql += f"\n) ENGINE = {engine_str}"
+        
+        if partition_by and partition_by not in ("", "tuple()", "None"):
+            create_sql += f"\nPARTITION BY {partition_by}"
+        
+        if order_by:
+            if isinstance(order_by, list):
+                create_sql += f"\nORDER BY ({', '.join(order_by)})"
+            else:
+                create_sql += f"\nORDER BY ({order_by})"
+        
+        if comment:
+            create_sql += f"\nCOMMENT '{comment}'"
+        
+        return create_sql
+    
     def table_exists(self, table_name: str) -> bool:
         """Check if table exists."""
         query = f"SELECT count() FROM system.tables WHERE database = '{self.database}' AND name = '{table_name}'"
@@ -200,6 +352,8 @@ class ClickHouseClient:
         self._http_client = None
         self._use_http = prefer_http
         self._lock = threading.Lock()
+        # Registry of table schemas for auto-create on UNKNOWN_TABLE
+        self._table_schemas: Dict[str, Dict[str, Any]] = {}
         
         if prefer_http:
             self._init_http_client()
@@ -293,20 +447,66 @@ class ClickHouseClient:
                 self._init_http_client()
         elif self.client is None:
             self._connect()
+    
+    def register_table_schema(self, table_name: str, schema: Dict[str, Any]) -> None:
+        """Register a table schema for auto-creation on UNKNOWN_TABLE errors."""
+        self._table_schemas[table_name] = schema
+        # Also register on HTTP client if available
+        if self._http_client:
+            self._http_client.register_table_schema(table_name, schema)
+    
+    def _try_auto_create_table(self, table_name: str) -> bool:
+        """Try to auto-create a table from registered schema.
+        
+        Returns True if table was created, False if no schema found or creation failed.
+        """
+        schema = self._table_schemas.get(table_name)
+        if not schema:
+            return False
+        
+        try:
+            create_sql = ClickHouseHttpClient._build_create_table_sql(table_name, schema)
+            if create_sql:
+                logger.info(f"Auto-creating table {table_name} from registered schema [{self.name}]")
+                self.execute(create_sql)
+                logger.info(f"Table {table_name} auto-created successfully [{self.name}]")
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to auto-create table {table_name} [{self.name}]: {e}")
+        return False
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=1, max=3))
     def execute(self, query: str, params: Optional[Dict] = None) -> Any:
-        """Execute a query with retry logic and auto-reconnect on transport errors."""
+        """Execute a query with retry logic and auto-reconnect on transport errors.
+        
+        On UNKNOWN_TABLE errors, automatically creates the table from registered
+        schema and retries once.
+        """
         with self._lock:
             self._ensure_connected()
             
-            # Use HTTP client if in HTTP mode
+            # Use HTTP client if in HTTP mode (already has UNKNOWN_TABLE handling)
             if self._use_http and self._http_client:
                 return self._http_client.execute(query, params)
             
             try:
                 return self.client.execute(query, params)
             except Exception as e:
+                # Auto-create table on UNKNOWN_TABLE and retry once (TCP path)
+                error_msg = str(e)
+                if "UNKNOWN_TABLE" in error_msg:
+                    import re
+                    match = re.search(r"identifier\s+'(\w+)'", error_msg)
+                    if not match:
+                        match = re.search(r"from\s+`?(\w+)`?", error_msg, re.IGNORECASE)
+                    if match:
+                        table_name = match.group(1)
+                        if self._try_auto_create_table(table_name):
+                            try:
+                                return self.client.execute(query, params)
+                            except Exception:
+                                pass  # Retry failed, fall through to original error
+                
                 if self._should_reconnect(e):
                     logger.warning(f"Reconnect ClickHouse [{self.name}] due to: {e}")
                     self._reconnect()
@@ -560,6 +760,19 @@ class DualWriteClient:
     def table_exists(self, table_name: str) -> bool:
         """Check if table exists on primary."""
         return self.primary.table_exists(table_name)
+    
+    def register_table_schema(self, table_name: str, schema: Dict[str, Any]) -> None:
+        """Register a table schema on primary (and backup if available).
+        
+        When a query hits UNKNOWN_TABLE for this table, the db client will
+        automatically create it from the registered schema instead of raising.
+        """
+        self.primary.register_table_schema(table_name, schema)
+        if self.backup:
+            try:
+                self.backup.register_table_schema(table_name, schema)
+            except Exception:
+                pass
     
     def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
         """Get table schema from primary."""

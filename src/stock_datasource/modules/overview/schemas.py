@@ -74,8 +74,9 @@ class AnalyzeResponse(BaseModel):
 class QuickAnalysisResponse(BaseModel):
     """Response for quick market analysis."""
     trade_date: Optional[str] = Field(None, description="Trade date")
-    market_summary: str = Field(..., description="Market summary text")
+    market_summary: str = Field(default="暂无数据", description="Market summary text")
     indices_summary: Dict[str, Any] = Field(default_factory=dict, description="Indices summary")
     market_breadth: Dict[str, Any] = Field(default_factory=dict, description="Market breadth")
-    hot_sectors: List[Dict[str, Any]] = Field(default_factory=list, description="Hot sectors")
+    sentiment: Dict[str, Any] = Field(default_factory=dict, description="Market sentiment")
+    hot_etfs: List[Dict[str, Any]] = Field(default_factory=list, description="Hot ETFs")
     signals: List[str] = Field(default_factory=list, description="Market signals")

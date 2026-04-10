@@ -346,7 +346,7 @@ class OverviewService:
         from stock_datasource.agents.overview_tools import get_market_daily_summary
         
         if not date:
-            date = self._get_latest_trade_date()
+            date = self._get_best_available_trade_date()
 
         # Delegate entirely to the helper which already has stable empty defaults
         return get_market_daily_summary(date)

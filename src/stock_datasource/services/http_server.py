@@ -28,6 +28,10 @@ from stock_datasource.core.base_service import BaseService
 
 logger = logging.getLogger(__name__)
 
+# Ensure unified logging is initialized on first import
+from stock_datasource.utils.logger import setup_logging as _setup_logging
+_setup_logging()
+
 # Global cache for services
 _services_cache = {}
 
@@ -317,7 +321,35 @@ async def lifespan(app: FastAPI):
         logger.info("ClickHouse table initialization completed")
     except Exception as e:
         logger.warning(f"ClickHouse table initialization failed: {e}")
-    
+
+    # Register ALL plugin schemas into db_client for auto-create on UNKNOWN_TABLE
+    try:
+        from stock_datasource.models.database import db_client
+        from stock_datasource.core.plugin_manager import plugin_manager
+
+        registered_count = 0
+        for plugin_name in plugin_manager.list_plugins():
+            try:
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if not plugin:
+                    continue
+                schema_dict = plugin.get_schema()
+                if schema_dict and schema_dict.get("table_name"):
+                    db_client.register_table_schema(schema_dict["table_name"], schema_dict)
+                    registered_count += 1
+            except Exception:
+                pass
+        logger.info(f"Registered {registered_count} plugin schemas for auto-create on UNKNOWN_TABLE")
+    except Exception as e:
+        logger.warning(f"Plugin schema registration failed: {e}")
+
+    # Run ClickHouse migrations (incremental DDL tracked in _migrations table)
+    try:
+        from stock_datasource.utils.db_migrations import run_pending_migrations
+        run_pending_migrations()
+    except Exception as e:
+        logger.warning(f"ClickHouse migrations failed: {e}")
+
     # Start sync task manager（延迟启动，避免与初始化建表并发造成断连）
     try:
         from stock_datasource.modules.datamanage.service import sync_task_manager
@@ -411,6 +443,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"SyncTaskManager stop failed: {e}")
 
+    # Flush Langfuse traces
+    try:
+        from stock_datasource.llm.client import flush_langfuse
+        flush_langfuse()
+        logger.info("Langfuse traces flushed")
+    except Exception as e:
+        logger.warning(f"Langfuse flush failed: {e}")
+
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application."""
@@ -488,30 +528,54 @@ def create_app() -> FastAPI:
             "modules": ["chat", "market", "screener", "report", "memory", "datamanage", "portfolio", "backtest", "toplist", "system_logs"]
         }
     
-    # Custom access log middleware
+    # Custom access log middleware with request tracing
     @app.middleware("http")
     async def log_requests(request, call_next):
-        """Log HTTP requests with timestamp."""
+        """Log HTTP requests with request ID tracing."""
         from datetime import datetime
         from stock_datasource.utils.logger import logger as loguru_logger
-        
-        start_time = datetime.now()
-        
-        # Process request
-        response = await call_next(request)
-        
-        # Calculate duration
-        process_time = (datetime.now() - start_time).total_seconds()
-        
-        # Log with timestamp using loguru format
-        loguru_logger.info(
-            f"{request.client.host}:{request.client.port} - "
-            f'"{request.method} {request.url.path}{request.url.query}" '
-            f"{response.status_code} - "
-            f"{process_time:.3f}s"
+        from stock_datasource.utils.request_context import (
+            generate_request_id, request_id_var, user_id_var, reset_request_context,
         )
-        
-        return response
+
+        # Generate or accept request ID
+        req_id = request.headers.get("X-Request-ID") or generate_request_id()
+        request_id_var.set(req_id)
+
+        # Extract user_id from auth context if available
+        try:
+            uid = "-"
+            # Try to decode JWT from Authorization header (best-effort, no validation)
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                from stock_datasource.modules.auth.service import get_auth_service
+                auth_svc = get_auth_service()
+                payload = auth_svc.decode_token(token)
+                if payload and payload.get("sub"):
+                    uid = payload["sub"][:8]  # Use first 8 chars for log readability
+            user_id_var.set(uid)
+        except Exception:
+            user_id_var.set("-")
+
+        start_time = datetime.now()
+
+        try:
+            response = await call_next(request)
+
+            process_time = (datetime.now() - start_time).total_seconds()
+            loguru_logger.info(
+                f"{request.client.host}:{request.client.port} - "
+                f'"{request.method} {request.url.path}'
+                f'{"?" + request.url.query if request.url.query else ""}" '
+                f"{response.status_code} - "
+                f"{process_time:.3f}s"
+            )
+
+            response.headers["X-Request-ID"] = req_id
+            return response
+        finally:
+            reset_request_context()
     
     return app
 

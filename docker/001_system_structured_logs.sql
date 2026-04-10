@@ -1,17 +1,6 @@
--- Initialize stock_data database for Stock Platform
--- Langfuse uses 'default' database, we use 'stock_data' for isolation
-
-CREATE DATABASE IF NOT EXISTS stock_data;
-
--- Grant permissions
-GRANT ALL ON stock_data.* TO 'clickhouse';
-
--- Structured log table for request-tracing and log analysis
+-- Structured log table for the logging-tracing-overhaul
 -- Stores JSONL-imported log records with request correlation
--- NOTE: The canonical migration for this table lives in
---       docker/migrations/001_create_system_structured_logs.sql
---       and targets the stock_datasource database (the app's primary DB).
---       This copy in stock_data is kept for legacy compatibility only.
+
 CREATE TABLE IF NOT EXISTS stock_data.system_structured_logs
 (
     timestamp   DateTime64(3),

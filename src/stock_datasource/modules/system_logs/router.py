@@ -45,6 +45,7 @@ def _build_insight_filter(
     start_time: str = None,
     end_time: str = None,
     keyword: str = None,
+    request_id: str = None,
     window_hours: int = 2,
     limit: int = 50,
 ) -> LogInsightFilter:
@@ -55,6 +56,7 @@ def _build_insight_filter(
         start_time=parsed_start,
         end_time=parsed_end,
         keyword=keyword,
+        request_id=request_id,
         window_hours=window_hours,
         limit=limit,
     )
@@ -72,6 +74,7 @@ async def get_system_logs(
     start_time: str = None,
     end_time: str = None,
     keyword: str = None,
+    request_id: str = None,
     page: int = 1,
     page_size: int = 50,
     log_service = Depends(get_log_service)
@@ -94,6 +97,7 @@ async def get_system_logs(
         start_time=parsed_start,
         end_time=parsed_end,
         keyword=keyword,
+        request_id=request_id,
         page=page,
         page_size=page_size
     )
@@ -144,6 +148,7 @@ async def get_log_stats(
     start_time: str = None,
     end_time: str = None,
     keyword: str = None,
+    request_id: str = None,
     window_hours: int = 2,
     limit: int = 200,
     log_service = Depends(get_log_service)
@@ -155,6 +160,7 @@ async def get_log_stats(
             start_time=start_time,
             end_time=end_time,
             keyword=keyword,
+            request_id=request_id,
             window_hours=window_hours,
             limit=limit,
         )
@@ -176,6 +182,7 @@ async def get_log_clusters(
     start_time: str = None,
     end_time: str = None,
     keyword: str = None,
+    request_id: str = None,
     window_hours: int = 2,
     limit: int = 20,
     log_service = Depends(get_log_service)
@@ -187,6 +194,7 @@ async def get_log_clusters(
             start_time=start_time,
             end_time=end_time,
             keyword=keyword,
+            request_id=request_id,
             window_hours=window_hours,
             limit=limit,
         )
@@ -208,6 +216,7 @@ async def get_operation_timeline(
     start_time: str = None,
     end_time: str = None,
     keyword: str = None,
+    request_id: str = None,
     window_hours: int = 2,
     limit: int = 50,
     log_service = Depends(get_log_service)
@@ -219,6 +228,7 @@ async def get_operation_timeline(
             start_time=start_time,
             end_time=end_time,
             keyword=keyword,
+            request_id=request_id,
             window_hours=window_hours,
             limit=limit,
         )

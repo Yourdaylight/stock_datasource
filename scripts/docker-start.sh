@@ -100,6 +100,7 @@ load_env() {
     fi
 
     APP_PORT="${APP_PORT:-18080}"
+    MCP_PORT="${MCP_PORT:-8001}"
     LANGFUSE_PORT="${LANGFUSE_PORT:-3000}"
     REDIS_EXPOSE_PORT="${REDIS_EXPOSE_PORT:-16379}"
     CLICKHOUSE_HTTP_EXPOSE_PORT="${CLICKHOUSE_HTTP_EXPOSE_PORT:-18123}"
@@ -153,6 +154,14 @@ test_services() {
         echo -e "${YELLOW}○ Not running${NC}"
     fi
 
+    # Test MCP endpoint (embedded in backend container)
+    echo -n "  MCP endpoint (port ${MCP_PORT}): "
+    if curl -sf "http://localhost:${MCP_PORT}/health" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ Healthy${NC}"
+    else
+        echo -e "${RED}✗ Not responding${NC}"
+    fi
+
     echo ""
 
     # Show backend health details (via entry)
@@ -186,6 +195,7 @@ case "${1:---full}" in
         echo "  - App Entry:  http://localhost:${APP_PORT}"
         echo "  - API:        http://localhost:${APP_PORT}/api"
         echo "  - Docs:       http://localhost:${APP_PORT}/docs"
+        echo "  - MCP:        http://localhost:${MCP_PORT}/messages"
         echo "  - Langfuse:   http://localhost:${LANGFUSE_PORT}"
         echo "  - Redis:      localhost:${REDIS_EXPOSE_PORT}"
         echo "  - ClickHouse: localhost:${CLICKHOUSE_HTTP_EXPOSE_PORT} / ${CLICKHOUSE_NATIVE_PORT}"
@@ -204,6 +214,7 @@ case "${1:---full}" in
         echo "  - App Entry: http://localhost:${APP_PORT}"
         echo "  - API:       http://localhost:${APP_PORT}/api"
         echo "  - Docs:      http://localhost:${APP_PORT}/docs"
+        echo "  - MCP:       http://localhost:${MCP_PORT}/messages"
         ;;
     --dev|-d|dev)
         check_env

@@ -4,6 +4,8 @@ import type { OperationTimelineItem } from '@/api/systemLogs'
 defineProps<{
   items: OperationTimelineItem[]
   loading?: boolean
+  title?: string
+  emptyText?: string
 }>()
 
 const getColor = (level: string) => {
@@ -14,9 +16,9 @@ const getColor = (level: string) => {
 </script>
 
 <template>
-  <t-card title="最近操作时间线" :bordered="false">
+  <t-card :title="title || '最近操作时间线'" :bordered="false">
     <t-loading :loading="loading">
-      <t-empty v-if="!items.length" description="当前筛选下无时间线事件" />
+      <t-empty v-if="!items.length" :description="emptyText || '当前筛选下无时间线事件'" />
       <t-timeline v-else>
         <t-timeline-item v-for="item in items" :key="`${item.event_type}-${item.timestamp}-${item.summary}`">
           <template #dot>
@@ -27,7 +29,10 @@ const getColor = (level: string) => {
               <span class="event-title">{{ item.summary }}</span>
               <span class="event-time">{{ item.timestamp }}</span>
             </div>
-            <div class="event-meta">{{ item.event_type }} · {{ item.module }}</div>
+            <div class="event-meta">
+              {{ item.event_type }} · {{ item.module }}
+              <span v-if="item.request_id && item.request_id !== '-'" class="event-request-id" :title="`Request ID: ${item.request_id}`"> · {{ item.request_id }}</span>
+            </div>
             <div v-if="item.detail" class="event-detail">{{ item.detail }}</div>
           </div>
         </t-timeline-item>
@@ -64,5 +69,11 @@ const getColor = (level: string) => {
   color: #374151;
   font-size: 12px;
   line-height: 1.5;
+}
+.event-request-id {
+  color: #3b82f6;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: default;
 }
 </style>
