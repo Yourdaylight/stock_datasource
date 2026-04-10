@@ -7,9 +7,9 @@
 # --- LLM 模型列表 ---
 # 支持多个模型，第一个作为默认模型
 model_list:
-  - model: "Kimi-K2-Thinking"
-    base_url: "https://api.haihub.cn/v1/"
-    api_key: "sk-d2d0dc36-f065-46ed-a897-0ddcbd0046eb"
+  - model: "your_model_name"
+    base_url: "https://api.example.com/v1/"
+    api_key: "your_api_key_here"
     model_type: "openai-chat"
   # 可选：添加备用模型
   # - model: "gpt-4o-mini"
@@ -49,9 +49,48 @@ realtime_data:
     - "09988.HK"    # 阿里巴巴
     - "600519.SH"   # 贵州茅台
 
-# --- Agent 系统提示词增强（可选） ---
-# system_prompt: |
-#   你是一个专业的股票数据分析助手。
-#   用户可以通过微信向你提问股票相关问题。
-#   你可以使用 MCP 工具查询历史数据，使用实时数据接口获取最新行情。
-#   请用简洁清晰的语言回答问题。
+# ============================================
+# Workspace md 文件说明（自动注入到 ~/.picoclaw/workspace/）
+# ============================================
+# generate_picoclaw_config.py 会自动将以下文件写入 PicoClaw 的 workspace 目录。
+# 这些 md 文件构成 PicoClaw 的"自我认知"，决定了它如何理解自身能力。
+#
+# ~/.picoclaw/workspace/
+# ├── AGENTS.md          # Agent 行为指南 — 最高优先级，每次会话加载
+# │                        定义系统能力范围、所有 Agent 职责、路由规则、安全边界
+# │                        [注入内容] AgentRegistry 中 16 个 Agent 的描述+路由规则
+# │
+# ├── SOUL.md            # 灵魂设定 — 性格与沟通风格
+# │                        定义 Agent 的个性、决策原则
+# │                        [注入内容] 专业/严谨/中立的金融分析师人格
+# │
+# ├── IDENTITY.md        # 身份设定 — Agent 名称与角色定义
+# │                        告诉 PicoClaw "我是谁"
+# │                        [注入内容] Stock Datasource 助手身份
+# │
+# ├── USER.md            # 用户偏好 — 语言、市场、数据习惯
+# │                        让 Agent 了解服务对象的偏好
+# │                        [注入内容] 中文、Asia/Shanghai、A股+港股
+# │
+# ├── TOOLS.md           # 工具说明 — MCP Server、WebSocket 配置
+# │                        描述可用工具的配置和分类
+# │                        [注入内容] MCP 76+ 工具分类、实时数据配置
+# │
+# ├── HEARTBEAT.md       # 周期任务提示 — 每 30 分钟检查
+# │                        定义 Agent 的主动行为
+# │                        [注入内容] 行情提醒、连接检查
+# │
+# ├── memory/            # 长期记忆（自动管理）
+# ├── sessions/          # 对话历史（自动管理）
+# ├── state/             # 运行状态（自动管理）
+# ├── cron/              # 定时任务（自动管理）
+# └── skills/            # 自定义技能（可选扩展）
+#
+# 不同 md 文件的注入策略：
+#   AGENTS.md    → 动态注入：从 AgentRegistry 读取最新 Agent 列表
+#   SOUL.md      → 静态模板：金融分析师人格定义
+#   IDENTITY.md  → 静态模板：系统身份定义
+#   USER.md      → 静态模板：默认用户偏好（用户可自行修改）
+#   TOOLS.md     → 动态注入：根据 MCP/WS 配置生成
+#   HEARTBEAT.md → 静态模板：周期任务定义
+# ============================================

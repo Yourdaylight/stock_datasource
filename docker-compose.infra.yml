@@ -45,7 +45,7 @@ services:
     networks:
       - stock_network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-Stock_datasource666}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-your_redis_password_here}", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10

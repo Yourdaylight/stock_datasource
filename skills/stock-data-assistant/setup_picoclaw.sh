@@ -3,6 +3,11 @@
 # setup_picoclaw.sh — 自动下载/更新 picoclaw 二进制文件
 # 用法: bash skills/stock-data-assistant/setup_picoclaw.sh [version]
 #   version: 可选，如 "v0.2.5"，默认下载最新版
+#
+# 国内镜像支持:
+#   默认按顺序尝试: ghfast.top -> ghproxy.cc -> GitHub 直连
+#   可通过 PICOCLAW_MIRROR 环境变量指定镜像前缀:
+#     PICOCLAW_MIRROR="https://ghfast.top" bash setup_picoclaw.sh
 # ============================================================
 
 set -euo pipefail
@@ -11,6 +16,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BIN_DIR="$PROJECT_ROOT/.local/bin"
 BINARY_NAME="picoclaw"
+
+# 国内镜像列表（按优先级排列）
+DEFAULT_MIRRORS=(
+    "https://ghfast.top"
+    "https://ghproxy.cc"
+    "DIRECT"  # GitHub 直连
+)
+GITHUB_BASE="https://github.com"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -38,23 +51,79 @@ detect_arch() {
     echo "$arch"
 }
 
-# 获取最新 release 版本
+# 获取最新 release 版本（支持镜像 fallback）
 get_latest_version() {
     local version
-    version=$(curl -sfL https://api.github.com/repos/sipeed/picoclaw/releases/latest \
+
+    # 尝试 GitHub API（可能需要镜像）
+    local api_url="https://api.github.com/repos/sipeed/picoclaw/releases/latest"
+
+    # 先试直连
+    version=$(curl -sfL --max-time 10 "$api_url" 2>/dev/null \
         | grep '"tag_name"' \
-        | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
+        | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/' || true)
+
+    # 直连失败则用镜像代理 API
+    if [[ -z "$version" ]]; then
+        log_warn "GitHub API 直连失败，尝试镜像..."
+        for mirror in "${DEFAULT_MIRRORS[@]}"; do
+            [[ "$mirror" == "DIRECT" ]] && continue
+            local mirrored_api="${mirror}/${api_url}"
+            version=$(curl -sfL --max-time 15 "$mirrored_api" 2>/dev/null \
+                | grep '"tag_name"' \
+                | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/' || true)
+            if [[ -n "$version" ]]; then
+                log_info "通过镜像 $mirror 获取版本成功"
+                break
+            fi
+        done
+    fi
+
     if [[ -z "$version" ]]; then
         log_error "无法获取 picoclaw 最新版本，请检查网络连接"
+        log_error "也可指定版本号: bash setup_picoclaw.sh v0.2.6"
         exit 1
     fi
     echo "$version"
 }
 
+# 尝试通过多个镜像下载
+download_with_mirrors() {
+    local github_path="$1"  # e.g. /sipeed/picoclaw/releases/download/v0.2.6/picoclaw-linux-x86_64
+    local output_file="$2"
+
+    # 如果用户指定了镜像，优先使用
+    local mirrors=()
+    if [[ -n "${PICOCLAW_MIRROR:-}" ]]; then
+        mirrors=("$PICOCLAW_MIRROR" "DIRECT")
+    else
+        mirrors=("${DEFAULT_MIRRORS[@]}")
+    fi
+
+    for mirror in "${mirrors[@]}"; do
+        local url
+        if [[ "$mirror" == "DIRECT" ]]; then
+            url="${GITHUB_BASE}${github_path}"
+            log_info "尝试 GitHub 直连: $url"
+        else
+            url="${mirror}/${GITHUB_BASE}${github_path}"
+            log_info "尝试镜像 $mirror: $url"
+        fi
+
+        if curl -fSL --max-time 120 --progress-bar -o "$output_file" "$url" 2>/dev/null; then
+            log_info "下载成功 (via ${mirror})"
+            return 0
+        fi
+        log_warn "下载失败 (${mirror})，尝试下一个源..."
+    done
+
+    return 1
+}
+
 # 主流程
 main() {
     local TARGET_VERSION="${1:-}"
-    local ARCH VERSION DOWNLOAD_URL
+    local ARCH VERSION
 
     # 检测架构
     ARCH=$(detect_arch)
@@ -62,7 +131,6 @@ main() {
 
     # 确定版本
     if [[ -n "$TARGET_VERSION" ]]; then
-        # 用户指定了版本，去掉 v 前缀（如果有）
         VERSION="$TARGET_VERSION"
         [[ ! "$VERSION" =~ ^v ]] && VERSION="v$VERSION"
     else
@@ -73,7 +141,7 @@ main() {
     # 创建 bin 目录
     mkdir -p "$BIN_DIR"
 
-    # 构建下载 URL（picoclaw release 格式：picoclaw-{os}-{arch})
+    # 构建下载路径（picoclaw release 格式：picoclaw-{os}-{arch})
     local os_part arch_part
     case "$ARCH" in
         linux-amd64)    os_part="linux"; arch_part="x86_64" ;;
@@ -81,22 +149,22 @@ main() {
         linux-riscv64)  os_part="linux"; arch_part="riscv64" ;;
     esac
 
-    # picoclaw 的 release 文件名格式: picoclaw-linux-x86_64 等
     local FILENAME="picoclaw-${os_part}-${arch_part}"
-    DOWNLOAD_URL="https://github.com/sipeed/picoclaw/releases/download/${VERSION}/${FILENAME}"
+    local GITHUB_PATH="/sipeed/picoclaw/releases/download/${VERSION}/${FILENAME}"
 
-    log_info "下载地址: $DOWNLOAD_URL"
     log_info "目标路径: $BIN_DIR/$BINARY_NAME"
 
-    # 下载
+    # 下载（带镜像 fallback）
     TMPFILE=$(mktemp)
     trap 'rm -f "$TMPFILE"' EXIT
 
     log_info "正在下载 picoclaw ${VERSION} ..."
-    if ! curl -fSL --progress-bar -o "$TMPFILE" "$DOWNLOAD_URL"; then
+    if ! download_with_mirrors "$GITHUB_PATH" "$TMPFILE"; then
         rm -f "$TMPFILE"
-        log_error "下载失败！请手动检查: $DOWNLOAD_URL"
-        log_error "可能需要从 GitHub Releases 页面确认正确的文件名"
+        log_error "所有下载源均失败！"
+        log_error "请手动从以下地址下载:"
+        log_error "  GitHub: https://github.com/sipeed/picoclaw/releases"
+        log_error "  镜像:   https://ghfast.top/https://github.com/sipeed/picoclaw/releases"
         exit 1
     fi
 
