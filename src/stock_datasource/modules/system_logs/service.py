@@ -69,22 +69,20 @@ class LogService:
             end_time=filters.end_time,
             level=filters.level,
             keyword=filters.keyword,
+            request_id=filters.request_id,
             limit=filters.page_size,
             offset=(filters.page - 1) * filters.page_size,
         )
 
-        total_logs = self.reader.read_logs(
-            start_time=filters.start_time,
-            end_time=filters.end_time,
-            level=filters.level,
-            keyword=filters.keyword,
-            limit=100000,
-        )
-
         log_entries = [LogEntry(**log) for log in logs]
+        offset = (filters.page - 1) * filters.page_size
+        estimated_total = offset + len(log_entries)
+        if len(log_entries) == filters.page_size:
+            estimated_total += 1
+
         return LogListResponse(
             logs=log_entries,
-            total=len(total_logs),
+            total=estimated_total,
             page=filters.page,
             page_size=filters.page_size,
         )
@@ -173,6 +171,7 @@ class LogService:
             end_time=end_time,
             level=filters.level,
             keyword=filters.keyword,
+            request_id=filters.request_id,
             limit=100000,
             offset=0,
         )
@@ -303,6 +302,7 @@ class LogService:
             end_time=end_time,
             level=None,
             keyword=filters.keyword,
+            request_id=filters.request_id,
             limit=100000,
             offset=0,
         )
@@ -426,6 +426,7 @@ class LogService:
             end_time=end_time,
             level=filters.level,
             keyword=filters.keyword,
+            request_id=filters.request_id,
             limit=min(2000, max(filters.limit * 8, 200)),
             offset=0,
         )

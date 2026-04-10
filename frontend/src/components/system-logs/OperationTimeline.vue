@@ -4,6 +4,8 @@ import type { OperationTimelineItem } from '@/api/systemLogs'
 defineProps<{
   items: OperationTimelineItem[]
   loading?: boolean
+  title?: string
+  emptyText?: string
 }>()
 
 const getColor = (level: string) => {
@@ -14,9 +16,9 @@ const getColor = (level: string) => {
 </script>
 
 <template>
-  <t-card title="最近操作时间线" :bordered="false">
+  <t-card :title="title || '最近操作时间线'" :bordered="false">
     <t-loading :loading="loading">
-      <t-empty v-if="!items.length" description="当前筛选下无时间线事件" />
+      <t-empty v-if="!items.length" :description="emptyText || '当前筛选下无时间线事件'" />
       <t-timeline v-else>
         <t-timeline-item v-for="item in items" :key="`${item.event_type}-${item.timestamp}-${item.summary}`">
           <template #dot>

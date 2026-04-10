@@ -118,6 +118,27 @@ class TestLogParserNewFormat:
         assert "Connection refused" in result["message"]
 
 
+class TestLogFileReaderFilters:
+    """Test file reader filter behavior for request correlation."""
+
+    def test_read_logs_filters_by_request_id(self, tmp_path):
+        from stock_datasource.modules.system_logs.log_parser import LogFileReader
+
+        log_file = tmp_path / "backend.log"
+        log_file.write_text(
+            "2026-04-09 15:30:00.123 | INFO     | req-1 | user1 | test_module:func:42 - Hello world\n"
+            "2026-04-09 15:31:00.123 | ERROR    | req-2 | user2 | test_module:func:43 - Boom\n",
+            encoding="utf-8",
+        )
+
+        reader = LogFileReader(str(tmp_path))
+        logs = reader.read_logs(request_id="req-2", limit=50)
+
+        assert len(logs) == 1
+        assert logs[0]["request_id"] == "req-2"
+        assert logs[0]["level"] == "ERROR"
+
+
 class TestLogServiceClickHousePaths:
     """Test LogService CH query paths with mocked dependencies.
 
@@ -142,3 +163,35 @@ class TestLogServiceClickHousePaths:
                 result = service._ch_client
                 # Result depends on whether db_client was importable
                 # At minimum, the property should not raise
+
+    def test_get_logs_fallback_uses_single_reader_call(self):
+        """Fallback path should not rescan files just to compute totals."""
+        with patch.dict("sys.modules", {
+            "stock_datasource.modules.system_logs.ai_diagnosis_service": MagicMock(),
+        }):
+            import importlib
+            import stock_datasource.modules.system_logs.service as svc_mod
+
+            importlib.reload(svc_mod)
+            service = svc_mod.LogService(log_dir="/tmp/test_logs")
+            service.reader = MagicMock()
+            service.reader.read_logs.return_value = [{
+                "timestamp": datetime(2026, 4, 9, 15, 30, 0),
+                "level": "ERROR",
+                "module": "test_module",
+                "message": "boom",
+                "raw_line": "raw",
+                "request_id": "req-2",
+                "user_id": "user2",
+            }]
+
+            filters = LogFilter(request_id="req-2", page=1, page_size=50)
+
+            with patch.object(svc_mod.LogService, "_get_logs_from_clickhouse", return_value=None):
+                result = service.get_logs(filters)
+
+            assert service.reader.read_logs.call_count == 1
+            kwargs = service.reader.read_logs.call_args.kwargs
+            assert kwargs["request_id"] == "req-2"
+            assert result.total == 1
+            assert result.logs[0].request_id == "req-2"

@@ -3,6 +3,7 @@
 import re
 import logging
 from datetime import datetime
+from datetime import timedelta
 from typing import List, Optional
 from pathlib import Path
 
@@ -331,6 +332,7 @@ class LogFileReader:
         end_time: Optional[datetime] = None,
         level: Optional[str] = None,
         keyword: Optional[str] = None,
+        request_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0
     ) -> List[dict]:
@@ -348,34 +350,90 @@ class LogFileReader:
         Returns:
             Filtered list of log entries
         """
-        all_logs = []
+        matched_logs = []
 
-        # Get log files to read
-        if log_file:
-            log_files = [self.log_dir / log_file]
-        else:
-            log_files = list(self.log_dir.glob("*.log"))
-
-        # Read all logs
-        for filepath in log_files:
-            if filepath.is_file():
-                logs = self.parser.parse_file(str(filepath))
-                all_logs.extend(logs)
-
-        # Apply filters
-        filtered = self._apply_filters(
-            all_logs,
+        for filepath in self._resolve_log_files(
+            log_file=log_file,
             start_time=start_time,
             end_time=end_time,
-            level=level,
-            keyword=keyword
-        )
+        ):
+            if filepath.is_file():
+                logs = self.parser.parse_file(str(filepath))
+                for log in logs:
+                    if self._matches_filters(
+                        log,
+                        start_time=start_time,
+                        end_time=end_time,
+                        level=level,
+                        keyword=keyword,
+                        request_id=request_id,
+                    ):
+                        matched_logs.append(log)
 
         # Sort by timestamp descending
-        filtered.sort(key=lambda x: x['timestamp'], reverse=True)
+        matched_logs.sort(key=lambda x: x['timestamp'], reverse=True)
 
         # Apply pagination
-        return filtered[offset:offset + limit]
+        return matched_logs[offset:offset + limit]
+
+    def _resolve_log_files(
+        self,
+        log_file: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> List[Path]:
+        """Return candidate log files ordered from newest to oldest."""
+        if log_file:
+            return [self.log_dir / log_file]
+
+        if not self.log_dir.exists():
+            return []
+
+        candidates = []
+        oldest_relevant_mtime = start_time - timedelta(days=1) if start_time else None
+
+        for filepath in self.log_dir.glob("*.log"):
+            if not filepath.is_file():
+                continue
+            try:
+                modified_time = datetime.fromtimestamp(filepath.stat().st_mtime)
+            except OSError:
+                continue
+
+            if oldest_relevant_mtime and modified_time < oldest_relevant_mtime:
+                continue
+
+            candidates.append((modified_time, filepath))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [filepath for _, filepath in candidates]
+
+    def _matches_filters(
+        self,
+        log: dict,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        level: Optional[str] = None,
+        keyword: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> bool:
+        """Check whether a single log entry matches the given filters."""
+        if start_time and log['timestamp'] < start_time:
+            return False
+
+        if end_time and log['timestamp'] > end_time:
+            return False
+
+        if level and log['level'] != level.upper():
+            return False
+
+        if keyword and keyword.lower() not in log['message'].lower():
+            return False
+
+        if request_id and str(log.get('request_id', '-')).strip() != request_id.strip():
+            return False
+
+        return True
 
     def _apply_filters(
         self,
@@ -383,7 +441,8 @@ class LogFileReader:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         level: Optional[str] = None,
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
+        request_id: Optional[str] = None,
     ) -> List[dict]:
         """Apply filters to log list.
 
@@ -399,19 +458,17 @@ class LogFileReader:
         """
         filtered = logs
 
-        if start_time:
-            filtered = [log for log in filtered if log['timestamp'] >= start_time]
-
-        if end_time:
-            filtered = [log for log in filtered if log['timestamp'] <= end_time]
-
-        if level:
-            level_upper = level.upper()
-            filtered = [log for log in filtered if log['level'] == level_upper]
-
-        if keyword:
-            keyword_lower = keyword.lower()
-            filtered = [log for log in filtered if keyword_lower in log['message'].lower()]
+        filtered = [
+            log for log in filtered
+            if self._matches_filters(
+                log,
+                start_time=start_time,
+                end_time=end_time,
+                level=level,
+                keyword=keyword,
+                request_id=request_id,
+            )
+        ]
 
         return filtered
 
