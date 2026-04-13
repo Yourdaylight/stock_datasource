@@ -276,7 +276,7 @@ onMounted(() => {
 // Watch for no data scenario when date changes
 // Only show dialog if loading is complete AND total is 0 AND it's a date change (not filter change)
 const lastCheckedDate = ref('')
-watch(() => [etfStore.total, etfStore.loading, etfStore.selectedDate], ([newTotal, isLoading, selectedDate]) => {
+watch(() => [etfStore.total, etfStore.loading, etfStore.selectedDate] as [number, boolean, string], ([newTotal, isLoading, selectedDate]) => {
   // Skip if still loading
   if (isLoading) return
   

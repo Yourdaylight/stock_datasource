@@ -10,6 +10,7 @@ from stock_datasource.core.base_list_service import (
     BaseListService, FilterConfig, ListQueryParams, ListResponse, SortConfig
 )
 from stock_datasource.agents.tools import _format_date
+from stock_datasource.models.database import _to_clickhouse_literal
 
 logger = logging.getLogger(__name__)
 
@@ -175,35 +176,30 @@ class EtfService(BaseListService):
             target_date = _format_date(date_df.iloc[0]["max_date"])
         
         # Build WHERE clause
-        where_parts = [f"d.trade_date = '{target_date}'"]
+        where_parts = [f"d.trade_date = {_to_clickhouse_literal(target_date)}"]
         if exchange:
-            exchange_escaped = exchange.replace("'", "''")
-            where_parts.append(f"b.exchange = '{exchange_escaped}'")
+            where_parts.append(f"b.exchange = {_to_clickhouse_literal(exchange)}")
         if etf_type:
-            etf_type_escaped = etf_type.replace("'", "''")
-            where_parts.append(f"b.etf_type = '{etf_type_escaped}'")
+            where_parts.append(f"b.etf_type = {_to_clickhouse_literal(etf_type)}")
         if list_status:
-            list_status_escaped = list_status.replace("'", "''")
-            where_parts.append(f"b.list_status = '{list_status_escaped}'")
+            where_parts.append(f"b.list_status = {_to_clickhouse_literal(list_status)}")
         if keyword:
             keyword_clean = keyword.strip()
             if keyword_clean:
-                keyword_escaped = keyword_clean.replace("'", "''")
+                kw_literal = _to_clickhouse_literal(f"%{keyword_clean}%")
                 where_parts.append(
                     "(" +
-                    f"d.ts_code LIKE '%{keyword_escaped}%' OR "
-                    f"b.csname LIKE '%{keyword_escaped}%' OR "
-                    f"b.cname LIKE '%{keyword_escaped}%' OR "
-                    f"b.index_name LIKE '%{keyword_escaped}%'" +
+                    f"d.ts_code LIKE {kw_literal} OR "
+                    f"b.csname LIKE {kw_literal} OR "
+                    f"b.cname LIKE {kw_literal} OR "
+                    f"b.index_name LIKE {kw_literal}" +
                     ")"
                 )
         # New filters
         if manager:
-            manager_escaped = manager.replace("'", "''")
-            where_parts.append(f"b.mgr_name = '{manager_escaped}'")
+            where_parts.append(f"b.mgr_name = {_to_clickhouse_literal(manager)}")
         if tracking_index:
-            tracking_index_escaped = tracking_index.replace("'", "''")
-            where_parts.append(f"b.index_code = '{tracking_index_escaped}'")
+            where_parts.append(f"b.index_code = {_to_clickhouse_literal(tracking_index)}")
         if fee_min is not None:
             where_parts.append(f"b.mgt_fee >= {float(fee_min)}")
         if fee_max is not None:
@@ -335,7 +331,7 @@ class EtfService(BaseListService):
         Returns:
             Dict with ts_code, days, data
         """
-        ts_code_escaped = ts_code.replace("'", "''")
+        ts_code_literal = _to_clickhouse_literal(ts_code)
         query = f"""
         SELECT 
             ts_code,
@@ -350,7 +346,7 @@ class EtfService(BaseListService):
             vol,
             amount
         FROM ods_etf_fund_daily
-        WHERE ts_code = '{ts_code_escaped}'
+        WHERE ts_code = {ts_code_literal}
         ORDER BY trade_date DESC
         LIMIT {days}
         """
@@ -382,21 +378,20 @@ class EtfService(BaseListService):
         Returns:
             Dict with ts_code, name, adjust, data
         """
-        ts_code_escaped = ts_code.replace("'", "''")
-        
         # Get ETF name
-        name_query = f"SELECT csname as name FROM ods_etf_basic FINAL WHERE ts_code = '{ts_code_escaped}'"
+        name_query = f"SELECT csname as name FROM ods_etf_basic FINAL WHERE ts_code = {_to_clickhouse_literal(ts_code)}"
         name_result = _execute_query(name_query)
         name = name_result[0].get("name") if name_result else None
         
         # Build date filter
         date_conditions = []
         if start_date:
-            date_conditions.append(f"d.trade_date >= '{start_date}'")
+            date_conditions.append(f"d.trade_date >= {_to_clickhouse_literal(start_date)}")
         if end_date:
-            date_conditions.append(f"d.trade_date <= '{end_date}'")
+            date_conditions.append(f"d.trade_date <= {_to_clickhouse_literal(end_date)}")
         
         date_filter = " AND ".join(date_conditions) if date_conditions else "1=1"
+        ts_code_literal = _to_clickhouse_literal(ts_code)
         
         if adjust == "none":
             # No adjustment
@@ -412,7 +407,7 @@ class EtfService(BaseListService):
                 amount,
                 pct_chg
             FROM ods_etf_fund_daily d
-            WHERE ts_code = '{ts_code_escaped}'
+            WHERE ts_code = {ts_code_literal}
             AND {date_filter}
             ORDER BY trade_date ASC
             """
@@ -432,7 +427,7 @@ class EtfService(BaseListService):
                         "FIRST_VALUE(adj_factor) OVER (PARTITION BY ts_code ORDER BY trade_date ASC)"
                     } as base_factor
                 FROM ods_etf_fund_adj
-                WHERE ts_code = '{ts_code_escaped}'
+                WHERE ts_code = {ts_code_literal}
             )
             SELECT 
                 d.ts_code,
@@ -446,7 +441,7 @@ class EtfService(BaseListService):
                 d.pct_chg
             FROM ods_etf_fund_daily d
             LEFT JOIN adj a ON d.ts_code = a.ts_code AND d.trade_date = a.trade_date
-            WHERE d.ts_code = '{ts_code_escaped}'
+            WHERE d.ts_code = {ts_code_literal}
             AND {date_filter.replace('d.', '')}
             ORDER BY d.trade_date ASC
             """

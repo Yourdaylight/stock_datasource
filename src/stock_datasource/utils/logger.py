@@ -10,19 +10,23 @@ Unified Loguru logging with:
 import logging
 import sys
 import threading
-from pathlib import Path
 from typing import Optional
 
 from loguru import logger as _loguru_logger
 
 from stock_datasource.config.settings import settings
-from stock_datasource.utils.request_context import get_request_id, get_user_id, patch_context
+from stock_datasource.utils.request_context import (
+    get_middleware_trace_id,
+    get_request_id,
+    get_user_id,
+)
 
 
 def _patch_context(record):
-    """Loguru patch: inject request_id / user_id from contextvars into extra."""
+    """Loguru patch: inject request_id / user_id / middleware_trace_id from contextvars into extra."""
     record["extra"].setdefault("request_id", get_request_id())
     record["extra"].setdefault("user_id", get_user_id())
+    record["extra"].setdefault("middleware_trace_id", get_middleware_trace_id())
     return True
 
 
@@ -70,6 +74,7 @@ def _format_with_context(fmt: str):
     def _formatter(record):
         record["extra"].setdefault("request_id", get_request_id())
         record["extra"].setdefault("user_id", get_user_id())
+        record["extra"].setdefault("middleware_trace_id", get_middleware_trace_id())
         return fmt
     return _formatter
 
@@ -80,13 +85,14 @@ _CONSOLE_FMT = (
     "<level>{level: <8}</level> | "
     "<blue>{extra[request_id]}</blue> | "
     "<magenta>{extra[user_id]}</magenta> | "
+    "<yellow>{extra[middleware_trace_id]}</yellow> | "
     "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
     "<level>{message}</level>"
 )
 
 _TEXT_FMT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
-    "{extra[request_id]} | {extra[user_id]} | "
+    "{extra[request_id]} | {extra[user_id]} | {extra[middleware_trace_id]} | "
     "{name}:{function}:{line} - {message}"
 )
 
@@ -103,6 +109,7 @@ def _jsonl_sink(message):
         "level": record["level"].name,
         "request_id": record["extra"].get("request_id", "-"),
         "user_id": record["extra"].get("user_id", "-"),
+        "middleware_trace_id": record["extra"].get("middleware_trace_id", "-"),
         "module": record["name"],
         "function": record["function"],
         "line": record["line"],

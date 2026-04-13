@@ -20,6 +20,7 @@ export interface PicoclawConfig {
   mcp_connected: boolean
   ws_realtime_url: string
   channel_weixin_enabled: boolean
+  config_exists: boolean
   config_path: string
   raw_config?: string
 }

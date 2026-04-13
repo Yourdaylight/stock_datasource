@@ -129,6 +129,7 @@ class StockSearchResult(BaseModel):
     """Stock search result."""
     code: str
     name: str
+    market: Optional[str] = None
     industry: Optional[str] = None
 
 

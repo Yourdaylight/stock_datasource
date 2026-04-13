@@ -382,11 +382,13 @@ class DataManageService:
         try:
             # Step 1: Verify which (table, column) pairs actually exist via system.columns
             table_names = list(table_date_map.keys())
-            placeholders = ", ".join(f"'{t}'" for t in table_names)
+            from stock_datasource.models.database import _to_clickhouse_literal
+            placeholders = ", ".join(_to_clickhouse_literal(t) for t in table_names)
+            db_name_literal = _to_clickhouse_literal(db_name)
             col_check_query = f"""
             SELECT table, name
             FROM system.columns
-            WHERE database = '{db_name}'
+            WHERE database = {db_name_literal}
             AND table IN ({placeholders})
             """
             col_df = db_client.execute_query(col_check_query)
@@ -806,9 +808,10 @@ class DataManageService:
             )
         
         try:
+            from stock_datasource.models.database import _to_clickhouse_literal
             # Use DISTINCT with LIMIT for memory efficiency instead of GROUP BY count
             # This avoids aggregation which can cause memory issues on large tables
-            dates_str = ", ".join([f"'{d}'" for d in dates])
+            dates_str = ", ".join([_to_clickhouse_literal(d) for d in dates])
             
             query = f"""
             SELECT DISTINCT toString({date_column}) as check_date
@@ -1072,16 +1075,11 @@ class SyncTaskManager:
             task: The task to save
         """
         try:
-            # Convert trade_dates list to ClickHouse array format
-            trade_dates_str = "[" + ",".join([f"'{d}'" for d in task.trade_dates]) + "]"
+            from stock_datasource.models.database import _to_clickhouse_literal
             
-            # Format datetime values
-            created_at = task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else 'now()'
-            started_at = f"'{task.started_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.started_at else 'NULL'
-            completed_at = f"'{task.completed_at.strftime('%Y-%m-%d %H:%M:%S')}'" if task.completed_at else 'NULL'
-            error_msg = f"'{task.error_message}'" if task.error_message else 'NULL'
-            user_id = f"'{task.user_id}'" if task.user_id else 'NULL'
-            username = f"'{task.username}'" if task.username else 'NULL'
+            # Use parameterized literals to prevent SQL injection and syntax errors
+            # from user-provided data (error_message, plugin_name, etc.)
+            status_val = task.status.value if isinstance(task.status, TaskStatus) else task.status
             
             insert_sql = f"""
             INSERT INTO {self.TASK_TABLE} (
@@ -1090,12 +1088,21 @@ class SyncTaskManager:
                 trade_dates, created_at, started_at, completed_at, updated_at,
                 user_id, username
             ) VALUES (
-                '{task.task_id}', '{task.plugin_name}', '{task.task_type}', 
-                '{task.status.value if isinstance(task.status, TaskStatus) else task.status}',
-                {task.progress}, {task.records_processed}, {task.total_records},
-                {error_msg}, {trade_dates_str},
-                '{created_at}', {started_at}, {completed_at}, now(),
-                {user_id}, {username}
+                {_to_clickhouse_literal(task.task_id)},
+                {_to_clickhouse_literal(task.plugin_name)},
+                {_to_clickhouse_literal(task.task_type)},
+                {_to_clickhouse_literal(status_val)},
+                {_to_clickhouse_literal(task.progress)},
+                {_to_clickhouse_literal(task.records_processed)},
+                {_to_clickhouse_literal(task.total_records)},
+                {_to_clickhouse_literal(task.error_message)},
+                {_to_clickhouse_literal(task.trade_dates)},
+                {_to_clickhouse_literal(task.created_at) if task.created_at else 'now()'},
+                {_to_clickhouse_literal(task.started_at)},
+                {_to_clickhouse_literal(task.completed_at)},
+                now(),
+                {_to_clickhouse_literal(task.user_id)},
+                {_to_clickhouse_literal(task.username)}
             )
             """
             db_client.execute_query(insert_sql)
@@ -1108,7 +1115,9 @@ class SyncTaskManager:
         try:
             # Load tasks from last 7 days
             # Use subquery with FINAL to get deduplicated data, then filter
+            from stock_datasource.models.database import _to_clickhouse_literal
             cutoff_time = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+            cutoff_literal = _to_clickhouse_literal(cutoff_time)
             query = f"""
             SELECT 
                 task_id, plugin_name, task_type, status, progress,
@@ -1120,7 +1129,7 @@ class SyncTaskManager:
                 user_id, username
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
-                WHERE created_at >= toDateTime('{cutoff_time}')
+                WHERE created_at >= toDateTime({cutoff_literal})
                 ORDER BY created_at DESC
                 LIMIT 500
                 SETTINGS max_threads = 2, max_memory_usage = 1000000000, max_bytes_before_external_group_by = 500000000
@@ -1300,6 +1309,7 @@ class SyncTaskManager:
                 # Determine market from plugin category
                 from stock_datasource.core.base_plugin import PluginCategory
                 from stock_datasource.core.trade_calendar import MARKET_CN, MARKET_HK
+                from stock_datasource.services.task_worker import _detect_plugin_param_style
                 market = MARKET_HK if plugin.get_category() == PluginCategory.HK_STOCK else MARKET_CN
                 
                 # Incremental or full sync - use latest valid trading day from calendar
@@ -1307,8 +1317,22 @@ class SyncTaskManager:
                 if not target_date:
                     raise ValueError("无法获取有效交易日，请检查交易日历数据")
                 
-                self.logger.info(f"Incremental sync using trading date: {target_date}")
-                result = plugin.run(trade_date=target_date)
+                # Detect plugin parameter style to call with correct params
+                param_style = _detect_plugin_param_style(plugin)
+                
+                if param_style == "date_range":
+                    result = plugin.run(start_date=target_date, end_date=target_date)
+                elif param_style == "hk_daily":
+                    result = plugin.run(start_date=target_date, end_date=target_date)
+                elif param_style == "month_range":
+                    result = plugin.run(month=target_date[:6])
+                elif param_style in ("entity_code", "skip_scheduled"):
+                    # Cannot run automatically - needs entity code
+                    raise ValueError(f"插件 {task.plugin_name} 需要指定代码参数(如ts_code)，不支持批量同步")
+                elif param_style == "no_params":
+                    result = plugin.run()
+                else:
+                    result = plugin.run(trade_date=target_date)
                 
                 if result.get("status") == "success":
                     # Convert to int to avoid numpy.uint64 serialization issues
@@ -1503,6 +1527,8 @@ class SyncTaskManager:
         priority = TaskPriority.HIGH if task_type == TaskType.INCREMENTAL else TaskPriority.NORMAL
 
         try:
+            # Set timeout based on task type: incremental=1h, full=2h, backfill=2h
+            timeout_seconds = 3600 if task_type == TaskType.INCREMENTAL else 7200
             task_id = task_queue.enqueue(
                 plugin_name=plugin_name,
                 task_type=task_type.value,
@@ -1510,6 +1536,7 @@ class SyncTaskManager:
                 priority=priority,
                 execution_id=execution_id,
                 user_id=user_id,
+                timeout_seconds=timeout_seconds,
             )
         except RedisUnavailableError as e:
             raise ValueError(f"Redis unavailable: {e}")
@@ -1837,7 +1864,10 @@ class SyncTaskManager:
         """
         try:
             # Use subquery with FINAL to get deduplicated data
+            from stock_datasource.models.database import _to_clickhouse_literal
             cutoff_time = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            cutoff_literal = _to_clickhouse_literal(cutoff_time)
+            safe_limit = max(1, min(10000, int(limit)))
             query = f"""
             SELECT 
                 task_id, plugin_name, task_type, status,
@@ -1847,10 +1877,10 @@ class SyncTaskManager:
                 user_id, username
             FROM (
                 SELECT * FROM {self.TASK_TABLE} FINAL
-                WHERE created_at >= toDateTime('{cutoff_time}')
+                WHERE created_at >= toDateTime({cutoff_literal})
             )
             ORDER BY created_at DESC
-            LIMIT {limit}
+            LIMIT {safe_limit}
             """
             result = db_client.execute_query(query)
             

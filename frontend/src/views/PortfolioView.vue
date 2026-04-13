@@ -115,7 +115,7 @@ import DailyAnalysis from '@/components/DailyAnalysis.vue'
 import AddPositionModal from '@/components/AddPositionModal.vue'
 // PortfolioTopListAnalysis removed - 龙虎榜功能已移除
 import { portfolioApi } from '@/api/portfolio'
-import type { Position, PortfolioSummary } from '@/types/portfolio'
+import type { Position, PortfolioSummary, AnalysisReport } from '@/types/portfolio'
 
 // Reactive data
 const loading = ref(false)
@@ -136,14 +136,14 @@ const summary = reactive<PortfolioSummary>({
 })
 
 const profitHistory = ref([])
-const analysisData = ref(null)
+const analysisData = ref<AnalysisReport | null>(null)
 
 // Methods
 const loadPositions = async () => {
   try {
     loading.value = true
     const response = await portfolioApi.getPositions()
-    positions.value = response.data
+    positions.value = response
   } catch (error) {
     ElMessage.error('加载持仓数据失败')
     console.error('Load positions error:', error)
@@ -155,7 +155,7 @@ const loadPositions = async () => {
 const loadSummary = async () => {
   try {
     const response = await portfolioApi.getSummary()
-    Object.assign(summary, response.data)
+    Object.assign(summary, response)
   } catch (error) {
     ElMessage.error('加载汇总数据失败')
     console.error('Load summary error:', error)
@@ -166,7 +166,7 @@ const loadProfitHistory = async () => {
   try {
     chartLoading.value = true
     const response = await portfolioApi.getProfitHistory()
-    profitHistory.value = response.data.data
+    profitHistory.value = response
   } catch (error) {
     ElMessage.error('加载盈亏历史失败')
     console.error('Load profit history error:', error)
@@ -180,7 +180,7 @@ const loadAnalysisData = async () => {
     analysisLoading.value = true
     const today = new Date().toISOString().split('T')[0]
     const response = await portfolioApi.getAnalysisReport(today)
-    analysisData.value = response.data
+    analysisData.value = response
   } catch (error) {
     // Analysis data might not exist for today, that's ok
     console.log('No analysis data for today')

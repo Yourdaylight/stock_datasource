@@ -394,12 +394,12 @@ class TuShareExtractor(BaseTuShareExtractor):
                                 query = f"SELECT COUNT(*) as cnt FROM {table_name} LIMIT 1"
                             elif plugin_name == 'tushare_trade_calendar':
                                 # Trade calendar uses cal_date
-                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = '{trade_date}'"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE cal_date = %(trade_date)s"
                             else:
                                 # Other tables use trade_date
-                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = '{trade_date}'"
+                                query = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE trade_date = %(trade_date)s"
                             
-                            result = db_client.execute_query(query)
+                            result = db_client.execute_query(query, params={"trade_date": trade_date})
                             record_count = result['cnt'].values[0] if len(result) > 0 else 0
                             
                             if record_count > 0:

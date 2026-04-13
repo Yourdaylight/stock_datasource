@@ -2,8 +2,9 @@ import { request } from '@/utils/request'
 import { 
   safeApiCall, 
   withRetry, 
-  validateNewsItems, 
+  validateNewsItems,
   validateNewsSentiment,
+  validateHotTopics,
   NewsErrorType
 } from '@/utils/newsErrorHandler'
 import type {
@@ -13,7 +14,9 @@ import type {
   GetNewsByStockParams,
   GetMarketNewsParams,
   AnalyzeSentimentParams,
-  SearchNewsParams
+  SearchNewsParams,
+  HotTopic,
+  GetHotTopicsParams
 } from '@/types/news'
 
 export interface NewsListResponse {

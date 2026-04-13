@@ -13,6 +13,8 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
+from stock_datasource.models.database import _to_clickhouse_literal
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,20 +103,17 @@ class IndexService:
             return {"total": 0, "page": page, "page_size": page_size, "data": [], "trade_date": None}
         
         # Build WHERE clauses
-        where_clauses = [f"d.trade_date = '{target_date}'"]
+        where_clauses = [f"d.trade_date = {_to_clickhouse_literal(target_date)}"]
         
         if market:
-            market_escaped = market.replace("'", "''")
-            where_clauses.append(f"b.market = '{market_escaped}'")
+            where_clauses.append(f"b.market = {_to_clickhouse_literal(market)}")
         if category:
-            category_escaped = category.replace("'", "''")
-            where_clauses.append(f"b.category = '{category_escaped}'")
+            where_clauses.append(f"b.category = {_to_clickhouse_literal(category)}")
         if keyword:
-            keyword_escaped = keyword.replace("'", "''")
-            where_clauses.append(f"(b.name ILIKE '%{keyword_escaped}%' OR b.fullname ILIKE '%{keyword_escaped}%' OR b.ts_code LIKE '%{keyword_escaped}%')")
+            kw_literal = _to_clickhouse_literal(f"%{keyword}%")
+            where_clauses.append(f"(b.name ILIKE {kw_literal} OR b.fullname ILIKE {kw_literal} OR b.ts_code LIKE {kw_literal})")
         if publisher:
-            publisher_escaped = publisher.replace("'", "''")
-            where_clauses.append(f"b.publisher = '{publisher_escaped}'")
+            where_clauses.append(f"b.publisher = {_to_clickhouse_literal(publisher)}")
         if pct_chg_min is not None:
             where_clauses.append(f"ROUND((d.close - d.pre_close) / d.pre_close * 100, 2) >= {float(pct_chg_min)}")
         if pct_chg_max is not None:
@@ -203,7 +202,7 @@ class IndexService:
             desc,
             exp_date
         FROM dim_index_basic FINAL
-        WHERE ts_code = '{ts_code}'
+        WHERE ts_code = {_to_clickhouse_literal(ts_code)}
         """
         result = _execute_query(query)
         return result[0] if result else None
@@ -229,7 +228,7 @@ class IndexService:
             date_query = f"""
             SELECT max(trade_date) as latest_date
             FROM ods_index_weight
-            WHERE index_code = '{ts_code}'
+            WHERE index_code = {_to_clickhouse_literal(ts_code)}
             """
             date_result = _execute_query(date_query)
             if date_result and date_result[0].get('latest_date'):
@@ -260,8 +259,8 @@ class IndexService:
             trade_date,
             weight
         FROM ods_index_weight
-        WHERE index_code = '{ts_code}'
-        AND trade_date = '{trade_date}'
+        WHERE index_code = {_to_clickhouse_literal(ts_code)}
+        AND trade_date = {_to_clickhouse_literal(trade_date)}
         ORDER BY weight DESC
         LIMIT {limit}
         """
@@ -272,8 +271,8 @@ class IndexService:
         count_query = f"""
         SELECT count() as cnt
         FROM ods_index_weight
-        WHERE index_code = '{ts_code}'
-        AND trade_date = '{trade_date}'
+        WHERE index_code = {_to_clickhouse_literal(ts_code)}
+        AND trade_date = {_to_clickhouse_literal(trade_date)}
         """
         count_result = _execute_query(count_query)
         total_count = count_result[0].get('cnt', 0) if count_result else len(constituents)
@@ -304,9 +303,24 @@ class IndexService:
         Returns:
             Dict with factor data
         """
+        # Whitelist of allowed indicator columns to prevent column name injection
+        _ALLOWED_INDICATORS = {
+            "ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount",
+            "ma_5", "ma_10", "ma_20", "ma_60", "ma_120", "ma_250",
+            "ema_5", "ema_10", "ema_20", "ema_60",
+            "macd", "macd_dif", "macd_dea",
+            "rsi_6", "rsi_12", "rsi_24",
+            "kdj_k", "kdj_d", "kdj_j",
+            "boll_upper", "boll_mid", "boll_lower",
+            "atr", "cci", "wr", "bias",
+            "turnover_rate", "volume_ratio",
+            "pe", "pb", "ps", "pcf",
+            "pre_close", "pct_chg", "change",
+        }
         if indicators:
             base_cols = ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"]
-            cols = base_cols + [i for i in indicators if i not in base_cols]
+            safe_indicators = [i for i in indicators if i in _ALLOWED_INDICATORS and i not in base_cols]
+            cols = base_cols + safe_indicators
             columns_str = ", ".join(cols)
         else:
             columns_str = "*"
@@ -314,7 +328,7 @@ class IndexService:
         query = f"""
         SELECT {columns_str}
         FROM ods_idx_factor_pro
-        WHERE ts_code = '{ts_code}'
+        WHERE ts_code = {_to_clickhouse_literal(ts_code)}
         ORDER BY trade_date DESC
         LIMIT {days}
         """
@@ -405,7 +419,7 @@ class IndexService:
         Returns:
             Dict with ts_code, days, data
         """
-        ts_code_escaped = ts_code.replace("'", "''")
+        ts_code_literal = _to_clickhouse_literal(ts_code)
         query = f"""
         SELECT 
             ts_code,
@@ -419,7 +433,7 @@ class IndexService:
             vol,
             amount
         FROM ods_idx_factor_pro
-        WHERE ts_code = '{ts_code_escaped}'
+        WHERE ts_code = {ts_code_literal}
         ORDER BY trade_date DESC
         LIMIT {days}
         """
@@ -451,10 +465,8 @@ class IndexService:
         Returns:
             Dict with ts_code, name, freq, data
         """
-        ts_code_escaped = ts_code.replace("'", "''")
-        
         # Get index name
-        name_query = f"SELECT name FROM dim_index_basic FINAL WHERE ts_code = '{ts_code_escaped}'"
+        name_query = f"SELECT name FROM dim_index_basic FINAL WHERE ts_code = {_to_clickhouse_literal(ts_code)}"
         name_result = _execute_query(name_query)
         name = name_result[0].get("name") if name_result else None
         
@@ -469,9 +481,9 @@ class IndexService:
         # Build date filter
         date_conditions = []
         if start_date:
-            date_conditions.append(f"trade_date >= '{start_date}'")
+            date_conditions.append(f"trade_date >= {_to_clickhouse_literal(start_date)}")
         if end_date:
-            date_conditions.append(f"trade_date <= '{end_date}'")
+            date_conditions.append(f"trade_date <= {_to_clickhouse_literal(end_date)}")
         
         date_filter = " AND ".join(date_conditions) if date_conditions else "1=1"
         
@@ -493,7 +505,7 @@ class IndexService:
             amount,
             {pct_chg_col}
         FROM {table}
-        WHERE ts_code = '{ts_code_escaped}'
+        WHERE ts_code = {_to_clickhouse_literal(ts_code)}
         AND {date_filter}
         ORDER BY trade_date ASC
         """

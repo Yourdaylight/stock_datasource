@@ -7,6 +7,7 @@ process tasks independently.
 
 import json
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -47,18 +48,30 @@ class TaskQueue:
         """Initialize task queue with Redis connection."""
         self._redis: Optional[Redis] = None
         self._connected = False
+        self._last_ping_ok: float = 0.0  # timestamp of last successful ping
     
     def _get_redis(self) -> Redis:
         """Get or create Redis connection.
 
         Mode A behavior: Redis is a required dependency for task queue.
         - If disabled by configuration or unreachable, raise RedisUnavailableError.
+        - Periodic ping (every 30s) to detect stale connections; not on every call.
         """
         if not settings.REDIS_ENABLED:
             raise RedisUnavailableError("Redis is disabled (REDIS_ENABLED=false)")
 
         if self._redis is not None and self._connected:
-            return self._redis
+            # Only ping if more than 30s since last check to avoid per-call overhead
+            if time.time() - self._last_ping_ok > 30:
+                try:
+                    self._redis.ping()
+                    self._last_ping_ok = time.time()
+                except Exception:
+                    logger.warning("Redis ping failed, reconnecting...")
+                    self._connected = False
+                    self._redis = None
+            if self._connected:
+                return self._redis
 
         try:
             self._redis = Redis(
@@ -72,6 +85,7 @@ class TaskQueue:
             )
             self._redis.ping()
             self._connected = True
+            self._last_ping_ok = time.time()
             logger.info(f"Task queue connected to Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
             return self._redis
         except Exception as e:
@@ -86,6 +100,7 @@ class TaskQueue:
         priority: TaskPriority = TaskPriority.NORMAL,
         execution_id: str = None,
         user_id: str = None,
+        timeout_seconds: int = None,
     ) -> Optional[str]:
         """Add a task to the queue.
         
@@ -96,6 +111,7 @@ class TaskQueue:
             priority: Task priority level
             execution_id: Batch execution ID if part of a batch
             user_id: User who triggered the task
+            timeout_seconds: Maximum task execution time in seconds (default: 3600)
             
         Returns:
             Task ID if successful, None otherwise
@@ -125,7 +141,7 @@ class TaskQueue:
             "max_attempts": 3,
             "next_run_at": "",
             "last_error_type": "",
-            "timeout_seconds": 14400,
+            "timeout_seconds": timeout_seconds or 3600,
             "deadline_at": "",
         }
         
@@ -190,11 +206,11 @@ class TaskQueue:
             task_data["max_attempts"] = int(task_data.get("max_attempts", 3))
 
             try:
-                task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 900))
+                task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 3600))
             except Exception:
                 raw_timeout = task_data.get("timeout_seconds")
-                logger.warning(f"Task {task_id}: Invalid timeout_seconds={raw_timeout!r}, fallback to 900")
-                task_data["timeout_seconds"] = 900
+                logger.warning(f"Task {task_id}: Invalid timeout_seconds={raw_timeout!r}, fallback to 3600")
+                task_data["timeout_seconds"] = 3600
 
             # Mark as running
             redis.hset(self.TASK_KEY.format(task_id=task_id), "status", "running")
@@ -310,7 +326,7 @@ class TaskQueue:
             task_data["priority"] = int(task_data.get("priority", 1))
             task_data["attempt"] = int(task_data.get("attempt", 0))
             task_data["max_attempts"] = int(task_data.get("max_attempts", 3))
-            task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 900))
+            task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 3600))
 
             return task_data
         except Exception as e:
@@ -372,7 +388,7 @@ class TaskQueue:
                     task_data["priority"] = int(task_data.get("priority", 1))
                     task_data["attempt"] = int(task_data.get("attempt", 0))
                     task_data["max_attempts"] = int(task_data.get("max_attempts", 3))
-                    task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 900))
+                    task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 3600))
 
                     tasks.append(task_data)
                     if len(tasks) >= limit:

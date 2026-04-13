@@ -45,6 +45,7 @@ class Position(BaseModel):
     profit_loss: float = None
     profit_rate: float = None
     notes: Optional[str] = None
+    price_update_time: Optional[str] = None
 
 
 class AddPositionRequest(BaseModel):
@@ -105,7 +106,8 @@ async def get_positions(
             market_value=p.market_value,
             profit_loss=p.profit_loss,
             profit_rate=p.profit_rate,
-            notes=p.notes
+            notes=p.notes,
+            price_update_time=p.price_update_time
         ) for p in positions
     ]
 
@@ -139,7 +141,8 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
             market_value=position.market_value,
             profit_loss=position.profit_loss,
             profit_rate=position.profit_rate,
-            notes=position.notes
+            notes=position.notes,
+            price_update_time=position.price_update_time
         )
     except Exception as e:
         logger.error(f"Failed to add position: {e}")
@@ -188,7 +191,8 @@ async def update_position(
                 market_value=position.market_value,
                 profit_loss=position.profit_loss,
                 profit_rate=position.profit_rate,
-                notes=position.notes
+                notes=position.notes,
+                price_update_time=position.last_price_update.strftime("%Y-%m-%d %H:%M:%S") if hasattr(position, 'last_price_update') and position.last_price_update else (position.price_update_time if hasattr(position, 'price_update_time') else None)
             )
         else:
             raise HTTPException(status_code=503, detail="Enhanced service not available")

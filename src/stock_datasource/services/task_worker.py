@@ -42,9 +42,31 @@ def _classify_error_type(error_message: str) -> str:
     if ("IP数量超限" in msg) or ("最大数量为2个" in msg):
         return "ip_limit"
 
+    # TuShare rate limit errors: per-minute/per-call frequency exceeded.
+    if ("每分钟最多" in msg) or ("访问频次" in msg) or ("频率限制" in msg) or ("rate limit" in msg.lower()):
+        return "rate_limit"
+
     # Missing/invalid configuration should not be retried.
     if "TUSHARE_TOKEN" in msg and ("not configured" in msg or "not set" in msg):
         return "config_error"
+
+    # Missing required parameter errors — these are programming errors, not transient.
+    # e.g. "ts_code is required", "unexpected keyword argument"
+    if " is required" in msg or "unexpected keyword argument" in msg:
+        return "param_error"
+
+    # KeyError (e.g. 'seat_type') — likely a schema mismatch, not transient
+    # KeyError str representation is like "'seat_type'", not "KeyError: seat_type"
+    if "KeyError" in msg or ("'" in msg and msg.strip().startswith("'") and msg.strip().endswith("'")):
+        return "schema_error"
+
+    # TypeError from API calls — usually not transient
+    if "TypeError" in msg and ("RetryError" not in msg):
+        return "api_error"
+
+    # TuShare API batch mode errors — need correct parameters, not retry
+    if "batch mode" in msg.lower() or ("start_date" in msg and "end_date" in msg and "required" in msg.lower()):
+        return "param_error"
 
     return "retryable"
 
@@ -53,17 +75,48 @@ def _detect_plugin_param_style(plugin) -> str:
     """Detect the parameter style a plugin expects.
 
     Returns one of:
-        'date_range'   – needs start_date + end_date
-        'period'       – needs period (YYYYMMDD)
-        'entity_code'  – needs entity-specific code (index_code, ts_code, etc.),
-                         plugin should handle batch iteration internally
-        'no_params'    – no required params, can call with no args
-        'trade_date'   – default, needs trade_date
+        'date_range'     – needs start_date + end_date
+        'hk_daily'       – needs start_date + end_date (batch) or ts_code + start_date + end_date
+        'month_range'    – needs month or start_month + end_month (ggt_monthly)
+        'period'         – needs period (YYYYMMDD)
+        'entity_code'    – needs entity-specific code (index_code, ts_code, etc.),
+                           plugin should handle batch iteration internally
+        'no_params'      – no required params, can call with no args
+        'trade_date'     – default, needs trade_date
+        'skip_scheduled' – plugin requires ts_code and should NOT be triggered by scheduler
     """
+    plugin_name = getattr(plugin, "name", "") or ""
     plugin_config = plugin.get_config() if hasattr(plugin, "get_config") else {}
     params_schema = plugin_config.get("parameters_schema", {})
 
+    # --- Hard-coded overrides for plugins that lack proper parameters_schema ---
+    # These plugins have config.json without parameters_schema, causing
+    # the detector to default to trade_date which is wrong.
+
+    # ggt_monthly: uses month/start_month/end_month, NOT trade_date
+    if plugin_name == "tushare_ggt_monthly":
+        return "month_range"
+
+    # hk_daily: requires start_date+end_date or ts_code+start_date+end_date
+    if plugin_name == "tushare_hk_daily":
+        return "hk_daily"
+
+    # stock_company: no params needed (gets all companies)
+    if plugin_name == "tushare_stock_company":
+        return "no_params"
+
+    # forecast: uses ann_date or ts_code, NOT trade_date alone
+    if plugin_name == "tushare_forecast":
+        return "date_range"
+
+    # index_e: uses trade_date+ts_code or start_date+end_date+ts_code
+    if plugin_name == "tushare_index_e":
+        return "date_range"
+
+    # --- Schema-based detection for plugins with proper parameters_schema ---
+
     if "start_date" in params_schema and "end_date" in params_schema:
+        # If trade_date is also in schema AND none are required, prefer date_range
         return "date_range"
 
     # Check for entity-code params that are *required*
@@ -81,6 +134,13 @@ def _detect_plugin_param_style(plugin) -> str:
     if required_entity:
         if "trade_date" not in params_schema:
             return "entity_code"
+        # trade_date + required entity: still entity_code (e.g. cyq_chips)
+        # These should NOT be scheduled automatically
+        return "skip_scheduled"
+
+    # Check for month-based params
+    if "month" in params_schema or "start_month" in params_schema:
+        return "month_range"
 
     if "period" in params_schema and "trade_date" not in params_schema:
         return "period"
@@ -166,17 +226,40 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                         result_queue.put((False, 0, _classify_error_type(msg), msg))
                         return
                     total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
-                elif param_style == "entity_code":
-                    # Plugins that need entity codes: call with no args (let plugin handle batch internally)
-                    logger.info(f"[full] {plugin_name}: entity_code mode (no-arg call)")
-                    result = plugin.run()
+                elif param_style == "hk_daily":
+                    # HK daily: use start_date + end_date for batch
+                    end_dt = datetime.now().strftime("%Y%m%d")
+                    start_dt = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+                    logger.info(f"[full] {plugin_name}: hk_daily batch {start_dt}~{end_dt}")
+                    result = plugin.run(start_date=start_dt, end_date=end_dt)
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
                         msg = f"{err}\n{detail}" if detail else err
-                        result_queue.put((False, 0, "retryable", msg))
+                        result_queue.put((False, 0, _classify_error_type(msg), msg))
                         return
                     total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                elif param_style == "month_range":
+                    # ggt_monthly: use start_month + end_month
+                    end_month = datetime.now().strftime("%Y%m")
+                    start_month = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y%m")
+                    logger.info(f"[full] {plugin_name}: month_range {start_month}~{end_month}")
+                    result = plugin.run(start_month=start_month, end_month=end_month)
+                    if result.get("status") != "success":
+                        err = result.get("error", "插件执行失败")
+                        detail = result.get("error_detail", "")
+                        msg = f"{err}\n{detail}" if detail else err
+                        result_queue.put((False, 0, _classify_error_type(msg), msg))
+                        return
+                    total_records = int(result.get("steps", {}).get("load", {}).get("total_records", 0))
+                elif param_style in ("entity_code", "skip_scheduled"):
+                    # Plugins that need entity codes: cannot run full sync automatically
+                    logger.warning(
+                        f"[full] {plugin_name}: {param_style} mode — "
+                        f"cannot run full sync (requires entity code), skipping"
+                    )
+                    result_queue.put((True, 0, "", "Skipped: requires entity code parameter"))
+                    return
                 elif param_style == "no_params":
                     logger.info(f"[full] {plugin_name}: no-params mode")
                     result = plugin.run()
@@ -204,13 +287,21 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                                  for i in range(full_days, -1, -1)]
                     dates = dates[-full_days:]
                     logger.info(f"[full] {plugin_name}: {len(dates)} trading days")
+                    failed_dates = 0
                     for dt_str in dates:
                         try:
                             result = plugin.run(trade_date=dt_str)
                             if result.get("status") == "success":
                                 total_records += int(result.get("steps", {}).get("load", {}).get("total_records", 0))
                         except Exception as e:
-                            logger.warning(f"[full] {plugin_name} date={dt_str} failed: {e}")
+                            failed_dates += 1
+                            logger.warning(f"[full] {plugin_name} date={dt_str} failed ({failed_dates}): {e}")
+                    
+                    # If more than 10% of dates failed, treat as partial failure
+                    if failed_dates > len(dates) * 0.1:
+                        error_summary = f"Full sync: {failed_dates}/{len(dates)} dates failed"
+                        result_queue.put((False, total_records, "retryable", error_summary))
+                        return
 
                 result_queue.put((True, total_records, "", ""))
                 return
@@ -231,14 +322,30 @@ def _run_plugin_in_subprocess(task_data: dict, result_queue: multiprocessing.Que
                 # Plugins requiring start_date/end_date: use target_date for both
                 run_kwargs = {"start_date": target_date, "end_date": target_date}
                 logger.info(f"[incremental] {plugin_name}: date_range mode ({target_date})")
+            elif param_style == "hk_daily":
+                # HK daily: needs start_date + end_date for batch, or ts_code + date range
+                run_kwargs = {"start_date": target_date, "end_date": target_date}
+                logger.info(f"[incremental] {plugin_name}: hk_daily mode ({target_date})")
+            elif param_style == "month_range":
+                # ggt_monthly: uses target month
+                run_kwargs = {"month": target_date[:6]}
+                logger.info(f"[incremental] {plugin_name}: month_range mode ({target_date[:6]})")
             elif param_style == "period":
                 year = target_date[:4]
                 run_kwargs = {"period": f"{year}1231"}
                 logger.info(f"[incremental] {plugin_name}: period mode ({year}1231)")
-            elif param_style == "entity_code":
-                # Plugins requiring entity codes: call with no args (plugin handles batch internally)
+            elif param_style in ("entity_code", "skip_scheduled"):
+                # Plugins requiring entity codes: cannot run incrementally without entity code
+                # Return success with 0 records instead of crashing
+                logger.warning(
+                    f"[incremental] {plugin_name}: {param_style} mode — "
+                    f"cannot run incrementally (requires entity code), skipping"
+                )
+                result_queue.put((True, 0, "", "Skipped: requires entity code parameter"))
+                return
+            elif param_style == "no_params":
                 run_kwargs = {}
-                logger.info(f"[incremental] {plugin_name}: entity_code mode (no-arg call)")
+                logger.info(f"[incremental] {plugin_name}: no_params mode")
             else:
                 run_kwargs = {"trade_date": target_date}
 
@@ -333,7 +440,7 @@ class TaskWorker:
             
             now = datetime.now()
             stale_count = 0
-            max_stale_hours = 5  # Tasks running > 5 hours are considered stale
+            max_stale_hours = 2  # Tasks running > 2 hours are considered stale
             
             for task_id in running_ids:
                 task_data = redis.hgetall(task_queue.TASK_KEY.format(task_id=task_id))
@@ -361,21 +468,48 @@ class TaskWorker:
                             plugin_name = task_data.get("plugin_name", "unknown")
                             attempt = int(task_data.get("attempt", 0))
                             max_attempts = int(task_data.get("max_attempts", 3))
+                            next_attempt = attempt + 1
                             
-                            # Mark as failed
-                            redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
-                                "status": "failed",
-                                "error_message": f"Stale task cleanup: running for {age_hours:.1f}h (likely from crashed worker)",
-                                "completed_at": now.isoformat(),
-                                "updated_at": now.isoformat(),
-                            })
-                            redis.srem(task_queue.RUNNING_KEY, task_id)
-                            stale_count += 1
-                            
-                            logger.warning(
-                                f"Worker {self.worker_id}: Cleaned stale task {task_id} "
-                                f"({plugin_name}, age={age_hours:.1f}h)"
-                            )
+                            if next_attempt < max_attempts:
+                                # Re-queue for retry instead of failing permanently
+                                priority = int(task_data.get("priority", 1))
+                                queue_key = task_queue.QUEUE_KEY.format(priority=priority)
+                                next_run_at = (now + timedelta(seconds=60)).isoformat()
+                                
+                                redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
+                                    "status": "pending",
+                                    "attempt": next_attempt,
+                                    "next_run_at": next_run_at,
+                                    "last_error_type": "stale_task",
+                                    "error_message": f"Stale task cleanup: running for {age_hours:.1f}h (likely from crashed worker), retrying",
+                                    "updated_at": now.isoformat(),
+                                    "started_at": "",
+                                    "completed_at": "",
+                                })
+                                # Re-add to queue for retry
+                                redis.lpush(queue_key, task_id)
+                                stale_count += 1
+                                
+                                logger.warning(
+                                    f"Worker {self.worker_id}: Re-queued stale task {task_id} "
+                                    f"({plugin_name}, age={age_hours:.1f}h, attempt={next_attempt}/{max_attempts})"
+                                )
+                            else:
+                                # Attempts exhausted, mark as failed
+                                redis.hset(task_queue.TASK_KEY.format(task_id=task_id), mapping={
+                                    "status": "failed",
+                                    "attempt": next_attempt,
+                                    "error_message": f"Stale task cleanup: running for {age_hours:.1f}h (likely from crashed worker), attempts exhausted",
+                                    "completed_at": now.isoformat(),
+                                    "updated_at": now.isoformat(),
+                                })
+                                redis.srem(task_queue.RUNNING_KEY, task_id)
+                                stale_count += 1
+                                
+                                logger.warning(
+                                    f"Worker {self.worker_id}: Failed stale task {task_id} "
+                                    f"({plugin_name}, age={age_hours:.1f}h, attempts exhausted)"
+                                )
                     except (ValueError, TypeError):
                         pass
             
@@ -397,13 +531,13 @@ class TaskWorker:
             max_attempts = int(task_data.get("max_attempts", 3))
 
             try:
-                timeout_seconds = int(task_data.get("timeout_seconds", 900))
+                timeout_seconds = int(task_data.get("timeout_seconds", 3600))
             except Exception:
                 raw_timeout = task_data.get("timeout_seconds")
                 logger.warning(
-                    f"Worker {self.worker_id}: Invalid timeout_seconds={raw_timeout!r} for task {task_id}, fallback to 900"
+                    f"Worker {self.worker_id}: Invalid timeout_seconds={raw_timeout!r} for task {task_id}, fallback to 3600"
                 )
-                timeout_seconds = 900
+                timeout_seconds = 3600
 
             execution_id = task_data.get("execution_id")
 
@@ -470,7 +604,7 @@ class TaskWorker:
             self.current_task_id = None
     
     def _is_retryable_error(self, error_type: str) -> bool:
-        if error_type in {"plugin_not_found", "config_error", "ip_limit"}:
+        if error_type in {"plugin_not_found", "config_error", "ip_limit", "rate_limit", "param_error", "schema_error", "api_error"}:
             return False
         return True
 
@@ -554,8 +688,18 @@ class TaskWorker:
         proc.join(timeout=timeout_seconds)
 
         if proc.is_alive():
-            proc.terminate()
+            # Kill the entire process group to clean up any child processes/threads
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.terminate()
             proc.join(timeout=5)
+            if proc.is_alive():
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    proc.kill()
+                proc.join(timeout=3)
             return False, 0, "timeout", f"Task exceeded timeout_seconds={timeout_seconds}"
 
         try:

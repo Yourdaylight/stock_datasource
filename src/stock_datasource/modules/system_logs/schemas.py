@@ -15,6 +15,7 @@ class LogEntry(BaseModel):
     raw_line: str = Field(..., description="Original raw log line")
     request_id: Optional[str] = Field("-", description="Request ID for log correlation")
     user_id: Optional[str] = Field("-", description="User ID for log correlation")
+    middleware_trace_id: Optional[str] = Field("-", description="Middleware trace ID for correlation")
 
     class Config:
         json_encoders = {
@@ -30,6 +31,7 @@ class LogFilter(BaseModel):
     end_time: Optional[datetime] = Field(None, description="End time filter")
     keyword: Optional[str] = Field(None, max_length=200, description="Keyword search in message")
     request_id: Optional[str] = Field(None, max_length=32, description="Filter by request ID")
+    middleware_trace_id: Optional[str] = Field(None, max_length=32, description="Filter by middleware trace ID")
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(50, ge=1, le=1000, description="Page size")
 

@@ -12,7 +12,7 @@
     "cron": "0 6 * * *",
     "timezone": "Asia/Shanghai"
   },
-  "parameters": {
+  "parameters_schema": {
     "ts_code": {
       "type": "string",
       "description": "股票代码（与ann_date二选一）",

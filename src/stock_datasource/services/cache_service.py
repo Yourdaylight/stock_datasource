@@ -24,18 +24,40 @@ class CacheService:
     
     PREFIX = "stock:"  # Namespace prefix for isolation
     
+    # How often (seconds) to ping Redis to detect stale connections
+    _PING_INTERVAL = 30.0
+    
     def __init__(self):
         self._redis = None
         self._available = True
         self._connection_attempted = False
+        self._last_ping_ok: float = 0.0
+        self._last_fail_time: float = 0.0  # timestamp of last connection failure
     
     def _get_redis(self):
-        """Lazy connection to Redis with graceful degradation."""
+        """Lazy connection to Redis with graceful degradation and reconnection."""
+        import time as _time
+        
         if self._redis is not None:
-            return self._redis
+            # Periodic health check (not on every call to avoid RTT overhead)
+            if self._available and _time.time() - self._last_ping_ok > self._PING_INTERVAL:
+                try:
+                    self._redis.ping()
+                    self._last_ping_ok = _time.time()
+                except Exception:
+                    logger.warning("CacheService Redis ping failed, marking unavailable")
+                    self._available = False
+                    self._redis = None
+                    return None
+            if self._available:
+                return self._redis
         
         if self._connection_attempted and not self._available:
-            return None
+            # Retry connection every 30s instead of giving up forever
+            if _time.time() - self._last_fail_time < self._PING_INTERVAL:
+                return None
+            # Allow re-connection attempt
+            self._connection_attempted = False
         
         self._connection_attempted = True
         
@@ -59,16 +81,19 @@ class CacheService:
             )
             # Test connection
             self._redis.ping()
+            self._last_ping_ok = _time.time()
             logger.info(f"Redis connected: {settings.REDIS_HOST}:{settings.REDIS_PORT} DB={settings.REDIS_DB}")
             self._available = True
             return self._redis
         except ImportError:
             logger.warning("Redis package not installed, caching disabled")
             self._available = False
+            self._last_fail_time = _time.time()
             return None
         except Exception as e:
             logger.warning(f"Redis connection failed: {e}, caching disabled")
             self._available = False
+            self._last_fail_time = _time.time()
             return None
     
     @property

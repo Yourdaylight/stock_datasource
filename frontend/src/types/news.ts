@@ -95,3 +95,13 @@ export type NewsCategory =
 
 // 情绪类型
 export type SentimentType = 'positive' | 'negative' | 'neutral'
+
+// 热门话题
+export interface HotTopic {
+  topic: string
+  heat_score: number
+  related_stocks?: string[]
+  news_count?: number
+  sentiment?: SentimentType
+  update_time?: string
+}

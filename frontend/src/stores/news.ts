@@ -9,11 +9,11 @@ import { NewsCacheManager } from '@/utils/newsCache'
 import type { 
   NewsItem, 
   NewsSentiment, 
-  HotTopic, 
   NewsFilters, 
   UserPreferences,
   SentimentStats,
-  NewsSortBy
+  NewsSortBy,
+  HotTopic
 } from '@/types/news'
 
 export const useNewsStore = defineStore('news', () => {

@@ -75,7 +75,7 @@ const routes: RouteRecordRaw[] = [
     path: '/portfolio',
     name: 'Portfolio',
     component: () => import('@/views/portfolio/PortfolioView.vue'),
-    meta: { title: '持仓管理', icon: 'wallet', requiresAuth: true }
+    meta: { title: '我的持仓', icon: 'wallet', requiresAuth: true }
   },
   {
     path: '/etf',
@@ -103,9 +103,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/memory',
-    name: 'Memory',
-    component: () => import('@/views/memory/MemoryView.vue'),
-    meta: { title: '用户记忆', icon: 'user', requiresAuth: true }
+    redirect: '/portfolio'
   },
   {
     path: '/datamanage',

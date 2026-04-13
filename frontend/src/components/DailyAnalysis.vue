@@ -28,13 +28,13 @@
         <div class="report-header">
           <div class="report-date">
             <el-icon><Calendar /></el-icon>
-            {{ formatDate(analysisData.report_date) }}
+            {{ formatDate(analysisData.report_date || analysisData.analysis_date) }}
           </div>
           <el-tag 
-            :type="getStatusType(analysisData.status)"
+            :type="getStatusType(analysisData.status || 'completed')"
             size="small"
           >
-            {{ getStatusText(analysisData.status) }}
+            {{ getStatusText(analysisData.status || 'completed') }}
           </el-tag>
         </div>
 
@@ -256,7 +256,8 @@ const marketAnalysisData = computed(() => {
 const recommendationsData = computed(() => {
   if (!props.analysisData?.recommendations) return []
   try {
-    return JSON.parse(props.analysisData.recommendations)
+    const recs = props.analysisData.recommendations
+    return typeof recs === 'string' ? JSON.parse(recs) : recs
   } catch {
     return []
   }

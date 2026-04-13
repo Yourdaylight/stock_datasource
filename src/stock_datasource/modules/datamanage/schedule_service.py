@@ -63,6 +63,7 @@ class ScheduleService:
         """
         from datetime import datetime
         from .service import sync_task_manager
+        from stock_datasource.services.task_queue import task_queue
         
         history = get_schedule_history(limit=100)
         interrupted_count = 0
@@ -99,6 +100,19 @@ class ScheduleService:
                     })
                     interrupted_count += 1
                     logger.warning(f"Marked execution {execution_id} as interrupted due to service restart")
+                    
+                    # Also mark stale pending/running tasks so they won't be picked
+                    # up by workers. They can be retried via retry_execution.
+                    for task_id in task_ids:
+                        task = sync_task_manager.get_task(task_id)
+                        if task:
+                            ts = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                            if ts == "pending":
+                                sync_task_manager.cancel_task(task_id)
+                                logger.info(f"Cancelled stale pending task {task_id} in interrupted execution {execution_id}")
+                            elif ts == "running":
+                                task_queue.fail_task(task_id, "Task interrupted by service restart")
+                                logger.info(f"Failed stale running task {task_id} in interrupted execution {execution_id}")
                 else:
                     # All tasks finished - update to final status
                     final_status = "failed" if failed > 0 else "completed"
@@ -625,6 +639,7 @@ class ScheduleService:
             ValueError: If execution not found or cannot be retried
         """
         from .service import sync_task_manager
+        from stock_datasource.services.task_queue import task_queue
         
         # Find the original execution
         history = get_schedule_history(limit=100)
@@ -639,21 +654,39 @@ class ScheduleService:
         
         status = original.get("status", "")
         if status not in ("interrupted", "failed"):
-            raise ValueError(f"Execution {execution_id} cannot be retried (status: {status})")
+            msg = f"Execution {execution_id} cannot be retried (status: {status})"
+            logger.warning(msg)
+            raise ValueError(msg)
         
-        # Get tasks that need to be retried (failed or cancelled)
+        # Get tasks that need to be retried
+        # For interrupted executions: pending/running tasks are stale (service restarted)
+        # and should also be retried, since they never actually completed.
+        # For failed executions: only retry failed/cancelled tasks.
         original_task_ids = original.get("task_ids", [])
         tasks_to_retry = []
+        is_interrupted = (status == "interrupted")
         
         for tid in original_task_ids:
             task = sync_task_manager.get_task(tid)
             if task:
                 status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
-                if status_val in ("failed", "cancelled"):
-                    tasks_to_retry.append(task)
+                if is_interrupted:
+                    # Interrupted execution: retry failed, cancelled, AND stale pending/running tasks
+                    if status_val in ("failed", "cancelled", "pending", "running"):
+                        tasks_to_retry.append(task)
+                else:
+                    # Failed execution: only retry failed/cancelled tasks
+                    if status_val in ("failed", "cancelled"):
+                        tasks_to_retry.append(task)
         
         if not tasks_to_retry:
-            raise ValueError(f"No failed or cancelled tasks to retry in execution {execution_id}")
+            msg = (
+                f"No retriable tasks found in execution {execution_id}. "
+                f"Execution status: {status}, task statuses checked: failed/cancelled"
+                + ("/pending/running" if is_interrupted else "")
+            )
+            logger.error(msg)
+            raise ValueError(msg)
         
         # Retry tasks in-place (create new tasks and update execution)
         new_task_ids = list(original_task_ids)  # Copy original task ids
@@ -661,6 +694,16 @@ class ScheduleService:
         
         for old_task in tasks_to_retry:
             try:
+                # Clean up the old task to prevent workers from picking it up.
+                # pending -> cancel, running -> fail (cancel only works for pending)
+                old_status = old_task.status.value if hasattr(old_task.status, 'value') else str(old_task.status)
+                if old_status == "pending":
+                    sync_task_manager.cancel_task(old_task.task_id)
+                    logger.info(f"Retry execution: cancelled stale pending task {old_task.task_id}")
+                elif old_status == "running":
+                    task_queue.fail_task(old_task.task_id, "Task interrupted by execution retry")
+                    logger.info(f"Retry execution: failed stale running task {old_task.task_id}")
+                
                 # Convert task_type from string to TaskType enum
                 task_type_enum = TaskType(old_task.task_type)
                 new_task = sync_task_manager.create_task(
@@ -1013,7 +1056,9 @@ class ScheduleService:
                         failed_tasks.append(task)
         
         if not failed_tasks:
-            raise ValueError(f"No failed tasks to retry in execution {execution_id}")
+            msg = f"No failed tasks to retry in execution {execution_id}"
+            logger.error(msg)
+            raise ValueError(msg)
         
         # Retry failed tasks in-place (create new tasks and update execution)
         new_task_ids = list(original_task_ids)  # Copy original task ids

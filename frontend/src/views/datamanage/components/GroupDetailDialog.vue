@@ -195,7 +195,7 @@ const pluginColumns = [
   { colKey: 'has_data', title: '数据状态', width: 100 }
 ]
 
-const categoryLabelMap: Record<GroupCategory, string> = {
+const categoryLabelMap: Record<GroupCategory | 'system', string> = {
   system: '系统维护',
   cn_stock: 'A股',
   index: '指数',

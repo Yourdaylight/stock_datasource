@@ -154,7 +154,8 @@ const status = reactive<SchedulerStatus & { current_task?: string }>({
   next_analysis: undefined,
   last_data_sync: undefined,
   last_analysis: undefined,
-  current_task: undefined
+  current_task: undefined,
+  thread_alive: false
 })
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null

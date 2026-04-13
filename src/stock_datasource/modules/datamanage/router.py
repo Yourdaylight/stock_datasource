@@ -8,6 +8,8 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import List, Optional
 import logging
 
+logger = logging.getLogger(__name__)
+
 from .schemas import (
     DataSource, SyncTask, TriggerSyncRequest, ManualDetectRequest,
     QualityMetrics, PluginInfo, PluginDetail, PluginDataPreview,
@@ -875,6 +877,7 @@ async def retry_schedule_execution(
         record = schedule_service.retry_execution(execution_id)
         return ScheduleExecutionRecord(**record)
     except ValueError as e:
+        logger.error(f"Retry execution failed for {execution_id}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -965,6 +968,7 @@ async def partial_retry_execution(
         )
         return ScheduleExecutionRecord(**record)
     except ValueError as e:
+        logger.error(f"Partial retry execution failed for {execution_id}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

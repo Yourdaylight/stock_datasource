@@ -26,7 +26,7 @@ CLEANUP_JOB_ID = "rt_minute_cleanup"
 # Core task functions
 # ------------------------------------------------------------------
 
-def run_collection(freq: str = "1min", markets=None) -> dict:
+def run_collection(freq: str = "1MIN", markets=None) -> dict:
     """Execute one round of data collection → SQLite cache.
 
     This is the function that the scheduler calls every minute

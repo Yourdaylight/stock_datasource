@@ -11,5 +11,17 @@
   "category": "CN_STOCK",
   "role": "AUXILIARY",
   "tags": ["company", "basic", "info"],
-  "dependencies": []
+  "dependencies": [],
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "股票代码"
+    },
+    "exchange": {
+      "type": "string",
+      "required": false,
+      "description": "交易所代码 SSE/SZSE/BSE"
+    }
+  }
 }

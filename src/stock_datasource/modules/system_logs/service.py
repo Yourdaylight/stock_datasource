@@ -114,36 +114,41 @@ class LogService:
             if filters.request_id and filters.request_id != "-":
                 conditions.append("request_id = %(request_id)s")
                 params["request_id"] = filters.request_id
+            if getattr(filters, 'middleware_trace_id', None) and filters.middleware_trace_id != "-":
+                conditions.append("middleware_trace_id = %(middleware_trace_id)s")
+                params["middleware_trace_id"] = filters.middleware_trace_id
 
             where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
 
             # Count
             count_sql = f"SELECT count() AS cnt FROM system_structured_logs{where}"
-            count_row = ch.query(count_sql, params)
-            total = count_row[0][0] if count_row else 0
+            count_row = ch.execute(count_sql, params)
+            total = int(count_row[0][0]) if count_row else 0
 
             # Data
             offset = (filters.page - 1) * filters.page_size
             data_sql = (
-                f"SELECT timestamp, level, request_id, user_id, module, function, line, "
-                f"message, exception FROM system_structured_logs{where} "
+                f"SELECT timestamp, level, request_id, user_id, middleware_trace_id, "
+                f"module, function, line, message, exception "
+                f"FROM system_structured_logs{where} "
                 f"ORDER BY timestamp DESC LIMIT %(limit)s OFFSET %(offset)s"
             )
             params["limit"] = filters.page_size
             params["offset"] = offset
-            rows = ch.query(data_sql, params)
+            rows = ch.execute(data_sql, params)
 
             log_entries = []
             for row in rows:
-                ts, level, req_id, uid, module, func, line_no, msg, exc = row
+                ts, level, req_id, uid, mw_id, module, func, line_no, msg, exc = row
                 log_entries.append(LogEntry(
                     timestamp=ts if isinstance(ts, datetime) else datetime.now(),
                     level=str(level),
                     module=str(module),
                     message=str(msg),
-                    raw_line=f"{ts} | {level} | {req_id} | {uid} | {module}:{func}:{line_no} - {msg}",
+                    raw_line=f"{ts} | {level} | {req_id} | {uid} | {mw_id} | {module}:{func}:{line_no} - {msg}",
                     request_id=str(req_id),
                     user_id=str(uid),
+                    middleware_trace_id=str(mw_id),
                 ))
 
             return LogListResponse(
@@ -243,7 +248,7 @@ class LogService:
                 f"SELECT level, count() AS cnt FROM system_structured_logs{where} "
                 f"GROUP BY level"
             )
-            rows = ch.query(count_sql, params)
+            rows = ch.execute(count_sql, params)
             level_counter = {str(row[0]): int(row[1]) for row in rows}
 
             # Hourly trend
@@ -252,7 +257,7 @@ class LogService:
                 f"FROM system_structured_logs{where} "
                 f"GROUP BY bucket, level ORDER BY bucket"
             )
-            trend_rows = ch.query(trend_sql, params)
+            trend_rows = ch.execute(trend_sql, params)
             trend_bucket: Dict[datetime, Counter] = defaultdict(Counter)
             for row in trend_rows:
                 bucket_dt = row[0] if isinstance(row[0], datetime) else start_time
@@ -387,7 +392,7 @@ class LogService:
                 f"GROUP BY level, module, sig ORDER BY cnt DESC LIMIT %(limit)s"
             )
             params["limit"] = filters.limit
-            rows = ch.query(sql, params)
+            rows = ch.execute(sql, params)
 
             clusters = []
             for row in rows:
@@ -434,10 +439,12 @@ class LogService:
         items: List[OperationTimelineItem] = []
         for log in logs[: max(filters.limit * 4, 120)]:
             message = str(log.get('message', '')).strip()
+            # Classify event type: middleware.* → 'middleware', otherwise 'log'
+            event_type = 'middleware' if message.startswith('middleware.') else 'log'
             items.append(
                 OperationTimelineItem(
                     timestamp=log.get('timestamp') or datetime.now(),
-                    event_type='log',
+                    event_type=event_type,
                     level=str(log.get('level', 'INFO')).upper(),
                     module=str(log.get('module', 'unknown')),
                     summary=message[:140],
@@ -483,15 +490,16 @@ class LogService:
                 f"ORDER BY timestamp DESC LIMIT %(limit)s"
             )
             params["limit"] = min(filters.limit * 4, 500)
-            rows = ch.query(sql, params)
+            rows = ch.execute(sql, params)
 
             items = []
             for row in rows:
                 ts, level, module, msg, request_id = row
                 message = str(msg).strip()
+                event_type = 'middleware' if message.startswith('middleware.') else 'log'
                 items.append(OperationTimelineItem(
                     timestamp=ts if isinstance(ts, datetime) else datetime.now(),
-                    event_type='log',
+                    event_type=event_type,
                     level=str(level),
                     module=str(module),
                     summary=message[:140],
@@ -863,7 +871,7 @@ class LogService:
     ) -> List[OperationTimelineItem]:
         """Build timeline events from schedule execution history."""
         try:
-            from stock_datasource.modules.datamanage.service import schedule_service
+            from stock_datasource.modules.datamanage.schedule_service import schedule_service
         except Exception as e:
             logger.warning(f"Failed to import schedule_service for timeline: {e}")
             return []

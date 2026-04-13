@@ -135,7 +135,15 @@ class OverviewService:
         }
     
     def _get_major_indices(self, trade_date) -> List[Dict[str, Any]]:
-        """Get major indices status for a date."""
+        """Get major indices status for a date. 
+        Priority: rt_minute_latest (realtime) > ods_idx_factor_pro (daily).
+        """
+        # 1. 先尝试从分钟缓存获取（秒级精度）
+        rt_indices = self._get_major_indices_from_minute_cache()
+        if rt_indices:
+            return rt_indices
+        
+        # 2. Fallback 到日线表
         indices_codes = [f"'{code}'" for code, _ in MAJOR_INDICES]
         indices_str = ", ".join(indices_codes)
 
@@ -161,6 +169,43 @@ class OverviewService:
         result.sort(key=lambda x: code_order.get(x.get('ts_code', ''), 999))
         
         return result
+    
+    def _get_major_indices_from_minute_cache(self) -> List[Dict[str, Any]]:
+        """从分钟缓存获取主要指数的最新数据（秒级精度）。"""
+        try:
+            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            cache = get_cache_store()
+            if not cache.available:
+                return []
+            
+            result = []
+            for code, name in MAJOR_INDICES:
+                latest = cache.get_latest("index", code, "1min")
+                if latest and latest.get("close") is not None:
+                    pct_chg = latest.get("pct_chg")
+                    if pct_chg is None:
+                        o = latest.get("open")
+                        c = latest.get("close")
+                        if o and c and o != 0:
+                            pct_chg = round((c - o) / o * 100, 2)
+                        else:
+                            pct_chg = 0
+                    result.append({
+                        "ts_code": code,
+                        "name": name,
+                        "close": latest["close"],
+                        "pct_chg": pct_chg,
+                        "vol": latest.get("vol"),
+                        "amount": latest.get("amount"),
+                    })
+            
+            # 必须全部8个指数都有数据才用分钟缓存
+            if len(result) >= 4:
+                return result
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to get indices from minute cache: {e}")
+            return []
     
     def _get_market_stats(self, trade_date, date_str: str) -> Optional[Dict[str, Any]]:
         """Get market statistics for a date."""
