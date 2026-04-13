@@ -59,7 +59,7 @@ class RealtimeMinuteCollector:
 
     @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
            wait=wait_exponential(multiplier=1, min=2, max=10))
-    def _call_rt_min(self, ts_code: str, freq: str = "1min") -> pd.DataFrame:
+    def _call_rt_min(self, ts_code: str, freq: str = "1MIN") -> pd.DataFrame:
         """Call rt_min API for A-stock / ETF."""
         self._rate_limit()
         try:
@@ -73,7 +73,7 @@ class RealtimeMinuteCollector:
 
     @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
            wait=wait_exponential(multiplier=1, min=2, max=10))
-    def _call_rt_idx_min(self, ts_code: str, freq: str = "1min") -> pd.DataFrame:
+    def _call_rt_idx_min(self, ts_code: str, freq: str = "1MIN") -> pd.DataFrame:
         """Call rt_idx_min API for index."""
         self._rate_limit()
         try:
@@ -87,7 +87,7 @@ class RealtimeMinuteCollector:
 
     @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
            wait=wait_exponential(multiplier=1, min=2, max=10))
-    def _call_hk_mins(self, ts_code: str, freq: str = "1min",
+    def _call_hk_mins(self, ts_code: str, freq: str = "1MIN",
                       start_date: Optional[str] = None,
                       end_date: Optional[str] = None) -> pd.DataFrame:
         """Call hk_mins API for HK stocks."""
@@ -116,10 +116,16 @@ class RealtimeMinuteCollector:
         if df.empty:
             return df
 
-        # Rename columns if needed (hk_mins may use different names)
+        # Rename columns if needed (API may return different names)
         rename_map = {}
+        if "time" in df.columns and "trade_time" not in df.columns:
+            rename_map["time"] = "trade_time"
         if "trade_date" in df.columns and "trade_time" not in df.columns:
             rename_map["trade_date"] = "trade_time"
+        if "code" in df.columns and "ts_code" not in df.columns:
+            rename_map["code"] = "ts_code"
+        if "volume" in df.columns and "vol" not in df.columns:
+            rename_map["volume"] = "vol"
         if rename_map:
             df = df.rename(columns=rename_map)
 
@@ -142,7 +148,7 @@ class RealtimeMinuteCollector:
     # Market-specific collectors
     # ------------------------------------------------------------------
 
-    def collect_astock(self, freq: str = "1min") -> pd.DataFrame:
+    def collect_astock(self, freq: str = "1MIN") -> pd.DataFrame:
         """Collect A-stock realtime minute data in batches."""
         all_dfs: List[pd.DataFrame] = []
         for batch in cfg.ASTOCK_BATCHES:
@@ -158,7 +164,7 @@ class RealtimeMinuteCollector:
             return pd.concat(all_dfs, ignore_index=True)
         return pd.DataFrame()
 
-    def collect_etf(self, freq: str = "1min") -> pd.DataFrame:
+    def collect_etf(self, freq: str = "1MIN") -> pd.DataFrame:
         """Collect ETF realtime minute data."""
         all_dfs: List[pd.DataFrame] = []
         for ts_code in cfg.HOT_ETF_CODES:
@@ -173,7 +179,7 @@ class RealtimeMinuteCollector:
             return pd.concat(all_dfs, ignore_index=True)
         return pd.DataFrame()
 
-    def collect_index(self, freq: str = "1min") -> pd.DataFrame:
+    def collect_index(self, freq: str = "1MIN") -> pd.DataFrame:
         """Collect index realtime minute data."""
         all_dfs: List[pd.DataFrame] = []
         for ts_code in cfg.INDEX_CODES:
@@ -188,7 +194,7 @@ class RealtimeMinuteCollector:
             return pd.concat(all_dfs, ignore_index=True)
         return pd.DataFrame()
 
-    def collect_hk(self, freq: str = "1min") -> pd.DataFrame:
+    def collect_hk(self, freq: str = "1MIN") -> pd.DataFrame:
         """Collect HK stock minute data."""
         all_dfs: List[pd.DataFrame] = []
         today = datetime.now().strftime("%Y-%m-%d")
@@ -214,7 +220,7 @@ class RealtimeMinuteCollector:
 
     def collect_all(
         self,
-        freq: str = "1min",
+        freq: str = "1MIN",
         markets: Optional[List[str]] = None,
     ) -> Dict[str, pd.DataFrame]:
         """Collect all configured markets.

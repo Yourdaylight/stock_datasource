@@ -595,8 +595,8 @@ watch(() => props.visible, (visible) => {
                 <t-input-number
                   v-model="addToWatchlistForm.cost_price"
                   :min="0"
-                  :step="0.01"
-                  :decimal-places="2"
+                  :step="0.001"
+                  :decimal-places="3"
                   style="width: 140px"
                 />
               </t-form-item>

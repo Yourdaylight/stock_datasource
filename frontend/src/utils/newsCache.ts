@@ -140,7 +140,7 @@ export class NewsCacheManager {
 
 // 新闻专用缓存方法
 export class NewsCache {
-  private cacheManager: NewsCacheManager
+  public cacheManager: NewsCacheManager
 
   constructor(config?: Partial<CacheConfig>) {
     this.cacheManager = new NewsCacheManager(config)

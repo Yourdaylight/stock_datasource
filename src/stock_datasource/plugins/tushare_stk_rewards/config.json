@@ -3,5 +3,18 @@
   "timeout": 30,
   "api_name": "stk_rewards",
   "description": "管理层薪酬和持股数据",
-  "min_points": 2000
+  "min_points": 2000,
+  "parameters_schema": {
+    "ts_code": {
+      "type": "string",
+      "required": true,
+      "description": "股票代码 (e.g., 600000.SH)"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期 YYYYMMDD"
+    }
+  }
 }

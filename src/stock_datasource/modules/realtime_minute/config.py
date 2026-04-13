@@ -86,8 +86,8 @@ COLLECT_FREQ: Dict[str, int] = {
     "hk": 5,
 }
 
-# Tushare API frequency for minute bars
-DEFAULT_BAR_FREQ = "1min"
+# Tushare API frequency for minute bars (MUST be uppercase: 1MIN,5MIN,15MIN,30MIN,60MIN)
+DEFAULT_BAR_FREQ = "1MIN"
 
 # Rate limiting – max Tushare API calls per minute
 RATE_LIMIT_PER_MINUTE = 120

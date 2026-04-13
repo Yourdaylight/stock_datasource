@@ -205,6 +205,8 @@ async def trigger_collection(
         )
     except Exception as e:
         logger.error("Manual trigger failed: %s", e, exc_info=True)
+        import traceback
+        traceback.print_exc()
         return TriggerResponse(
             success=False,
             message=str(e),

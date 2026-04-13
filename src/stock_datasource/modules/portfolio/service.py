@@ -24,6 +24,7 @@ class Position:
     profit_loss: Optional[float] = None
     profit_rate: Optional[float] = None
     notes: Optional[str] = None
+    price_update_time: Optional[str] = None
 
 
 @dataclass
@@ -262,77 +263,140 @@ class PortfolioService:
         }
         return stock_names.get(ts_code, f"股票{ts_code}")
     
-    async def _batch_get_latest_prices(self, ts_codes: List[str]) -> Dict[str, float]:
-        """Batch get latest prices for multiple stocks."""
+    async def _batch_get_latest_prices(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch get latest prices for multiple stocks.
+        
+        Returns dict mapping ts_code -> {'close': float, 'trade_time': str}
+        Priority: rt_minute_latest (realtime) > ods_daily (daily close)
+        """
         prices = {}
         if not ts_codes:
             return prices
-            
+        
+        # 1. 优先从分钟缓存获取最新价
         try:
-            if self.db is not None:
-                # 使用单条 SQL 批量获取所有股票的最新价格
-                codes_str = "', '".join(ts_codes)
-                query = f"""
-                    SELECT ts_code, close 
-                    FROM (
-                        SELECT ts_code, close, 
-                               ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY trade_date DESC) as rn
-                        FROM ods_daily 
-                        WHERE ts_code IN ('{codes_str}')
-                    ) t
-                    WHERE rn = 1
-                """
-                df = self.db.execute_query(query)
-                if not df.empty:
-                    for _, row in df.iterrows():
-                        prices[row['ts_code']] = float(row['close'])
+            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            cache = get_cache_store()
+            if cache.available:
+                for code in ts_codes:
+                    latest = cache.get_latest("", code, "1min")
+                    if latest and latest.get("close") is not None:
+                        prices[code] = {
+                            "close": float(latest["close"]),
+                            "trade_time": latest.get("trade_time", ""),
+                        }
         except Exception as e:
-            logger.warning(f"Failed to batch get prices from database: {e}")
+            logger.warning(f"Failed to get prices from rt_minute cache: {e}")
+        
+        # 2. 对于缓存中没有的代码，fallback 到 ClickHouse 日线表
+        missing_codes = [c for c in ts_codes if c not in prices]
+        if missing_codes and self.db is not None:
+            try:
+                for code in missing_codes:
+                    price_info = self._get_daily_latest_price(code)
+                    if price_info:
+                        prices[code] = price_info
+            except Exception as e:
+                logger.warning(f"Failed to batch get prices from database: {e}")
         
         return prices
     
-    async def _update_position_prices(self, position: Position, prices_cache: Dict[str, float] = None):
-        """Update position current price and calculations. Supports A-shares, ETFs and HK stocks."""
-        # 优先使用缓存的价格
+    def _get_daily_latest_price(self, ts_code: str) -> Optional[Dict[str, Any]]:
+        """从 ClickHouse 日线表获取最新收盘价和日期。返回秒级精度的 trade_time。"""
+        if self.db is None:
+            return None
+        try:
+            # A股日线
+            query = """
+                SELECT close, trade_date FROM ods_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df = self.db.execute_query(query, {'code': ts_code})
+            if not df.empty:
+                trade_date = df.iloc[0]['trade_date']
+                trade_time = self._format_trade_datetime(trade_date)
+                return {"close": float(df.iloc[0]['close']), "trade_time": trade_time}
+            
+            # ETF日线
+            query_etf = """
+                SELECT close, trade_date FROM ods_etf_fund_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+            if not df_etf.empty:
+                trade_date = df_etf.iloc[0]['trade_date']
+                trade_time = self._format_trade_datetime(trade_date, market_type="etf")
+                return {"close": float(df_etf.iloc[0]['close']), "trade_time": trade_time}
+            
+            # 港股日线
+            if ts_code.endswith('.HK'):
+                query_hk = """
+                    SELECT close, trade_date FROM ods_hk_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                if not df_hk.empty:
+                    trade_date = df_hk.iloc[0]['trade_date']
+                    trade_time = self._format_trade_datetime(trade_date, market_type="hk")
+                    return {"close": float(df_hk.iloc[0]['close']), "trade_time": trade_time}
+        except Exception as e:
+            logger.warning(f"Failed to get daily price for {ts_code}: {e}")
+        return None
+    
+    @staticmethod
+    def _format_trade_datetime(trade_date, market_type: str = "a_stock") -> str:
+        """将日线 trade_date 格式化为秒级精度的 trade_time。
+        
+        日线数据没有精确到秒的时间戳，使用各市场收盘时间作为补充：
+        - A股: 15:00:00
+        - ETF: 15:00:00
+        - 港股: 16:00:00 (16:08 收盘，取整 16:00)
+        """
+        if hasattr(trade_date, 'strftime'):
+            date_str = trade_date.strftime('%Y-%m-%d')
+        else:
+            date_str = str(trade_date)
+            if len(date_str) == 8 and '-' not in date_str:
+                date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        
+        close_time = "16:00:00" if market_type == "hk" else "15:00:00"
+        return f"{date_str} {close_time}"
+    
+    async def _update_position_prices(self, position: Position, prices_cache: Dict[str, Any] = None):
+        """Update position current price and calculations. Supports A-shares, ETFs and HK stocks.
+        
+        Priority: rt_minute_latest (realtime, second-precision) > ods_daily (daily close)
+        """
+        updated = False
+        # 1. 优先使用分钟缓存的最新价格（秒级精度）
         if prices_cache and position.ts_code in prices_cache:
-            position.current_price = prices_cache[position.ts_code]
-        elif position.current_price is None:
+            info = prices_cache[position.ts_code]
+            position.current_price = info["close"]
+            position.price_update_time = info.get("trade_time", "")
+            updated = True
+        else:
+            # 2. 尝试单独从分钟缓存获取
             try:
-                if self.db is not None:
-                    # Try ods_daily first (A-shares)
-                    query = """
-                        SELECT close FROM ods_daily 
-                        WHERE ts_code = %(code)s 
-                        ORDER BY trade_date DESC 
-                        LIMIT 1
-                    """
-                    df = self.db.execute_query(query, {'code': position.ts_code})
-                    if not df.empty:
-                        position.current_price = float(df.iloc[0]['close'])
-                    else:
-                        # Try ETF daily table
-                        query_etf = """
-                            SELECT close FROM ods_etf_fund_daily 
-                            WHERE ts_code = %(code)s 
-                            ORDER BY trade_date DESC 
-                            LIMIT 1
-                        """
-                        df_etf = self.db.execute_query(query_etf, {'code': position.ts_code})
-                        if not df_etf.empty:
-                            position.current_price = float(df_etf.iloc[0]['close'])
-                        elif position.ts_code.endswith('.HK'):
-                            # Try HK daily table
-                            query_hk = """
-                                SELECT close FROM ods_hk_daily 
-                                WHERE ts_code = %(code)s 
-                                ORDER BY trade_date DESC 
-                                LIMIT 1
-                            """
-                            df_hk = self.db.execute_query(query_hk, {'code': position.ts_code})
-                            if not df_hk.empty:
-                                position.current_price = float(df_hk.iloc[0]['close'])
+                from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+                cache = get_cache_store()
+                if cache.available:
+                    latest = cache.get_latest("", position.ts_code, "1min")
+                    if latest and latest.get("close") is not None:
+                        position.current_price = float(latest["close"])
+                        position.price_update_time = latest.get("trade_time", "")
+                        updated = True
             except Exception as e:
-                logger.warning(f"Failed to get current price from database: {e}")
+                logger.warning(f"Failed to get price from rt_minute cache for {position.ts_code}: {e}")
+        
+        # 3. 分钟缓存没有，fallback 到日线表
+        if not updated:
+            price_info = self._get_daily_latest_price(position.ts_code)
+            if price_info:
+                position.current_price = price_info["close"]
+                position.price_update_time = price_info.get("trade_time", "")
         
         # Fallback: use cost_price if no price found
         if position.current_price is None:

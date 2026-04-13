@@ -83,10 +83,16 @@ class TuShareHKDailyPlugin(BasePlugin):
         end_date = kwargs.get('end_date')
         max_stocks = kwargs.get('max_stocks')
         
-        if trade_date and not ts_code:
-            self.logger.warning("Using trade_date without ts_code is not efficient for yfinance")
-            self.logger.info("Consider using ts_code + start_date + end_date instead")
-            raise ValueError("Use ts_code + start_date + end_date or start_date + end_date for batch mode")
+        # If trade_date is provided without ts_code, convert to start_date + end_date
+        if trade_date and not ts_code and not start_date and not end_date:
+            start_date = trade_date
+            end_date = trade_date
+            self.logger.info(f"Converting trade_date={trade_date} to start_date+end_date for yfinance")
+        
+        # If only trade_date + ts_code, convert to date range
+        if trade_date and ts_code and not start_date and not end_date:
+            start_date = trade_date
+            end_date = trade_date
         
         if ts_code:
             # Single stock mode

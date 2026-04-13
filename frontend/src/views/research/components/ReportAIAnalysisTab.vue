@@ -40,9 +40,9 @@ const scoreColor = computed(() => {
 
 const renderedSections = computed(() => {
   if (analysisSections.value?.length > 0) {
-    return analysisSections.value
+    return analysisSections.value.map(s => ({ ...s, icon: (s as any).icon || getIconForTitle(s.title) }))
   }
-  if (!analysisContent.value) return []
+  if (!analysisContent.value) return [] as Array<{ title: string; content: string; icon: string }>
   return parseMarkdownSections(analysisContent.value)
 })
 

@@ -232,7 +232,8 @@ class DeepAnalyzer:
     def _get_stock_name(self, ts_code: str) -> str:
         try:
             df = db_client.execute_query(
-                f"SELECT name FROM dim_stock_basic WHERE ts_code = '{ts_code}' LIMIT 1"
+                "SELECT name FROM dim_stock_basic WHERE ts_code = %(ts_code)s LIMIT 1",
+                params={"ts_code": ts_code}
             )
             return str(df.iloc[0]["name"]) if len(df) > 0 else ""
         except Exception:

@@ -682,8 +682,7 @@ class MarketService:
             }
     
     async def _get_index_data(self) -> List[Dict[str, Any]]:
-        """Get major index data."""
-        indices = []
+        """Get major index data. Priority: rt_minute_latest > ods_index_daily."""
         index_codes = [
             ("000001.SH", "上证指数"),
             ("399001.SZ", "深证成指"),
@@ -693,6 +692,12 @@ class MarketService:
             ("000905.SH", "中证500"),
         ]
         
+        # 1. 先尝试从分钟缓存获取（秒级精度）
+        rt_indices = self._get_index_data_from_minute_cache(index_codes)
+        if rt_indices:
+            return rt_indices
+        
+        # 2. Fallback 到日线表
         if self.db is None:
             # Return mock data
             return [
@@ -726,6 +731,42 @@ class MarketService:
             logger.error(f"Failed to get index data: {e}")
         
         return indices
+    
+    def _get_index_data_from_minute_cache(self, index_codes: list) -> list:
+        """从分钟缓存获取指数数据（秒级精度）。"""
+        try:
+            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            cache = get_cache_store()
+            if not cache.available:
+                return []
+            
+            result = []
+            for code, name in index_codes:
+                latest = cache.get_latest("index", code, "1min")
+                if latest and latest.get("close") is not None:
+                    pct_chg = latest.get("pct_chg")
+                    if pct_chg is None:
+                        o = latest.get("open")
+                        c = latest.get("close")
+                        if o and c and o != 0:
+                            pct_chg = round((c - o) / o * 100, 2)
+                        else:
+                            pct_chg = 0
+                    result.append({
+                        "code": code,
+                        "name": name,
+                        "close": float(latest["close"]),
+                        "pct_chg": float(pct_chg),
+                        "volume": float(latest.get("vol", 0) or 0),
+                        "amount": float(latest.get("amount", 0) or 0),
+                    })
+            
+            if len(result) >= 3:
+                return result
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to get index data from minute cache: {e}")
+            return []
     
     async def _get_market_stats(self, date: str) -> Dict[str, Any]:
         """Get market statistics for a given date."""
@@ -1097,6 +1138,11 @@ class MarketService:
                     FROM ods_hk_basic
                     WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s OR cn_spell LIKE %(keyword)s
                     LIMIT 10
+                    UNION ALL
+                    SELECT ts_code as code, name, 'index' as market
+                    FROM dim_index_basic
+                    WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s
+                    LIMIT 5
                 """
             else:
                 # For text or ts_code with suffix, standard search
@@ -1115,6 +1161,11 @@ class MarketService:
                     FROM ods_hk_basic
                     WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s OR cn_spell LIKE %(keyword)s
                     LIMIT 10
+                    UNION ALL
+                    SELECT ts_code as code, name, 'index' as market
+                    FROM dim_index_basic
+                    WHERE ts_code LIKE %(keyword)s OR name LIKE %(keyword)s
+                    LIMIT 5
                 """
             df = self.db.execute_query(query, {"keyword": like_pattern})
             return df.to_dict("records")

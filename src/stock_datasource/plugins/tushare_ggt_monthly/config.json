@@ -9,5 +9,22 @@
   "min_points": 5000,
   "max_rows_per_call": 1000,
   "dependencies": [],
-  "enabled": true
+  "enabled": true,
+  "parameters_schema": {
+    "month": {
+      "type": "string",
+      "required": false,
+      "description": "交易月份（YYYYMM格式，支持逗号分隔多月）"
+    },
+    "start_month": {
+      "type": "string",
+      "required": false,
+      "description": "开始月份（YYYYMM格式）"
+    },
+    "end_month": {
+      "type": "string",
+      "required": false,
+      "description": "结束月份（YYYYMM格式）"
+    }
+  }
 }

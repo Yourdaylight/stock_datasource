@@ -162,14 +162,12 @@ class ClickHouseHttpClient:
                 logger.error(f"HTTP query execution failed [{self.name}]: {e}")
                 raise
     
-    @staticmethod
     def _extract_unknown_table(exc: Exception) -> Optional[str]:
         """Extract table name from a ClickHouse UNKNOWN_TABLE error.
         
         The error body is in exc.response.text for HTTPError,
         or in str(exc) for other exceptions.
         """
-        import re
         error_text = ""
         # For requests.HTTPError, the body is in response.text
         if hasattr(exc, 'response') and exc.response is not None:
@@ -229,6 +227,15 @@ class ClickHouseHttpClient:
                                 lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, datetime) else x
                             )
                 
+                # Sanitize string columns: ClickHouse TabSeparated format does not
+                # support embedded newlines or tabs in field values (no quoting).
+                for col in df.columns:
+                    if df[col].dtype == object:
+                        df[col] = df[col].apply(
+                            lambda v: v.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+                            if isinstance(v, str) else v
+                        )
+
                 # Convert DataFrame to TabSeparated format
                 # Use na_rep='\\N' so NaN/None becomes \N (ClickHouse NULL in TSV)
                 data = df.to_csv(sep="\t", index=False, header=False, na_rep='\\N')
@@ -314,8 +321,8 @@ class ClickHouseHttpClient:
     
     def table_exists(self, table_name: str) -> bool:
         """Check if table exists."""
-        query = f"SELECT count() FROM system.tables WHERE database = '{self.database}' AND name = '{table_name}'"
-        result = self._request(query)
+        query = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(table_name)s"
+        result = self._request(query, params={"database": self.database, "table_name": table_name})
         return int(result.strip()) > 0 if result else False
     
     def close(self):
@@ -425,6 +432,10 @@ class ClickHouseClient:
             or "Unexpected EOF while reading bytes" in msg
             or "Bad file descriptor" in msg
             or "Simultaneous queries on single connection detected" in msg
+            or "BadStatusLine" in msg
+            or "InvalidChunkLength" in msg
+            or "Connection broken" in msg
+            or "Connection reset" in msg
         )
     
     def _reconnect(self):
@@ -495,7 +506,6 @@ class ClickHouseClient:
                 # Auto-create table on UNKNOWN_TABLE and retry once (TCP path)
                 error_msg = str(e)
                 if "UNKNOWN_TABLE" in error_msg:
-                    import re
                     match = re.search(r"identifier\s+'(\w+)'", error_msg)
                     if not match:
                         match = re.search(r"from\s+`?(\w+)`?", error_msg, re.IGNORECASE)
@@ -546,6 +556,7 @@ class ClickHouseClient:
                 logger.error(f"Query execution failed [{self.name}]: {e}")
                 raise
     
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, min=1, max=3))
     def insert_dataframe(self, table_name: str, df: pd.DataFrame, 
                         settings: Optional[Dict] = None) -> None:
         """Insert DataFrame into table."""
@@ -598,29 +609,29 @@ class ClickHouseClient:
         if self._use_http and self._http_client:
             return self._http_client.table_exists(table_name)
         
-        query = f"""
+        query = """
         SELECT count() 
         FROM system.tables 
-        WHERE database = '{self.database}' 
-        AND name = '{table_name}'
+        WHERE database = %(database)s
+        AND name = %(table_name)s
         """
-        result = self.execute(query)
+        result = self.execute(query, params={"database": self.database, "table_name": table_name})
         return result[0][0] > 0
     
     def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
         """Get table schema information."""
-        query = f"""
+        query = """
         SELECT 
             name as column_name,
             type as data_type,
             default_expression,
             comment
         FROM system.columns
-        WHERE database = '{self.database}'
-        AND table = '{table_name}'
+        WHERE database = %(database)s
+        AND table = %(table_name)s
         ORDER BY position
         """
-        result = self.execute_query(query)
+        result = self.execute_query(query, params={"database": self.database, "table_name": table_name})
         return result.to_dict('records')
     
     def add_column(self, table_name: str, column_def: str) -> None:
@@ -637,18 +648,18 @@ class ClickHouseClient:
     
     def get_partition_info(self, table_name: str) -> List[Dict[str, Any]]:
         """Get partition information for table."""
-        query = f"""
+        query = """
         SELECT 
             partition,
             sum(rows) as rows,
             sum(bytes_on_disk) as bytes_on_disk
         FROM system.parts
-        WHERE database = '{self.database}'
-        AND table = '{table_name}'
+        WHERE database = %(database)s
+        AND table = %(table_name)s
         GROUP BY partition
         ORDER BY partition
         """
-        result = self.execute_query(query)
+        result = self.execute_query(query, params={"database": self.database, "table_name": table_name})
         return result.to_dict('records')
     
     def optimize_table(self, table_name: str, final: bool = True) -> None:

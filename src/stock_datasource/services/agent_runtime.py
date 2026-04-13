@@ -1,7 +1,7 @@
 """Agent Runtime: Unified control plane based on LangGraph Supervisor.
 
 The ``AgentRuntime`` leverages LangGraph's native multi-agent patterns
-(``langgraph_supervisor.create_supervisor``, ``create_react_agent``, 
+(``langgraph_supervisor.create_supervisor``, ``create_react_agent``,
 ``Command`` + handoff) instead of reimplementing orchestration from scratch.
 
 Architecture
@@ -13,11 +13,15 @@ Architecture
 - **Handoff**: Uses LangGraph native ``Command(goto=...)`` handoff mechanism.
 - **Streaming**: Uses LangGraph's ``astream_events(version="v2")`` for
   real-time SSE event emission.
+- **Memory Store**: LangGraph Store for cross-session fact persistence.
+- **Middleware Chain**: Before/after hooks for loop detection, summarization,
+  guardrails, memory injection, and cross-validation.
 
 Tasks implemented:
 - 4.3: SubAgentEnvelope integration for invocation protocol
 - 5.2: Observability metrics (cold start, token cost, classification count,
        concurrent failure rate, cache usage)
+- Memory: LangGraph Store + FactExtractor + Middleware Chain
 """
 
 from __future__ import annotations
@@ -219,12 +223,35 @@ class AgentRuntime:
         self._concurrent_failures: int = 0
         self._total_invocations: int = 0
 
+        # Memory Store + Middleware Chain (feature-flagged)
+        self._store = None
+        self._middleware_chain: List = []
+        self._init_memory_and_middlewares()
+
         # Trigger explicit agent registrations (no-op if already done)
         try:
             from .agent_registrations import register_all_agents
             register_all_agents()
         except Exception as exc:
             logger.debug("Agent registrations skipped: %s", exc)
+
+    def _init_memory_and_middlewares(self) -> None:
+        """Initialize MemoryStore and middleware chain if feature flag is set."""
+        try:
+            from stock_datasource.modules.memory.store import is_memory_store_enabled, get_memory_store
+            from stock_datasource.agents.middlewares import build_default_middleware_chain
+
+            if is_memory_store_enabled():
+                self._store = get_memory_store()
+                self._middleware_chain = build_default_middleware_chain(store=self._store)
+                logger.info(
+                    "Memory store + middleware chain initialized (%d middlewares)",
+                    len(self._middleware_chain),
+                )
+            else:
+                logger.debug("Memory store disabled (MEMORY_STORE_ENABLED not set)")
+        except Exception as exc:
+            logger.warning("Failed to init memory/middlewares: %s", exc)
 
     # ------------------------------------------------------------------
     # Sub-Agent construction
@@ -340,9 +367,14 @@ class AgentRuntime:
         )
 
         # Compile with checkpointer for session persistence
-        self._supervisor = supervisor.compile(
-            checkpointer=self._checkpointer,
-        )
+        compile_kwargs = {"checkpointer": self._checkpointer}
+        # Inject Memory Store if available (enables graph-level Store access)
+        if self._store is not None:
+            try:
+                compile_kwargs["store"] = self._store.raw_store
+            except Exception:
+                pass
+        self._supervisor = supervisor.compile(**compile_kwargs)
 
         # Task 5.2: Record cold start time
         self._cold_start_ms = (time.time() - t0) * 1000
@@ -444,6 +476,49 @@ class AgentRuntime:
         session_id = context.get("session_id", "default")
         user_id = context.get("user_id", "default")
 
+        # --- Middleware before() phase ---
+        mw_context = None
+        mw_trace_id = "-"
+        if self._middleware_chain:
+            try:
+                from stock_datasource.agents.middlewares.base import AgentContext
+                from stock_datasource.utils.request_context import (
+                    generate_middleware_trace_id,
+                    middleware_trace_id_var,
+                )
+                mw_trace_id = generate_middleware_trace_id()
+                middleware_trace_id_var.set(mw_trace_id)
+
+                mw_context = AgentContext(
+                    query=query,
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                for mw in self._middleware_chain:
+                    if mw.enabled:
+                        mw_context = await mw.before_with_logging(mw_context)
+
+                # Inject memory block into context for downstream use
+                if mw_context.memory_block:
+                    context["memory_block"] = mw_context.memory_block
+                # Check if query was flagged as non-financial
+                if not mw_context.is_financial_query:
+                    yield {
+                        "type": "content",
+                        "content": "抱歉，我是一个专业的股票分析助手，只能回答与金融投资相关的问题。\n\n"
+                                   "您可以试试以下问题：\n"
+                                   "- 查询某只股票的行情和走势\n"
+                                   "- 对股票进行技术面或基本面分析\n"
+                                   "- 筛选符合条件的股票\n"
+                                   "- 制定投资策略和回测\n\n"
+                                   f"您的问题：{query}",
+                    }
+                    yield {"type": "done", "metadata": {"agent": "AgentRuntime", "redirected": True}}
+                    return
+            except Exception as exc:
+                logger.warning("Middleware before() chain failed: %s", exc)
+                mw_context = None
+
         # Task 4.3: Create envelope for this invocation
         from .session_memory_service import SubAgentEnvelope, get_session_memory_service
         envelope = SubAgentEnvelope(
@@ -515,6 +590,31 @@ class AgentRuntime:
             "has_content": has_content,
         }
 
+        # --- Middleware after() phase ---
+        if self._middleware_chain and mw_context is not None:
+            try:
+                from stock_datasource.agents.middlewares.base import AgentResponse
+                mw_response = AgentResponse(
+                    content=envelope.response,
+                    success=envelope.success,
+                    metadata=envelope.metadata,
+                    tool_calls=[],
+                )
+                for mw in reversed(self._middleware_chain):
+                    if mw.enabled:
+                        mw_response = await mw.after_with_logging(mw_context, mw_response)
+
+                # Apply middleware modifications
+                if mw_response.warnings:
+                    # Append warnings to content
+                    for warning in mw_response.warnings:
+                        content_parts.append(f"\n\n{warning}")
+                    envelope.response = "".join(content_parts)
+                if mw_response.validation_result:
+                    context["validation_result"] = mw_response.validation_result
+            except Exception as exc:
+                logger.warning("Middleware after() chain failed: %s", exc)
+
         # Emit done
         yield {
             "type": "done",
@@ -523,8 +623,18 @@ class AgentRuntime:
                 "available_agents": self.registry.list_available(),
                 "has_error": has_error,
                 "duration_ms": duration_ms,
+                "middleware_trace_id": mw_trace_id,
+                "middleware_trace": mw_context.middleware_trace if mw_context else [],
             },
         }
+
+        # Reset middleware trace context
+        if mw_trace_id != "-":
+            try:
+                from stock_datasource.utils.request_context import middleware_trace_id_var
+                middleware_trace_id_var.set("-")
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Non-streaming API

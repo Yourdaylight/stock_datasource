@@ -178,47 +178,85 @@ class RealtimeManageService:
     # ---- Watchlist integration ----
 
     def get_watchlist_codes(self) -> List[str]:
-        """Read watchlist codes from memory agent store."""
+        """Read watchlist codes from user portfolio positions + memory store.
+
+        Priority:
+        1. user_positions table (ClickHouse) — the user's actual holdings
+        2. MemoryStore watchlist — user-added watchlist codes
+        """
+        codes: List[str] = []
+
+        # 1. From user_positions (actual holdings)
         try:
-            from stock_datasource.agents.memory_agent import _memory_store
-            watchlist = _memory_store.get("watchlist", {})
-            codes: List[str] = []
-            for group_codes in watchlist.values():
-                codes.extend(c for c in group_codes if c not in codes)
-            return codes
+            from stock_datasource.models.database import db_client
+            query = "SELECT DISTINCT ts_code FROM user_positions"
+            df = db_client.execute_query(query)
+            if not df.empty:
+                codes.extend(df['ts_code'].tolist())
         except Exception as e:
-            logger.warning(f"Failed to read watchlist: {e}")
-            return []
+            logger.warning(f"Failed to read watchlist from user_positions: {e}")
+
+        # 2. From MemoryStore watchlist (user-added codes)
+        try:
+            from stock_datasource.modules.memory.store import get_memory_store
+            store = get_memory_store()
+            # Search across all users for watchlist entries
+            results = store.raw_store.search(("users",), limit=200)
+            for item in results:
+                if item.value and isinstance(item.value, dict):
+                    # Check if this looks like a watchlist entry
+                    if item.key == "watchlist" and isinstance(item.value, dict):
+                        for group_codes in item.value.values():
+                            if isinstance(group_codes, list):
+                                for c in group_codes:
+                                    if c not in codes:
+                                        codes.append(c)
+        except Exception as e:
+            logger.warning(f"Failed to read watchlist from MemoryStore: {e}")
+
+        return codes
 
     def _sync_watchlist_to_collector(self) -> None:
-        """Sync watchlist codes to the realtime_minute collector's in-memory config."""
+        """Sync watchlist codes (from portfolio positions + memory) to the realtime_minute collector's in-memory config."""
         cfg = get_realtime_config()
         if not cfg.get("watchlist_monitor_enabled"):
             return
 
         codes = self.get_watchlist_codes()
         if not codes:
-            logger.info("No watchlist codes to sync")
+            logger.info("No watchlist/position codes to sync")
             return
 
-        logger.info(f"Syncing {len(codes)} watchlist codes to realtime collector memory")
+        logger.info(f"Syncing {len(codes)} watchlist/position codes to realtime collector memory")
         try:
             from stock_datasource.modules.realtime_minute import config as rt_cfg
 
-            # Merge watchlist codes into ASTOCK_BATCHES (avoid duplicates)
-            existing_codes = set()
-            for batch in rt_cfg.ASTOCK_BATCHES:
-                existing_codes.update(batch)
+            # All A-share/ETF/index codes go to ASTOCK_BATCHES (same rt_min API)
+            # HK codes go to HK_CODES
+            cn_new = [c for c in codes if not c.endswith('.HK')]
+            hk_new = [c for c in codes if c.endswith('.HK')]
 
-            new_codes = [c for c in codes if c not in existing_codes and c.endswith(('.SH', '.SZ'))]
-            if new_codes:
-                # Add as a new batch
+            # Merge into ASTOCK_BATCHES
+            existing_cn = set()
+            for batch in rt_cfg.ASTOCK_BATCHES:
+                existing_cn.update(batch)
+            # Also exclude codes already in HOT_ETF_CODES or INDEX_CODES
+            existing_cn.update(rt_cfg.HOT_ETF_CODES)
+            existing_cn.update(rt_cfg.INDEX_CODES)
+            new_cn = [c for c in cn_new if c not in existing_cn]
+            if new_cn:
                 batch_size = 100
-                for i in range(0, len(new_codes), batch_size):
-                    rt_cfg.ASTOCK_BATCHES.append(new_codes[i:i + batch_size])
-                logger.info(f"Injected {len(new_codes)} watchlist codes into ASTOCK_BATCHES")
-            else:
-                logger.debug("All watchlist codes already in ASTOCK_BATCHES")
+                for i in range(0, len(new_cn), batch_size):
+                    rt_cfg.ASTOCK_BATCHES.append(new_cn[i:i + batch_size])
+                logger.info(f"Injected {len(new_cn)} CN codes into ASTOCK_BATCHES")
+
+            # Merge into HK_CODES
+            existing_hk = set(rt_cfg.HK_CODES)
+            new_hk = [c for c in hk_new if c not in existing_hk]
+            if new_hk:
+                rt_cfg.HK_CODES.extend(new_hk)
+                logger.info(f"Injected {len(new_hk)} HK codes into HK_CODES")
+
         except Exception as e:
             logger.warning(f"Failed to inject watchlist codes: {e}")
 

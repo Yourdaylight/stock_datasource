@@ -13,7 +13,7 @@ export interface UseRealtimePollingOptions {
  * 判断当前是否在 A 股交易时间内
  * 上午 09:25 - 11:35，下午 12:55 - 15:05
  */
-function isTradingTime(): boolean {
+function isASTradingTime(): boolean {
   const now = new Date()
   const day = now.getDay()
   // 周末不交易
@@ -21,6 +21,27 @@ function isTradingTime(): boolean {
 
   const hhmm = now.getHours() * 100 + now.getMinutes()
   return (hhmm >= 925 && hhmm <= 1135) || (hhmm >= 1255 && hhmm <= 1505)
+}
+
+/**
+ * 判断当前是否在港股交易时间内
+ * 09:25 - 16:05 (UTC+8)
+ * 注：港股周六日不交易
+ */
+function isHKTradingTime(): boolean {
+  const now = new Date()
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+
+  const hhmm = now.getHours() * 100 + now.getMinutes()
+  return hhmm >= 925 && hhmm <= 1605
+}
+
+/**
+ * 判断当前是否在任意市场的交易时间内（A股 或 港股）
+ */
+function isTradingTime(): boolean {
+  return isASTradingTime() || isHKTradingTime()
 }
 
 /**

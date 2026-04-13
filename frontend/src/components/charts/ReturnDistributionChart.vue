@@ -202,8 +202,8 @@ function updateChart() {
     const min = Math.min(...props.returnData);
     const max = Math.max(...props.returnData);
     const step = (max - min) / 100;
-    const normalX = [];
-    const normalY = [];
+    const normalX: number[] = [];
+    const normalY: number[] = [];
     
     for (let x = min; x <= max; x += step) {
       normalX.push(x);

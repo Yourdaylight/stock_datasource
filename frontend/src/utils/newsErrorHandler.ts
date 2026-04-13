@@ -1,5 +1,5 @@
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { NewsItem, NewsSentiment } from '@/types/news'
+import type { NewsItem, NewsSentiment, HotTopic } from '@/types/news'
 
 // 错误类型定义
 export enum NewsErrorType {
@@ -196,6 +196,16 @@ export const validateNewsItems = (items: any[]): NewsItem[] => {
   return validItems
 }
 
+// 热门话题验证
+export const validateHotTopics = (items: any[]): HotTopic[] => {
+  if (!Array.isArray(items)) {
+    return []
+  }
+  return items.filter(item =>
+    item && typeof item === 'object' && typeof item.topic === 'string' && typeof item.heat_score === 'number'
+  )
+}
+
 // 错误处理中间件
 export const handleNewsError = (error: NewsError, showMessage: boolean = true) => {
   console.error('新闻API错误:', error)
@@ -237,7 +247,7 @@ export const safeApiCall = async <T>(
     return await withRetry(apiCall, retryConfig)
   } catch (error) {
     const newsError = error instanceof Error && 'type' in error 
-      ? error as NewsError 
+      ? error as unknown as NewsError
       : classifyError(error)
     
     handleNewsError(newsError, showError)

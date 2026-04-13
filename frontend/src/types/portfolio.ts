@@ -14,6 +14,7 @@ export interface Position {
   sector?: string
   industry?: string
   is_active: boolean
+  price_update_time?: string
   created_at?: string
   updated_at?: string
 }
@@ -49,9 +50,16 @@ export interface UpdatePositionRequest {
 export interface AnalysisReport {
   analysis_date: string
   analysis_summary: string
+  report_date?: string
+  status?: 'pending' | 'completed' | 'failed'
+  ai_insights?: string
+  portfolio_summary?: string
+  market_analysis?: string
+  individual_analysis?: string
+  risk_assessment?: string
+  recommendations?: string | Array<{ priority: string; description: string; message?: string }>
   stock_analyses?: Record<string, any>
   risk_alerts?: string[]
-  recommendations?: string[]
 }
 
 export interface AlertCreateRequest {

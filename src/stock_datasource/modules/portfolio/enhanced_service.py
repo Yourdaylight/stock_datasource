@@ -489,12 +489,39 @@ class EnhancedPortfolioService:
         return stock_info.get(ts_code, (f"股票{ts_code}", "未知", "未知"))
     
     async def _update_position_prices(self, position: Position):
-        """Update position current price and calculations. Supports A-shares, ETFs and HK stocks."""
+        """Update position current price and calculations. Supports A-shares, ETFs and HK stocks.
+        
+        Priority: rt_minute_latest (realtime) > ods_daily (daily close)
+        """
+        # 1. 优先从分钟缓存获取最新价
+        try:
+            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            cache = get_cache_store()
+            if cache.available:
+                latest = cache.get_latest("", position.ts_code, "1min")
+                if latest and latest.get("close") is not None:
+                    position.current_price = float(latest["close"])
+                    trade_time_str = latest.get("trade_time", "")
+                    if trade_time_str:
+                        try:
+                            position.last_price_update = datetime.strptime(trade_time_str, "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            position.last_price_update = datetime.now()
+                    else:
+                        position.last_price_update = datetime.now()
+                    # Skip daily fallback
+                    if position.current_price:
+                        self._calc_position_values(position)
+                        return
+        except Exception as e:
+            logger.warning(f"Failed to get price from rt_minute cache: {e}")
+        
+        # 2. Fallback 到 ClickHouse 日线表
         try:
             if self.db is not None:
                 # Try ods_daily first (A-shares)
                 query = """
-                    SELECT close FROM ods_daily 
+                    SELECT close, trade_date FROM ods_daily 
                     WHERE ts_code = %(code)s 
                     ORDER BY trade_date DESC 
                     LIMIT 1
@@ -502,11 +529,11 @@ class EnhancedPortfolioService:
                 df = self.db.execute_query(query, {'code': position.ts_code})
                 if not df.empty:
                     position.current_price = float(df.iloc[0]['close'])
-                    position.last_price_update = datetime.now()
+                    position.last_price_update = self._parse_daily_trade_date(df.iloc[0]['trade_date'], "a_stock")
                 else:
                     # Try ETF daily table
                     query_etf = """
-                        SELECT close FROM ods_etf_fund_daily 
+                        SELECT close, trade_date FROM ods_etf_fund_daily 
                         WHERE ts_code = %(code)s 
                         ORDER BY trade_date DESC 
                         LIMIT 1
@@ -514,11 +541,11 @@ class EnhancedPortfolioService:
                     df_etf = self.db.execute_query(query_etf, {'code': position.ts_code})
                     if not df_etf.empty:
                         position.current_price = float(df_etf.iloc[0]['close'])
-                        position.last_price_update = datetime.now()
+                        position.last_price_update = self._parse_daily_trade_date(df_etf.iloc[0]['trade_date'], "etf")
                     elif position.ts_code.endswith('.HK'):
                         # Try HK daily table
                         query_hk = """
-                            SELECT close FROM ods_hk_daily 
+                            SELECT close, trade_date FROM ods_hk_daily 
                             WHERE ts_code = %(code)s 
                             ORDER BY trade_date DESC 
                             LIMIT 1
@@ -526,7 +553,7 @@ class EnhancedPortfolioService:
                         df_hk = self.db.execute_query(query_hk, {'code': position.ts_code})
                         if not df_hk.empty:
                             position.current_price = float(df_hk.iloc[0]['close'])
-                            position.last_price_update = datetime.now()
+                            position.last_price_update = self._parse_daily_trade_date(df_hk.iloc[0]['trade_date'], "hk")
         except Exception as e:
             logger.warning(f"Failed to get current price from database: {e}")
         
@@ -534,6 +561,29 @@ class EnhancedPortfolioService:
         if position.current_price is None:
             position.current_price = position.cost_price
             position.last_price_update = datetime.now()
+        
+        self._calc_position_values(position)
+    
+    @staticmethod
+    def _calc_position_values(position: Position):
+        """Calculate market value and profit/loss."""
+        if position.current_price:
+            position.market_value = position.quantity * position.current_price
+            cost_total = position.quantity * position.cost_price
+            position.profit_loss = position.market_value - cost_total
+            position.profit_rate = (position.profit_loss / cost_total * 100) if cost_total > 0 else 0
+    
+    @staticmethod
+    def _parse_daily_trade_date(trade_date, market_type: str = "a_stock") -> datetime:
+        """将日线 trade_date 转换为带收盘时间的 datetime。"""
+        if hasattr(trade_date, 'strftime'):
+            date_str = trade_date.strftime('%Y-%m-%d')
+        else:
+            date_str = str(trade_date)
+            if len(date_str) == 8 and '-' not in date_str:
+                date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        close_time = "16:00:00" if market_type == "hk" else "15:00:00"
+        return datetime.strptime(f"{date_str} {close_time}", "%Y-%m-%d %H:%M:%S")
         
         # Calculate market value and profit/loss
         if position.current_price:

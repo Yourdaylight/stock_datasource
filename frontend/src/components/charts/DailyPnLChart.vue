@@ -52,6 +52,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import * as echarts from 'echarts';
+import type { YAXisOption } from 'echarts/types/dist/shared';
 import { Download } from '@element-plus/icons-vue';
 
 interface DailyPnLDataPoint {
@@ -275,7 +276,7 @@ function updateChart() {
   // 如果显示累计收益，添加右侧Y轴
   if (props.showCumulative) {
     option.yAxis = [
-      option.yAxis![0],
+      (option.yAxis as YAXisOption[])[0],
       {
         type: 'value',
         name: '累计收益率 (%)',

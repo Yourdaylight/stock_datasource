@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS system_structured_logs
     line        UInt32,
     message     String,
     exception   Nullable(String),
+    middleware_trace_id String DEFAULT '-',
     extra       String DEFAULT '{}'
 )
 ENGINE = MergeTree()

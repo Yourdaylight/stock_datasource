@@ -76,19 +76,28 @@ instance.interceptors.response.use(
   }
 )
 
-export const request = {
-  get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return instance.get(url, config)
-  },
-  post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
-    return instance.post(url, data, config)
-  },
-  put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
-    return instance.put(url, data, config)
-  },
-  delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    return instance.delete(url, config)
-  }
+// Type-safe request wrapper that supports both request(config) and request.get(url) patterns
+function typedRequest<T = any>(config: AxiosRequestConfig): Promise<T> {
+  return instance(config) as Promise<T>
 }
 
-export default instance
+typedRequest.get = <T = any>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+  return instance.get(url, config) as Promise<T>
+}
+
+typedRequest.post = <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+  return instance.post(url, data, config) as Promise<T>
+}
+
+typedRequest.put = <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+  return instance.put(url, data, config) as Promise<T>
+}
+
+typedRequest.delete = <T = any>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+  return instance.delete(url, config) as Promise<T>
+}
+
+type TypedRequest = typeof typedRequest
+
+export const request: TypedRequest = typedRequest
+export default typedRequest

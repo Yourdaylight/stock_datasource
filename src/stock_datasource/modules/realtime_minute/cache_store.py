@@ -161,18 +161,25 @@ class RealtimeMinuteCacheStore:
             ts_code = row.get("ts_code", "")
             market = row.get("market_type", "a_stock")
             freq = row.get("freq", "1min")
+            # Normalize freq to lowercase for consistent storage/query
+            if isinstance(freq, str):
+                freq = freq.lower()
             trade_time = row.get("trade_time")
 
             if not ts_code or trade_time is None:
                 continue
 
             if isinstance(trade_time, pd.Timestamp):
+                if pd.isna(trade_time):
+                    continue
                 dt = trade_time.to_pydatetime()
             elif isinstance(trade_time, datetime):
                 dt = trade_time
             else:
                 try:
                     dt = pd.to_datetime(trade_time).to_pydatetime()
+                    if pd.isna(dt):
+                        continue
                 except Exception:
                     continue
 

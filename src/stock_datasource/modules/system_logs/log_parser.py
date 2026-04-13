@@ -15,12 +15,17 @@ class LogParser:
 
     # Common log format patterns
     PATTERNS = [
-        # NEW Loguru format with request_id & user_id:
-        # 2026-01-26 10:30:45.123 | INFO     | abc123 | user1 | name:function:line - message
+        # NEW Loguru format with request_id, user_id & middleware_trace_id:
+        # 2026-01-26 10:30:45.123 | INFO | abc123 | user1 | mwid123 | name:function:line - message
+        re.compile(
+            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
+        ),
+        # OLD Loguru format with request_id & user_id (6 groups):
+        # 2026-01-26 10:30:45.123 | INFO | abc123 | user1 | name:function:line - message
         re.compile(
             r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
         ),
-        # OLD Loguru format: 2026-01-26 10:30:45 | INFO     | name:function:line - message
+        # OLDER Loguru format: 2026-01-26 10:30:45 | INFO     | name:function:line - message
         re.compile(
             r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
         ),
@@ -82,6 +87,7 @@ class LogParser:
             'raw_line': line,
             'request_id': '-',
             'user_id': '-',
+            'middleware_trace_id': '-',
         }
 
     def _parse_line_strict(self, line: str, filename: str = "unknown") -> Optional[dict]:
@@ -157,7 +163,24 @@ class LogParser:
         """
         groups = match.groups()
 
-        # NEW format with request_id & user_id: 6 groups
+        # NEWEST format with request_id, user_id & middleware_trace_id: 7 groups
+        # timestamp, level, request_id, user_id, middleware_trace_id, location, message
+        if len(groups) == 7 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
+            timestamp_str, level, request_id, user_id, middleware_trace_id, location, message = groups
+            timestamp = self._parse_timestamp(timestamp_str)
+            module = self._extract_module_from_location(location.strip())
+            return {
+                'timestamp': timestamp,
+                'level': level.strip().upper(),
+                'module': module,
+                'message': message,
+                'raw_line': line,
+                'request_id': request_id.strip(),
+                'user_id': user_id.strip(),
+                'middleware_trace_id': middleware_trace_id.strip(),
+            }
+
+        # OLD format with request_id & user_id: 6 groups
         # timestamp, level, request_id, user_id, location, message
         if len(groups) == 6 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
             timestamp_str, level, request_id, user_id, location, message = groups
@@ -171,6 +194,7 @@ class LogParser:
                 'raw_line': line,
                 'request_id': request_id.strip(),
                 'user_id': user_id.strip(),
+                'middleware_trace_id': '-',
             }
 
         # OLD Loguru format: 4 groups — timestamp, level, location, message
@@ -186,6 +210,7 @@ class LogParser:
                 'raw_line': line,
                 'request_id': '-',
                 'user_id': '-',
+                'middleware_trace_id': '-',
             }
 
         # Pattern with timestamp, level, module, message
@@ -200,6 +225,7 @@ class LogParser:
                 'raw_line': line,
                 'request_id': '-',
                 'user_id': '-',
+                'middleware_trace_id': '-',
             }
 
         # Pattern with level, message only
@@ -213,6 +239,7 @@ class LogParser:
                 'raw_line': line,
                 'request_id': '-',
                 'user_id': '-',
+                'middleware_trace_id': '-',
             }
 
         return {
@@ -223,6 +250,7 @@ class LogParser:
             'raw_line': line,
             'request_id': '-',
             'user_id': '-',
+            'middleware_trace_id': '-',
         }
 
     def _is_continuation_line(self, line: str) -> bool:

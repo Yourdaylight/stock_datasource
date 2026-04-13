@@ -28,17 +28,19 @@ def _get_db_client():
 
 def _transform_record(record: dict) -> dict:
     """Transform a Loguru JSON record into a ClickHouse row dict."""
+    extra = record.get("extra", {})
     return {
         "timestamp": record.get("timestamp", ""),
         "level": (record.get("level") or "INFO").upper(),
-        "request_id": record.get("request_id", "-"),
-        "user_id": record.get("user_id", "-"),
+        "request_id": record.get("request_id") or extra.get("request_id", "-"),
+        "user_id": record.get("user_id") or extra.get("user_id", "-"),
         "module": record.get("module", ""),
         "function": record.get("function", ""),
         "line": int(record.get("line", 0)),
         "message": record.get("message", ""),
         "exception": record.get("exception") or None,
-        "extra": json.dumps(record.get("extra", {}), ensure_ascii=False, default=str),
+        "middleware_trace_id": record.get("middleware_trace_id") or extra.get("middleware_trace_id", "-"),
+        "extra": json.dumps(extra, ensure_ascii=False, default=str),
     }
 
 

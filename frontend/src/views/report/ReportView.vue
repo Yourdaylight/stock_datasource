@@ -179,8 +179,8 @@ const periodOptions = [
           </t-tab-panel>
           
           <t-tab-panel value="analysis" label="AI分析">
-            <AIInsight 
-              :analysis="reportStore.analysisData"
+            <AIInsight
+              :analysis="reportStore.analysisData ?? undefined"
               :loading="reportStore.analysisLoading"
               @refresh="handleRefreshAnalysis"
               @change-type="handleAnalysisTypeChange"

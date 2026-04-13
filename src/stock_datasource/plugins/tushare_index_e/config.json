@@ -3,5 +3,30 @@
   "timeout": 30,
   "api_name": "index_e",
   "description": "中证指数估值数据",
-  "min_points": 2000
+  "min_points": 2000,
+  "parameters_schema": {
+    "trade_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "交易日期 YYYYMMDD"
+    },
+    "ts_code": {
+      "type": "string",
+      "required": false,
+      "description": "指数代码"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "开始日期 YYYYMMDD"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "required": false,
+      "description": "结束日期 YYYYMMDD"
+    }
+  }
 }
