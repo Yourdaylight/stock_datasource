@@ -133,3 +133,15 @@ def ensure_portfolio_tables():
     except Exception as e:
         logger.error(f"Failed to ensure portfolio tables: {e}")
         raise
+
+
+def ensure_profile_id_column():
+    """Add profile_id column to user_positions if not exists."""
+    try:
+        client = db_client
+        client.execute(
+            "ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS profile_id String DEFAULT 'default'"
+        )
+        logger.info("profile_id column ensured in user_positions")
+    except Exception as e:
+        logger.warning(f"Failed to add profile_id column: {e}")

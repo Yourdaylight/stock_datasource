@@ -6,6 +6,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import request from '@/utils/request'
 import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 import StockDetailDialog from '@/components/StockDetailDialog.vue'
+import type { BrokerProfile } from '@/api/profile'
 
 const portfolioStore = usePortfolioStore()
 const memoryStore = useMemoryStore()
@@ -18,6 +19,81 @@ const addForm = ref({
   buy_date: '',
   notes: ''
 })
+
+// ---- Profile management ----
+const showProfileDialog = ref(false)
+const profileFormMode = ref<'create' | 'edit'>('create')
+const profileForm = ref({ name: '', broker: '', is_default: false })
+const editingProfileId = ref('')
+const profileLoading = ref(false)
+
+const activeProfile = computed(() =>
+  portfolioStore.profiles.find(p => p.id === portfolioStore.activeProfileId)
+)
+
+const handleOpenCreateProfile = () => {
+  profileFormMode.value = 'create'
+  profileForm.value = { name: '', broker: '', is_default: portfolioStore.profiles.length === 0 }
+  editingProfileId.value = ''
+  showProfileDialog.value = true
+}
+
+const handleOpenEditProfile = (profile: BrokerProfile) => {
+  profileFormMode.value = 'edit'
+  profileForm.value = { name: profile.name, broker: profile.broker || '', is_default: profile.is_default }
+  editingProfileId.value = profile.id
+  showProfileDialog.value = true
+}
+
+const handleProfileSubmit = async () => {
+  if (!profileForm.value.name.trim()) {
+    MessagePlugin.warning('请输入账户名称')
+    return
+  }
+  profileLoading.value = true
+  try {
+    if (profileFormMode.value === 'create') {
+      await portfolioStore.createProfile({
+        name: profileForm.value.name.trim(),
+        broker: profileForm.value.broker.trim() || undefined,
+        is_default: profileForm.value.is_default
+      })
+      MessagePlugin.success('账户创建成功')
+    } else {
+      await portfolioStore.updateProfile(editingProfileId.value, {
+        name: profileForm.value.name.trim(),
+        broker: profileForm.value.broker.trim() || undefined
+      })
+      MessagePlugin.success('账户更新成功')
+    }
+    showProfileDialog.value = false
+  } catch (e: any) {
+    MessagePlugin.error(e?.response?.data?.detail || e?.message || '操作失败')
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+const handleDeleteProfile = async (profile: BrokerProfile) => {
+  if (profile.is_default) {
+    MessagePlugin.warning('默认账户不可删除')
+    return
+  }
+  profileLoading.value = true
+  try {
+    await portfolioStore.deleteProfile(profile.id)
+    MessagePlugin.success('账户已删除')
+  } catch (e: any) {
+    MessagePlugin.error(e?.response?.data?.detail || e?.message || '删除失败')
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+const handleSwitchProfile = (profileId: string) => {
+  if (profileId === portfolioStore.activeProfileId) return
+  portfolioStore.setActiveProfile(profileId)
+}
 
 // ---- Auto-refresh positions (prices come from backend rt_minute_latest) ----
 let refreshTimer: ReturnType<typeof setInterval> | null = null
@@ -45,12 +121,59 @@ const latestUpdateTime = computed(() => {
     ?.map(p => p.price_update_time)
     .filter(Boolean) as string[] || []
   if (!times.length) return ''
-  // Return the most recent update time (show only HH:MM:SS part)
+  
+  // Return the most recent update time (show only HH:MM part)
   const latest = times.sort().reverse()[0]
-  // If format is "YYYY-MM-DD HH:MM:SS", extract time part
-  const match = latest?.match(/(\d{2}:\d{2}:\d{2})/)
+  
+  // Extract time portion (HH:MM or HH:MM:SS)
+  const match = latest?.match(/(\d{2}:\d{2})(:\d{2})?/)
   return match ? match[1] : latest
 })
+
+// Determine if data is truly realtime (within last 5 minutes) vs stale
+const isDataRealtime = computed(() => {
+  const times = portfolioStore.positions
+    ?.map(p => p.price_update_time)
+    .filter(Boolean) as string[] || []
+  if (!times.length) return false
+  
+  // Find most recent update
+  const sorted = [...times].sort().reverse()
+  const latestStr = sorted[0]
+  
+  // Try to parse datetime
+  try {
+    // Format: "2026-04-14 15:00:00" or "2026-04-14 15:00"
+    const parts = latestStr.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/)
+    if (parts) {
+      const [, datePart, timePart] = parts
+      const [h, m] = timePart.split(':').map(Number)
+      const updateTime = new Date(`${datePart}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`)
+      
+      // Data is "realtime" if updated within last 10 minutes AND during trading hours today
+      const now = new Date()
+      const diffMin = (now.getTime() - updateTime.getTime()) / 60000
+      const isToday = datePart === now.toISOString().split('T')[0]
+      
+      // Trading hours: 09:25-11:35, 12:55-15:05 (A-share), extended to 16:05 (HK)
+      const hhmm = h * 100 + m
+      const inTradingHours = (hhmm >= 925 && hhmm <= 1135) || (hhmm >= 1255 && hhmm <= 1505)
+      
+      return isToday && diffMin < 10 && inTradingHours
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return false
+})
+
+// Display text for the time tag
+const timeTagLabel = computed(() => {
+  if (!latestUpdateTime.value) return ''
+  return isDataRealtime.value ? `实时 ${latestUpdateTime.value}` : `更新 ${latestUpdateTime.value}`
+})
+
+const timeTagTheme = computed(() => isDataRealtime.value ? 'success' : 'default')
 
 // ---- Stock search autocomplete ----
 interface StockOption {
@@ -147,6 +270,7 @@ const positionColumns = [
   { colKey: 'quantity', title: '数量', width: 70 },
   { colKey: 'cost_price', title: '成本价', width: 85 },
   { colKey: 'current_price', title: '现价', width: 85 },
+  { colKey: 'daily_pct_chg', title: '今日涨跌', width: 90 },
   { colKey: 'market_value', title: '市值', width: 110 },
   { colKey: 'profit_loss', title: '盈亏', width: 100 },
   { colKey: 'profit_rate', title: '收益率', width: 80 },
@@ -225,6 +349,7 @@ const refreshData = () => {
 }
 
 onMounted(() => {
+  portfolioStore.fetchProfiles()
   refreshData()
   startAutoRefresh()
   memoryStore.fetchPreference()
@@ -252,22 +377,27 @@ onDeactivated(() => {
         </t-card>
       </t-col>
       <t-col :span="3">
-        <t-card title="总成本" :bordered="false">
-          <div class="stat-value">{{ formatMoney(portfolioStore.summary?.total_cost) }}</div>
-        </t-card>
-      </t-col>
-      <t-col :span="3">
-        <t-card title="总盈亏" :bordered="false">
+        <t-card title="当日盈亏" :bordered="false">
           <div
             class="stat-value"
-            :style="{ color: (portfolioStore.summary?.total_profit || 0) >= 0 ? '#e34d59' : '#00a870' }"
+            :style="{ color: (portfolioStore.summary?.daily_change || 0) >= 0 ? '#e34d59' : '#00a870' }"
           >
-            {{ formatMoney(portfolioStore.summary?.total_profit) }}
+            {{ (portfolioStore.summary?.daily_change || 0) >= 0 ? '+' : '' }}{{ formatMoney(portfolioStore.summary?.daily_change) }}
           </div>
         </t-card>
       </t-col>
       <t-col :span="3">
-        <t-card title="收益率" :bordered="false">
+        <t-card title="当日收益率" :bordered="false">
+          <div
+            class="stat-value"
+            :style="{ color: (portfolioStore.summary?.daily_change_rate || 0) >= 0 ? '#e34d59' : '#00a870' }"
+          >
+            {{ (portfolioStore.summary?.daily_change_rate || 0) >= 0 ? '+' : '' }}{{ portfolioStore.summary?.daily_change_rate?.toFixed(2) }}%
+          </div>
+        </t-card>
+      </t-col>
+      <t-col :span="3">
+        <t-card title="总收益率" :bordered="false">
           <div
             class="stat-value"
             :style="{ color: (portfolioStore.summary?.profit_rate || 0) >= 0 ? '#e34d59' : '#00a870' }"
@@ -283,15 +413,42 @@ onDeactivated(() => {
       <t-tabs v-model="activeTab">
         <!-- Tab 1: Positions -->
         <t-tab-panel value="positions" label="持仓列表">
+          <!-- Account selector bar -->
+          <div class="profile-bar">
+            <div class="profile-bar-left">
+              <t-select
+                :value="portfolioStore.activeProfileId"
+                placeholder="选择账户"
+                size="small"
+                style="width: 200px"
+                @change="handleSwitchProfile"
+              >
+                <t-option
+                  v-for="p in portfolioStore.profiles"
+                  :key="p.id"
+                  :value="p.id"
+                  :label="p.name + (p.broker ? ` (${p.broker})` : '') + (p.is_default ? ' [默认]' : '')"
+                />
+              </t-select>
+              <t-tag v-if="activeProfile" size="small" variant="light" theme="primary">
+                {{ activeProfile.broker || '未指定券商' }}
+              </t-tag>
+            </div>
+            <div class="profile-bar-right">
+              <t-tag v-if="latestUpdateTime" size="small" :theme="timeTagTheme" variant="light">{{ timeTagLabel }}</t-tag>
+              <t-button theme="default" variant="text" size="small" @click="showProfileDialog = true; handleOpenCreateProfile()">
+                <template #icon><t-icon name="setting" /></template>
+                管理账户
+              </t-button>
+              <t-button theme="primary" size="small" @click="showAddModal = true">
+                <template #icon><t-icon name="add" /></template>
+                添加持仓
+              </t-button>
+            </div>
+          </div>
+
           <t-row :gutter="16">
             <t-col :span="8">
-              <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px;">
-                <t-tag v-if="latestUpdateTime" size="small" theme="success" variant="light">实时 {{ latestUpdateTime }}</t-tag>
-                <t-button theme="primary" size="small" @click="showAddModal = true">
-                  <template #icon><t-icon name="add" /></template>
-                  添加持仓
-                </t-button>
-              </div>
               <t-table
                 :data="displayPositions"
                 :columns="positionColumns"
@@ -312,6 +469,12 @@ onDeactivated(() => {
                   <span :style="{ color: (row.current_price || 0) >= (row.cost_price || 0) ? '#e34d59' : '#00a870' }">
                     {{ formatMoney(row.current_price, 3) }}
                   </span>
+                </template>
+                <template #daily_pct_chg="{ row }">
+                  <span v-if="row.daily_pct_chg != null" :style="{ color: row.daily_pct_chg >= 0 ? '#e34d59' : '#00a870' }">
+                    {{ row.daily_pct_chg >= 0 ? '+' : '' }}{{ row.daily_pct_chg?.toFixed(2) }}%
+                  </span>
+                  <span v-else style="color: #999">-</span>
                 </template>
                 <template #profit_loss="{ row }">
                   <span :style="{ color: (row.profit_loss || 0) >= 0 ? '#e34d59' : '#00a870' }">
@@ -468,6 +631,16 @@ onDeactivated(() => {
     <!-- Add Position Modal -->
     <t-dialog v-model:visible="showAddModal" header="添加持仓" @confirm="handleAddPosition">
       <t-form label-width="80px">
+        <t-form-item label="所属账户">
+          <t-select v-model="portfolioStore.activeProfileId" disabled size="small" style="width: 100%">
+            <t-option
+              v-for="p in portfolioStore.profiles"
+              :key="p.id"
+              :value="p.id"
+              :label="p.name + (p.broker ? ` (${p.broker})` : '')"
+            />
+          </t-select>
+        </t-form-item>
         <t-form-item label="股票代码">
           <t-select
             v-model="addForm.ts_code"
@@ -510,6 +683,45 @@ onDeactivated(() => {
       </t-form>
     </t-dialog>
 
+    <!-- Profile Management Dialog -->
+    <t-dialog
+      v-model:visible="showProfileDialog"
+      :header="profileFormMode === 'create' ? '新建账户' : '编辑账户'"
+      @confirm="handleProfileSubmit"
+      :confirm-btn="{ loading: profileLoading }"
+    >
+      <t-form label-width="80px">
+        <t-form-item label="账户名称">
+          <t-input v-model="profileForm.name" placeholder="如：华泰主账户" />
+        </t-form-item>
+        <t-form-item label="券商">
+          <t-input v-model="profileForm.broker" placeholder="如：华泰证券" />
+        </t-form-item>
+        <t-form-item v-if="profileFormMode === 'create'" label="设为默认">
+          <t-switch v-model="profileForm.is_default" />
+        </t-form-item>
+      </t-form>
+
+      <!-- Existing profiles list -->
+      <t-divider>已有账户</t-divider>
+      <div v-if="portfolioStore.profiles.length" class="profile-list">
+        <div v-for="p in portfolioStore.profiles" :key="p.id" class="profile-list-item">
+          <div class="profile-list-info">
+            <span class="profile-list-name">{{ p.name }}</span>
+            <t-tag v-if="p.broker" size="small" variant="light">{{ p.broker }}</t-tag>
+            <t-tag v-if="p.is_default" size="small" variant="light" theme="success">默认</t-tag>
+          </div>
+          <div class="profile-list-actions">
+            <t-link theme="primary" size="small" @click="handleOpenEditProfile(p)">编辑</t-link>
+            <t-popconfirm content="确定删除该账户？" @confirm="handleDeleteProfile(p)">
+              <t-link theme="danger" size="small">删除</t-link>
+            </t-popconfirm>
+          </div>
+        </div>
+      </div>
+      <div v-else style="color: #999; text-align: center; padding: 12px 0;">暂无账户，请创建</div>
+    </t-dialog>
+
     <!-- Stock Detail Dialog -->
     <StockDetailDialog
       v-model:visible="showDetailDialog"
@@ -527,6 +739,53 @@ onDeactivated(() => {
 .stat-value {
   font-size: 24px;
   font-weight: 600;
+}
+
+/* Profile bar */
+.profile-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.profile-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.profile-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Profile list in dialog */
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.profile-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover);
+}
+.profile-list-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.profile-list-name {
+  font-weight: 500;
+}
+.profile-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .analysis-content {

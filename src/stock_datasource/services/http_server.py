@@ -237,10 +237,18 @@ async def lifespan(app: FastAPI):
     
     # Initialize portfolio tables
     try:
-        from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
+        from stock_datasource.modules.portfolio.init import ensure_portfolio_tables, ensure_profile_id_column
         ensure_portfolio_tables()
+        ensure_profile_id_column()
     except Exception as e:
         logger.warning(f"Portfolio table initialization failed: {e}")
+
+    # Initialize profile tables
+    try:
+        from stock_datasource.modules.profile.service import get_profile_service
+        get_profile_service().ensure_table()
+    except Exception as e:
+        logger.warning(f"Profile table initialization failed: {e}")
 
     # Initialize financial analysis tables
     try:

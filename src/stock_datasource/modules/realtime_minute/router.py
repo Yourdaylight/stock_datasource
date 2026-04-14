@@ -177,36 +177,23 @@ async def trigger_collection(
 ):
     """手动触发一次数据采集。"""
     try:
-        from .collector import get_collector
-        from .cache_store import get_cache_store
-
-        collector = get_collector()
-        cache = get_cache_store()
+        from .scheduler import run_collection
 
         market_list = None
         if markets:
             market_list = [m.strip() for m in markets.split(",") if m.strip()]
 
-        data = collector.collect_all(freq=freq, markets=market_list)
-
-        markets_collected = {}
-        for market_name, df in data.items():
-            if df is not None and not df.empty:
-                count = cache.store_bars(df)
-                cache.update_status(market_name, count)
-                markets_collected[market_name] = count
-            else:
-                markets_collected[market_name] = 0
+        # Normalize freq to TuShare format (uppercase: 1MIN, 5MIN, etc.)
+        normalized_freq = freq.upper()
+        result = run_collection(freq=normalized_freq, markets=market_list)
 
         return TriggerResponse(
             success=True,
-            message=f"Collected {sum(markets_collected.values())} bars",
-            markets_collected=markets_collected,
+            message=f"Collected {sum(result.values())} bars",
+            markets_collected=result,
         )
     except Exception as e:
         logger.error("Manual trigger failed: %s", e, exc_info=True)
-        import traceback
-        traceback.print_exc()
         return TriggerResponse(
             success=False,
             message=str(e),
@@ -216,47 +203,16 @@ async def trigger_collection(
 
 @router.post("/refresh-codes", response_model=RefreshCodesResponse, summary="刷新代码列表")
 async def refresh_codes():
-    """从数据库刷新静态代码列表（管理员操作）。
+    """从数据库刷新代码列表（管理员操作）。
 
-    当前版本从 ClickHouse 的 dim 表读取最新股票 / ETF 代码，
-    更新到内存配置中。
+    从 ClickHouse 的 ods_stock_basic / ods_etf_basic / ods_hk_basic 表
+    读取全量代码列表，更新到内存配置中。
     """
     from . import config as cfg_module
 
-    counts = {}
     try:
-        from stock_datasource.models.database import db_client
-
-        # Refresh A-stock codes
-        try:
-            df = db_client.execute_query(
-                "SELECT ts_code FROM ods_stock_basic WHERE list_status = 'L' ORDER BY ts_code LIMIT 500"
-            )
-            if df is not None and not df.empty:
-                codes = df["ts_code"].tolist()
-                batch_size = 100
-                cfg_module.ASTOCK_BATCHES = [
-                    codes[i:i + batch_size] for i in range(0, len(codes), batch_size)
-                ]
-                counts["a_stock"] = len(codes)
-        except Exception as e:
-            logger.warning("Failed to refresh A-stock codes: %s", e)
-
-        # Refresh ETF codes
-        try:
-            df = db_client.execute_query(
-                "SELECT ts_code FROM ods_etf_basic ORDER BY ts_code LIMIT 200"
-            )
-            if df is not None and not df.empty:
-                cfg_module.HOT_ETF_CODES = df["ts_code"].tolist()
-                counts["etf"] = len(cfg_module.HOT_ETF_CODES)
-        except Exception as e:
-            logger.warning("Failed to refresh ETF codes: %s", e)
-
-        counts["index"] = len(cfg_module.INDEX_CODES)
-        counts["hk"] = len(cfg_module.HK_CODES)
-
-        return RefreshCodesResponse(success=True, message="Codes refreshed", counts=counts)
+        counts = cfg_module.refresh_codes_from_db()
+        return RefreshCodesResponse(success=True, message="Codes refreshed from DB", counts=counts)
     except Exception as e:
         logger.error("Refresh codes failed: %s", e)
-        return RefreshCodesResponse(success=False, message=str(e), counts=counts)
+        return RefreshCodesResponse(success=False, message=str(e), counts={})

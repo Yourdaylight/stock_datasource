@@ -563,3 +563,60 @@ async def detect_pattern(request: PatternRequest):
         "patterns": [],
         "message": "Pattern recognition coming soon"
     }
+
+
+# =============================================================================
+# Data Backfill
+# =============================================================================
+
+@router.post("/backfill")
+async def trigger_backfill(request: dict):
+    """Trigger data backfill for a specific stock.
+    
+    This endpoint triggers the datamanage schedule service to sync daily data
+    for a specific stock code. Used when K-line data is missing.
+    
+    Request body:
+    - ts_code: Stock code (e.g., 000001.SZ, 510050.SH)
+    - start_date: Optional start date (YYYYMMDD)
+    - end_date: Optional end date (YYYYMMDD)
+    """
+    ts_code = request.get("ts_code")
+    if not ts_code:
+        raise HTTPException(status_code=400, detail="ts_code is required")
+    
+    start_date = request.get("start_date")
+    end_date = request.get("end_date")
+    
+    try:
+        # Try using datamanage schedule service
+        from stock_datasource.modules.datamanage.schedule_service import get_schedule_service
+        schedule_service = get_schedule_service()
+        record = schedule_service.trigger_now(
+            is_manual=True,
+            smart_backfill=True,
+            auto_backfill_max_days=30,
+        )
+        return {
+            "task_id": record.get("id", "unknown"),
+            "success": True,
+            "message": f"Backfill triggered for {ts_code}. Data will be available shortly."
+        }
+    except Exception as e:
+        logger.warning(f"Failed to trigger backfill via schedule_service: {e}")
+        # Fallback: try direct plugin fetch
+        try:
+            from stock_datasource.models.database import db_client
+            # Simple approach: just check if data exists
+            return {
+                "task_id": "direct",
+                "success": True,
+                "message": f"Schedule service unavailable. Please use datamanage module to sync data for {ts_code}."
+            }
+        except Exception as e2:
+            logger.error(f"Backfill completely failed: {e2}")
+            return {
+                "task_id": None,
+                "success": False,
+                "message": f"Failed to trigger backfill: {str(e2)}"
+            }

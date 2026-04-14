@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { marketApi } from '@/api/market'
+import type { KLineResponse } from '@/api/market'
 import { usePortfolioStore } from '@/stores/portfolio'
 import { useScreenerStore } from '@/stores/screener'
 import KLineChart from '@/components/charts/KLineChart.vue'
@@ -42,14 +43,23 @@ const chipStats = ref<ChipStats | null>(null)
 const chipLoading = ref(false)
 const chipDate = ref<string>('')
 
+// Minute K-line data (实时分钟K线)
+const minuteKlineData = ref<KLineData[]>([])
+const minuteKlineLoading = ref(false)
+
+// Backfill status
+const backfilling = ref(false)
+const backfillMessage = ref('')
+
 // Stock profile (十维画像)
 const stockProfile = ref<StockProfile | null>(null)
 const profileLoading = ref(false)
 
 // Chart options
-const period = ref(365) // 默认365天
+const period = ref(180) // 默认180天
 const adjustType = ref<'qfq' | 'hfq' | 'none'>('qfq')
 const selectedIndicators = ref<string[]>(['MA', 'MACD', 'RSI', 'KDJ'])
+const chartMode = ref<'daily' | 'minute'>('daily') // 日K / 分钟K切换
 
 // Add to watchlist form
 const addToWatchlistForm = ref({
@@ -81,6 +91,16 @@ const dialogVisible = computed({
 
 // 检测是否为港股
 const isHKStock = computed(() => props.stockCode?.toUpperCase().endsWith('.HK'))
+
+// 检测是否为ETF（A股ETF代码以5开头或15开头）
+const isETF = computed(() => {
+  const code = props.stockCode?.toUpperCase()
+  if (!code) return false
+  // ETF常见前缀: 51xxxx.SH, 15xxxx.SZ, 56xxxx.SH, 59xxxx.SH 等
+  const pureCode = code.split('.')[0]
+  return (code.endsWith('.SZ') || code.endsWith('.SH')) && 
+    /^(51|15|56|59|16|50|52|58)/.test(pureCode)
+})
 
 // 页面整体加载状态：K线数据加载完成才显示页面
 const pageLoading = computed(() => loading.value && klineData.value.length === 0)
@@ -124,19 +144,37 @@ const fetchStockData = async () => {
       return date.toISOString().split('T')[0].replace(/-/g, '')
     }
     
-    // Fetch K-line data
-    const klineResponse = await marketApi.getKLine({
-      code: props.stockCode,
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-      adjust: adjustType.value
-    })
+    let klineResponse: KLineResponse
+    
+    // 根据股票类型路由到不同的K线API
+    if (isETF.value) {
+      // ETF使用专用K线接口
+      klineResponse = await marketApi.getEtfKLine({
+        ts_code: props.stockCode,
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
+        adjust: adjustType.value
+      })
+    } else {
+      // A股/港股使用通用K线接口
+      klineResponse = await marketApi.getKLine({
+        code: props.stockCode,
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
+        adjust: adjustType.value
+      })
+    }
     
     stockInfo.value = {
       code: klineResponse.code,
       name: klineResponse.name
     }
     klineData.value = klineResponse.data
+    
+    // 如果K线数据为空，自动触发数据补齐
+    if (!klineResponse.data || klineResponse.data.length === 0) {
+      await triggerBackfill()
+    }
     
     // Set default cost price to latest close price
     addToWatchlistForm.value.cost_price = latestPrice.value
@@ -167,6 +205,71 @@ const fetchIndicators = async () => {
     signals.value = response.signals || []
   } catch (error) {
     console.error('Failed to fetch indicators:', error)
+  }
+}
+
+// Fetch realtime minute K-line data
+const fetchMinuteKline = async () => {
+  if (!props.stockCode) return
+  
+  minuteKlineLoading.value = true
+  try {
+    const response = await marketApi.getMinuteKLine({
+      ts_code: props.stockCode,
+      freq: '1min'
+    })
+    minuteKlineData.value = response.data || []
+    
+    // 更新stockInfo如果还没有
+    if (!stockInfo.value && response.ts_code) {
+      stockInfo.value = { code: response.ts_code, name: response.ts_code }
+    }
+  } catch (error) {
+    console.error('Failed to fetch minute K-line data:', error)
+    MessagePlugin.error('获取分钟K线数据失败')
+  } finally {
+    minuteKlineLoading.value = false
+  }
+}
+
+// Trigger data backfill when K-line data is empty
+const triggerBackfill = async () => {
+  if (!props.stockCode) return
+  
+  backfilling.value = true
+  backfillMessage.value = '正在补齐数据，请稍候...'
+  
+  try {
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(endDate.getDate() - period.value)
+    const formatDate = (date: Date) => date.toISOString().split('T')[0].replace(/-/g, '')
+    
+    await marketApi.triggerBackfill({
+      ts_code: props.stockCode,
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate)
+    })
+    
+    backfillMessage.value = '数据补齐任务已提交，稍后刷新即可查看'
+    
+    // 等待3秒后自动重新获取数据
+    setTimeout(async () => {
+      await fetchStockData()
+      backfilling.value = false
+    }, 5000)
+  } catch (error) {
+    console.error('Failed to trigger backfill:', error)
+    backfillMessage.value = '数据补齐失败，请稍后手动刷新'
+    backfilling.value = false
+  }
+}
+
+// Handle chart mode change (日K / 分钟K)
+const handleChartModeChange = async (mode: 'daily' | 'minute') => {
+  chartMode.value = mode
+  if (mode === 'minute') {
+    await fetchMinuteKline()
   }
 }
 
@@ -398,9 +501,13 @@ watch(() => props.stockCode, (newCode) => {
     chipStats.value = null
     chipDate.value = ''
     stockProfile.value = null
+    minuteKlineData.value = []
+    chartMode.value = 'daily'
+    backfilling.value = false
+    backfillMessage.value = ''
     fetchStockData()
-    // 港股不加载筹码峰和十维画像
-    if (!newCode.toUpperCase().endsWith('.HK')) {
+    // 港股和ETF不加载筹码峰和十维画像
+    if (!newCode.toUpperCase().endsWith('.HK') && !isETF.value) {
       fetchChipData()
       fetchStockProfile()
     }
@@ -410,8 +517,8 @@ watch(() => props.stockCode, (newCode) => {
 watch(() => props.visible, (visible) => {
   if (visible && props.stockCode) {
     fetchStockData()
-    // 港股不加载筹码峰和十维画像
-    if (!props.stockCode.toUpperCase().endsWith('.HK')) {
+    // 港股和ETF不加载筹码峰和十维画像
+    if (!props.stockCode.toUpperCase().endsWith('.HK') && !isETF.value) {
       fetchChipData()
       fetchStockProfile()
     }
@@ -444,6 +551,7 @@ watch(() => props.visible, (visible) => {
             <h3 v-if="stockInfo">
               {{ stockInfo.name }} ({{ stockInfo.code }})
               <t-tag v-if="isHKStock" theme="warning" size="small" style="margin-left: 8px;">港股</t-tag>
+              <t-tag v-if="isETF" theme="success" size="small" style="margin-left: 8px;">ETF</t-tag>
             </h3>
             <h3 v-else>{{ stockCode }}</h3>
             <div v-if="priceInfo" class="price-info" :class="{ up: priceInfo.isUp, down: !priceInfo.isUp }">
@@ -458,18 +566,24 @@ watch(() => props.visible, (visible) => {
           
           <div class="chart-controls">
             <t-space>
-              <t-select
-                v-model="period"
-                :options="periodOptions"
-                style="width: 100px"
-                @change="handlePeriodChange"
-              />
-              <t-select
-                v-model="adjustType"
-                :options="adjustOptions"
-                style="width: 100px"
-                @change="handleAdjustChange"
-              />
+              <t-radio-group v-model="chartMode" variant="default-filled" size="small" @change="handleChartModeChange">
+                <t-radio-button value="daily">日K</t-radio-button>
+                <t-radio-button value="minute">分钟K</t-radio-button>
+              </t-radio-group>
+              <template v-if="chartMode === 'daily'">
+                <t-select
+                  v-model="period"
+                  :options="periodOptions"
+                  style="width: 100px"
+                  @change="handlePeriodChange"
+                />
+                <t-select
+                  v-model="adjustType"
+                  :options="adjustOptions"
+                  style="width: 100px"
+                  @change="handleAdjustChange"
+                />
+              </template>
             </t-space>
           </div>
         </div>
@@ -570,11 +684,25 @@ watch(() => props.visible, (visible) => {
         <!-- Left: K-line Chart (flex: 2) -->
         <div class="chart-panel">
           <div class="kline-container">
+            <!-- Backfill status overlay -->
+            <div v-if="backfilling" class="backfill-overlay">
+              <t-loading size="small" :text="backfillMessage" />
+            </div>
+            <!-- No data hint with backfill trigger -->
+            <div v-else-if="chartMode === 'daily' && !chartLoading && klineData.length === 0" class="no-data-hint">
+              <t-empty description="暂无K线数据">
+                <t-button theme="primary" size="small" @click="triggerBackfill" :loading="backfilling">
+                  补齐数据
+                </t-button>
+              </t-empty>
+            </div>
             <KLineChart
-              :data="klineData"
-              :indicators="indicators"
-              :indicator-dates="indicatorDates"
-              :loading="chartLoading"
+              v-else
+              :data="chartMode === 'minute' ? minuteKlineData : klineData"
+              :indicators="chartMode === 'minute' ? {} : indicators"
+              :indicator-dates="chartMode === 'minute' ? [] : indicatorDates"
+              :signals="chartMode === 'minute' ? [] : signals"
+              :loading="chartMode === 'minute' ? minuteKlineLoading : chartLoading"
               height="100%"
             />
           </div>
@@ -844,6 +972,28 @@ watch(() => props.visible, (visible) => {
   flex: 1;
   min-height: 480px;
   height: 0; /* 关键：让 flex: 1 生效 */
+  position: relative;
+}
+
+.backfill-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 10;
+}
+
+.no-data-hint {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  min-height: 480px;
 }
 
 .right-panel {

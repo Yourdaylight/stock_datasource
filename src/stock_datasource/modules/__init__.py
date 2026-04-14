@@ -56,6 +56,12 @@ def get_all_routers() -> list:
         pass
 
     try:
+        from .profile.router import router as profile_router
+        routers.append(("/portfolio", profile_router, ["账户配置"]))
+    except ImportError:
+        pass
+
+    try:
         from .backtest.router import router as backtest_router
         routers.append(("/backtest", backtest_router, ["策略回测"]))
     except ImportError:

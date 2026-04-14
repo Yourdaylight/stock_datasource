@@ -7,6 +7,7 @@ const props = defineProps<{
   data: KLineData[]
   indicators?: Record<string, number[]>
   indicatorDates?: string[]
+  signals?: any[]
   selectedIndicators?: string[]
   loading?: boolean
   height?: number | string
@@ -107,6 +108,51 @@ const initChart = () => {
   
   chart = echarts.init(chartRef.value)
   updateChart()
+}
+
+// Build ECharts markPoint data from signals array
+const buildSignalMarkPoint = (signals: any[] | undefined, dates: string[]) => {
+  if (!signals || signals.length === 0) return undefined
+  
+  const buyPoints: any[] = []
+  const sellPoints: any[] = []
+  
+  for (const signal of signals) {
+    const dateStr = signal.date || signal.trade_date
+    const dateIndex = dates.indexOf(dateStr)
+    if (dateIndex < 0) continue
+    
+    const signalType = (signal.signal_type || signal.type || '').toLowerCase()
+    if (signalType.includes('buy') || signalType === 'b' || signalType === 'golden_cross' || signalType === 'oversold') {
+      buyPoints.push({
+        coord: [dateStr, signal.price || signal.close],
+        value: 'B',
+        itemStyle: { color: '#e74c3c' }
+      })
+    } else if (signalType.includes('sell') || signalType === 's' || signalType === 'death_cross' || signalType === 'overbought') {
+      sellPoints.push({
+        coord: [dateStr, signal.price || signal.close],
+        value: 'S',
+        itemStyle: { color: '#2ecc71' }
+      })
+    }
+  }
+  
+  const data = [...buyPoints, ...sellPoints]
+  if (data.length === 0) return undefined
+  
+  return {
+    symbol: 'pin',
+    symbolSize: 30,
+    label: {
+      show: true,
+      fontSize: 10,
+      fontWeight: 'bold',
+      formatter: (params: any) => params.value
+    },
+    data,
+    animation: false
+  }
 }
 
 const updateChart = () => {
@@ -265,7 +311,9 @@ const updateChart = () => {
       color0: '#228B22',
       borderColor: '#ec0000',
       borderColor0: '#228B22'
-    }
+    },
+    // B/S signal marks
+    markPoint: buildSignalMarkPoint(props.signals, dates)
   })
 
   // Add main chart indicators (MA, BOLL, etc.)
