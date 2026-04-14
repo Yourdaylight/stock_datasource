@@ -23,10 +23,12 @@
 
 ### 多智能体协作架构
 
-系统采用 **LangGraph** 构建的多智能体架构，由 **OrchestratorAgent（编排器）** 统一协调 **15 个专业 Agent**，实现智能意图识别和任务分发：
+系统采用 **LangGraph** 构建的多智能体架构，由 **OrchestratorAgent（编排器）** 统一协调 **18 个专业 Agent**，配合 **5 个安全中间件**，实现智能意图识别和任务分发：
 
 ```
 用户输入 → OrchestratorAgent → 意图识别 → 路由到专业Agent → 工具调用 → 自然语言回复
+                                                    ↕
+                                        Agent Middlewares（安全/记忆/摘要）
 ```
 
 | Agent                     | 功能定位   | 典型场景                                        |
@@ -37,6 +39,7 @@
 | **ReportAgent**           | 财报分析   | "分析宁德时代财务状况"、"比较茅台和五粮液财报"|
 | **HKReportAgent**         | 港股财报   | "分析腾讯财报"、"00700 财务健康度"            |
 | **PortfolioAgent**        | 持仓管理   | "查看我的持仓"、"分析投资组合风险"            |
+| **EnhancedPortfolioAgent**| 增强持仓   | 深度组合分析、AI 持仓诊断                      |
 | **BacktestAgent**         | 策略回测   | "回测双均线策略"、"测试选股条件历史收益"      |
 | **IndexAgent**            | 指数分析   | "分析沪深300走势"、"创业板指技术形态"         |
 | **EtfAgent**              | ETF 分析   | "分析科创50ETF"、"对比各行业ETF表现"          |
@@ -45,11 +48,25 @@
 | **KnowledgeAgent**        | 知识库     | "搜索相关研报"、"查找财报公告"（RAG）        |
 | **MemoryAgent**           | 用户记忆   | "记住我的自选股"、"我的投资偏好是什么"        |
 | **DataManageAgent**       | 数据管理   | "更新今日数据"、"检查数据质量"                |
+| **DeepAgent**             | 深度研究   | 多轮深度分析、复杂研究任务                     |
+| **WorkflowAgent**         | 工作流执行 | 编排多步骤工作流任务                           |
+| **WorkflowGeneratorAgent**| 工作流生成 | AI 自动生成工作流定义                           |
 | **ChatAgent**             | 通用对话   | 其他投资相关问题、AI工作流调用                 |
+
+### Agent 安全中间件
+
+| 中间件 | 功能 |
+|--------|------|
+| **CrossValidationMiddleware** | 交叉验证，确保 AI 输出一致性 |
+| **GuardrailMiddleware** | 安全护栏，防止违规输出 |
+| **LoopDetectionMiddleware** | 循环检测，防止 Agent 陷入死循环 |
+| **MemoryInjectionMiddleware** | 记忆注入，自动携带用户上下文 |
+| **SummarizationMiddleware** | 自动摘要，长对话压缩 |
 
 ### 核心 AI 能力
 
 - **🎯 智能意图识别**：自动理解用户自然语言，精准路由到对应 Agent，支持并发执行和 Agent 间交接
+- **🛡️ Agent 安全中间件**：交叉验证、安全护栏、循环检测、记忆注入、自动摘要，保障 AI 输出质量和系统稳定性
 - **🔧 Function Calling**：每个 Agent 配备专业工具集，精准调用数据接口
 - **💬 流式响应**：实时展示 AI 思考过程和工具调用状态
 - **🔗 会话记忆**：支持多轮对话，保持上下文连贯
@@ -209,6 +226,18 @@ steps:
 - 策略对抗：多个 Agent 执行不同策略，对比表现
 - 淘汰赛制：自动淘汰弱势策略，留存强策略
 - 可视化分析：收益曲线对比、雷达图评分
+
+### 🔔 异动预警 & 龙虎榜
+
+- 实时异动监控：涨跌停、放量突破等异动自动告警
+- 龙虎榜数据：每日龙虎榜详情、机构席位追踪
+- AI 异动解读：AI 自动分析异动原因和后续走势
+
+### 📡 实时行情 & 微信联动
+
+- 实时分钟线：盘中实时推送 K 线数据
+- 微信桥接（PicoClaw）：扫码绑定微信，随时查股、接收行情推送
+- 策略工作台：可视化配置策略参数，一键运行回测
 
 ------------------------------------------------
 ## 🚀 快速开始
@@ -409,7 +438,7 @@ curl http://localhost:18080/api/open/docs \
 | 港股日线 | `/api/open/v1/akshare_hk_daily/query` | 需手动启用 |
 | 股票基本信息 | `/api/open/v1/tushare_stock_basic/query` | 需手动启用 |
 | 财务报表 | `/api/open/v1/tushare_income/query` | 需手动启用 |
-| 其他插件 | 全部 80+ 数据插件 | 需手动启用 |
+| 其他插件 | 全部 77 个数据插件 | 需手动启用 |
 
 > **绝对不开放的接口**：`/auth/*`、`/chat/*`、`/datamanage/*`、`/portfolio/*`、`/memory/*`、`/mcp_api_key/*` 等系统/管理/AI路由。
 
@@ -426,13 +455,16 @@ curl http://localhost:18080/api/open/docs \
 │  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴─────┐     │
 │  │量化选股 │ │新闻资讯 │ │策略工具台│ │多Agent场│ │ 开放API  │     │
 │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘     │
-└───────┼──────────┼──────────┼──────────┼──────────┼──────────┘
-        │          │          │          │          │
-        ▼          ▼          ▼          ▼          ▼
+│  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐                              │
+│  │实时行情 │ │微信桥接 │ │系统日志 │                              │
+│  └────┬────┘ └────┬────┘ └────┬────┘                              │
+└───────┼──────────┼──────────┼──────────┼──────────┼──────────┼────────┼────────┼────────┘
+        │          │          │          │          │          │        │        │
+        ▼          ▼          ▼          ▼          ▼          ▼        ▼        ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      API Layer (FastAPI)                         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  OrchestratorAgent (15 Agents)               │   │
+│  │                  OrchestratorAgent (18 Agents)               │   │
 │  │    ┌──────────────────────────────────────────────┐      │   │
 │  │    │      意图识别 → 并发路由 → Agent交接 → 聚合    │      │   │
 │  │    └──────────────────────────────────────────────┘      │   │
@@ -444,6 +476,10 @@ curl http://localhost:18080/api/open/docs \
 │  │    + IndexAgent, EtfAgent, PortfolioAgent, MemoryAgent      │   │
 │    + TopListAgent, NewsAnalystAgent, KnowledgeAgent         │   │
 │    + DataManageAgent, ChatAgent, WorkflowAgent              │   │
+│    + DeepAgent, EnhancedPortfolioAgent, WorkflowGenerator   │   │
+│  │  ┌──────────────────────────────────────────────────────┐   │   │
+│  │  │  Agent Middlewares (安全护栏/循环检测/记忆注入/摘要)  │   │   │
+│  │  └──────────────────────────────────────────────────────┘   │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │            Open API Gateway (/api/open/v1/*)               │   │
@@ -472,7 +508,7 @@ curl http://localhost:18080/api/open/docs \
 | **后端**   | Python 3.11+, FastAPI, LangGraph, DeepAgents            |
 | **数据库** | ClickHouse（列式存储，高性能分析）                      |
 | **缓存**   | Redis（会话缓存、数据缓存）                             |
-| **数据源** | TuShare Pro（A股）、AKShare（港股）                     |
+| **数据源** | TuShare Pro（A股）、AKShare（港股/实时）、同花顺指数   |
 | **AI**     | OpenAI GPT-4 / Kimi / 国产大模型，Function Calling      |
 | **可观测** | Langfuse（AI 调用链路追踪）                             |
 | **开放接口** | Open API Gateway + MCP Server（外部数据查询）          |
@@ -484,7 +520,7 @@ curl http://localhost:18080/api/open/docs \
 ```
 stock_datasource/
 ├── src/stock_datasource/
-│   ├── agents/                # AI Agent 层（15个专业Agent）
+│   ├── agents/                # AI Agent 层（18个专业Agent + 5个中间件）
 │   │   ├── orchestrator.py    # 编排器（意图路由、并发执行、Agent交接）
 │   │   ├── base_agent.py      # Agent 基类
 │   │   ├── overview_agent.py  # 市场概览
@@ -493,18 +529,28 @@ stock_datasource/
 │   │   ├── report_agent.py    # A股财报分析
 │   │   ├── hk_report_agent.py # 港股财报分析
 │   │   ├── portfolio_agent.py # 持仓管理
+│   │   ├── enhanced_portfolio_agent.py # 增强持仓分析
 │   │   ├── backtest_agent.py  # 策略回测
 │   │   ├── index_agent.py     # 指数分析
 │   │   ├── etf_agent.py       # ETF分析
+│   │   ├── toplist_agent.py   # 龙虎榜分析
 │   │   ├── news_analyst_agent.py # 新闻分析
 │   │   ├── knowledge_agent.py # 知识库（RAG）
 │   │   ├── memory_agent.py    # 用户记忆
 │   │   ├── datamanage_agent.py # 数据管理
+│   │   ├── deep_agent.py      # 深度研究
 │   │   ├── chat_agent.py      # 通用对话
 │   │   ├── workflow_agent.py  # 工作流执行
+│   │   ├── workflow_generator_agent.py # 工作流生成
+│   │   ├── middlewares/       # Agent 安全中间件
+│   │   │   ├── cross_validation.py  # 交叉验证
+│   │   │   ├── guardrail.py         # 安全护栏
+│   │   │   ├── loop_detection.py    # 循环检测
+│   │   │   ├── memory_injection.py  # 记忆注入
+│   │   │   └── summarization.py     # 自动摘要
 │   │   └── *_tools.py         # Agent 工具集
-│   ├── plugins/               # 数据采集插件（80+）
-│   ├── modules/               # 功能模块（22个）
+│   ├── plugins/               # 数据采集插件（77个）
+│   ├── modules/               # 功能模块（28个）
 │   │   ├── auth/              # 认证模块
 │   │   ├── chat/              # 对话交互
 │   │   ├── market/            # 行情分析
@@ -522,17 +568,25 @@ stock_datasource/
 │   │   ├── quant/             # 量化选股
 │   │   ├── memory/            # 用户记忆
 │   │   ├── datamanage/        # 数据管理
-│   │   ├── open_api/          # 开放API网关（NEW）
+│   │   ├── open_api/          # 开放API网关
 │   │   ├── mcp_api_key/       # MCP API Key 管理
 │   │   ├── token_usage/       # Token用量统计
-│   │   └── mcp_usage/         # MCP调用统计
+│   │   ├── mcp_usage/         # MCP调用统计
+│   │   ├── realtime_minute/   # 实时分钟线
+│   │   ├── realtime_kline/    # 实时K线推送
+│   │   ├── system_logs/       # 系统日志
+│   │   ├── ths_index/         # 同花顺指数
+│   │   ├── toplist/           # 龙虎榜
+│   │   ├── user_llm_config/   # 用户LLM配置
+│   │   └── wechat_bridge/     # 微信桥接(PicoClaw)
 │   ├── services/              # HTTP / MCP / 任务队列等核心服务
 │   ├── tasks/                 # 定时任务与调度
-│   └── core/                  # 核心组件（插件管理、服务生成器等）
+│   ├── core/                  # 核心组件（插件管理、服务生成器等）
 ├── skills/                   # 技能包（tushare-plugin-builder、stock-rt-subscribe等）
 ├── frontend/                  # Vue 3 前端
 ├── scripts/                   # 数据采集脚本
 ├── docker/                    # Docker 配置
+│   └── migrations/            # 数据库迁移脚本
 ├── docs/                      # 文档
 ├── cli.py                     # 命令行工具
 ├── docker-compose.yml         # 应用服务
