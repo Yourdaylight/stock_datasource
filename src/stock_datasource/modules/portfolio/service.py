@@ -1,5 +1,6 @@
 """Portfolio service for managing user positions."""
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -454,45 +455,59 @@ class PortfolioService:
         if self.db is None:
             return None
         try:
-            # A股日线 - 同时获取最近2日以计算prev_close
-            query = """
-                SELECT close, trade_date, pre_close FROM ods_daily 
-                WHERE ts_code = %(code)s 
-                ORDER BY trade_date DESC LIMIT 1
-            """
-            df = self.db.execute_query(query, {'code': ts_code})
-            if not df.empty:
-                trade_date = df.iloc[0]['trade_date']
-                trade_time = self._format_trade_datetime(trade_date)
-                prev_close = float(df.iloc[0]['pre_close']) if 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']) else None
-                return {"close": float(df.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
+            market_type = self._infer_market_type(ts_code)
             
-            # ETF日线
-            query_etf = """
-                SELECT close, trade_date, pre_close FROM ods_etf_fund_daily 
-                WHERE ts_code = %(code)s 
-                ORDER BY trade_date DESC LIMIT 1
-            """
-            df_etf = self.db.execute_query(query_etf, {'code': ts_code})
-            if not df_etf.empty:
-                trade_date = df_etf.iloc[0]['trade_date']
-                trade_time = self._format_trade_datetime(trade_date, market_type="etf")
-                prev_close = float(df_etf.iloc[0]['pre_close']) if 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']) else None
-                return {"close": float(df_etf.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
+            # 按市场类型查询对应日线表
+            queries = []
+            if market_type == "index":
+                queries.append(("ods_index_daily", "index"))
+            elif market_type == "etf":
+                queries.append(("ods_etf_fund_daily", "etf"))
+            elif market_type == "hk":
+                queries.append(("ods_hk_daily", "hk"))
+            else:
+                queries.append(("ods_daily", "a_stock"))
             
-            # 港股日线
-            if ts_code.endswith('.HK'):
-                query_hk = """
-                    SELECT close, trade_date, pre_close FROM ods_hk_daily 
+            for table, mtype in queries:
+                query = f"""
+                    SELECT close, trade_date, pre_close FROM {table}
                     WHERE ts_code = %(code)s 
                     ORDER BY trade_date DESC LIMIT 1
                 """
-                df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                df = self.db.execute_query(query, {'code': ts_code})
+                if not df.empty:
+                    trade_date = df.iloc[0]['trade_date']
+                    trade_time = self._format_trade_datetime(trade_date, market_type=mtype)
+                    prev_close = float(df.iloc[0]['pre_close']) if 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']) else None
+                    return {"close": float(df.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
+            
+            # Fallback: 如果推断不准，尝试所有表
+            if market_type != "a_stock":
+                df = self.db.execute_query(
+                    "SELECT close, trade_date, pre_close FROM ods_daily WHERE ts_code = %(code)s ORDER BY trade_date DESC LIMIT 1",
+                    {'code': ts_code}
+                )
+                if not df.empty:
+                    trade_date = df.iloc[0]['trade_date']
+                    return {"close": float(df.iloc[0]['close']), "trade_time": self._format_trade_datetime(trade_date), "prev_close": float(df.iloc[0]['pre_close']) if 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']) else None}
+            
+            if market_type != "etf":
+                df_etf = self.db.execute_query(
+                    "SELECT close, trade_date, pre_close FROM ods_etf_fund_daily WHERE ts_code = %(code)s ORDER BY trade_date DESC LIMIT 1",
+                    {'code': ts_code}
+                )
+                if not df_etf.empty:
+                    trade_date = df_etf.iloc[0]['trade_date']
+                    return {"close": float(df_etf.iloc[0]['close']), "trade_time": self._format_trade_datetime(trade_date, market_type="etf"), "prev_close": float(df_etf.iloc[0]['pre_close']) if 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']) else None}
+            
+            if market_type != "hk" and ts_code.endswith('.HK'):
+                df_hk = self.db.execute_query(
+                    "SELECT close, trade_date, pre_close FROM ods_hk_daily WHERE ts_code = %(code)s ORDER BY trade_date DESC LIMIT 1",
+                    {'code': ts_code}
+                )
                 if not df_hk.empty:
                     trade_date = df_hk.iloc[0]['trade_date']
-                    trade_time = self._format_trade_datetime(trade_date, market_type="hk")
-                    prev_close = float(df_hk.iloc[0]['pre_close']) if 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']) else None
-                    return {"close": float(df_hk.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
+                    return {"close": float(df_hk.iloc[0]['close']), "trade_time": self._format_trade_datetime(trade_date, market_type="hk"), "prev_close": float(df_hk.iloc[0]['pre_close']) if 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']) else None}
         except Exception as e:
             logger.warning(f"Failed to get daily price for {ts_code}: {e}")
         return None
@@ -591,17 +606,276 @@ class PortfolioService:
             self._calc_daily_change_from_db(position)
     
     async def _batch_fill_prev_close(self, prices: Dict[str, Dict[str, Any]]):
-        """批量补充昨收价(prev_close)用于今日涨跌计算。"""
+        """批量补充昨收价(prev_close)用于今日涨跌计算。
+        
+        当日线数据缺失或过期时，主动触发对应市场的日线同步插件补数据，
+        然后重新查询。
+        
+        核心逻辑：
+        1. 先从DB查询 prev_close
+        2. 批量检查所有持仓的日线数据是否新鲜
+        3. 如果日线数据过期，触发同步补数据
+        4. 同步后重新查询 prev_close
+        """
         codes_need_prev = [code for code, info in prices.items() if info.get("prev_close") is None]
         if not codes_need_prev or self.db is None:
             return
         try:
+            # 第一次尝试：直接从DB查询
             for code in codes_need_prev:
                 prev_close = self._get_prev_close_from_db(code)
                 if prev_close is not None:
                     prices[code]["prev_close"] = prev_close
+            
+            # 批量检查所有代码的日线数据新鲜度（包括已获取到 prev_close 的）
+            # 因为即使拿到了 prev_close，如果日线数据不是最新的，prev_close 可能不准
+            all_codes = list(prices.keys())
+            stale_codes = self._batch_check_markets_freshness(all_codes)
+            
+            # 触发缺失/过期的日线数据同步
+            # stale_codes: {ts_code: market_type}，提取需要同步的市场类型
+            if stale_codes:
+                markets_to_sync = set(stale_codes.values())
+                synced_markets = await self._trigger_daily_sync_for_markets(markets_to_sync)
+                if synced_markets:
+                    # 同步后重新查询所有需要 prev_close 的代码
+                    await asyncio.sleep(2)  # 等待数据写入
+                    for code in codes_need_prev:
+                        prev_close = self._get_prev_close_from_db(code)
+                        if prev_close is not None:
+                            prices[code]["prev_close"] = prev_close
+                            logger.info(f"Synced daily data, got prev_close for {code}: {prev_close}")
         except Exception as e:
             logger.warning(f"Failed to batch fill prev_close: {e}")
+    
+    @staticmethod
+    def _infer_market_type(ts_code: str) -> str:
+        """从 ts_code 推断市场类型: a_stock / etf / hk / index"""
+        if not isinstance(ts_code, str) or len(ts_code) < 3:
+            return "a_stock"
+        if ts_code.endswith('.HK'):
+            return "hk"
+        # 指数: 000001.SH, 399001.SZ 等
+        if ts_code.startswith(('0000', '3990', '3991', '3993', '3996', '3999')):
+            # 区分指数和股票：指数通常是 000001.SH(上证指数) 或 399001.SZ(深证成指)
+            # 但 000001.SZ 是平安银行，需要更精确判断
+            suffix = ts_code[-2:]
+            prefix = ts_code[:6]
+            if suffix == 'SH' and prefix.startswith('0000'):
+                return "index"
+            if suffix == 'SZ' and prefix.startswith('399'):
+                return "index"
+        # ETF
+        prefix = ts_code[:3]
+        if prefix in ("510", "511", "512", "513", "515", "516", "518", "520",
+                      "560", "561", "562", "563", "588",
+                      "159", "150", "501", "502"):
+            return "etf"
+        return "a_stock"
+    
+    @staticmethod
+    def _get_daily_table_for_market(market_type: str) -> str:
+        """市场类型对应的日线表名"""
+        return {
+            "a_stock": "ods_daily",
+            "etf": "ods_etf_fund_daily",
+            "hk": "ods_hk_daily",
+            "index": "ods_index_daily",
+        }.get(market_type, "ods_daily")
+    
+    @staticmethod
+    def _get_plugin_name_for_market(market_type: str) -> str:
+        """市场类型对应的日线同步插件名"""
+        return {
+            "a_stock": "tushare_daily",
+            "etf": "tushare_etf_fund_daily",
+            "hk": "tushare_hk_daily",
+            "index": "tushare_index_daily",
+        }.get(market_type, "tushare_daily")
+    
+    def _check_daily_data_fresh(self, ts_code: str) -> Optional[str]:
+        """检查某只股票的日线数据是否是最新的。
+        
+        Returns:
+            None if data is fresh (latest daily date is the most recent trading day)
+            market_type string if data is stale or missing, indicating which market needs sync
+        """
+        if self.db is None:
+            return None
+        
+        market_type = self._infer_market_type(ts_code)
+        table = self._get_daily_table_for_market(market_type)
+        
+        try:
+            query = f"""
+                SELECT trade_date FROM {table}
+                WHERE ts_code = %(code)s
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df = self.db.execute_query(query, {'code': ts_code})
+            
+            if df.empty:
+                logger.info(f"No daily data found for {ts_code} in {table}, need sync ({market_type})")
+                return market_type
+            
+            latest_date = df.iloc[0]['trade_date']
+            if hasattr(latest_date, 'strftime'):
+                latest_str = latest_date.strftime('%Y-%m-%d')
+            else:
+                latest_str = str(latest_date)[:10]
+            
+            latest_trading_day = self._get_latest_trading_day(market_type)
+            if latest_trading_day and latest_str < latest_trading_day:
+                logger.info(
+                    f"Daily data stale for {ts_code}: latest={latest_str}, "
+                    f"latest_trading_day={latest_trading_day}, need sync ({market_type})"
+                )
+                return market_type
+        except Exception as e:
+            logger.warning(f"Failed to check daily data freshness for {ts_code}: {e}")
+        
+        return None
+    
+    def _get_latest_trading_day(self, market_type: str) -> Optional[str]:
+        """获取指定市场最近一个已过去的交易日。
+        
+        Returns:
+            YYYY-MM-DD 格式的交易日字符串，或 None
+        """
+        try:
+            from stock_datasource.core.trade_calendar import trade_calendar_service
+            from datetime import date as date_cls
+            market_key = "hk" if market_type == "hk" else "cn"
+            recent_days = trade_calendar_service.get_trading_days(n=5, market=market_key)
+            if recent_days:
+                today = date_cls.today()
+                for day in recent_days:
+                    try:
+                        d = datetime.strptime(day, '%Y-%m-%d').date()
+                        if d < today:
+                            return day
+                    except ValueError:
+                        continue
+        except Exception as e:
+            logger.debug(f"Could not get latest trading day: {e}")
+        return None
+    
+    def _batch_check_markets_freshness(self, ts_codes: List[str]) -> Dict[str, str]:
+        """批量检查多个代码的日线数据新鲜度，按市场类型分组查询。
+        
+        每个市场只查一次全局最新日期，避免逐个代码查询。
+        
+        Returns:
+            {ts_code: market_type} 需要同步的代码及其市场类型
+        """
+        if self.db is None or not ts_codes:
+            return {}
+        
+        # 按市场类型分组
+        market_groups: Dict[str, List[str]] = {}
+        for code in ts_codes:
+            mt = self._infer_market_type(code)
+            if mt not in market_groups:
+                market_groups[mt] = []
+            market_groups[mt].append(code)
+        
+        stale_codes: Dict[str, str] = {}  # ts_code -> market_type
+        
+        for market_type, codes in market_groups.items():
+            table = self._get_daily_table_for_market(market_type)
+            
+            try:
+                # 查该市场日线表的全局最新日期（一条SQL）
+                query = f"SELECT max(trade_date) as latest FROM {table}"
+                df = self.db.execute_query(query)
+                
+                if df.empty or pd.isna(df.iloc[0]['latest']):
+                    for code in codes:
+                        stale_codes[code] = market_type
+                    logger.info(f"Table {table} has no data, {len(codes)} codes need sync ({market_type})")
+                    continue
+                
+                global_latest = df.iloc[0]['latest']
+                if hasattr(global_latest, 'strftime'):
+                    global_latest_str = global_latest.strftime('%Y-%m-%d')
+                else:
+                    global_latest_str = str(global_latest)[:10]
+                
+                latest_trading_day = self._get_latest_trading_day(market_type)
+                
+                if latest_trading_day and global_latest_str < latest_trading_day:
+                    for code in codes:
+                        stale_codes[code] = market_type
+                    logger.info(
+                        f"Daily data stale for {market_type}: table_latest={global_latest_str}, "
+                        f"latest_trading_day={latest_trading_day}, {len(codes)} codes need sync"
+                    )
+                    
+            except Exception as e:
+                # 表不存在或查询失败，也标记为需要同步（可能是表未建或数据未同步）
+                for code in codes:
+                    stale_codes[code] = market_type
+                logger.warning(f"Failed to check freshness for {market_type} (table={table}): {e}, marking {len(codes)} codes as stale")
+        
+        return stale_codes
+    
+    async def _trigger_daily_sync_for_markets(self, market_types: set) -> set:
+        """直接触发指定市场的日线数据同步。
+        
+        不再重复检查新鲜度，因为调用方已经通过 _batch_check_markets_freshness 确认过了。
+        
+        Args:
+            market_types: 需要同步的市场类型集合，如 {"a_stock", "etf", "hk", "index"}
+            
+        Returns:
+            已触发同步成功的市场类型集合
+        """
+        if not market_types:
+            return set()
+        
+        synced = set()
+        for market_type in market_types:
+            try:
+                plugin_name = self._get_plugin_name_for_market(market_type)
+                logger.info(f"Triggering daily sync for {market_type} via plugin {plugin_name}")
+                
+                from stock_datasource.core.plugin_manager import plugin_manager
+                plugin = plugin_manager.get_plugin(plugin_name)
+                if plugin and plugin.is_enabled():
+                    # 获取目标交易日（最近一个已过去的交易日）
+                    target_date = self._get_latest_trading_day(market_type)
+                    
+                    if not target_date:
+                        logger.warning(f"Cannot determine target trade date for {market_type} sync")
+                        continue
+                    
+                    target_date_compact = target_date.replace("-", "")
+                    logger.info(f"Syncing {market_type} daily data for {target_date}")
+                    
+                    # 对港股用 start_date/end_date，其他用 trade_date
+                    if market_type == "hk":
+                        result = await asyncio.to_thread(
+                            plugin.run, start_date=target_date_compact, end_date=target_date_compact
+                        )
+                    else:
+                        result = await asyncio.to_thread(
+                            plugin.run, trade_date=target_date_compact
+                        )
+                    
+                    if result and result.get("status") == "success":
+                        load_info = result.get('steps', {}).get('load', {})
+                        records = load_info.get('total_records', 0) if isinstance(load_info, dict) else 0
+                        logger.info(f"Daily sync succeeded for {market_type}: {records} records")
+                        synced.add(market_type)
+                    else:
+                        error = result.get("error", "unknown") if result else "no result"
+                        logger.warning(f"Daily sync failed for {market_type}: {error}")
+                else:
+                    logger.warning(f"Plugin {plugin_name} not available or disabled")
+            except Exception as e:
+                logger.warning(f"Failed to trigger daily sync for {market_type}: {e}")
+        
+        return synced
     
     def _get_prev_close_from_db(self, ts_code: str) -> Optional[float]:
         """从日线表获取昨收价（最新交易日的 close，即"今天"的前收）。
@@ -613,28 +887,74 @@ class PortfolioService:
         if self.db is None:
             return None
         try:
+            market_type = self._infer_market_type(ts_code)
+            
+            # 指数日线
+            if market_type == "index":
+                query_idx = """
+                    SELECT close FROM ods_index_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_idx = self.db.execute_query(query_idx, {'code': ts_code})
+                if not df_idx.empty and 'close' in df_idx.columns and pd.notna(df_idx.iloc[0]['close']):
+                    return float(df_idx.iloc[0]['close'])
+            
             # A股
-            query = """
-                SELECT close FROM ods_daily 
-                WHERE ts_code = %(code)s 
-                ORDER BY trade_date DESC LIMIT 1
-            """
-            df = self.db.execute_query(query, {'code': ts_code})
-            if not df.empty and 'close' in df.columns and pd.notna(df.iloc[0]['close']):
-                return float(df.iloc[0]['close'])
+            if market_type == "a_stock":
+                query = """
+                    SELECT close FROM ods_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df = self.db.execute_query(query, {'code': ts_code})
+                if not df.empty and 'close' in df.columns and pd.notna(df.iloc[0]['close']):
+                    return float(df.iloc[0]['close'])
             
             # ETF
-            query_etf = """
-                SELECT close FROM ods_etf_fund_daily 
-                WHERE ts_code = %(code)s 
-                ORDER BY trade_date DESC LIMIT 1
-            """
-            df_etf = self.db.execute_query(query_etf, {'code': ts_code})
-            if not df_etf.empty and 'close' in df_etf.columns and pd.notna(df_etf.iloc[0]['close']):
-                return float(df_etf.iloc[0]['close'])
+            if market_type == "etf":
+                query_etf = """
+                    SELECT close FROM ods_etf_fund_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+                if not df_etf.empty and 'close' in df_etf.columns and pd.notna(df_etf.iloc[0]['close']):
+                    return float(df_etf.iloc[0]['close'])
             
             # 港股
-            if ts_code.endswith('.HK'):
+            if market_type == "hk":
+                query_hk = """
+                    SELECT close FROM ods_hk_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                if not df_hk.empty and 'close' in df_hk.columns and pd.notna(df_hk.iloc[0]['close']):
+                    return float(df_hk.iloc[0]['close'])
+            
+            # Fallback: 如果 market_type 推断不准，按原顺序尝试所有表
+            if market_type not in ("a_stock",):
+                query = """
+                    SELECT close FROM ods_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df = self.db.execute_query(query, {'code': ts_code})
+                if not df.empty and 'close' in df.columns and pd.notna(df.iloc[0]['close']):
+                    return float(df.iloc[0]['close'])
+            
+            if market_type not in ("etf",):
+                query_etf = """
+                    SELECT close FROM ods_etf_fund_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+                if not df_etf.empty and 'close' in df_etf.columns and pd.notna(df_etf.iloc[0]['close']):
+                    return float(df_etf.iloc[0]['close'])
+            
+            if market_type not in ("hk",) and ts_code.endswith('.HK'):
                 query_hk = """
                     SELECT close FROM ods_hk_daily 
                     WHERE ts_code = %(code)s 
@@ -652,9 +972,19 @@ class PortfolioService:
         if self.db is None or not position.ts_code:
             return
         try:
-            # A股
-            query = """
-                SELECT close, trade_date FROM ods_daily 
+            market_type = self._infer_market_type(position.ts_code)
+            
+            # 按市场类型查询
+            table_map = {
+                "index": "ods_index_daily",
+                "etf": "ods_etf_fund_daily",
+                "hk": "ods_hk_daily",
+                "a_stock": "ods_daily",
+            }
+            table = table_map.get(market_type, "ods_daily")
+            
+            query = f"""
+                SELECT close, trade_date FROM {table}
                 WHERE ts_code = %(code)s 
                 ORDER BY trade_date DESC LIMIT 2
             """
@@ -668,37 +998,29 @@ class PortfolioService:
                     position.daily_pct_chg = (position.daily_change / prev_close * 100)
                 return
             
-            # ETF
-            query_etf = """
-                SELECT close, trade_date FROM ods_etf_fund_daily 
-                WHERE ts_code = %(code)s 
-                ORDER BY trade_date DESC LIMIT 2
-            """
-            df_etf = self.db.execute_query(query_etf, {'code': position.ts_code})
-            if len(df_etf) >= 2:
-                latest_close = float(df_etf.iloc[0]['close'])
-                prev_close = float(df_etf.iloc[1]['close'])
-                if prev_close > 0:
-                    position.prev_close = prev_close
-                    position.daily_change = latest_close - prev_close
-                    position.daily_pct_chg = (position.daily_change / prev_close * 100)
-                return
-            
-            # 港股
-            if position.ts_code.endswith('.HK'):
-                query_hk = """
-                    SELECT close, trade_date FROM ods_hk_daily 
-                    WHERE ts_code = %(code)s 
-                    ORDER BY trade_date DESC LIMIT 2
-                """
-                df_hk = self.db.execute_query(query_hk, {'code': position.ts_code})
-                if len(df_hk) >= 2:
-                    latest_close = float(df_hk.iloc[0]['close'])
-                    prev_close = float(df_hk.iloc[1]['close'])
-                    if prev_close > 0:
-                        position.prev_close = prev_close
-                        position.daily_change = latest_close - prev_close
-                        position.daily_pct_chg = (position.daily_change / prev_close * 100)
+            # Fallback: 尝试其他表
+            for fallback_table in ["ods_daily", "ods_etf_fund_daily", "ods_hk_daily", "ods_index_daily"]:
+                if fallback_table == table:
+                    continue
+                if fallback_table == "ods_hk_daily" and not position.ts_code.endswith('.HK'):
+                    continue
+                try:
+                    query_fb = f"""
+                        SELECT close, trade_date FROM {fallback_table}
+                        WHERE ts_code = %(code)s 
+                        ORDER BY trade_date DESC LIMIT 2
+                    """
+                    df_fb = self.db.execute_query(query_fb, {'code': position.ts_code})
+                    if len(df_fb) >= 2:
+                        latest_close = float(df_fb.iloc[0]['close'])
+                        prev_close = float(df_fb.iloc[1]['close'])
+                        if prev_close > 0:
+                            position.prev_close = prev_close
+                            position.daily_change = latest_close - prev_close
+                            position.daily_pct_chg = (position.daily_change / prev_close * 100)
+                        return
+                except Exception:
+                    continue
         except Exception as e:
             logger.warning(f"Failed to calc daily change from DB for {position.ts_code}: {e}")
     
