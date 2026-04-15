@@ -292,7 +292,7 @@ async def get_analysis(date: Optional[str] = None, current_user: dict = Depends(
     try:
         analysis_service = get_daily_analysis_service()
         if analysis_service:
-            analysis = await analysis_service.get_analysis(date=date, user_id=current_user["id"])
+            analysis = await analysis_service.get_analysis(date=date)
             if analysis:
                 return DailyAnalysis(
                     analysis_date=analysis.get('analysis_date', ''),
