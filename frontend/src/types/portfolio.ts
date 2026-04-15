@@ -10,6 +10,9 @@ export interface Position {
   market_value?: number
   profit_loss?: number
   profit_rate?: number
+  daily_change?: number     // 今日涨跌额
+  daily_pct_chg?: number    // 今日涨跌幅(%)
+  prev_close?: number       // 昨收价
   notes?: string
   sector?: string
   industry?: string
@@ -38,6 +41,7 @@ export interface CreatePositionRequest {
   quantity: number
   cost_price: number
   buy_date: string
+  profile_id?: string
   notes?: string
 }
 

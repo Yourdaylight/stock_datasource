@@ -25,6 +25,9 @@ class Position:
     market_value: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_rate: Optional[float] = None
+    daily_change: Optional[float] = None      # 今日涨跌额
+    daily_pct_chg: Optional[float] = None      # 今日涨跌幅(%)
+    prev_close: Optional[float] = None         # 昨收价
     notes: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
@@ -138,11 +141,19 @@ class EnhancedPortfolioService:
                 if not df.empty:
                     positions = []
                     for _, row in df.iterrows():
+                        stock_name = row['stock_name']
+                        # 修正无效的 stock_name（fallback 值等于 ts_code 或以"股票"开头）
+                        name_fixed = False
+                        if not stock_name or stock_name == row['ts_code'] or stock_name.startswith('股票'):
+                            name, _, _ = await self._get_stock_info(row['ts_code'])
+                            stock_name = name
+                            name_fixed = True
+                        
                         position = Position(
                             id=str(row['id']),
                             user_id=str(row['user_id']),
                             ts_code=row['ts_code'],
-                            stock_name=row['stock_name'],
+                            stock_name=stock_name,
                             quantity=int(row['quantity']),
                             cost_price=float(row['cost_price']),
                             buy_date=str(row['buy_date']),
@@ -160,6 +171,15 @@ class EnhancedPortfolioService:
                         )
                         # Update current prices and calculations
                         await self._update_position_prices(position)
+                        # 修正后的名称回写数据库
+                        if name_fixed and self.db is not None:
+                            try:
+                                self.db.execute(
+                                    "ALTER TABLE user_positions UPDATE stock_name = %(name)s WHERE id = %(id)s",
+                                    {'name': stock_name, 'id': position.id}
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to update stock_name in DB for {position.ts_code}: {e}")
                         positions.append(position)
                     
                     # Update positions in database with latest prices
@@ -459,24 +479,49 @@ class EnhancedPortfolioService:
     
     # Private helper methods
     async def _get_stock_info(self, ts_code: str) -> Tuple[str, str, str]:
-        """Get stock name, sector and industry."""
-        try:
-            if self.db is not None:
+        """Get stock name, sector and industry. Supports A-shares, ETFs and HK stocks."""
+        if self.db is not None:
+            try:
+                # 1. A股
                 query = """
                     SELECT name, industry, area FROM ods_stock_basic 
-                    WHERE ts_code = %(code)s
-                    LIMIT 1
+                    WHERE ts_code = %(code)s LIMIT 1
                 """
                 df = self.db.execute_query(query, {'code': ts_code})
                 if not df.empty:
                     row = df.iloc[0]
                     return (
                         row['name'],
-                        row.get('area', '未知'),
-                        row.get('industry', '未知')
+                        row.get('area', '未知') or '未知',
+                        row.get('industry', '未知') or '未知'
                     )
-        except Exception as e:
-            logger.warning(f"Failed to get stock info from database: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to get A-share info for {ts_code}: {e}")
+
+            try:
+                # 2. ETF (cname字段)
+                query_etf = """
+                    SELECT cname FROM ods_etf_basic 
+                    WHERE ts_code = %(code)s LIMIT 1
+                """
+                df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+                if not df_etf.empty:
+                    return (df_etf.iloc[0]['cname'], 'ETF', 'ETF')
+            except Exception as e:
+                logger.warning(f"Failed to get ETF info for {ts_code}: {e}")
+
+            try:
+                # 3. 港股
+                if ts_code.endswith('.HK'):
+                    query_hk = """
+                        SELECT name FROM ods_hk_basic 
+                        WHERE ts_code = %(code)s LIMIT 1
+                    """
+                    df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                    if not df_hk.empty:
+                        return (df_hk.iloc[0]['name'], '港股', '港股')
+            except Exception as e:
+                logger.warning(f"Failed to get HK stock info for {ts_code}: {e}")
         
         # Fallback to mock data
         stock_info = {
@@ -486,7 +531,7 @@ class EnhancedPortfolioService:
             '600036.SH': ('招商银行', '金融', '银行'),
             '000858.SZ': ('五粮液', '消费品', '白酒')
         }
-        return stock_info.get(ts_code, (f"股票{ts_code}", "未知", "未知"))
+        return stock_info.get(ts_code, (ts_code, '未知', '未知'))
     
     async def _update_position_prices(self, position: Position):
         """Update position current price and calculations. Supports A-shares, ETFs and HK stocks.
@@ -512,6 +557,7 @@ class EnhancedPortfolioService:
                     # Skip daily fallback
                     if position.current_price:
                         self._calc_position_values(position)
+                        self._fill_prev_close_and_daily_change(position)
                         return
         except Exception as e:
             logger.warning(f"Failed to get price from rt_minute cache: {e}")
@@ -521,7 +567,7 @@ class EnhancedPortfolioService:
             if self.db is not None:
                 # Try ods_daily first (A-shares)
                 query = """
-                    SELECT close, trade_date FROM ods_daily 
+                    SELECT close, trade_date, pre_close FROM ods_daily 
                     WHERE ts_code = %(code)s 
                     ORDER BY trade_date DESC 
                     LIMIT 1
@@ -530,10 +576,12 @@ class EnhancedPortfolioService:
                 if not df.empty:
                     position.current_price = float(df.iloc[0]['close'])
                     position.last_price_update = self._parse_daily_trade_date(df.iloc[0]['trade_date'], "a_stock")
+                    if 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']):
+                        position.prev_close = float(df.iloc[0]['pre_close'])
                 else:
                     # Try ETF daily table
                     query_etf = """
-                        SELECT close, trade_date FROM ods_etf_fund_daily 
+                        SELECT close, trade_date, pre_close FROM ods_etf_fund_daily 
                         WHERE ts_code = %(code)s 
                         ORDER BY trade_date DESC 
                         LIMIT 1
@@ -542,10 +590,12 @@ class EnhancedPortfolioService:
                     if not df_etf.empty:
                         position.current_price = float(df_etf.iloc[0]['close'])
                         position.last_price_update = self._parse_daily_trade_date(df_etf.iloc[0]['trade_date'], "etf")
+                        if 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']):
+                            position.prev_close = float(df_etf.iloc[0]['pre_close'])
                     elif position.ts_code.endswith('.HK'):
                         # Try HK daily table
                         query_hk = """
-                            SELECT close, trade_date FROM ods_hk_daily 
+                            SELECT close, trade_date, pre_close FROM ods_hk_daily 
                             WHERE ts_code = %(code)s 
                             ORDER BY trade_date DESC 
                             LIMIT 1
@@ -554,6 +604,8 @@ class EnhancedPortfolioService:
                         if not df_hk.empty:
                             position.current_price = float(df_hk.iloc[0]['close'])
                             position.last_price_update = self._parse_daily_trade_date(df_hk.iloc[0]['trade_date'], "hk")
+                            if 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']):
+                                position.prev_close = float(df_hk.iloc[0]['pre_close'])
         except Exception as e:
             logger.warning(f"Failed to get current price from database: {e}")
         
@@ -563,6 +615,7 @@ class EnhancedPortfolioService:
             position.last_price_update = datetime.now()
         
         self._calc_position_values(position)
+        self._calc_daily_change(position)
     
     @staticmethod
     def _calc_position_values(position: Position):
@@ -572,6 +625,66 @@ class EnhancedPortfolioService:
             cost_total = position.quantity * position.cost_price
             position.profit_loss = position.market_value - cost_total
             position.profit_rate = (position.profit_loss / cost_total * 100) if cost_total > 0 else 0
+    
+    def _fill_prev_close_and_daily_change(self, position: Position):
+        """Fill prev_close from DB and calculate daily change when rt_minute was used."""
+        if position.prev_close is not None:
+            self._calc_daily_change(position)
+            return
+        
+        # rt_minute doesn't provide prev_close, fetch from DB
+        if self.db is None:
+            return
+        try:
+            prev_close = self._get_prev_close_from_db(position.ts_code)
+            if prev_close is not None:
+                position.prev_close = prev_close
+            self._calc_daily_change(position)
+        except Exception as e:
+            logger.warning(f"Failed to fill prev_close for {position.ts_code}: {e}")
+    
+    def _get_prev_close_from_db(self, ts_code: str) -> Optional[float]:
+        """从日线表获取昨收价(pre_close字段)。"""
+        if self.db is None:
+            return None
+        try:
+            query = """
+                SELECT pre_close FROM ods_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df = self.db.execute_query(query, {'code': ts_code})
+            if not df.empty and 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']):
+                return float(df.iloc[0]['pre_close'])
+            
+            query_etf = """
+                SELECT pre_close FROM ods_etf_fund_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+            if not df_etf.empty and 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']):
+                return float(df_etf.iloc[0]['pre_close'])
+            
+            if ts_code.endswith('.HK'):
+                query_hk = """
+                    SELECT pre_close FROM ods_hk_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                if not df_hk.empty and 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']):
+                    return float(df_hk.iloc[0]['pre_close'])
+        except Exception as e:
+            logger.warning(f"Failed to get prev_close for {ts_code}: {e}")
+        return None
+    
+    @staticmethod
+    def _calc_daily_change(position: Position):
+        """Calculate daily change from prev_close and current_price."""
+        if position.prev_close and position.prev_close > 0 and position.current_price:
+            position.daily_change = position.current_price - position.prev_close
+            position.daily_pct_chg = (position.daily_change / position.prev_close * 100)
     
     @staticmethod
     def _parse_daily_trade_date(trade_date, market_type: str = "a_stock") -> datetime:
@@ -584,13 +697,6 @@ class EnhancedPortfolioService:
                 date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         close_time = "16:00:00" if market_type == "hk" else "15:00:00"
         return datetime.strptime(f"{date_str} {close_time}", "%Y-%m-%d %H:%M:%S")
-        
-        # Calculate market value and profit/loss
-        if position.current_price:
-            position.market_value = position.quantity * position.current_price
-            cost_total = position.quantity * position.cost_price
-            position.profit_loss = position.market_value - cost_total
-            position.profit_rate = (position.profit_loss / cost_total * 100) if cost_total > 0 else 0
     
     async def _save_position(self, position: Position):
         """Save position to database and memory."""

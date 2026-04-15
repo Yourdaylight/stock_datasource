@@ -23,6 +23,9 @@ class Position:
     market_value: Optional[float] = None
     profit_loss: Optional[float] = None
     profit_rate: Optional[float] = None
+    daily_change: Optional[float] = None      # 今日涨跌额
+    daily_pct_chg: Optional[float] = None      # 今日涨跌幅(%)
+    prev_close: Optional[float] = None         # 昨收价
     notes: Optional[str] = None
     price_update_time: Optional[str] = None
 
@@ -74,21 +77,28 @@ class PortfolioService:
                 logger.warning(f"Failed to get DB client: {e}")
         return self._db
     
-    async def get_positions(self, user_id: str = "default_user") -> List[Position]:
-        """Get all positions for a user."""
+    async def get_positions(self, user_id: str = "default_user",
+                           profile_id: Optional[str] = None) -> List[Position]:
+        """Get all positions for a user, optionally filtered by profile_id."""
         try:
             if self.db is not None:
                 # Always filter by user_id for security
-                query = """
+                where = "WHERE user_id = %(user_id)s"
+                params: Dict[str, Any] = {'user_id': user_id}
+                if profile_id:
+                    where += " AND profile_id = %(profile_id)s"
+                    params['profile_id'] = profile_id
+
+                query = f"""
                     SELECT 
                         id, ts_code, stock_name, quantity, cost_price, 
                         buy_date, current_price, market_value, profit_loss, 
-                        profit_rate, notes
+                        profit_rate, notes, profile_id
                     FROM user_positions 
-                    WHERE user_id = %(user_id)s
+                    {where}
                     ORDER BY buy_date DESC
                 """
-                df = self.db.execute_query(query, {'user_id': user_id})
+                df = self.db.execute_query(query, params)
                 
                 if not df.empty:
                     positions = []
@@ -98,10 +108,17 @@ class PortfolioService:
                     prices_cache = await self._batch_get_latest_prices(ts_codes)
                     
                     for _, row in df.iterrows():
+                        stock_name = row['stock_name']
+                        # 修正无效的 stock_name（fallback 值等于 ts_code 或以"股票"开头）
+                        name_fixed = False
+                        if not stock_name or stock_name == row['ts_code'] or stock_name.startswith('股票'):
+                            stock_name = await self._get_stock_name(row['ts_code'])
+                            name_fixed = True
+                        
                         position = Position(
                             id=str(row['id']),
                             ts_code=row['ts_code'],
-                            stock_name=row['stock_name'],
+                            stock_name=stock_name,
                             quantity=int(row['quantity']),
                             cost_price=float(row['cost_price']),
                             buy_date=str(row['buy_date']),
@@ -113,6 +130,15 @@ class PortfolioService:
                         )
                         # Update current prices and calculations using cached prices
                         await self._update_position_prices(position, prices_cache)
+                        # 修正后的名称回写数据库
+                        if name_fixed and self.db is not None:
+                            try:
+                                self.db.execute(
+                                    "ALTER TABLE user_positions UPDATE stock_name = %(name)s WHERE id = %(id)s",
+                                    {'name': stock_name, 'id': position.id}
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to update stock_name in DB for {position.ts_code}: {e}")
                         positions.append(position)
                     
                     return positions
@@ -129,7 +155,9 @@ class PortfolioService:
         return positions
     
     async def add_position(self, ts_code: str, quantity: int, cost_price: float, 
-                          buy_date: str, notes: Optional[str] = None, user_id: str = "default_user") -> Position:
+                          buy_date: str, notes: Optional[str] = None,
+                          user_id: str = "default_user",
+                          profile_id: Optional[str] = None) -> Position:
         """Add a new position."""
         position_id = str(uuid.uuid4())
         
@@ -155,10 +183,10 @@ class PortfolioService:
                 query = """
                     INSERT INTO user_positions 
                     (id, user_id, ts_code, stock_name, quantity, cost_price, buy_date, 
-                     current_price, market_value, profit_loss, profit_rate, notes)
+                     current_price, market_value, profit_loss, profit_rate, notes, profile_id)
                     VALUES (%(id)s, %(user_id)s, %(ts_code)s, %(stock_name)s, %(quantity)s, %(cost_price)s, 
                             %(buy_date)s, %(current_price)s, %(market_value)s, 
-                            %(profit_loss)s, %(profit_rate)s, %(notes)s)
+                            %(profit_loss)s, %(profit_rate)s, %(notes)s, %(profile_id)s)
                 """
                 params = {
                     'id': position.id,
@@ -172,7 +200,8 @@ class PortfolioService:
                     'market_value': position.market_value,
                     'profit_loss': position.profit_loss,
                     'profit_rate': position.profit_rate,
-                    'notes': position.notes
+                    'notes': position.notes,
+                    'profile_id': profile_id or 'default',
                 }
                 self.db.execute(query, params)
                 logger.info(f"Position {position_id} saved to database for user {user_id}")
@@ -224,9 +253,12 @@ class PortfolioService:
         total_profit = total_value - total_cost
         profit_rate = (total_profit / total_cost * 100) if total_cost > 0 else 0
         
-        # Mock daily change (should be calculated from actual data)
-        daily_change = total_value * 0.01  # 1% mock change
-        daily_change_rate = 1.0
+        # 从各持仓的今日涨跌汇总计算当日盈亏和当日收益率（不再用 mock 值）
+        daily_change = sum(
+            (p.daily_change or 0) * p.quantity if p.daily_change else 0
+            for p in positions
+        )
+        daily_change_rate = (daily_change / total_value * 100) if total_value > 0 else 0
         
         return PortfolioSummary(
             total_value=total_value,
@@ -239,20 +271,36 @@ class PortfolioService:
         )
     
     async def _get_stock_name(self, ts_code: str) -> str:
-        """Get stock name by code."""
-        try:
-            if self.db is not None:
-                query = """
-                    SELECT name FROM ods_stock_basic 
-                    WHERE ts_code = %(code)s
-                    LIMIT 1
-                """
+        """Get stock name by code. Supports A-shares, ETFs and HK stocks."""
+        if self.db is not None:
+            try:
+                # 1. A股
+                query = "SELECT name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1"
                 df = self.db.execute_query(query, {'code': ts_code})
                 if not df.empty:
                     return df.iloc[0]['name']
-        except Exception as e:
-            logger.warning(f"Failed to get stock name from database: {e}")
-        
+            except Exception as e:
+                logger.warning(f"Failed to get A-share name for {ts_code}: {e}")
+
+            try:
+                # 2. ETF (cname字段)
+                query_etf = "SELECT cname FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1"
+                df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+                if not df_etf.empty:
+                    return df_etf.iloc[0]['cname']
+            except Exception as e:
+                logger.warning(f"Failed to get ETF name for {ts_code}: {e}")
+
+            try:
+                # 3. 港股
+                if ts_code.endswith('.HK'):
+                    query_hk = "SELECT name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1"
+                    df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                    if not df_hk.empty:
+                        return df_hk.iloc[0]['name']
+            except Exception as e:
+                logger.warning(f"Failed to get HK stock name for {ts_code}: {e}")
+
         # Fallback to mock names
         stock_names = {
             '600519.SH': '贵州茅台',
@@ -261,19 +309,38 @@ class PortfolioService:
             '600036.SH': '招商银行',
             '000858.SZ': '五粮液'
         }
-        return stock_names.get(ts_code, f"股票{ts_code}")
+        return stock_names.get(ts_code, ts_code)
     
+    @staticmethod
+    def _is_market_closed() -> bool:
+        """判断当前是否已收盘（A股 15:00 后、港股 16:10 后视为收盘）。"""
+        now = datetime.now()
+        hhmm = now.hour * 100 + now.minute
+        weekday = now.weekday()
+        if weekday >= 5:  # 周末
+            return True
+        # A 股 15:05 后视为收盘
+        if hhmm > 1505:
+            return True
+        return False
+
     async def _batch_get_latest_prices(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
         """Batch get latest prices for multiple stocks.
         
-        Returns dict mapping ts_code -> {'close': float, 'trade_time': str}
-        Priority: rt_minute_latest (realtime) > ods_daily (daily close)
+        Returns dict mapping ts_code -> {'close': float, 'trade_time': str, 'prev_close': float|None}
+        
+        Priority logic:
+          - 盘中: rt_minute_latest (realtime) > on-demand TuShare API > ods_daily (daily close)
+          - 收盘后: 如果 rt_minute_latest 的时间 < 15:00 (说明不是收盘价),
+                    则 fallback 到日线收盘价(15:00:00), 避免显示盘中过期时间
         """
         prices = {}
         if not ts_codes:
             return prices
         
-        # 1. 优先从分钟缓存获取最新价
+        market_closed = self._is_market_closed()
+        
+        # 1. 从分钟缓存获取最新价
         try:
             from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
             cache = get_cache_store()
@@ -281,34 +348,115 @@ class PortfolioService:
                 for code in ts_codes:
                     latest = cache.get_latest("", code, "1min")
                     if latest and latest.get("close") is not None:
+                        trade_time = latest.get("trade_time", "")
+                        # 收盘后，如果分钟数据时间 < 15:00，说明该数据不是最终收盘快照，
+                        # 可能是低流动性ETF盘中最后成交时间（如14:30），
+                        # 不应作为"最新价"展示，需 fallback 到日线收盘价
+                        if market_closed and trade_time:
+                            try:
+                                time_part = trade_time.split(" ")[-1] if " " in trade_time else trade_time
+                                hhmm = int(time_part[:2]) * 100 + int(time_part[3:5])
+                                if hhmm < 1500:
+                                    # 跳过这个过期的分钟数据，让后续步骤用日线数据
+                                    logger.debug(f"Skipping stale minute data for {code}: trade_time={trade_time}")
+                                    continue
+                            except (ValueError, IndexError):
+                                pass
                         prices[code] = {
                             "close": float(latest["close"]),
-                            "trade_time": latest.get("trade_time", ""),
+                            "trade_time": trade_time,
+                            "prev_close": None,  # 将在步骤3补充
                         }
         except Exception as e:
             logger.warning(f"Failed to get prices from rt_minute cache: {e}")
         
-        # 2. 对于缓存中没有的代码，fallback 到 ClickHouse 日线表
+        # 2. 对于缓存中没有（或被跳过）的代码，按需从 TuShare API 实时拉取
         missing_codes = [c for c in ts_codes if c not in prices]
-        if missing_codes and self.db is not None:
+        if missing_codes:
             try:
-                for code in missing_codes:
+                on_demand_prices = self._fetch_ondemand_rt_prices(missing_codes)
+                prices.update(on_demand_prices)
+            except Exception as e:
+                logger.warning(f"Failed to on-demand fetch prices: {e}")
+        
+        # 3. 仍未命中的 fallback 到 ClickHouse 日线表
+        still_missing = [c for c in ts_codes if c not in prices]
+        if still_missing and self.db is not None:
+            try:
+                for code in still_missing:
                     price_info = self._get_daily_latest_price(code)
                     if price_info:
                         prices[code] = price_info
             except Exception as e:
                 logger.warning(f"Failed to batch get prices from database: {e}")
         
+        # 4. 批量获取昨收价(prev_close)用于计算今日涨跌
+        if prices and self.db is not None:
+            await self._batch_fill_prev_close(prices)
+        
         return prices
+    
+    def _fetch_ondemand_rt_prices(self, ts_codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """按需从 TuShare rt_min API 获取实时价格（用于缓存中不存在的持仓代码）。
+        
+        Returns dict mapping ts_code -> {'close': float, 'trade_time': str, 'prev_close': None}
+        """
+        import tushare as ts
+        from stock_datasource.config.settings import settings as _settings
+        
+        result = {}
+        if not _settings.TUSHARE_TOKEN:
+            return result
+        
+        pro = ts.pro_api()
+        now_dt = datetime.now()
+        
+        for code in ts_codes:
+            try:
+                # A股/ETF 用 rt_min，港股用 hk_mins
+                if code.endswith('.HK'):
+                    df = pro.hk_mins(ts_code=code, freq='1min',
+                                    start_date=now_dt.strftime('%Y-%m-%d 09:30:00'),
+                                    end_date=(now_dt + __import__('datetime').timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S'))
+                else:
+                    df = pro.rt_min(ts_code=code, freq='1min')
+                
+                if df is not None and not df.empty:
+                    last_row = df.iloc[-1]
+                    close_val = float(last_row['close'])
+                    
+                    # 解析时间
+                    trade_time = ''
+                    if 'trade_time' in last_row.index:
+                        tt = last_row['trade_time']
+                        if hasattr(tt, 'strftime'):
+                            trade_time = tt.strftime('%Y-%m-%d %H:%M:%S')
+                        else:
+                            trade_time = str(tt)
+                    
+                    result[code] = {
+                        "close": close_val,
+                        "trade_time": trade_time,
+                        "prev_close": None,
+                    }
+                    logger.info(f"On-demand fetched {code}: price={close_val}, time={trade_time}")
+                
+                # 避免请求过快
+                import time as _time
+                _time.sleep(0.5)
+            except Exception as e:
+                logger.debug(f"On-demand fetch failed for {code}: {e}")
+        
+        return result
     
     def _get_daily_latest_price(self, ts_code: str) -> Optional[Dict[str, Any]]:
         """从 ClickHouse 日线表获取最新收盘价和日期。返回秒级精度的 trade_time。"""
         if self.db is None:
             return None
         try:
-            # A股日线
+            # A股日线 - 同时获取最近2日以计算prev_close
             query = """
-                SELECT close, trade_date FROM ods_daily 
+                SELECT close, trade_date, pre_close FROM ods_daily 
                 WHERE ts_code = %(code)s 
                 ORDER BY trade_date DESC LIMIT 1
             """
@@ -316,11 +464,12 @@ class PortfolioService:
             if not df.empty:
                 trade_date = df.iloc[0]['trade_date']
                 trade_time = self._format_trade_datetime(trade_date)
-                return {"close": float(df.iloc[0]['close']), "trade_time": trade_time}
+                prev_close = float(df.iloc[0]['pre_close']) if 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']) else None
+                return {"close": float(df.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
             
             # ETF日线
             query_etf = """
-                SELECT close, trade_date FROM ods_etf_fund_daily 
+                SELECT close, trade_date, pre_close FROM ods_etf_fund_daily 
                 WHERE ts_code = %(code)s 
                 ORDER BY trade_date DESC LIMIT 1
             """
@@ -328,12 +477,13 @@ class PortfolioService:
             if not df_etf.empty:
                 trade_date = df_etf.iloc[0]['trade_date']
                 trade_time = self._format_trade_datetime(trade_date, market_type="etf")
-                return {"close": float(df_etf.iloc[0]['close']), "trade_time": trade_time}
+                prev_close = float(df_etf.iloc[0]['pre_close']) if 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']) else None
+                return {"close": float(df_etf.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
             
             # 港股日线
             if ts_code.endswith('.HK'):
                 query_hk = """
-                    SELECT close, trade_date FROM ods_hk_daily 
+                    SELECT close, trade_date, pre_close FROM ods_hk_daily 
                     WHERE ts_code = %(code)s 
                     ORDER BY trade_date DESC LIMIT 1
                 """
@@ -341,7 +491,8 @@ class PortfolioService:
                 if not df_hk.empty:
                     trade_date = df_hk.iloc[0]['trade_date']
                     trade_time = self._format_trade_datetime(trade_date, market_type="hk")
-                    return {"close": float(df_hk.iloc[0]['close']), "trade_time": trade_time}
+                    prev_close = float(df_hk.iloc[0]['pre_close']) if 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']) else None
+                    return {"close": float(df_hk.iloc[0]['close']), "trade_time": trade_time, "prev_close": prev_close}
         except Exception as e:
             logger.warning(f"Failed to get daily price for {ts_code}: {e}")
         return None
@@ -369,13 +520,17 @@ class PortfolioService:
         """Update position current price and calculations. Supports A-shares, ETFs and HK stocks.
         
         Priority: rt_minute_latest (realtime, second-precision) > ods_daily (daily close)
+        
+        After market close, stale minute data (time < 15:00) is skipped in favor of daily close.
         """
+        market_closed = self._is_market_closed()
         updated = False
-        # 1. 优先使用分钟缓存的最新价格（秒级精度）
+        # 1. 优先使用批量缓存的最新价格（已包含收盘后stale数据过滤逻辑）
         if prices_cache and position.ts_code in prices_cache:
             info = prices_cache[position.ts_code]
             position.current_price = info["close"]
             position.price_update_time = info.get("trade_time", "")
+            position.prev_close = info.get("prev_close")
             updated = True
         else:
             # 2. 尝试单独从分钟缓存获取
@@ -385,9 +540,22 @@ class PortfolioService:
                 if cache.available:
                     latest = cache.get_latest("", position.ts_code, "1min")
                     if latest and latest.get("close") is not None:
-                        position.current_price = float(latest["close"])
-                        position.price_update_time = latest.get("trade_time", "")
-                        updated = True
+                        trade_time = latest.get("trade_time", "")
+                        # 收盘后跳过过期的分钟数据
+                        if market_closed and trade_time:
+                            try:
+                                time_part = trade_time.split(" ")[-1] if " " in trade_time else trade_time
+                                hhmm = int(time_part[:2]) * 100 + int(time_part[3:5])
+                                if hhmm < 1500:
+                                    logger.debug(f"Skipping stale minute data for {position.ts_code}: {trade_time}")
+                                    # Don't set updated=True, fall through to daily
+                                    latest = None
+                            except (ValueError, IndexError):
+                                pass
+                        if latest:
+                            position.current_price = float(latest["close"])
+                            position.price_update_time = trade_time
+                            updated = True
             except Exception as e:
                 logger.warning(f"Failed to get price from rt_minute cache for {position.ts_code}: {e}")
         
@@ -397,6 +565,7 @@ class PortfolioService:
             if price_info:
                 position.current_price = price_info["close"]
                 position.price_update_time = price_info.get("trade_time", "")
+                position.prev_close = price_info.get("prev_close")
         
         # Fallback: use cost_price if no price found
         if position.current_price is None:
@@ -408,6 +577,121 @@ class PortfolioService:
             cost_total = position.quantity * position.cost_price
             position.profit_loss = position.market_value - cost_total
             position.profit_rate = (position.profit_loss / cost_total * 100) if cost_total > 0 else 0
+        
+        # Calculate daily change (今日涨跌)
+        if position.prev_close and position.prev_close > 0 and position.current_price:
+            position.daily_change = position.current_price - position.prev_close
+            position.daily_pct_chg = (position.daily_change / position.prev_close * 100)
+        elif position.current_price and not position.prev_close:
+            # 没有昨收价时，尝试从日线获取最近两日数据计算
+            self._calc_daily_change_from_db(position)
+    
+    async def _batch_fill_prev_close(self, prices: Dict[str, Dict[str, Any]]):
+        """批量补充昨收价(prev_close)用于今日涨跌计算。"""
+        codes_need_prev = [code for code, info in prices.items() if info.get("prev_close") is None]
+        if not codes_need_prev or self.db is None:
+            return
+        try:
+            for code in codes_need_prev:
+                prev_close = self._get_prev_close_from_db(code)
+                if prev_close is not None:
+                    prices[code]["prev_close"] = prev_close
+        except Exception as e:
+            logger.warning(f"Failed to batch fill prev_close: {e}")
+    
+    def _get_prev_close_from_db(self, ts_code: str) -> Optional[float]:
+        """从日线表获取昨收价(pre_close字段)。"""
+        if self.db is None:
+            return None
+        try:
+            # A股
+            query = """
+                SELECT pre_close FROM ods_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df = self.db.execute_query(query, {'code': ts_code})
+            if not df.empty and 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']):
+                return float(df.iloc[0]['pre_close'])
+            
+            # ETF
+            query_etf = """
+                SELECT pre_close FROM ods_etf_fund_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 1
+            """
+            df_etf = self.db.execute_query(query_etf, {'code': ts_code})
+            if not df_etf.empty and 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']):
+                return float(df_etf.iloc[0]['pre_close'])
+            
+            # 港股
+            if ts_code.endswith('.HK'):
+                query_hk = """
+                    SELECT pre_close FROM ods_hk_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 1
+                """
+                df_hk = self.db.execute_query(query_hk, {'code': ts_code})
+                if not df_hk.empty and 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']):
+                    return float(df_hk.iloc[0]['pre_close'])
+        except Exception as e:
+            logger.warning(f"Failed to get prev_close for {ts_code}: {e}")
+        return None
+    
+    def _calc_daily_change_from_db(self, position: Position):
+        """从DB获取最近两日收盘价来计算今日涨跌。"""
+        if self.db is None or not position.ts_code:
+            return
+        try:
+            # A股
+            query = """
+                SELECT close, trade_date FROM ods_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 2
+            """
+            df = self.db.execute_query(query, {'code': position.ts_code})
+            if len(df) >= 2:
+                latest_close = float(df.iloc[0]['close'])
+                prev_close = float(df.iloc[1]['close'])
+                if prev_close > 0:
+                    position.prev_close = prev_close
+                    position.daily_change = latest_close - prev_close
+                    position.daily_pct_chg = (position.daily_change / prev_close * 100)
+                return
+            
+            # ETF
+            query_etf = """
+                SELECT close, trade_date FROM ods_etf_fund_daily 
+                WHERE ts_code = %(code)s 
+                ORDER BY trade_date DESC LIMIT 2
+            """
+            df_etf = self.db.execute_query(query_etf, {'code': position.ts_code})
+            if len(df_etf) >= 2:
+                latest_close = float(df_etf.iloc[0]['close'])
+                prev_close = float(df_etf.iloc[1]['close'])
+                if prev_close > 0:
+                    position.prev_close = prev_close
+                    position.daily_change = latest_close - prev_close
+                    position.daily_pct_chg = (position.daily_change / prev_close * 100)
+                return
+            
+            # 港股
+            if position.ts_code.endswith('.HK'):
+                query_hk = """
+                    SELECT close, trade_date FROM ods_hk_daily 
+                    WHERE ts_code = %(code)s 
+                    ORDER BY trade_date DESC LIMIT 2
+                """
+                df_hk = self.db.execute_query(query_hk, {'code': position.ts_code})
+                if len(df_hk) >= 2:
+                    latest_close = float(df_hk.iloc[0]['close'])
+                    prev_close = float(df_hk.iloc[1]['close'])
+                    if prev_close > 0:
+                        position.prev_close = prev_close
+                        position.daily_change = latest_close - prev_close
+                        position.daily_pct_chg = (position.daily_change / prev_close * 100)
+        except Exception as e:
+            logger.warning(f"Failed to calc daily change from DB for {position.ts_code}: {e}")
     
     async def _batch_update_positions(self, positions: List[Position], user_id: str = "default_user"):
         """Batch update positions in database with latest prices."""

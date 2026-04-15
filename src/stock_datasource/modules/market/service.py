@@ -67,6 +67,29 @@ def detect_market_type(ts_code: str) -> MarketType:
     return MarketType.UNKNOWN
 
 
+def _is_etf_code(ts_code: str) -> bool:
+    """Detect if a code is an ETF based on its numeric prefix.
+    
+    ETF codes typically start with:
+    - 5xxxxx.SH (Shanghai ETFs like 510050, 515070)
+    - 15xxxx.SZ (Shenzhen ETFs like 159682, 159915)
+    - 56xxxx.SH, 59xxxx.SH
+    """
+    if not ts_code:
+        return False
+    ts_code = ts_code.upper().split('.')[0]
+    return bool(ts_code) and (
+        ts_code.startswith('51') or
+        ts_code.startswith('15') or
+        ts_code.startswith('56') or
+        ts_code.startswith('59') or
+        ts_code.startswith('16') or
+        ts_code.startswith('50') or
+        ts_code.startswith('52') or
+        ts_code.startswith('58')
+    ) and ts_code.isdigit()
+
+
 class MarketService:
     """Market service for stock data and analysis.
     
@@ -201,10 +224,10 @@ class MarketService:
     ) -> Dict[str, Any]:
         """Get K-line data for a stock using Plugin Services.
         
-        Supports both A-shares and HK stocks by detecting market type from code suffix.
+        Supports A-shares (including ETFs) and HK stocks by detecting market type from code suffix.
         
         Args:
-            code: Stock code (e.g., 000001.SZ for A-share, 00700.HK for HK)
+            code: Stock code (e.g., 000001.SZ for A-share, 00700.HK for ETF like 159682.SZ)
             start_date: Start date
             end_date: End date
             adjust: Adjustment type (qfq/hfq/none)
@@ -221,8 +244,11 @@ class MarketService:
         if market_type == MarketType.HK_STOCK:
             return await self._get_hk_kline(code, start_date, end_date, adjust)
         
-        # A-share logic (original)
-        if self.daily_service:
+        # Detect if this is an ETF code (5xxxxx.SH / 15xxxx.SZ / 56xxxx.SH / 59xxxx.SH etc.)
+        is_etf = self._is_etf_code(code)
+        
+        # Try plugin service for A-share
+        if self.daily_service and not is_etf:
             try:
                 records = self.daily_service.get_daily_data(
                     code=code,
@@ -264,8 +290,8 @@ class MarketService:
             except Exception as e:
                 logger.error(f"Plugin service failed, falling back: {e}")
         
-        # Fallback to direct DB query
-        return await self._get_kline_from_db(code, start_date, end_date)
+        # For ETFs or plugin fallback, use direct DB query
+        return await self._get_kline_from_db(code, start_date, end_date, is_etf=is_etf)
     
     async def _get_hk_kline(
         self,
@@ -500,29 +526,50 @@ class MarketService:
         self,
         code: str,
         start_date: str,
-        end_date: str
+        end_date: str,
+        is_etf: bool = False
     ) -> Dict[str, Any]:
-        """Fallback: get K-line data directly from database."""
+        """Fallback: get K-line data directly from database.
+        
+        For ETFs (is_etf=True), queries ods_etf_fund_daily instead of ods_daily.
+        """
         if self.db is None:
             return self._get_mock_kline(code, start_date, end_date)
         
         try:
-            query = """
-                SELECT 
-                    trade_date,
-                    open, high, low, close,
-                    vol as volume,
-                    amount
-                FROM ods_daily
-                WHERE ts_code = %(code)s
-                  AND trade_date BETWEEN %(start)s AND %(end)s
-                ORDER BY trade_date
-            """
+            # ETF uses different table
+            if is_etf:
+                query = """
+                    SELECT 
+                        trade_date,
+                        open, high, low, close,
+                        vol as volume,
+                        amount
+                    FROM ods_etf_fund_daily
+                    WHERE ts_code = %(code)s
+                      AND trade_date BETWEEN %(start)s AND %(end)s
+                    ORDER BY trade_date
+                """
+            else:
+                query = """
+                    SELECT 
+                        trade_date,
+                        open, high, low, close,
+                        vol as volume,
+                        amount
+                    FROM ods_daily
+                    WHERE ts_code = %(code)s
+                      AND trade_date BETWEEN %(start)s AND %(end)s
+                    ORDER BY trade_date
+                """
             df = self.db.execute_query(query, {
                 "code": code,
                 "start": start_date,
                 "end": end_date
             })
+            
+            if df.empty:
+                logger.warning(f"No kline data found for {code} in {'etf' if is_etf else 'daily'} table")
             
             data = []
             for _, row in df.iterrows():
@@ -1264,10 +1311,14 @@ class MarketService:
         
         return None
     
+    def _is_etf_code(self, ts_code: str) -> bool:
+        """Detect if a code is an ETF based on its numeric prefix."""
+        return _is_etf_code(ts_code)
+    
     def _get_stock_name(self, code: str) -> str:
         """Get stock name by code.
         
-        Supports both A-shares and HK stocks.
+        Supports A-shares, HK stocks, and ETFs.
         """
         market_type = detect_market_type(code)
         
@@ -1312,6 +1363,13 @@ class MarketService:
         # Fallback to DB query
         if self.db:
             try:
+                # Try ETF first
+                if _is_etf_code(code):
+                    query = "SELECT csname as name FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1"
+                    df = self.db.execute_query(query, {"code": code})
+                    if not df.empty:
+                        return df.iloc[0]["name"]
+                
                 query = "SELECT name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1"
                 df = self.db.execute_query(query, {"code": code})
                 if not df.empty:

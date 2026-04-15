@@ -10,7 +10,7 @@ import type {
 
 export const portfolioApi = {
   // Position management
-  getPositions(params?: { include_inactive?: boolean }) {
+  getPositions(params?: { include_inactive?: boolean; profile_id?: string }) {
     return request.get<Position[]>('/api/portfolio/positions', { params })
   },
 

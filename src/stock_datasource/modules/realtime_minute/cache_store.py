@@ -149,58 +149,62 @@ class RealtimeMinuteCacheStore:
         """将 DataFrame 的分钟 bar 写入 SQLite。
 
         ttl 参数保留以兼容接口，SQLite 版本不使用（由 cleanup_date 手动清理）。
-        返回写入条数。
+        返回写入条数。使用向量化操作替代逐行 iterrows，支持大数据量写入。
         """
         if df is None or df.empty:
             return 0
 
-        rows = []
-        latest_rows = []
+        # --- 向量化预处理 ---
+        work = df.copy()
 
-        for _, row in df.iterrows():
-            ts_code = row.get("ts_code", "")
-            market = row.get("market_type", "a_stock")
-            freq = row.get("freq", "1min")
-            # Normalize freq to lowercase for consistent storage/query
-            if isinstance(freq, str):
-                freq = freq.lower()
-            trade_time = row.get("trade_time")
+        # 过滤无效行
+        work = work.dropna(subset=["ts_code"])
+        if "trade_time" not in work.columns:
+            return 0
 
-            if not ts_code or trade_time is None:
-                continue
+        # Parse trade_time vectorized
+        work["trade_time"] = pd.to_datetime(work["trade_time"], errors="coerce")
+        work = work.dropna(subset=["trade_time"])
+        if work.empty:
+            return 0
 
-            if isinstance(trade_time, pd.Timestamp):
-                if pd.isna(trade_time):
-                    continue
-                dt = trade_time.to_pydatetime()
-            elif isinstance(trade_time, datetime):
-                dt = trade_time
+        # Normalize freq to lowercase
+        if "freq" in work.columns:
+            work["freq"] = work["freq"].astype(str).str.lower()
+        else:
+            work["freq"] = "1min"
+
+        # Fill missing market_type
+        if "market_type" not in work.columns:
+            work["market_type"] = "a_stock"
+
+        # Compute derived columns vectorized
+        work["trade_date"] = work["trade_time"].dt.strftime("%Y%m%d")
+        work["time_str"] = work["trade_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        work["epoch"] = work["trade_time"].astype(int) / 1e9  # nanoseconds -> seconds
+
+        # Replace NaN/Inf in numeric columns
+        for col in ("open", "close", "high", "low", "vol", "amount"):
+            if col in work.columns:
+                work[col] = work[col].apply(_safe_value)
             else:
-                try:
-                    dt = pd.to_datetime(trade_time).to_pydatetime()
-                    if pd.isna(dt):
-                        continue
-                except Exception:
-                    continue
+                work[col] = None
 
-            date_str = dt.strftime("%Y%m%d")
-            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-            epoch = dt.timestamp()
-
-            bar = (
-                ts_code, market, freq, date_str, time_str, epoch,
-                _safe_value(row.get("open")),
-                _safe_value(row.get("close")),
-                _safe_value(row.get("high")),
-                _safe_value(row.get("low")),
-                _safe_value(row.get("vol")),
-                _safe_value(row.get("amount")),
-            )
-            rows.append(bar)
-            latest_rows.append(bar)
+        # Build bar tuples for rt_minute_bars
+        bar_cols = ["ts_code", "market_type", "freq", "trade_date", "time_str", "epoch",
+                     "open", "close", "high", "low", "vol", "amount"]
+        for c in bar_cols:
+            if c not in work.columns:
+                work[c] = None
+        rows = list(work[bar_cols].itertuples(index=False, name=None))
 
         if not rows:
             return 0
+
+        # Build latest tuples (same as bar but without trade_date)
+        latest_cols = ["ts_code", "market_type", "freq", "time_str", "epoch",
+                       "open", "close", "high", "low", "vol", "amount"]
+        latest_rows = list(work[latest_cols].itertuples(index=False, name=None))
 
         try:
             with self._tx() as conn:
@@ -231,7 +235,7 @@ class RealtimeMinuteCacheStore:
                            high=excluded.high, low=excluded.low,
                            vol=excluded.vol, amount=excluded.amount
                        WHERE excluded.epoch >= rt_minute_latest.epoch""",
-                    [r[0:3] + r[4:] for r in latest_rows],  # 去掉 trade_date
+                    latest_rows,
                 )
         except Exception as e:
             logger.error("SQLite store_bars failed: %s", e)

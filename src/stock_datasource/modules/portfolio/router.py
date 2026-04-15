@@ -44,6 +44,9 @@ class Position(BaseModel):
     market_value: float = None
     profit_loss: float = None
     profit_rate: float = None
+    daily_change: Optional[float] = None
+    daily_pct_chg: Optional[float] = None
+    prev_close: Optional[float] = None
     notes: Optional[str] = None
     price_update_time: Optional[str] = None
 
@@ -106,6 +109,9 @@ async def get_positions(
             market_value=p.market_value,
             profit_loss=p.profit_loss,
             profit_rate=p.profit_rate,
+            daily_change=getattr(p, 'daily_change', None),
+            daily_pct_chg=getattr(p, 'daily_pct_chg', None),
+            prev_close=getattr(p, 'prev_close', None),
             notes=p.notes,
             price_update_time=p.price_update_time
         ) for p in positions
@@ -141,6 +147,9 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
             market_value=position.market_value,
             profit_loss=position.profit_loss,
             profit_rate=position.profit_rate,
+            daily_change=getattr(position, 'daily_change', None),
+            daily_pct_chg=getattr(position, 'daily_pct_chg', None),
+            prev_close=getattr(position, 'prev_close', None),
             notes=position.notes,
             price_update_time=position.price_update_time
         )
@@ -191,6 +200,9 @@ async def update_position(
                 market_value=position.market_value,
                 profit_loss=position.profit_loss,
                 profit_rate=position.profit_rate,
+                daily_change=getattr(position, 'daily_change', None),
+                daily_pct_chg=getattr(position, 'daily_pct_chg', None),
+                prev_close=getattr(position, 'prev_close', None),
                 notes=position.notes,
                 price_update_time=position.last_price_update.strftime("%Y-%m-%d %H:%M:%S") if hasattr(position, 'last_price_update') and position.last_price_update else (position.price_update_time if hasattr(position, 'price_update_time') else None)
             )

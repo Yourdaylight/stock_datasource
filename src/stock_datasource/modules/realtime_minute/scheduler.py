@@ -30,13 +30,25 @@ def run_collection(freq: str = "1MIN", markets=None) -> dict:
     """Execute one round of data collection → SQLite cache.
 
     This is the function that the scheduler calls every minute
-    during trading hours.
+    during trading hours. Ensures code lists are loaded before collecting.
     """
     from .collector import get_collector
     from .cache_store import get_cache_store
+    from . import config as cfg
+
+    # Ensure code lists are populated (lazy load on first call)
+    if not cfg.ASTOCK_CODES or not cfg.ETF_CODES:
+        try:
+            cfg.refresh_codes_from_db()
+        except Exception as e:
+            logger.warning("Failed to refresh codes before collection: %s", e)
 
     collector = get_collector()
     cache = get_cache_store()
+
+    # Default markets: a_etf (A-stock+ETF merged) + index
+    if markets is None:
+        markets = ["a_etf", "index"]
 
     data = collector.collect_all(freq=freq, markets=markets)
 

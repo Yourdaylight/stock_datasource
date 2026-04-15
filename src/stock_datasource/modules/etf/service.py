@@ -448,8 +448,14 @@ class EtfService(BaseListService):
         
         data = _execute_query(query)
         
+        # Rename trade_date to date for frontend KLineData compatibility
+        for row in data:
+            if 'trade_date' in row:
+                row['date'] = row.pop('trade_date')
+        
         return {
             "ts_code": ts_code,
+            "code": ts_code,       # Alias for frontend KLineData compatibility
             "name": name,
             "adjust": adjust,
             "data": data

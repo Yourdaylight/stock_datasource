@@ -1,13 +1,17 @@
-"""Static configuration for realtime minute data collection.
+"""Dynamic configuration for realtime minute data collection.
 
-Code lists are kept in-memory for fast access. Use the refresh API
-(POST /api/realtime/refresh-codes) to update from database when needed.
+Code lists are loaded from ClickHouse on startup and can be refreshed
+via the /api/realtime/refresh-codes endpoint.
 """
 
+import logging
+import threading
 from typing import Dict, List
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# Market code lists (static, updated quarterly or via API)
+# Market code lists — dynamically loaded from ClickHouse, with static fallbacks
 # ---------------------------------------------------------------------------
 
 # Major indices – rarely change
@@ -22,57 +26,28 @@ INDEX_CODES: List[str] = [
     "000688.SH",  # 科创50
 ]
 
-# Hot ETFs – update quarterly
-HOT_ETF_CODES: List[str] = [
-    "510050.SH",  # 上证50ETF
-    "510300.SH",  # 沪深300ETF
-    "510500.SH",  # 中证500ETF
-    "159915.SZ",  # 创业板ETF
-    "159919.SZ",  # 沪深300ETF
-    "588000.SH",  # 科创50ETF
-    "512010.SH",  # 医药ETF
-    "512880.SH",  # 证券ETF
-    "515790.SH",  # 光伏ETF
-    "512660.SH",  # 军工ETF
-    "159869.SZ",  # 新能源车ETF
-    "516160.SH",  # 新能源ETF
-    "512690.SH",  # 酒ETF
-    "512200.SH",  # 房地产ETF
-    "159941.SZ",  # 纳指ETF
-    "513100.SH",  # 纳指100ETF
-    "159920.SZ",  # 恒生ETF
-    "513060.SH",  # 恒生医疗ETF
-    "513180.SH",  # 恒生科技ETF
-    "518880.SH",  # 黄金ETF
-]
+# A-stock & ETF codes — populated from DB by refresh_codes_from_db()
+# A+ETF 共享同一个采集通道（rt_min），合并管理
+ASTOCK_CODES: List[str] = []
+ETF_CODES: List[str] = []
 
-# A-stock batches – representative stocks, expand via refresh-codes API
-# Keeping a manageable default; the real list can be loaded from DB.
-ASTOCK_BATCHES: List[List[str]] = [
-    # Batch 1 – Large caps
-    [
-        "600519.SH",  # 贵州茅台
-        "601318.SH",  # 中国平安
-        "600036.SH",  # 招商银行
-        "601166.SH",  # 兴业银行
-        "600276.SH",  # 恒瑞医药
-        "000858.SZ",  # 五粮液
-        "000333.SZ",  # 美的集团
-        "002714.SZ",  # 牧原股份
-        "300750.SZ",  # 宁德时代
-        "601012.SH",  # 隆基绿能
-    ],
-]
+# Thread lock for code list updates
+_codes_lock = threading.Lock()
 
-# Hong Kong stocks – optional
-HK_CODES: List[str] = [
-    "00700.HK",  # 腾讯控股
-    "09988.HK",  # 阿里巴巴
-    "03690.HK",  # 美团
-    "09999.HK",  # 网易
-    "01024.HK",  # 快手
-    "09888.HK",  # 百度
-]
+# ---------------------------------------------------------------------------
+# Batch & concurrency configuration
+# ---------------------------------------------------------------------------
+
+# TuShare rt_min supports up to 300 codes per request (comma-separated)
+BATCH_SIZE = 300
+
+# Number of concurrent coroutines for API calls
+CONCURRENT_WORKERS = 50
+
+# TuShare rate limit: 500 calls/min → 120ms per call minimum
+# With 50 concurrency and batch=300, total batches ≈ 24, fits in 1 minute easily
+RATE_LIMIT_PER_MINUTE = 500
+MIN_CALL_INTERVAL = 60.0 / RATE_LIMIT_PER_MINUTE  # ~0.12s
 
 # ---------------------------------------------------------------------------
 # Collection configuration
@@ -80,18 +55,12 @@ HK_CODES: List[str] = [
 
 # Default collection frequency per market (minutes)
 COLLECT_FREQ: Dict[str, int] = {
-    "a_stock": 1,
-    "etf": 1,
+    "a_etf": 1,
     "index": 1,
-    "hk": 5,
 }
 
 # Tushare API frequency for minute bars (MUST be uppercase: 1MIN,5MIN,15MIN,30MIN,60MIN)
 DEFAULT_BAR_FREQ = "1MIN"
-
-# Rate limiting – max Tushare API calls per minute
-RATE_LIMIT_PER_MINUTE = 120
-MIN_CALL_INTERVAL = 60.0 / RATE_LIMIT_PER_MINUTE  # ~0.5s
 
 # Retry
 MAX_RETRIES = 3
@@ -122,7 +91,6 @@ CLICKHOUSE_TABLES: Dict[str, str] = {
     "a_stock": "ods_min_kline_cn",
     "etf": "ods_min_kline_etf",
     "index": "ods_min_kline_index",
-    "hk": "ods_min_kline_hk",
 }
 
 # Default table (fallback)
@@ -143,8 +111,74 @@ CN_TRADING_HOURS = [
     ("12:55", "15:05"),  # Afternoon session
 ]
 
-# HK trading hours (UTC+8)
-HK_TRADING_HOURS = [
-    ("09:15", "12:05"),  # Morning session
-    ("12:55", "16:15"),  # Afternoon session
-]
+# ---------------------------------------------------------------------------
+# Dynamic code list management
+# ---------------------------------------------------------------------------
+
+def refresh_codes_from_db() -> Dict[str, int]:
+    """Load A-stock and ETF code lists from ClickHouse.
+    
+    Returns dict with counts per market.
+    """
+    global ASTOCK_CODES, ETF_CODES
+    try:
+        from stock_datasource.models.database import db_client
+        from stock_datasource.config.settings import settings
+
+        database = settings.CLICKHOUSE_DATABASE
+
+        # A-stock codes
+        astock_df = db_client.execute_query(
+            f"SELECT ts_code FROM {database}.ods_stock_basic "
+            f"WHERE ts_code LIKE '%.SH' OR ts_code LIKE '%.SZ' OR ts_code LIKE '%.BJ' "
+            f"ORDER BY ts_code"
+        )
+        new_astock = astock_df["ts_code"].tolist() if not astock_df.empty else []
+
+        # ETF codes
+        etf_df = db_client.execute_query(
+            f"SELECT ts_code FROM {database}.ods_etf_basic "
+            f"WHERE ts_code LIKE '%.SH' OR ts_code LIKE '%.SZ' "
+            f"ORDER BY ts_code"
+        )
+        new_etf = etf_df["ts_code"].tolist() if not etf_df.empty else []
+
+        with _codes_lock:
+            ASTOCK_CODES = new_astock
+            ETF_CODES = new_etf
+
+        counts = {
+            "a_stock": len(ASTOCK_CODES),
+            "etf": len(ETF_CODES),
+            "a_etf_total": len(ASTOCK_CODES) + len(ETF_CODES),
+            "index": len(INDEX_CODES),
+        }
+        logger.info("Refreshed codes from DB: %s", counts)
+        return counts
+
+    except Exception as e:
+        logger.error("Failed to refresh codes from DB: %s", e)
+        return {
+            "a_stock": len(ASTOCK_CODES),
+            "etf": len(ETF_CODES),
+            "a_etf_total": len(ASTOCK_CODES) + len(ETF_CODES),
+            "index": len(INDEX_CODES),
+        }
+
+
+def get_all_astock_codes() -> List[str]:
+    """Return current A-stock code list (thread-safe)."""
+    with _codes_lock:
+        return list(ASTOCK_CODES)
+
+
+def get_all_etf_codes() -> List[str]:
+    """Return current ETF code list (thread-safe)."""
+    with _codes_lock:
+        return list(ETF_CODES)
+
+
+def get_all_a_etf_codes() -> List[str]:
+    """Return merged A-stock + ETF code list for batch collection (thread-safe)."""
+    with _codes_lock:
+        return list(ASTOCK_CODES) + list(ETF_CODES)

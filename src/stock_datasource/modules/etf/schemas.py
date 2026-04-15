@@ -74,13 +74,16 @@ class EtfDailyData(BaseModel):
 
 
 class EtfKLineData(BaseModel):
-    """ETF K-line data with adjustment."""
+    """ETF K-line data with adjustment.
+    
+    Field name 'date' (not trade_date) for frontend KLineData compatibility.
+    """
     ts_code: str = Field(..., description="ETF code")
-    trade_date: str = Field(..., description="Trade date")
-    open: float = Field(..., description="Open price")
-    high: float = Field(..., description="High price")
-    low: float = Field(..., description="Low price")
-    close: float = Field(..., description="Close price")
+    date: str = Field(..., description="Trade date (renamed from trade_date for frontend compatibility)")
+    open: Optional[float] = Field(None, description="Open price")
+    high: Optional[float] = Field(None, description="High price")
+    low: Optional[float] = Field(None, description="Low price")
+    close: Optional[float] = Field(None, description="Close price")
     vol: Optional[float] = Field(None, description="Volume")
     amount: Optional[float] = Field(None, description="Trading amount")
     pct_chg: Optional[float] = Field(None, description="Percentage change")
@@ -89,6 +92,7 @@ class EtfKLineData(BaseModel):
 class EtfKLineResponse(BaseModel):
     """Response for ETF K-line query."""
     ts_code: str = Field(..., description="ETF code")
+    code: str = Field(..., description="Alias for ts_code (frontend KLineData compatibility)")
     name: Optional[str] = Field(None, description="ETF name")
     adjust: str = Field(..., description="Adjustment type")
     data: List[EtfKLineData] = Field(..., description="K-line data")

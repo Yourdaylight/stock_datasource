@@ -93,6 +93,28 @@ export const marketApi = {
     return request.post('/api/market/kline', params)
   },
 
+  // ETF K-Line Data
+  getEtfKLine(params: { ts_code: string; start_date?: string; end_date?: string; adjust?: string }): Promise<KLineResponse> {
+    const queryParams: Record<string, string> = {}
+    if (params.start_date) queryParams.start_date = params.start_date
+    if (params.end_date) queryParams.end_date = params.end_date
+    if (params.adjust) queryParams.adjust = params.adjust
+    return request.get(`/api/etf/etfs/${params.ts_code}/kline`, { params: queryParams })
+  },
+
+  // Realtime Minute K-Line Data
+  getMinuteKLine(params: { ts_code: string; freq?: string; date?: string }): Promise<{ ts_code: string; freq: string; data: KLineData[] }> {
+    const queryParams: Record<string, string> = { ts_code: params.ts_code }
+    if (params.freq) queryParams.freq = params.freq
+    if (params.date) queryParams.date = params.date
+    return request.get('/api/realtime/minute/kline', { params: queryParams })
+  },
+
+  // Trigger data backfill for a stock
+  triggerBackfill(params: { ts_code: string; start_date?: string; end_date?: string }): Promise<{ task_id: string; success: boolean; message?: string }> {
+    return request.post('/api/market/backfill', params)
+  },
+
   // Technical Indicators (legacy format)
   getIndicators(params: IndicatorRequest): Promise<IndicatorResponse> {
     return request.post('/api/market/indicators', params)

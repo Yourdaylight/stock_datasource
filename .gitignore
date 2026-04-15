@@ -46,3 +46,9 @@ data/
 src/stock_datasource/modules/realtime_minute/*.db
 src/stock_datasource/modules/realtime_minute/*.db-shm
 src/stock_datasource/modules/realtime_minute/*.db-wal
+
+# Auth DB (runtime)
+src/stock_datasource/modules/auth/auth.db
+
+# Frontend build info (regenerated)
+frontend/tsconfig.tsbuildinfo

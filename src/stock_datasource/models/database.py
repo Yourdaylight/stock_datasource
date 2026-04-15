@@ -116,9 +116,9 @@ class ClickHouseHttpClient:
         """
         with self._lock:
             try:
-                # Add FORMAT for SELECT queries
+                # Add FORMAT for SELECT queries (including CTE WITH ... SELECT)
                 query_upper = query.strip().upper()
-                if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                if (query_upper.startswith("SELECT") or query_upper.startswith("WITH")) and "FORMAT" not in query_upper:
                     query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
                 
                 result = self._request(query, params)
@@ -144,7 +144,7 @@ class ClickHouseHttpClient:
                     # Retry the original query
                     try:
                         query_upper = query.strip().upper()
-                        if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                        if (query_upper.startswith("SELECT") or query_upper.startswith("WITH")) and "FORMAT" not in query_upper:
                             query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
                         result = self._request(query, params)
                         if not result:
@@ -195,7 +195,7 @@ class ClickHouseHttpClient:
         with self._lock:
             try:
                 query_upper = query.strip().upper()
-                if query_upper.startswith("SELECT") and "FORMAT" not in query_upper:
+                if (query_upper.startswith("SELECT") or query_upper.startswith("WITH")) and "FORMAT" not in query_upper:
                     query = query.rstrip(";") + " FORMAT TabSeparatedWithNames"
                 
                 result = self._request(query, params)
