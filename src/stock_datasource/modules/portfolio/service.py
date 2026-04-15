@@ -604,40 +604,45 @@ class PortfolioService:
             logger.warning(f"Failed to batch fill prev_close: {e}")
     
     def _get_prev_close_from_db(self, ts_code: str) -> Optional[float]:
-        """从日线表获取昨收价(pre_close字段)。"""
+        """从日线表获取昨收价（最新交易日的 close，即"今天"的前收）。
+        
+        注意：不能用最新日线记录的 pre_close 字段，因为中间可能有非交易日，
+        pre_close 指的是那条记录自身的前收（可能隔了好几天），而非"今天的昨收"。
+        正确的昨收 = 最近一个交易日的收盘价(close)。
+        """
         if self.db is None:
             return None
         try:
             # A股
             query = """
-                SELECT pre_close FROM ods_daily 
+                SELECT close FROM ods_daily 
                 WHERE ts_code = %(code)s 
                 ORDER BY trade_date DESC LIMIT 1
             """
             df = self.db.execute_query(query, {'code': ts_code})
-            if not df.empty and 'pre_close' in df.columns and pd.notna(df.iloc[0]['pre_close']):
-                return float(df.iloc[0]['pre_close'])
+            if not df.empty and 'close' in df.columns and pd.notna(df.iloc[0]['close']):
+                return float(df.iloc[0]['close'])
             
             # ETF
             query_etf = """
-                SELECT pre_close FROM ods_etf_fund_daily 
+                SELECT close FROM ods_etf_fund_daily 
                 WHERE ts_code = %(code)s 
                 ORDER BY trade_date DESC LIMIT 1
             """
             df_etf = self.db.execute_query(query_etf, {'code': ts_code})
-            if not df_etf.empty and 'pre_close' in df_etf.columns and pd.notna(df_etf.iloc[0]['pre_close']):
-                return float(df_etf.iloc[0]['pre_close'])
+            if not df_etf.empty and 'close' in df_etf.columns and pd.notna(df_etf.iloc[0]['close']):
+                return float(df_etf.iloc[0]['close'])
             
             # 港股
             if ts_code.endswith('.HK'):
                 query_hk = """
-                    SELECT pre_close FROM ods_hk_daily 
+                    SELECT close FROM ods_hk_daily 
                     WHERE ts_code = %(code)s 
                     ORDER BY trade_date DESC LIMIT 1
                 """
                 df_hk = self.db.execute_query(query_hk, {'code': ts_code})
-                if not df_hk.empty and 'pre_close' in df_hk.columns and pd.notna(df_hk.iloc[0]['pre_close']):
-                    return float(df_hk.iloc[0]['pre_close'])
+                if not df_hk.empty and 'close' in df_hk.columns and pd.notna(df_hk.iloc[0]['close']):
+                    return float(df_hk.iloc[0]['close'])
         except Exception as e:
             logger.warning(f"Failed to get prev_close for {ts_code}: {e}")
         return None
