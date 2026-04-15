@@ -555,6 +555,10 @@ class PortfolioService:
                         if latest:
                             position.current_price = float(latest["close"])
                             position.price_update_time = trade_time
+                            # rt_minute cache 没有 prev_close，从日线表补充
+                            prev_close = self._get_prev_close_from_db(position.ts_code)
+                            if prev_close is not None:
+                                position.prev_close = prev_close
                             updated = True
             except Exception as e:
                 logger.warning(f"Failed to get price from rt_minute cache for {position.ts_code}: {e}")
