@@ -24,12 +24,17 @@ regex = '''requirepass\s+\S{8,}'''
 tags = ["password", "redis"]
 
 [[allowlist]]
-description = "Global allow list"
+description = "Global allow list - paths"
 paths = [
   '''\.env\.example$''',
   '''\.env\.docker$''',
+  '''\.env\.backend$''',
+  '''\.env\.frontend$''',
   '''\.gitleaks\.toml$''',
   '''docs/.*\.md$''',
+  '''docker/.*\.sql$''',
+  '''docker/.*\.backend$''',
+  '''docker/.*\.frontend$''',
 ]
 
 [[allowlist]]
@@ -40,4 +45,16 @@ regexes = [
   '''<.*>''',
   '''changeme''',
   '''placeholder''',
+  '''xxx+''',
+  '''TODO''',
+]
+
+[[allowlist]]
+description = "Allow example/mock tokens in config files"
+paths = [
+  '''\.env$''',
+]
+regexTarget = "line"
+regexes = [
+  '''TUSHARE_TOKEN\s*=\s*['"]?[a-f0-9]+['"]?''',
 ]
