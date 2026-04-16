@@ -1,7 +1,7 @@
 """TuShare THS daily data query service."""
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 
@@ -55,7 +55,7 @@ class TuShareTHSDailyService(BaseService):
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query THS daily data."""
         start_dt = datetime.strptime(start_date, "%Y%m%d").date()
         end_dt = datetime.strptime(end_date, "%Y%m%d").date()
@@ -114,9 +114,9 @@ class TuShareTHSDailyService(BaseService):
     )
     def get_latest_ths_daily(
         self,
-        ts_codes: List[str],
+        ts_codes: list[str],
         limit: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query latest THS daily data for multiple indices."""
         query = """
         SELECT
@@ -178,7 +178,7 @@ class TuShareTHSDailyService(BaseService):
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get THS daily data statistics."""
         start_dt = datetime.strptime(start_date, "%Y%m%d").date()
         end_dt = datetime.strptime(end_date, "%Y%m%d").date()

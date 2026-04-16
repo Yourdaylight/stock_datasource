@@ -1,16 +1,13 @@
 """Tests for log_sink_clickhouse module."""
 
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from stock_datasource.utils.log_sink_clickhouse import (
-    _transform_record,
     _flush_batch,
     _import_file,
+    _transform_record,
     import_pending_files,
 )
 
@@ -83,9 +80,20 @@ class TestFlushBatch:
         mock_db = MagicMock()
         mock_get_client.return_value = mock_db
 
-        batch = [{"timestamp": "2026-01-01", "level": "INFO", "request_id": "-", "user_id": "-",
-                  "module": "test", "function": "fn", "line": 1, "message": "msg",
-                  "exception": None, "extra": "{}"}]
+        batch = [
+            {
+                "timestamp": "2026-01-01",
+                "level": "INFO",
+                "request_id": "-",
+                "user_id": "-",
+                "module": "test",
+                "function": "fn",
+                "line": 1,
+                "message": "msg",
+                "exception": None,
+                "extra": "{}",
+            }
+        ]
         _flush_batch(batch)
         mock_db.insert_dataframe.assert_called_once()
         args = mock_db.insert_dataframe.call_args
@@ -113,19 +121,30 @@ class TestImportFile:
     def test_imports_and_deletes_file(self, tmp_path):
         jsonl_file = tmp_path / "test.jsonl.2026-04-09_15-30-00_123.jsonl"
         records = [
-            {"timestamp": "2026-04-09 15:30:00", "level": "INFO", "request_id": "-",
-             "user_id": "-", "module": "mod", "function": "fn", "line": 1,
-             "message": "test msg", "exception": None},
+            {
+                "timestamp": "2026-04-09 15:30:00",
+                "level": "INFO",
+                "request_id": "-",
+                "user_id": "-",
+                "module": "mod",
+                "function": "fn",
+                "line": 1,
+                "message": "test msg",
+                "exception": None,
+            },
         ]
         with open(jsonl_file, "w") as f:
             for rec in records:
                 f.write(json.dumps(rec) + "\n")
 
         from stock_datasource.config.settings import settings as _settings
+
         original = getattr(_settings, "LOG_CH_SINK_BATCH_SIZE", 5000)
         try:
             _settings.LOG_CH_SINK_BATCH_SIZE = 5000
-            with patch("stock_datasource.utils.log_sink_clickhouse._flush_batch") as mock_flush:
+            with patch(
+                "stock_datasource.utils.log_sink_clickhouse._flush_batch"
+            ) as mock_flush:
                 result = _import_file(jsonl_file)
                 assert result is True
                 assert not jsonl_file.exists()
@@ -143,6 +162,7 @@ class TestImportFile:
             f.write('{"level": "INFO", "line": 1}\n')
 
         from stock_datasource.config.settings import settings as _settings
+
         original = getattr(_settings, "LOG_CH_SINK_BATCH_SIZE", 5000)
         try:
             _settings.LOG_CH_SINK_BATCH_SIZE = 5000
@@ -158,6 +178,7 @@ class TestImportFile:
         jsonl_file.write_text("")
 
         from stock_datasource.config.settings import settings as _settings
+
         original = getattr(_settings, "LOG_CH_SINK_BATCH_SIZE", 5000)
         try:
             _settings.LOG_CH_SINK_BATCH_SIZE = 5000
@@ -177,7 +198,9 @@ class TestImportPendingFiles:
         with open(rotated, "w") as f:
             f.write('{"level": "INFO", "line": 1}\n')
 
-        with patch("stock_datasource.utils.log_sink_clickhouse._import_file", return_value=True) as mock_import:
+        with patch(
+            "stock_datasource.utils.log_sink_clickhouse._import_file", return_value=True
+        ) as mock_import:
             count = import_pending_files(tmp_path)
             assert count == 1
             mock_import.assert_called_once()
@@ -186,7 +209,9 @@ class TestImportPendingFiles:
         active = tmp_path / "stock_datasource.jsonl"
         active.write_text('{"level": "INFO", "line": 1}\n')
 
-        with patch("stock_datasource.utils.log_sink_clickhouse._import_file", return_value=True) as mock_import:
+        with patch(
+            "stock_datasource.utils.log_sink_clickhouse._import_file", return_value=True
+        ) as mock_import:
             count = import_pending_files(tmp_path)
             assert count == 1
             assert not active.exists()
@@ -196,7 +221,9 @@ class TestImportPendingFiles:
         active = tmp_path / "stock_datasource.jsonl"
         active.write_text("")
 
-        with patch("stock_datasource.utils.log_sink_clickhouse._import_file") as mock_import:
+        with patch(
+            "stock_datasource.utils.log_sink_clickhouse._import_file"
+        ) as mock_import:
             count = import_pending_files(tmp_path)
             assert count == 0
             mock_import.assert_not_called()

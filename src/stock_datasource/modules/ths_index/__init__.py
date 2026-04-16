@@ -7,6 +7,6 @@ Provides API endpoints for THS sector index data including:
 """
 
 from .router import router
-from .service import get_ths_index_service, THSIndexService
+from .service import THSIndexService, get_ths_index_service
 
-__all__ = ["router", "get_ths_index_service", "THSIndexService"]
+__all__ = ["THSIndexService", "get_ths_index_service", "router"]

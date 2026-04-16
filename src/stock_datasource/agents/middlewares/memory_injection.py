@@ -9,14 +9,16 @@ After agent execution, writes shared results and triggers async fact extraction.
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .base import AgentContext, AgentResponse, BaseMiddleware
-from stock_datasource.modules.memory.fact_extractor import FactExtractor
-from stock_datasource.modules.memory.memory_update_queue import MemoryUpdateQueue, get_memory_update_queue
+from stock_datasource.modules.memory.memory_update_queue import (
+    MemoryUpdateQueue,
+    get_memory_update_queue,
+)
 from stock_datasource.modules.memory.models import AgentSharedResult, FactItem
 from stock_datasource.modules.memory.store import MemoryStore, get_memory_store
+
+from .base import AgentContext, AgentResponse, BaseMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +54,8 @@ class MemoryInjectionMiddleware(BaseMiddleware):
 
     def __init__(
         self,
-        store: Optional[MemoryStore] = None,
-        update_queue: Optional[MemoryUpdateQueue] = None,
+        store: MemoryStore | None = None,
+        update_queue: MemoryUpdateQueue | None = None,
         model_max_tokens: int = 128000,
     ):
         super().__init__()
@@ -81,7 +83,9 @@ class MemoryInjectionMiddleware(BaseMiddleware):
 
         return context
 
-    async def after(self, context: AgentContext, response: AgentResponse) -> AgentResponse:
+    async def after(
+        self, context: AgentContext, response: AgentResponse
+    ) -> AgentResponse:
         """Write shared results and trigger async fact extraction."""
         if not self.enabled:
             return response
@@ -96,7 +100,9 @@ class MemoryInjectionMiddleware(BaseMiddleware):
                 key_findings=self._extract_key_findings(response.content),
                 token_count=int(len(response.content) / self.CHARS_PER_TOKEN),
             )
-            self._store.put_shared_result(context.session_id, shared_result.agent_name, shared_result)
+            self._store.put_shared_result(
+                context.session_id, shared_result.agent_name, shared_result
+            )
 
             # 2. Enqueue async fact extraction (non-blocking)
             await self._update_queue.enqueue(
@@ -119,7 +125,9 @@ class MemoryInjectionMiddleware(BaseMiddleware):
         budget_chars = int(budget_tokens * self.CHARS_PER_TOKEN)
 
         # Read from store
-        facts = self._store.search_facts(user_id, limit=self.MAX_FACTS, min_confidence=self.MIN_CONFIDENCE)
+        facts = self._store.search_facts(
+            user_id, limit=self.MAX_FACTS, min_confidence=self.MIN_CONFIDENCE
+        )
         profile = self._store.get_profile(user_id)
         shared_results = self._store.get_shared_results(session_id)
 
@@ -151,7 +159,7 @@ class MemoryInjectionMiddleware(BaseMiddleware):
 
         return "<memory>\n" + "\n\n".join(sections) + "\n</memory>"
 
-    def _format_profile(self, profile: Dict[str, Any], budget_chars: int) -> str:
+    def _format_profile(self, profile: dict[str, Any], budget_chars: int) -> str:
         """Format profile entries."""
         if not profile:
             return ""
@@ -180,7 +188,7 @@ class MemoryInjectionMiddleware(BaseMiddleware):
 
         return "\n".join(lines)
 
-    def _format_facts(self, facts: List[FactItem], budget_chars: int) -> str:
+    def _format_facts(self, facts: list[FactItem], budget_chars: int) -> str:
         """Format facts with confidence scores."""
         if not facts:
             return ""
@@ -197,7 +205,9 @@ class MemoryInjectionMiddleware(BaseMiddleware):
 
         return "\n".join(lines)
 
-    def _format_shared(self, shared_results: Dict[str, AgentSharedResult], budget_chars: int) -> str:
+    def _format_shared(
+        self, shared_results: dict[str, AgentSharedResult], budget_chars: int
+    ) -> str:
         """Format shared agent results."""
         if not shared_results:
             return ""
@@ -206,7 +216,11 @@ class MemoryInjectionMiddleware(BaseMiddleware):
         char_count = len("## 本次研究共享数据\n")
 
         for key, result in shared_results.items():
-            findings_str = "; ".join(result.key_findings[:3]) if result.key_findings else "已执行分析"
+            findings_str = (
+                "; ".join(result.key_findings[:3])
+                if result.key_findings
+                else "已执行分析"
+            )
             line = f"- {result.agent_name}: {findings_str}"
             if char_count + len(line) > budget_chars:
                 break
@@ -216,7 +230,7 @@ class MemoryInjectionMiddleware(BaseMiddleware):
         return "\n".join(lines)
 
     @staticmethod
-    def _extract_key_findings(content: str, max_findings: int = 3) -> List[str]:
+    def _extract_key_findings(content: str, max_findings: int = 3) -> list[str]:
         """Extract key findings from agent response (heuristic)."""
         # Simple heuristic: first sentence of each paragraph
         if not content:

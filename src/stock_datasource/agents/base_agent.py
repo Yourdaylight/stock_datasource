@@ -8,13 +8,15 @@ Memory Architecture (A + B + D):
 - D: Shared state storage for cross-turn data caching
 """
 
-import os
-import time
 import asyncio
 import logging
-from urllib.parse import urlparse
+import os
+import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, AsyncGenerator, Optional, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
+from urllib.parse import urlparse
+
 from deepagents import create_deep_agent
 from pydantic import BaseModel, Field
 
@@ -25,8 +27,10 @@ logger = logging.getLogger(__name__)
 # Configuration Models
 # =============================================================================
 
+
 class AgentConfig(BaseModel):
     """Agent configuration."""
+
     name: str = Field(..., description="Agent name")
     description: str = Field(..., description="Agent description")
     model: str = Field(default="gpt-4", description="LLM model name")
@@ -34,34 +38,43 @@ class AgentConfig(BaseModel):
     max_tokens: int = Field(default=4000, ge=1)
     recursion_limit: int = Field(default=50, description="LangGraph recursion limit")
     # Memory settings
-    max_history_messages: int = Field(default=20, description="Max messages to keep in history")
-    max_history_chars: int = Field(default=12000, description="Max chars before triggering summarization")
-    history_ttl_seconds: int = Field(default=3600, description="History TTL in seconds (default 1 hour)")
+    max_history_messages: int = Field(
+        default=20, description="Max messages to keep in history"
+    )
+    max_history_chars: int = Field(
+        default=12000, description="Max chars before triggering summarization"
+    )
+    history_ttl_seconds: int = Field(
+        default=3600, description="History TTL in seconds (default 1 hour)"
+    )
 
 
 class ToolDefinition(BaseModel):
     """Tool definition for agents."""
+
     name: str = Field(..., description="Tool name")
     description: str = Field(..., description="Tool description")
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentContext(BaseModel):
     """Context passed to agent during execution."""
+
     session_id: str = ""
     user_id: str = ""
-    stock_codes: List[str] = Field(default_factory=list)
-    preferences: Dict[str, Any] = Field(default_factory=dict)
-    history: List[Dict[str, str]] = Field(default_factory=list)
+    stock_codes: list[str] = Field(default_factory=list)
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    history: list[dict[str, str]] = Field(default_factory=list)
     intent: str = ""
 
 
 class AgentResult(BaseModel):
     """Result from agent execution."""
+
     response: str
     success: bool = True
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -78,7 +91,7 @@ _langfuse_handler = None
 _memory_saver = None
 
 
-def _append_no_proxy(host: Optional[str]) -> None:
+def _append_no_proxy(host: str | None) -> None:
     if not host:
         return
     existing = os.getenv("NO_PROXY", "")
@@ -94,17 +107,17 @@ def get_langchain_model():
     if _langchain_model is None:
         try:
             from langchain_openai import ChatOpenAI
-            
+
             api_key = os.getenv("OPENAI_API_KEY")
             base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
             model_name = os.getenv("OPENAI_MODEL", "gpt-4")
-            
+
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable not set")
-            
+
             host = urlparse(base_url).hostname
             _append_no_proxy(host)
-            
+
             _langchain_model = ChatOpenAI(
                 model=model_name,
                 api_key=api_key,
@@ -123,52 +136,55 @@ def get_langfuse_handler(
     session_id: str = None,
     trace_name: str = None,
     tags: list = None,
-    metadata: dict = None
+    metadata: dict = None,
 ):
     """Get Langfuse callback handler for LangChain.
-    
+
     Note: In Langfuse 3.x, user_id and session_id should be passed via
     LangChain config metadata (langfuse_user_id, langfuse_session_id),
     not via CallbackHandler constructor.
-    
+
     Args:
         user_id: User identifier (for logging only in 3.x)
         session_id: Session identifier (for logging only in 3.x)
         trace_name: Custom name for the trace
         tags: List of tags to attach to the trace
         metadata: Additional metadata to attach
-    
+
     Returns:
         Langfuse CallbackHandler instance or None
     """
     try:
         from langfuse.langchain import CallbackHandler
-        
+
         public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
         secret_key = os.getenv("LANGFUSE_SECRET_KEY")
         host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
         enabled = os.getenv("LANGFUSE_ENABLED", "true").lower() == "true"
-        
+
         if not enabled or not public_key or not secret_key:
             logger.debug("Langfuse disabled or not configured")
             return None
-        
+
         # Inject request_id from context into metadata for trace correlation
         from stock_datasource.utils.request_context import get_request_id
+
         _metadata = dict(metadata) if metadata else {}
         _metadata["request_id"] = get_request_id()
         if user_id:
             _metadata["langfuse_user_id"] = user_id
         if session_id:
             _metadata["langfuse_session_id"] = session_id
-        
+
         # Langfuse 3.x: user_id and session_id are passed via LangChain config metadata
         # CallbackHandler now only needs update_trace flag
         handler = CallbackHandler(update_trace=True)
-        
-        logger.info(f"Langfuse handler created for user={user_id}, session={session_id}, trace={trace_name}, request_id={_metadata.get('request_id')}")
+
+        logger.info(
+            f"Langfuse handler created for user={user_id}, session={session_id}, trace={trace_name}, request_id={_metadata.get('request_id')}"
+        )
         return handler
-        
+
     except Exception as e:
         logger.warning(f"Failed to create Langfuse handler: {e}")
         return None
@@ -176,17 +192,20 @@ def get_langfuse_handler(
 
 def get_memory_saver():
     """Get LangGraph MemorySaver for checkpoint-based memory.
-    
+
     This enables automatic state persistence across conversation turns.
     """
     global _memory_saver
     if _memory_saver is None:
         try:
             from langgraph.checkpoint.memory import MemorySaver
+
             _memory_saver = MemorySaver()
             logger.info("LangGraph MemorySaver initialized")
         except ImportError:
-            logger.warning("langgraph.checkpoint.memory not available, using fallback memory")
+            logger.warning(
+                "langgraph.checkpoint.memory not available, using fallback memory"
+            )
             _memory_saver = None
         except Exception as e:
             logger.warning(f"Failed to initialize MemorySaver: {e}")
@@ -211,24 +230,35 @@ class SessionMemory:
     """
 
     def __init__(self):
-        from stock_datasource.services.session_memory_service import get_session_memory_service
+        from stock_datasource.services.session_memory_service import (
+            get_session_memory_service,
+        )
+
         self._svc = get_session_memory_service()
 
     # -- forwarded methods (same signatures as before) --
 
-    def get_session_id(self, agent_name: str, user_id: str = "default", context_key: str = "") -> str:
+    def get_session_id(
+        self, agent_name: str, user_id: str = "default", context_key: str = ""
+    ) -> str:
         return self._svc.make_session_id(agent_name, user_id, context_key)
 
-    def add_message(self, session_id: str, role: str, content: str, max_messages: int = 20):
+    def add_message(
+        self, session_id: str, role: str, content: str, max_messages: int = 20
+    ):
         self._svc.add_message(session_id, role, content, max_messages=max_messages)
 
-    def get_history(self, session_id: str, ttl_seconds: int = 3600, max_chars: int = 12000):
-        return self._svc.get_history(session_id, ttl_seconds=ttl_seconds, max_chars=max_chars)
+    def get_history(
+        self, session_id: str, ttl_seconds: int = 3600, max_chars: int = 12000
+    ):
+        return self._svc.get_history(
+            session_id, ttl_seconds=ttl_seconds, max_chars=max_chars
+        )
 
     def set_cache(self, session_id: str, key: str, value: Any, ttl_seconds: int = 300):
         self._svc.set_cache(session_id, key, value, ttl=ttl_seconds)
 
-    def get_cache(self, session_id: str, key: str) -> Optional[Any]:
+    def get_cache(self, session_id: str, key: str) -> Any | None:
         return self._svc.get_cache(session_id, key)
 
     def clear_session(self, session_id: str):
@@ -239,7 +269,7 @@ class SessionMemory:
 
 
 # Global session memory instance
-_session_memory: Optional[SessionMemory] = None
+_session_memory: SessionMemory | None = None
 
 
 def get_session_memory() -> SessionMemory:
@@ -254,9 +284,10 @@ def get_session_memory() -> SessionMemory:
 # Tool Result Compression (B: Compress large tool outputs)
 # =============================================================================
 
+
 def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
     """Compress tool result to reduce context size.
-    
+
     Strategies:
     - Truncate long strings
     - Limit list items
@@ -266,7 +297,7 @@ def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
         if len(result) > max_chars:
             return result[:max_chars] + f"\n...[截断，原长度{len(result)}字符]"
         return result
-    
+
     if isinstance(result, dict):
         compressed = {}
         for key, value in result.items():
@@ -275,7 +306,7 @@ def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
                 continue
             # Skip very large nested data
             if key in ("raw_data", "full_data", "debug"):
-                compressed[key] = f"[数据已省略]"
+                compressed[key] = "[数据已省略]"
             elif isinstance(value, list) and len(value) > 10:
                 # Keep first 10 items for lists
                 compressed[key] = value[:10]
@@ -286,12 +317,12 @@ def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
             else:
                 compressed[key] = compress_tool_result(value, max_chars // 2)
         return compressed
-    
+
     if isinstance(result, list):
         if len(result) > 20:
             return result[:20] + [f"...[共{len(result)}项]"]
         return [compress_tool_result(item, max_chars // len(result)) for item in result]
-    
+
     return result
 
 
@@ -299,85 +330,91 @@ def compress_tool_result(result: Any, max_chars: int = 2000) -> Any:
 # LangGraphAgent Base Class
 # =============================================================================
 
+
 class LangGraphAgent(ABC):
     """Base class for all agents using LangGraph/DeepAgents framework.
-    
+
     All agents should inherit from this class and implement:
     - get_tools(): Return list of tool functions
     - get_system_prompt(): Return system prompt string
-    
+
     Memory Features:
     - Automatic conversation history management
     - LangGraph checkpoint support (when available)
     - Tool result caching to avoid redundant calls
     - Automatic summarization for long conversations
     """
-    
+
     def __init__(self, config: AgentConfig):
         self.config = config
         self._agent = None
         self._model = None
         self._checkpointer = None
         self._memory = get_session_memory()
-    
+
     @abstractmethod
-    def get_tools(self) -> List[Callable]:
+    def get_tools(self) -> list[Callable]:
         """Return list of tool functions for this agent.
-        
+
         Each tool should be a function with:
         - Type hints for parameters
         - Docstring describing the tool
         """
         pass
-    
+
     @abstractmethod
     def get_system_prompt(self) -> str:
         """Return system prompt for this agent."""
         pass
-    
+
     def _get_model(self):
         """Get LangChain model."""
         if self._model is None:
             self._model = get_langchain_model()
         return self._model
-    
+
     def _get_checkpointer(self):
         """Get LangGraph checkpointer for memory persistence."""
         if self._checkpointer is None:
             self._checkpointer = get_memory_saver()
         return self._checkpointer
-    
-    def _get_callbacks(self, session_id: str = None, user_id: str = None, context: Dict[str, Any] = None) -> List:
+
+    def _get_callbacks(
+        self,
+        session_id: str = None,
+        user_id: str = None,
+        context: dict[str, Any] = None,
+    ) -> list:
         """Get callback handlers including Langfuse with user context.
-        
+
         Args:
             session_id: Session identifier
             user_id: User identifier for Langfuse tracking
             context: Additional context for metadata
-        
+
         Returns:
             List of callback handlers
         """
         callbacks = []
-        
+
         # Build metadata from context
         metadata = {}
         if context:
             metadata["intent"] = context.get("intent", "")
             metadata["stock_codes"] = context.get("stock_codes", [])
-        
+
         handler = get_langfuse_handler(
             user_id=user_id,
             session_id=session_id,
             trace_name=self.config.name,
             tags=[self.config.name],
-            metadata=metadata if metadata else None
+            metadata=metadata if metadata else None,
         )
-        
+
         if handler:
             callbacks.append(handler)
         return callbacks
-    
+
     # Common output rules appended to all system prompts
     COMMON_OUTPUT_RULES = """
 
@@ -389,77 +426,72 @@ class LangGraphAgent(ABC):
 - **关键规则：调用工具获取数据后，你必须根据工具返回的数据输出完整的分析报告，不能只说一句话就结束**
 - **即使工具返回了数据，你仍然需要解读这些数据并给出你的分析观点和建议**
 """
-    
+
     def _init_agent(self, checkpointer=None):
         """Initialize the DeepAgent with optional checkpointer."""
         # If checkpointer changed, recreate agent
         if self._agent is not None and checkpointer is None:
             return self._agent
-        
+
         try:
             model = self._get_model()
             tools = self.get_tools()
             # Append common output rules to system prompt
             system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
-            
+
             # Create agent with checkpointer if available
             create_kwargs = {
                 "model": model,
                 "tools": tools,
                 "system_prompt": system_prompt,
             }
-            
+
             if checkpointer:
                 create_kwargs["checkpointer"] = checkpointer
-            
+
             self._agent = create_deep_agent(**create_kwargs)
-            logger.info(f"{self.config.name} initialized with DeepAgents (checkpointer={checkpointer is not None})")
+            logger.info(
+                f"{self.config.name} initialized with DeepAgents (checkpointer={checkpointer is not None})"
+            )
             return self._agent
         except Exception as e:
             logger.error(f"Failed to init {self.config.name}: {e}")
             raise
-    
+
     def _build_messages(
-        self, 
-        task: str, 
-        session_id: str,
-        context: Dict[str, Any]
-    ) -> List[Dict[str, str]]:
+        self, task: str, session_id: str, context: dict[str, Any]
+    ) -> list[dict[str, str]]:
         """Build messages list with history and current task."""
         messages = []
-        
+
         # Get history from session memory
         history = self._memory.get_history(
             session_id,
             ttl_seconds=self.config.history_ttl_seconds,
-            max_chars=self.config.max_history_chars
+            max_chars=self.config.max_history_chars,
         )
-        
+
         # Also merge any history passed in context
         context_history = context.get("history", [])
         if context_history and not history:
             # Use context history if session memory is empty
-            history = context_history[-self.config.max_history_messages:]
-        
+            history = context_history[-self.config.max_history_messages :]
+
         # Add history messages
         for msg in history:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role in ("user", "assistant", "system") and content:
                 messages.append({"role": role, "content": content})
-        
+
         # Add current task
         messages.append({"role": "user", "content": task})
-        
+
         return messages
-    
-    async def execute(
-        self, 
-        task: str, 
-        context: Dict[str, Any] = None
-    ) -> AgentResult:
+
+    async def execute(self, task: str, context: dict[str, Any] = None) -> AgentResult:
         """Execute a task using DeepAgent with memory support.
-        
+
         Args:
             task: User's query or task
             context: Optional context with:
@@ -467,24 +499,24 @@ class LangGraphAgent(ABC):
                 - user_id: User identifier
                 - history: Previous conversation (fallback if session memory empty)
                 - clear_history: If True, clear session before execution
-            
+
         Returns:
             AgentResult with response and metadata
         """
         context = context or {}
-        
+
         # Generate or use provided session_id
         user_id = context.get("user_id", "default")
         context_key = context.get("context_key", "")
         session_id = context.get("session_id") or self._memory.get_session_id(
             self.config.name, user_id, context_key
         )
-        
+
         # Clear history if requested
         if context.get("clear_history"):
             self._memory.clear_session(session_id)
             logger.info(f"Cleared session {session_id}")
-        
+
         # Opportunistic cleanup to avoid unbounded memory growth
         self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
 
@@ -492,17 +524,18 @@ class LangGraphAgent(ABC):
             # Get checkpointer for LangGraph memory
             checkpointer = self._get_checkpointer()
             agent = self._init_agent(checkpointer)
-            callbacks = self._get_callbacks(session_id, user_id=user_id, context=context)
-            
+            callbacks = self._get_callbacks(
+                session_id, user_id=user_id, context=context
+            )
+
             # Build messages with history
             messages = self._build_messages(task, session_id, context)
-            
+
             # Save user message to history
             self._memory.add_message(
-                session_id, "user", task,
-                max_messages=self.config.max_history_messages
+                session_id, "user", task, max_messages=self.config.max_history_messages
             )
-            
+
             # Execute agent
             config = {
                 "recursion_limit": self.config.recursion_limit,
@@ -511,46 +544,50 @@ class LangGraphAgent(ABC):
                     "langfuse_user_id": user_id,
                     "langfuse_session_id": session_id,
                     "langfuse_tags": [self.config.name],
-                }
+                },
             }
             if callbacks:
                 config["callbacks"] = callbacks
-            
+
             result = agent.invoke({"messages": messages}, config=config)
-            
+
             # Extract response - find the last AI message with content
             response = ""
             messages_list = result.get("messages", [])
-            
+
             for msg in reversed(messages_list):
                 msg_type = type(msg).__name__
                 if msg_type == "AIMessage" and hasattr(msg, "content") and msg.content:
                     response = msg.content
                     break
-            
+
             if not response:
                 response = "无法生成回复"
                 logger.warning(f"No AI response found in {len(messages_list)} messages")
-            
+
             # Save assistant response to history (truncate if too long)
             response_for_history = response
             if len(response_for_history) > 2000:
                 response_for_history = response_for_history[:2000] + "\n...[内容已截断]"
             self._memory.add_message(
-                session_id, "assistant", response_for_history,
-                max_messages=self.config.max_history_messages
+                session_id,
+                "assistant",
+                response_for_history,
+                max_messages=self.config.max_history_messages,
             )
-            
+
             # Extract tool calls
             tool_calls = []
             for msg in messages_list:
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                     for tc in msg.tool_calls:
-                        tool_calls.append({
-                            "name": tc.get("name", "unknown"),
-                            "args": tc.get("args", {}),
-                        })
-            
+                        tool_calls.append(
+                            {
+                                "name": tc.get("name", "unknown"),
+                                "args": tc.get("args", {}),
+                            }
+                        )
+
             return AgentResult(
                 response=response,
                 success=True,
@@ -562,22 +599,28 @@ class LangGraphAgent(ABC):
                 },
                 tool_calls=tool_calls,
             )
-            
+
         except Exception as e:
             logger.error(f"{self.config.name} execution failed: {e}")
             return AgentResult(
-                response=f"执行出错: {str(e)}",
+                response=f"执行出错: {e!s}",
                 success=False,
-                metadata={"error": str(e), "agent": self.config.name, "session_id": session_id},
+                metadata={
+                    "error": str(e),
+                    "agent": self.config.name,
+                    "session_id": session_id,
+                },
             )
-    
-    def _make_debug_event(self, debug_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _make_debug_event(
+        self, debug_type: str, data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Create a standardized debug event.
-        
+
         Args:
             debug_type: Debug event subtype (agent_start, agent_end, tool_result, etc.)
             data: Event-specific data
-            
+
         Returns:
             Debug event dict
         """
@@ -590,26 +633,26 @@ class LangGraphAgent(ABC):
         }
 
     @staticmethod
-    def _extract_visualization(tool_output: Any) -> Optional[Dict[str, Any]]:
+    def _extract_visualization(tool_output: Any) -> dict[str, Any] | None:
         """Extract _visualization data from tool output if present.
-        
+
         Tool functions can include a `_visualization` field in their return dict
         to trigger automatic chart rendering in the frontend.
-        
+
         Handles multiple output formats:
         - dict with _visualization key (direct tool return)
         - ToolMessage object with .content (LangGraph astream_events v2)
         - str (JSON-stringified dict)
-        
+
         Returns:
             Visualization payload dict or None
         """
         import json as _json
-        
+
         # Case 1: Direct dict
         if isinstance(tool_output, dict) and "_visualization" in tool_output:
             return tool_output["_visualization"]
-        
+
         # Case 2: ToolMessage object (LangGraph astream_events v2)
         # ToolMessage has .content which is usually a stringified dict
         if hasattr(tool_output, "content"):
@@ -623,7 +666,7 @@ class LangGraphAgent(ABC):
                         return parsed["_visualization"]
                 except (_json.JSONDecodeError, TypeError):
                     pass
-        
+
         # Case 3: Plain string (JSON-stringified dict)
         if isinstance(tool_output, str):
             try:
@@ -632,36 +675,34 @@ class LangGraphAgent(ABC):
                     return parsed["_visualization"]
             except (_json.JSONDecodeError, TypeError):
                 pass
-        
+
         return None
 
     async def execute_stream(
-        self, 
-        task: str, 
-        context: Dict[str, Any] = None
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        self, task: str, context: dict[str, Any] = None
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute task with streaming response.
-        
+
         Args:
             task: User's query
             context: Optional context
-            
+
         Yields:
             Dict with type (thinking/content/done/error/debug) and data
         """
         context = context or {}
-        
+
         # Generate or use provided session_id
         user_id = context.get("user_id", "default")
         context_key = context.get("context_key", "")
         session_id = context.get("session_id") or self._memory.get_session_id(
             self.config.name, user_id, context_key
         )
-        
+
         # Clear history if requested
         if context.get("clear_history"):
             self._memory.clear_session(session_id)
-        
+
         # Opportunistic cleanup to avoid unbounded memory growth
         self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
 
@@ -672,17 +713,18 @@ class LangGraphAgent(ABC):
         try:
             checkpointer = self._get_checkpointer()
             agent = self._init_agent(checkpointer)
-            callbacks = self._get_callbacks(session_id, user_id=user_id, context=context)
-            
+            callbacks = self._get_callbacks(
+                session_id, user_id=user_id, context=context
+            )
+
             # Build messages with history
             messages = self._build_messages(task, session_id, context)
-            
+
             # Save user message to history
             self._memory.add_message(
-                session_id, "user", task,
-                max_messages=self.config.max_history_messages
+                session_id, "user", task, max_messages=self.config.max_history_messages
             )
-            
+
             # Yield thinking status
             yield {
                 "type": "thinking",
@@ -697,13 +739,16 @@ class LangGraphAgent(ABC):
             for t in tools:
                 tname = getattr(t, "name", None) or getattr(t, "__name__", "unknown")
                 tool_names.append(tname)
-            yield self._make_debug_event("agent_start", {
-                "agent": self.config.name,
-                "input_summary": task[:200] if len(task) > 200 else task,
-                "tools_available": tool_names[:20],
-                "parent_agent": context.get("parent_agent"),
-            })
-            
+            yield self._make_debug_event(
+                "agent_start",
+                {
+                    "agent": self.config.name,
+                    "input_summary": task[:200] if len(task) > 200 else task,
+                    "tools_available": tool_names[:20],
+                    "parent_agent": context.get("parent_agent"),
+                },
+            )
+
             # Execute with streaming
             config = {
                 "recursion_limit": self.config.recursion_limit,
@@ -713,20 +758,18 @@ class LangGraphAgent(ABC):
                     "langfuse_user_id": user_id,
                     "langfuse_session_id": session_id,
                     "langfuse_tags": [self.config.name],
-                }
+                },
             }
             if callbacks:
                 config["callbacks"] = callbacks
-            
+
             full_response = ""
-            
+
             async for event in agent.astream_events(
-                {"messages": messages}, 
-                config=config,
-                version="v2"
+                {"messages": messages}, config=config, version="v2"
             ):
                 event_type = event.get("event", "")
-                
+
                 try:
                     if event_type == "on_tool_start":
                         tool_name = event.get("name", "unknown")
@@ -738,26 +781,38 @@ class LangGraphAgent(ABC):
                             "status": f"正在调用: {tool_name}",
                             "tool": tool_name,
                         }
-                    
+
                     elif event_type == "on_tool_end":
                         # Emit debug: tool_result
                         tool_name = event.get("name", "unknown")
                         tool_output = event.get("data", {}).get("output", "")
                         tool_input = event.get("data", {}).get("input", {})
-                        logger.debug(f"[{self.config.name}] on_tool_end: tool={tool_name}, output_type={type(tool_output).__name__}, has_content={hasattr(tool_output, 'content')}")
+                        logger.debug(
+                            f"[{self.config.name}] on_tool_end: tool={tool_name}, output_type={type(tool_output).__name__}, has_content={hasattr(tool_output, 'content')}"
+                        )
                         # Compress result for debug display
                         result_str = str(tool_output)
-                        result_summary = result_str[:500] + "..." if len(result_str) > 500 else result_str
+                        result_summary = (
+                            result_str[:500] + "..."
+                            if len(result_str) > 500
+                            else result_str
+                        )
                         args_summary = {}
                         if isinstance(tool_input, dict):
-                            args_summary = {k: str(v)[:100] for k, v in list(tool_input.items())[:10]}
-                        yield self._make_debug_event("tool_result", {
-                            "tool": tool_name,
-                            "agent": self.config.name,
-                            "args": args_summary,
-                            "result_summary": result_summary,
-                            "duration_ms": 0,  # Individual tool timing not available here
-                        })
+                            args_summary = {
+                                k: str(v)[:100]
+                                for k, v in list(tool_input.items())[:10]
+                            }
+                        yield self._make_debug_event(
+                            "tool_result",
+                            {
+                                "tool": tool_name,
+                                "agent": self.config.name,
+                                "args": args_summary,
+                                "result_summary": result_summary,
+                                "duration_ms": 0,  # Individual tool timing not available here
+                            },
+                        )
 
                         # Extract and emit visualization event if tool returned _visualization
                         viz = self._extract_visualization(tool_output)
@@ -768,7 +823,7 @@ class LangGraphAgent(ABC):
                                 "agent": self.config.name,
                                 "tool": tool_name,
                             }
-                    
+
                     elif event_type == "on_chat_model_stream":
                         chunk = event.get("data", {}).get("chunk")
                         if chunk:
@@ -785,7 +840,9 @@ class LangGraphAgent(ABC):
                                     text_parts = []
                                     for block in raw_content:
                                         if isinstance(block, dict):
-                                            if block.get("type") == "text" and block.get("text"):
+                                            if block.get(
+                                                "type"
+                                            ) == "text" and block.get("text"):
                                                 text_parts.append(block["text"])
                                             elif block.get("type") == "thinking":
                                                 pass  # Skip thinking/reasoning tokens
@@ -795,33 +852,35 @@ class LangGraphAgent(ABC):
                                         content = "".join(text_parts)
                             elif isinstance(chunk, dict) and chunk.get("content"):
                                 content = chunk["content"]
-                            
+
                             # Also check for additional_kwargs.reasoning_content (some models)
                             if not content and hasattr(chunk, "additional_kwargs"):
                                 ak = chunk.additional_kwargs or {}
                                 if ak.get("reasoning_content"):
                                     pass  # Skip reasoning, wait for actual content
-                            
+
                             if content and isinstance(content, str):
                                 full_response += content
                                 yield {
                                     "type": "content",
                                     "content": content,
                                 }
-                    
+
                     elif event_type == "on_chain_end":
                         # Skip on_chain_end content to avoid duplication
                         # The content has already been streamed via on_chat_model_stream
                         pass
                 except Exception as e:
                     logger.debug(f"Error processing event {event_type}: {e}")
-            
+
             # Fallback: if streamed content is too short after tool calls,
             # the LLM likely didn't generate analysis (common with thinking models).
             # Must run BEFORE emitting done/agent_end so frontend receives content first.
             MIN_RESPONSE_LEN = 50  # Minimum chars for a meaningful response
             if tool_call_count > 0 and len(full_response.strip()) < MIN_RESPONSE_LEN:
-                logger.info(f"{self.config.name}: Streamed response too short ({len(full_response)} chars) after {tool_call_count} tool calls, using fallback")
+                logger.info(
+                    f"{self.config.name}: Streamed response too short ({len(full_response)} chars) after {tool_call_count} tool calls, using fallback"
+                )
                 try:
                     # Strategy 1: Check LangGraph state for a complete AIMessage
                     state = await asyncio.to_thread(agent.get_state, config)
@@ -830,18 +889,25 @@ class LangGraphAgent(ABC):
                             msg_type = type(msg).__name__
                             if msg_type == "AIMessage" and hasattr(msg, "content"):
                                 msg_content = msg.content
-                                if isinstance(msg_content, str) and len(msg_content.strip()) >= MIN_RESPONSE_LEN:
+                                if (
+                                    isinstance(msg_content, str)
+                                    and len(msg_content.strip()) >= MIN_RESPONSE_LEN
+                                ):
                                     full_response = msg_content
                                     yield {"type": "content", "content": msg_content}
                                     break
-                    
+
                     # Strategy 2: Follow-up LLM call with tool results
                     if len(full_response.strip()) < MIN_RESPONSE_LEN:
-                        logger.info(f"{self.config.name}: State fallback insufficient, invoking follow-up LLM call")
+                        logger.info(
+                            f"{self.config.name}: State fallback insufficient, invoking follow-up LLM call"
+                        )
                         model = self._get_model()
-                        from langchain_core.messages import SystemMessage, HumanMessage
-                        
-                        system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
+                        from langchain_core.messages import HumanMessage, SystemMessage
+
+                        system_prompt = (
+                            self.get_system_prompt() + self.COMMON_OUTPUT_RULES
+                        )
                         follow_up_content = (
                             f"用户问题：{task}\n\n"
                             f"你已经通过工具获取了数据，请根据数据给出完整的分析报告。"
@@ -851,47 +917,67 @@ class LangGraphAgent(ABC):
                             SystemMessage(content=system_prompt),
                             HumanMessage(content=follow_up_content),
                         ]
-                        
+
                         # Inject tool results from state
                         if state and state.values and "messages" in state.values:
                             for msg in state.values["messages"]:
                                 msg_type = type(msg).__name__
-                                if msg_type == "ToolMessage" and hasattr(msg, "content"):
+                                if msg_type == "ToolMessage" and hasattr(
+                                    msg, "content"
+                                ):
                                     tc = msg.content
                                     if isinstance(tc, str) and len(tc) > 10:
-                                        tc_truncated = tc[:3000] if len(tc) > 3000 else tc
-                                        follow_up_messages.append(
-                                            HumanMessage(content=f"工具返回数据：\n{tc_truncated}")
+                                        tc_truncated = (
+                                            tc[:3000] if len(tc) > 3000 else tc
                                         )
-                        
-                        response = await asyncio.to_thread(model.invoke, follow_up_messages)
+                                        follow_up_messages.append(
+                                            HumanMessage(
+                                                content=f"工具返回数据：\n{tc_truncated}"
+                                            )
+                                        )
+
+                        response = await asyncio.to_thread(
+                            model.invoke, follow_up_messages
+                        )
                         if hasattr(response, "content") and response.content:
                             resp_content = response.content
-                            if isinstance(resp_content, str) and len(resp_content.strip()) > MIN_RESPONSE_LEN:
+                            if (
+                                isinstance(resp_content, str)
+                                and len(resp_content.strip()) > MIN_RESPONSE_LEN
+                            ):
                                 full_response = resp_content
                                 yield {"type": "content", "content": resp_content}
                 except Exception as fallback_err:
-                    logger.warning(f"{self.config.name}: Fallback failed: {fallback_err}")
+                    logger.warning(
+                        f"{self.config.name}: Fallback failed: {fallback_err}"
+                    )
 
             # Save assistant response to history
             if full_response:
                 response_for_history = full_response
                 if len(response_for_history) > 2000:
-                    response_for_history = response_for_history[:2000] + "\n...[内容已截断]"
+                    response_for_history = (
+                        response_for_history[:2000] + "\n...[内容已截断]"
+                    )
                 self._memory.add_message(
-                    session_id, "assistant", response_for_history,
-                    max_messages=self.config.max_history_messages
+                    session_id,
+                    "assistant",
+                    response_for_history,
+                    max_messages=self.config.max_history_messages,
                 )
 
             # Emit debug: agent_end
             duration_ms = int((time.time() - start_time) * 1000)
-            yield self._make_debug_event("agent_end", {
-                "agent": self.config.name,
-                "duration_ms": duration_ms,
-                "tool_calls_count": tool_call_count,
-                "success": True,
-            })
-            
+            yield self._make_debug_event(
+                "agent_end",
+                {
+                    "agent": self.config.name,
+                    "duration_ms": duration_ms,
+                    "tool_calls_count": tool_call_count,
+                    "success": True,
+                },
+            )
+
             # Yield done
             yield {
                 "type": "done",
@@ -902,54 +988,65 @@ class LangGraphAgent(ABC):
                     "history_length": len(self._memory.get_history(session_id)),
                 },
             }
-            
+
             # Fallback for completely empty responses (no tool calls)
             if not full_response:
-                logger.info(f"{self.config.name}: No streamed content, falling back to sync")
+                logger.info(
+                    f"{self.config.name}: No streamed content, falling back to sync"
+                )
                 result = agent.invoke({"messages": messages}, config=config)
-                
+
                 for msg in reversed(result.get("messages", [])):
                     msg_type = type(msg).__name__
-                    if msg_type == "AIMessage" and hasattr(msg, "content") and msg.content:
+                    if (
+                        msg_type == "AIMessage"
+                        and hasattr(msg, "content")
+                        and msg.content
+                    ):
                         yield {
                             "type": "content",
                             "content": msg.content,
                         }
                         # Save to history
                         self._memory.add_message(
-                            session_id, "assistant", msg.content[:2000],
-                            max_messages=self.config.max_history_messages
+                            session_id,
+                            "assistant",
+                            msg.content[:2000],
+                            max_messages=self.config.max_history_messages,
                         )
                         break
-            
+
         except Exception as e:
             logger.error(f"{self.config.name} stream execution failed: {e}")
             # Emit debug: agent_end with error
             duration_ms = int((time.time() - start_time) * 1000)
-            yield self._make_debug_event("agent_end", {
-                "agent": self.config.name,
-                "duration_ms": duration_ms,
-                "tool_calls_count": tool_call_count,
-                "success": False,
-                "error": str(e),
-            })
+            yield self._make_debug_event(
+                "agent_end",
+                {
+                    "agent": self.config.name,
+                    "duration_ms": duration_ms,
+                    "tool_calls_count": tool_call_count,
+                    "success": False,
+                    "error": str(e),
+                },
+            )
             yield {
                 "type": "error",
                 "error": str(e),
             }
-    
+
     # =========================================================================
     # Cache utilities for tool result caching
     # =========================================================================
-    
-    def get_cached(self, session_id: str, key: str) -> Optional[Any]:
+
+    def get_cached(self, session_id: str, key: str) -> Any | None:
         """Get cached tool result."""
         return self._memory.get_cache(session_id, key)
-    
+
     def set_cached(self, session_id: str, key: str, value: Any, ttl_seconds: int = 300):
         """Cache tool result."""
         self._memory.set_cache(session_id, key, value, ttl_seconds)
-    
+
     def clear_session(self, session_id: str):
         """Clear session history and cache."""
         self._memory.clear_session(session_id)

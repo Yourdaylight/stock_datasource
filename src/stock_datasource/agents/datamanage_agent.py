@@ -1,16 +1,16 @@
 """DataManage Agent for data source management using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 
 logger = logging.getLogger(__name__)
 
 
 def list_datasources() -> str:
     """列出所有已配置的数据源。
-    
+
     Returns:
         数据源列表，包含ID、名称、状态等信息
     """
@@ -38,7 +38,7 @@ def list_datasources() -> str:
 
 def list_plugins() -> str:
     """列出所有已安装的数据插件。
-    
+
     Returns:
         插件列表及状态
     """
@@ -59,10 +59,10 @@ def list_plugins() -> str:
 
 def check_data_quality(table_name: str) -> str:
     """检查指定数据表的数据质量。
-    
+
     Args:
         table_name: 表名，如 ods_daily, ods_daily_basic
-    
+
     Returns:
         数据质量报告
     """
@@ -92,7 +92,7 @@ def check_data_quality(table_name: str) -> str:
 
 def get_sync_status() -> str:
     """获取数据同步状态。
-    
+
     Returns:
         各数据源的同步状态
     """
@@ -119,7 +119,7 @@ def get_sync_status() -> str:
 
 def get_datamanage_overview() -> str:
     """获取数据管理系统概览。
-    
+
     Returns:
         数据管理功能介绍
     """
@@ -157,22 +157,22 @@ def get_datamanage_overview() -> str:
 
 class DataManageAgent(LangGraphAgent):
     """DataManage Agent for data source and quality management using DeepAgents.
-    
+
     Handles:
     - Data source monitoring
     - Sync task management
     - Data quality assessment
     - Plugin management
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="DataManageAgent",
-            description="负责数据管理，包括数据源监控、同步任务管理、数据质量评估等"
+            description="负责数据管理，包括数据源监控、同步任务管理、数据质量评估等",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return data management tools."""
         return [
             list_datasources,
@@ -181,7 +181,7 @@ class DataManageAgent(LangGraphAgent):
             get_sync_status,
             get_datamanage_overview,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for data management."""
         return """你是数据管理助手，帮助用户管理数据源和监控数据质量。

@@ -8,24 +8,25 @@ This service provides market data and technical analysis capabilities:
 - Support for A-shares and HK stocks
 """
 
-from typing import List, Dict, Any, Optional
-from enum import Enum
-import math
 import logging
-import pandas as pd
+import math
 from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any
+
+import pandas as pd
 
 from .indicators import (
     calculate_indicators,
-    detect_signals,
     calculate_support_resistance,
+    detect_signals,
     determine_trend,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_float(value: Any, default: Optional[float] = 0.0) -> Optional[float]:
+def _safe_float(value: Any, default: float | None = 0.0) -> float | None:
     """Convert values to JSON-safe floats, collapsing NaN/Inf to a fallback."""
     if value is None or pd.isna(value):
         return default
@@ -43,33 +44,34 @@ def _safe_float(value: Any, default: Optional[float] = 0.0) -> Optional[float]:
 
 class MarketType(Enum):
     """Market type enumeration."""
-    A_SHARE = "a_share"      # A股 (Shanghai/Shenzhen)
-    HK_STOCK = "hk_stock"    # 港股 (Hong Kong)
+
+    A_SHARE = "a_share"  # A股 (Shanghai/Shenzhen)
+    HK_STOCK = "hk_stock"  # 港股 (Hong Kong)
     UNKNOWN = "unknown"
 
 
 def detect_market_type(ts_code: str) -> MarketType:
     """Detect market type from stock code suffix.
-    
+
     Args:
         ts_code: Stock code (e.g., 000001.SZ, 00700.HK)
-    
+
     Returns:
         MarketType enum value
     """
     if not ts_code:
         return MarketType.UNKNOWN
     ts_code = ts_code.upper()
-    if ts_code.endswith('.HK'):
+    if ts_code.endswith(".HK"):
         return MarketType.HK_STOCK
-    elif ts_code.endswith(('.SZ', '.SH')):
+    elif ts_code.endswith((".SZ", ".SH")):
         return MarketType.A_SHARE
     return MarketType.UNKNOWN
 
 
 def _is_etf_code(ts_code: str) -> bool:
     """Detect if a code is an ETF based on its numeric prefix.
-    
+
     ETF codes typically start with:
     - 5xxxxx.SH (Shanghai ETFs like 510050, 515070)
     - 15xxxx.SZ (Shenzhen ETFs like 159682, 159915)
@@ -77,26 +79,30 @@ def _is_etf_code(ts_code: str) -> bool:
     """
     if not ts_code:
         return False
-    ts_code = ts_code.upper().split('.')[0]
-    return bool(ts_code) and (
-        ts_code.startswith('51') or
-        ts_code.startswith('15') or
-        ts_code.startswith('56') or
-        ts_code.startswith('59') or
-        ts_code.startswith('16') or
-        ts_code.startswith('50') or
-        ts_code.startswith('52') or
-        ts_code.startswith('58')
-    ) and ts_code.isdigit()
+    ts_code = ts_code.upper().split(".")[0]
+    return (
+        bool(ts_code)
+        and (
+            ts_code.startswith("51")
+            or ts_code.startswith("15")
+            or ts_code.startswith("56")
+            or ts_code.startswith("59")
+            or ts_code.startswith("16")
+            or ts_code.startswith("50")
+            or ts_code.startswith("52")
+            or ts_code.startswith("58")
+        )
+        and ts_code.isdigit()
+    )
 
 
 class MarketService:
     """Market service for stock data and analysis.
-    
+
     Uses Plugin Services for data access following the Plugin-first principle.
     Supports both A-shares and HK stocks.
     """
-    
+
     def __init__(self):
         self._daily_service = None
         self._adj_factor_service = None
@@ -107,207 +113,219 @@ class MarketService:
         self._hk_adj_factor_service = None
         self._hk_basic_service = None
         self._db = None
-    
+
     @property
     def daily_service(self):
         """Lazy load TuShareDailyService."""
         if self._daily_service is None:
             try:
-                from stock_datasource.plugins.tushare_daily.service import TuShareDailyService
+                from stock_datasource.plugins.tushare_daily.service import (
+                    TuShareDailyService,
+                )
+
                 self._daily_service = TuShareDailyService()
                 logger.info("TuShareDailyService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareDailyService: {e}")
         return self._daily_service
-    
+
     @property
     def adj_factor_service(self):
         """Lazy load TuShareAdjFactorService."""
         if self._adj_factor_service is None:
             try:
-                from stock_datasource.plugins.tushare_adj_factor.service import TuShareAdjFactorService
+                from stock_datasource.plugins.tushare_adj_factor.service import (
+                    TuShareAdjFactorService,
+                )
+
                 self._adj_factor_service = TuShareAdjFactorService()
                 logger.info("TuShareAdjFactorService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareAdjFactorService: {e}")
         return self._adj_factor_service
-    
+
     @property
     def stock_basic_service(self):
         """Lazy load TuShareStockBasicService."""
         if self._stock_basic_service is None:
             try:
-                from stock_datasource.plugins.tushare_stock_basic.service import TuShareStockBasicService
+                from stock_datasource.plugins.tushare_stock_basic.service import (
+                    TuShareStockBasicService,
+                )
+
                 self._stock_basic_service = TuShareStockBasicService()
                 logger.info("TuShareStockBasicService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareStockBasicService: {e}")
         return self._stock_basic_service
-    
+
     @property
     def daily_basic_service(self):
         """Lazy load TuShareDailyBasicService."""
         if self._daily_basic_service is None:
             try:
-                from stock_datasource.plugins.tushare_daily_basic.service import TuShareDailyBasicService
+                from stock_datasource.plugins.tushare_daily_basic.service import (
+                    TuShareDailyBasicService,
+                )
+
                 self._daily_basic_service = TuShareDailyBasicService()
                 logger.info("TuShareDailyBasicService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareDailyBasicService: {e}")
         return self._daily_basic_service
-    
+
     @property
     def hk_daily_service(self):
         """Lazy load TuShareHKDailyService for HK stocks."""
         if self._hk_daily_service is None:
             try:
-                from stock_datasource.plugins.tushare_hk_daily.service import TuShareHKDailyService
+                from stock_datasource.plugins.tushare_hk_daily.service import (
+                    TuShareHKDailyService,
+                )
+
                 self._hk_daily_service = TuShareHKDailyService()
                 logger.info("TuShareHKDailyService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareHKDailyService: {e}")
         return self._hk_daily_service
-    
+
     @property
     def hk_adj_factor_service(self):
         """Lazy load TuShareHKAdjFactorService for HK stocks."""
         if self._hk_adj_factor_service is None:
             try:
-                from stock_datasource.plugins.tushare_hk_adjfactor.service import TuShareHKAdjFactorService
+                from stock_datasource.plugins.tushare_hk_adjfactor.service import (
+                    TuShareHKAdjFactorService,
+                )
+
                 self._hk_adj_factor_service = TuShareHKAdjFactorService()
                 logger.info("TuShareHKAdjFactorService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareHKAdjFactorService: {e}")
         return self._hk_adj_factor_service
-    
+
     @property
     def hk_basic_service(self):
         """Lazy load TuShareHKBasicService for HK stocks."""
         if self._hk_basic_service is None:
             try:
-                from stock_datasource.plugins.tushare_hk_basic.service import TuShareHKBasicService
+                from stock_datasource.plugins.tushare_hk_basic.service import (
+                    TuShareHKBasicService,
+                )
+
                 self._hk_basic_service = TuShareHKBasicService()
                 logger.info("TuShareHKBasicService initialized")
             except Exception as e:
                 logger.warning(f"Failed to load TuShareHKBasicService: {e}")
         return self._hk_basic_service
-    
+
     @property
     def db(self):
         """Lazy load database client for direct queries when needed."""
         if self._db is None:
             try:
                 from stock_datasource.models.database import db_client
+
                 self._db = db_client
             except Exception as e:
                 logger.warning(f"Failed to get DB client: {e}")
         return self._db
-    
+
     def _normalize_date(self, date_str: str) -> str:
         """Normalize date string to YYYYMMDD format."""
-        if '-' in date_str:
-            return date_str.replace('-', '')
+        if "-" in date_str:
+            return date_str.replace("-", "")
         return date_str
-    
+
     def _format_date(self, date_str: str) -> str:
         """Format date string to YYYY-MM-DD format."""
-        if '-' not in date_str and len(date_str) == 8:
+        if "-" not in date_str and len(date_str) == 8:
             return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         return date_str
-    
+
     async def get_kline(
-        self,
-        code: str,
-        start_date: str,
-        end_date: str,
-        adjust: str = "qfq"
-    ) -> Dict[str, Any]:
+        self, code: str, start_date: str, end_date: str, adjust: str = "qfq"
+    ) -> dict[str, Any]:
         """Get K-line data for a stock using Plugin Services.
-        
+
         Supports A-shares (including ETFs) and HK stocks by detecting market type from code suffix.
-        
+
         Args:
             code: Stock code (e.g., 000001.SZ for A-share, 00700.HK for ETF like 159682.SZ)
             start_date: Start date
             end_date: End date
             adjust: Adjustment type (qfq/hfq/none)
-            
+
         Returns:
             K-line data with stock info
         """
         start_date = self._normalize_date(start_date)
         end_date = self._normalize_date(end_date)
-        
+
         # Detect market type and route to appropriate service
         market_type = detect_market_type(code)
-        
+
         if market_type == MarketType.HK_STOCK:
             return await self._get_hk_kline(code, start_date, end_date, adjust)
-        
+
         # Detect if this is an ETF code (5xxxxx.SH / 15xxxx.SZ / 56xxxx.SH / 59xxxx.SH etc.)
         is_etf = self._is_etf_code(code)
-        
+
         # Try plugin service for A-share
         if self.daily_service and not is_etf:
             try:
                 records = self.daily_service.get_daily_data(
-                    code=code,
-                    start_date=start_date,
-                    end_date=end_date
+                    code=code, start_date=start_date, end_date=end_date
                 )
-                
+
                 if records:
                     # Apply adjustment if needed
                     if adjust in ("qfq", "hfq") and self.adj_factor_service:
                         adj_factors = self.adj_factor_service.get_adj_factor(
-                            code=code,
-                            start_date=start_date,
-                            end_date=end_date
+                            code=code, start_date=start_date, end_date=end_date
                         )
                         records = self._apply_adjustment(records, adj_factors, adjust)
-                    
+
                     data = []
                     for record in records:
-                        trade_date = record.get('trade_date', '')
+                        trade_date = record.get("trade_date", "")
                         if isinstance(trade_date, str):
                             trade_date = self._format_date(trade_date)
-                        
-                        data.append({
-                            "date": str(trade_date),
-                            "open": float(record.get('open', 0) or 0),
-                            "high": float(record.get('high', 0) or 0),
-                            "low": float(record.get('low', 0) or 0),
-                            "close": float(record.get('close', 0) or 0),
-                            "volume": float(record.get('vol', 0) or 0),
-                            "amount": float(record.get('amount', 0) or 0)
-                        })
-                    
+
+                        data.append(
+                            {
+                                "date": str(trade_date),
+                                "open": float(record.get("open", 0) or 0),
+                                "high": float(record.get("high", 0) or 0),
+                                "low": float(record.get("low", 0) or 0),
+                                "close": float(record.get("close", 0) or 0),
+                                "volume": float(record.get("vol", 0) or 0),
+                                "amount": float(record.get("amount", 0) or 0),
+                            }
+                        )
+
                     return {
                         "code": code,
                         "name": self._get_stock_name(code),
-                        "data": data
+                        "data": data,
                     }
             except Exception as e:
                 logger.error(f"Plugin service failed, falling back: {e}")
-        
+
         # For ETFs or plugin fallback, use direct DB query
         return await self._get_kline_from_db(code, start_date, end_date, is_etf=is_etf)
-    
+
     async def _get_hk_kline(
-        self,
-        code: str,
-        start_date: str,
-        end_date: str,
-        adjust: str = "qfq"
-    ) -> Dict[str, Any]:
+        self, code: str, start_date: str, end_date: str, adjust: str = "qfq"
+    ) -> dict[str, Any]:
         """Get K-line data for HK stocks.
-        
+
         Args:
             code: HK stock code (e.g., 00700.HK)
             start_date: Start date (YYYYMMDD)
             end_date: End date (YYYYMMDD)
             adjust: Adjustment type (qfq/hfq/none)
-            
+
         Returns:
             K-line data with stock info
         """
@@ -315,11 +333,9 @@ class MarketService:
         if self.hk_daily_service:
             try:
                 records = self.hk_daily_service.get_by_date_range(
-                    ts_code=code,
-                    start_date=start_date,
-                    end_date=end_date
+                    ts_code=code, start_date=start_date, end_date=end_date
                 )
-                
+
                 if records:
                     # Apply adjustment if needed
                     if adjust in ("qfq", "hfq") and self.hk_adj_factor_service:
@@ -327,50 +343,51 @@ class MarketService:
                             ts_code=code,
                             start_date=start_date,
                             end_date=end_date,
-                            limit=1000
+                            limit=1000,
                         )
-                        records = self._apply_hk_adjustment(records, adj_factors, adjust)
-                    
+                        records = self._apply_hk_adjustment(
+                            records, adj_factors, adjust
+                        )
+
                     data = []
                     for record in records:
-                        trade_date = record.get('trade_date', '')
+                        trade_date = record.get("trade_date", "")
                         if isinstance(trade_date, str):
                             trade_date = self._format_date(trade_date)
-                        elif hasattr(trade_date, 'strftime'):
-                            trade_date = trade_date.strftime('%Y-%m-%d')
-                        
-                        data.append({
-                            "date": str(trade_date),
-                            "open": float(record.get('open', 0) or 0),
-                            "high": float(record.get('high', 0) or 0),
-                            "low": float(record.get('low', 0) or 0),
-                            "close": float(record.get('close', 0) or 0),
-                            "volume": float(record.get('vol', 0) or 0),
-                            "amount": float(record.get('amount', 0) or 0)
-                        })
-                    
+                        elif hasattr(trade_date, "strftime"):
+                            trade_date = trade_date.strftime("%Y-%m-%d")
+
+                        data.append(
+                            {
+                                "date": str(trade_date),
+                                "open": float(record.get("open", 0) or 0),
+                                "high": float(record.get("high", 0) or 0),
+                                "low": float(record.get("low", 0) or 0),
+                                "close": float(record.get("close", 0) or 0),
+                                "volume": float(record.get("vol", 0) or 0),
+                                "amount": float(record.get("amount", 0) or 0),
+                            }
+                        )
+
                     return {
                         "code": code,
                         "name": self._get_stock_name(code),
                         "data": data,
-                        "market_type": "hk_stock"
+                        "market_type": "hk_stock",
                     }
             except Exception as e:
                 logger.error(f"HK plugin service failed: {e}")
-        
+
         # Fallback to direct DB query for HK stocks
         return await self._get_hk_kline_from_db(code, start_date, end_date)
-    
+
     async def _get_hk_kline_from_db(
-        self,
-        code: str,
-        start_date: str,
-        end_date: str
-    ) -> Dict[str, Any]:
+        self, code: str, start_date: str, end_date: str
+    ) -> dict[str, Any]:
         """Fallback: get HK K-line data directly from database."""
         if self.db is None:
             return self._get_mock_kline(code, start_date, end_date)
-        
+
         try:
             query = """
                 SELECT 
@@ -383,116 +400,110 @@ class MarketService:
                   AND trade_date BETWEEN %(start)s AND %(end)s
                 ORDER BY trade_date
             """
-            df = self.db.execute_query(query, {
-                "code": code,
-                "start": start_date,
-                "end": end_date
-            })
-            
+            df = self.db.execute_query(
+                query, {"code": code, "start": start_date, "end": end_date}
+            )
+
             data = []
             for _, row in df.iterrows():
                 trade_date = row["trade_date"]
-                if hasattr(trade_date, 'strftime'):
-                    trade_date = trade_date.strftime('%Y-%m-%d')
+                if hasattr(trade_date, "strftime"):
+                    trade_date = trade_date.strftime("%Y-%m-%d")
                 else:
                     trade_date = self._format_date(str(trade_date))
-                
-                data.append({
-                    "date": trade_date,
-                    "open": float(row["open"] or 0),
-                    "high": float(row["high"] or 0),
-                    "low": float(row["low"] or 0),
-                    "close": float(row["close"] or 0),
-                    "volume": float(row["volume"] or 0),
-                    "amount": float(row["amount"] or 0)
-                })
-            
+
+                data.append(
+                    {
+                        "date": trade_date,
+                        "open": float(row["open"] or 0),
+                        "high": float(row["high"] or 0),
+                        "low": float(row["low"] or 0),
+                        "close": float(row["close"] or 0),
+                        "volume": float(row["volume"] or 0),
+                        "amount": float(row["amount"] or 0),
+                    }
+                )
+
             return {
                 "code": code,
                 "name": self._get_stock_name(code),
                 "data": data,
-                "market_type": "hk_stock"
+                "market_type": "hk_stock",
             }
         except Exception as e:
             logger.error(f"Failed to get HK K-line data: {e}")
             return self._get_mock_kline(code, start_date, end_date)
-    
+
     def _apply_hk_adjustment(
-        self,
-        records: List[Dict],
-        adj_factors: List[Dict],
-        adjust: str
-    ) -> List[Dict]:
+        self, records: list[dict], adj_factors: list[dict], adjust: str
+    ) -> list[dict]:
         """Apply price adjustment to HK K-line data.
-        
+
         HK adjustment factor uses cum_adjfactor field.
         """
         if not adj_factors:
             return records
-        
+
         # Create adj_factor lookup by date (HK uses cum_adjfactor)
         adj_dict = {}
         for r in adj_factors:
-            trade_date = r.get('trade_date', '')
-            if hasattr(trade_date, 'strftime'):
-                trade_date = trade_date.strftime('%Y%m%d')
-            elif '-' in str(trade_date):
-                trade_date = str(trade_date).replace('-', '')
-            adj_dict[trade_date] = float(r.get('cum_adjfactor', 1.0) or 1.0)
-        
+            trade_date = r.get("trade_date", "")
+            if hasattr(trade_date, "strftime"):
+                trade_date = trade_date.strftime("%Y%m%d")
+            elif "-" in str(trade_date):
+                trade_date = str(trade_date).replace("-", "")
+            adj_dict[trade_date] = float(r.get("cum_adjfactor", 1.0) or 1.0)
+
         if not adj_dict:
             return records
-        
+
         # Get latest adj_factor for forward adjustment
         sorted_dates = sorted(adj_dict.keys())
         latest_adj = adj_dict[sorted_dates[-1]] if sorted_dates else 1.0
-        
+
         def get_adj_factor(trade_date: str) -> float:
             # Normalize date format
-            if '-' in trade_date:
-                trade_date = trade_date.replace('-', '')
+            if "-" in trade_date:
+                trade_date = trade_date.replace("-", "")
             if trade_date in adj_dict:
                 return adj_dict[trade_date]
             for d in reversed(sorted_dates):
                 if d <= trade_date:
                     return adj_dict[d]
             return latest_adj
-        
+
         for record in records:
-            trade_date = record.get('trade_date', '')
-            if hasattr(trade_date, 'strftime'):
-                trade_date = trade_date.strftime('%Y%m%d')
+            trade_date = record.get("trade_date", "")
+            if hasattr(trade_date, "strftime"):
+                trade_date = trade_date.strftime("%Y%m%d")
             adj_factor = get_adj_factor(str(trade_date))
-            
+
             if adjust == "qfq":
                 ratio = adj_factor / latest_adj
             else:
                 ratio = adj_factor
-            
-            for field in ['open', 'high', 'low', 'close']:
+
+            for field in ["open", "high", "low", "close"]:
                 if record.get(field):
                     record[field] = round(float(record[field]) * ratio, 2)
-        
+
         return records
-    
+
     def _apply_adjustment(
-        self,
-        records: List[Dict],
-        adj_factors: List[Dict],
-        adjust: str
-    ) -> List[Dict]:
+        self, records: list[dict], adj_factors: list[dict], adjust: str
+    ) -> list[dict]:
         """Apply price adjustment to K-line data."""
         if not adj_factors:
             return records
-        
+
         # Create adj_factor lookup by date
-        adj_dict = {r['trade_date']: float(r['adj_factor']) for r in adj_factors}
-        
+        adj_dict = {r["trade_date"]: float(r["adj_factor"]) for r in adj_factors}
+
         # Get latest adj_factor for forward adjustment
         # Sort adj factors by date to get the most recent one
         sorted_dates = sorted(adj_dict.keys())
         latest_adj = adj_dict[sorted_dates[-1]] if sorted_dates else 1.0
-        
+
         # For missing dates, use the nearest available adj_factor
         # by looking up the closest earlier date
         def get_adj_factor(trade_date: str) -> float:
@@ -504,38 +515,34 @@ class MarketService:
                     return adj_dict[d]
             # If no earlier date found, use the latest
             return latest_adj
-        
+
         for record in records:
-            trade_date = record.get('trade_date', '')
+            trade_date = record.get("trade_date", "")
             adj_factor = get_adj_factor(trade_date)
-            
+
             if adjust == "qfq":
                 # Forward adjustment: divide by latest to normalize
                 ratio = adj_factor / latest_adj
             else:
                 # Backward adjustment
                 ratio = adj_factor
-            
-            for field in ['open', 'high', 'low', 'close']:
+
+            for field in ["open", "high", "low", "close"]:
                 if record.get(field):
                     record[field] = round(float(record[field]) * ratio, 2)
-        
+
         return records
-    
+
     async def _get_kline_from_db(
-        self,
-        code: str,
-        start_date: str,
-        end_date: str,
-        is_etf: bool = False
-    ) -> Dict[str, Any]:
+        self, code: str, start_date: str, end_date: str, is_etf: bool = False
+    ) -> dict[str, Any]:
         """Fallback: get K-line data directly from database.
-        
+
         For ETFs (is_etf=True), queries ods_etf_fund_daily instead of ods_daily.
         """
         if self.db is None:
             return self._get_mock_kline(code, start_date, end_date)
-        
+
         try:
             # ETF uses different table
             if is_etf:
@@ -562,118 +569,120 @@ class MarketService:
                       AND trade_date BETWEEN %(start)s AND %(end)s
                     ORDER BY trade_date
                 """
-            df = self.db.execute_query(query, {
-                "code": code,
-                "start": start_date,
-                "end": end_date
-            })
-            
+            df = self.db.execute_query(
+                query, {"code": code, "start": start_date, "end": end_date}
+            )
+
             if df.empty:
-                logger.warning(f"No kline data found for {code} in {'etf' if is_etf else 'daily'} table")
-            
+                logger.warning(
+                    f"No kline data found for {code} in {'etf' if is_etf else 'daily'} table"
+                )
+
             data = []
             for _, row in df.iterrows():
                 trade_date = row["trade_date"]
-                if hasattr(trade_date, 'strftime'):
-                    trade_date = trade_date.strftime('%Y-%m-%d')
+                if hasattr(trade_date, "strftime"):
+                    trade_date = trade_date.strftime("%Y-%m-%d")
                 else:
                     trade_date = self._format_date(str(trade_date))
-                
-                data.append({
-                    "date": trade_date,
-                    "open": float(row["open"] or 0),
-                    "high": float(row["high"] or 0),
-                    "low": float(row["low"] or 0),
-                    "close": float(row["close"] or 0),
-                    "volume": float(row["volume"] or 0),
-                    "amount": float(row["amount"] or 0)
-                })
-            
-            return {
-                "code": code,
-                "name": self._get_stock_name(code),
-                "data": data
-            }
+
+                data.append(
+                    {
+                        "date": trade_date,
+                        "open": float(row["open"] or 0),
+                        "high": float(row["high"] or 0),
+                        "low": float(row["low"] or 0),
+                        "close": float(row["close"] or 0),
+                        "volume": float(row["volume"] or 0),
+                        "amount": float(row["amount"] or 0),
+                    }
+                )
+
+            return {"code": code, "name": self._get_stock_name(code), "data": data}
         except Exception as e:
             logger.error(f"Failed to get K-line data: {e}")
             return self._get_mock_kline(code, start_date, end_date)
-    
+
     async def get_indicators(
         self,
         code: str,
-        indicators: List[str],
+        indicators: list[str],
         period: int = 60,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Calculate technical indicators for a stock.
-        
+
         Args:
             code: Stock code
             indicators: List of indicators to calculate
             period: Calculation period (days of data to use)
             params: Optional parameters for each indicator
-            
+
         Returns:
             Indicator data
         """
         # Get price data
         end_date = datetime.now().strftime("%Y%m%d")
         start_date = (datetime.now() - timedelta(days=period + 50)).strftime("%Y%m%d")
-        
+
         kline_result = await self.get_kline(code, start_date, end_date, adjust="qfq")
         kline_data = kline_result.get("data", [])
-        
+
         if not kline_data:
             return {
                 "code": code,
                 "name": self._get_stock_name(code),
                 "dates": [],
                 "indicators": {},
-                "signals": []
+                "signals": [],
             }
-        
+
         # Convert to DataFrame
         df = pd.DataFrame(kline_data)
-        df['volume'] = df['volume'].astype(float)
-        
+        df["volume"] = df["volume"].astype(float)
+
         # Calculate indicators
         indicator_params = {}
         if params:
             # Convert IndicatorParams model to dict if needed
-            if hasattr(params, 'dict'):
+            if hasattr(params, "dict"):
                 params = params.dict(exclude_none=True)
             indicator_params = {k.upper(): v for k, v in params.items() if v}
-        
+
         indicators_data = calculate_indicators(df, indicators, indicator_params)
-        
+
         # Detect signals
         signals = detect_signals(df, indicators_data)
-        
+
         # Get dates
-        dates = df['date'].tolist()
-        
+        dates = df["date"].tolist()
+
         return {
             "code": code,
             "name": kline_result.get("name", code),
             "dates": dates,
             "indicators": indicators_data,
-            "signals": [{"type": s["type"], "indicator": s["indicator"], 
-                        "signal": s["signal"], "description": s["description"]} for s in signals]
+            "signals": [
+                {
+                    "type": s["type"],
+                    "indicator": s["indicator"],
+                    "signal": s["signal"],
+                    "description": s["description"],
+                }
+                for s in signals
+            ],
         }
-    
+
     async def get_indicators_legacy(
-        self,
-        code: str,
-        indicators: List[str],
-        period: int = 60
-    ) -> Dict[str, Any]:
+        self, code: str, indicators: list[str], period: int = 60
+    ) -> dict[str, Any]:
         """Get indicators in legacy format (for backward compatibility)."""
         result = await self.get_indicators(code, indicators, period)
-        
+
         # Convert to legacy format
         dates = result.get("dates", [])
         indicators_data = result.get("indicators", {})
-        
+
         legacy_data = []
         for i, date in enumerate(dates):
             values = {}
@@ -681,38 +690,28 @@ class MarketService:
                 if i < len(vals) and vals[i] is not None:
                     values[key] = vals[i]
             if values:
-                legacy_data.append({
-                    "date": date,
-                    "values": values
-                })
-        
-        return {
-            "code": code,
-            "indicators": legacy_data
-        }
-    
-    async def get_market_overview(self) -> Dict[str, Any]:
+                legacy_data.append({"date": date, "values": values})
+
+        return {"code": code, "indicators": legacy_data}
+
+    async def get_market_overview(self) -> dict[str, Any]:
         """Get market overview with index data and statistics."""
         try:
             # Get latest trade date
             latest_date = None
             if self.daily_service:
                 latest_date = self.daily_service.get_latest_trade_date()
-            
+
             if not latest_date:
                 latest_date = datetime.now().strftime("%Y-%m-%d")
-            
+
             # Get index data
             indices = await self._get_index_data()
-            
+
             # Get market statistics
             stats = await self._get_market_stats(latest_date)
-            
-            return {
-                "date": latest_date,
-                "indices": indices,
-                "stats": stats
-            }
+
+            return {"date": latest_date, "indices": indices, "stats": stats}
         except Exception as e:
             logger.error(f"Failed to get market overview: {e}")
             return {
@@ -724,11 +723,11 @@ class MarketService:
                     "flat_count": 0,
                     "limit_up_count": 0,
                     "limit_down_count": 0,
-                    "total_amount": 0
-                }
+                    "total_amount": 0,
+                },
             }
-    
-    async def _get_index_data(self) -> List[Dict[str, Any]]:
+
+    async def _get_index_data(self) -> list[dict[str, Any]]:
         """Get major index data. Priority: rt_minute_latest > ods_index_daily."""
         index_codes = [
             ("000001.SH", "上证指数"),
@@ -738,21 +737,36 @@ class MarketService:
             ("000300.SH", "沪深300"),
             ("000905.SH", "中证500"),
         ]
-        
+
         # 1. 先尝试从分钟缓存获取（秒级精度）
         rt_indices = self._get_index_data_from_minute_cache(index_codes)
         if rt_indices:
             return rt_indices
-        
+
         # 2. Fallback 到日线表
         if self.db is None:
             # Return mock data
             return [
-                {"code": "000001.SH", "name": "上证指数", "close": 3050.0, "pct_chg": 0.5},
-                {"code": "399001.SZ", "name": "深证成指", "close": 10200.0, "pct_chg": 0.8},
-                {"code": "399006.SZ", "name": "创业板指", "close": 2100.0, "pct_chg": 1.2},
+                {
+                    "code": "000001.SH",
+                    "name": "上证指数",
+                    "close": 3050.0,
+                    "pct_chg": 0.5,
+                },
+                {
+                    "code": "399001.SZ",
+                    "name": "深证成指",
+                    "close": 10200.0,
+                    "pct_chg": 0.8,
+                },
+                {
+                    "code": "399006.SZ",
+                    "name": "创业板指",
+                    "close": 2100.0,
+                    "pct_chg": 1.2,
+                },
             ]
-        
+
         try:
             for code, name in index_codes:
                 query = """
@@ -763,30 +777,35 @@ class MarketService:
                     LIMIT 1
                 """
                 df = self.db.execute_query(query, {"code": code})
-                
+
                 if not df.empty:
                     row = df.iloc[0]
-                    indices.append({
-                        "code": code,
-                        "name": name,
-                        "close": float(row.get("close", 0) or 0),
-                        "pct_chg": float(row.get("pct_chg", 0) or 0),
-                        "volume": float(row.get("vol", 0) or 0),
-                        "amount": float(row.get("amount", 0) or 0)
-                    })
+                    indices.append(
+                        {
+                            "code": code,
+                            "name": name,
+                            "close": float(row.get("close", 0) or 0),
+                            "pct_chg": float(row.get("pct_chg", 0) or 0),
+                            "volume": float(row.get("vol", 0) or 0),
+                            "amount": float(row.get("amount", 0) or 0),
+                        }
+                    )
         except Exception as e:
             logger.error(f"Failed to get index data: {e}")
-        
+
         return indices
-    
+
     def _get_index_data_from_minute_cache(self, index_codes: list) -> list:
         """从分钟缓存获取指数数据（秒级精度）。"""
         try:
-            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            from stock_datasource.modules.realtime_minute.cache_store import (
+                get_cache_store,
+            )
+
             cache = get_cache_store()
             if not cache.available:
                 return []
-            
+
             result = []
             for code, name in index_codes:
                 latest = cache.get_latest("index", code, "1min")
@@ -799,23 +818,25 @@ class MarketService:
                             pct_chg = round((c - o) / o * 100, 2)
                         else:
                             pct_chg = 0
-                    result.append({
-                        "code": code,
-                        "name": name,
-                        "close": float(latest["close"]),
-                        "pct_chg": float(pct_chg),
-                        "volume": float(latest.get("vol", 0) or 0),
-                        "amount": float(latest.get("amount", 0) or 0),
-                    })
-            
+                    result.append(
+                        {
+                            "code": code,
+                            "name": name,
+                            "close": float(latest["close"]),
+                            "pct_chg": float(pct_chg),
+                            "volume": float(latest.get("vol", 0) or 0),
+                            "amount": float(latest.get("amount", 0) or 0),
+                        }
+                    )
+
             if len(result) >= 3:
                 return result
             return []
         except Exception as e:
             logger.warning(f"Failed to get index data from minute cache: {e}")
             return []
-    
-    async def _get_market_stats(self, date: str) -> Dict[str, Any]:
+
+    async def _get_market_stats(self, date: str) -> dict[str, Any]:
         """Get market statistics for a given date."""
         stats = {
             "up_count": 0,
@@ -823,15 +844,15 @@ class MarketService:
             "flat_count": 0,
             "limit_up_count": 0,
             "limit_down_count": 0,
-            "total_amount": 0
+            "total_amount": 0,
         }
-        
+
         if self.db is None:
             return stats
-        
+
         try:
             date_str = self._normalize_date(date)
-            
+
             # Get all stocks' daily data for the date
             if self.daily_service:
                 df = self.daily_service.get_all_daily_by_date(date_str)
@@ -842,59 +863,58 @@ class MarketService:
                     WHERE trade_date = %(date)s
                 """
                 df = self.db.execute_query(query, {"date": date_str})
-            
+
             if not df.empty:
-                pct_chg = df['pct_chg'].fillna(0)
+                pct_chg = df["pct_chg"].fillna(0)
                 stats["up_count"] = int((pct_chg > 0).sum())
                 stats["down_count"] = int((pct_chg < 0).sum())
                 stats["flat_count"] = int((pct_chg == 0).sum())
                 stats["limit_up_count"] = int((pct_chg >= 9.9).sum())
                 stats["limit_down_count"] = int((pct_chg <= -9.9).sum())
-                stats["total_amount"] = round(df['amount'].sum() / 100000000, 2)  # Convert to 亿
+                stats["total_amount"] = round(
+                    df["amount"].sum() / 100000000, 2
+                )  # Convert to 亿
         except Exception as e:
             logger.error(f"Failed to get market stats: {e}")
-        
+
         return stats
-    
+
     async def get_hot_stocks(
-        self, 
-        sort_by: str = "amount", 
-        limit: int = 10,
-        date: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, sort_by: str = "amount", limit: int = 10, date: str | None = None
+    ) -> dict[str, Any]:
         """Get hot stocks by amount or pct_chg.
-        
+
         Args:
             sort_by: 'amount' for trading volume, 'pct_chg' for price change
             limit: Number of stocks to return
             date: Trade date (optional, defaults to latest)
-            
+
         Returns:
             Hot stocks data
         """
         try:
             if self.db is None:
                 return {"trade_date": None, "data": [], "sort_by": sort_by}
-            
+
             # Get latest trade date if not specified
             if not date:
                 result = self.db.execute_query(
                     "SELECT max(trade_date) as latest FROM fact_daily_bar"
                 )
                 if result is not None and not result.empty:
-                    latest = result['latest'].iloc[0]
-                    if hasattr(latest, 'strftime'):
-                        date = latest.strftime('%Y-%m-%d')
+                    latest = result["latest"].iloc[0]
+                    if hasattr(latest, "strftime"):
+                        date = latest.strftime("%Y-%m-%d")
                     else:
                         date = str(latest)
-            
-            if not date or date in ['1970-01-01', '19700101']:
+
+            if not date or date in ["1970-01-01", "19700101"]:
                 return {"trade_date": None, "data": [], "sort_by": sort_by}
-            
+
             # Determine sort order
             order_field = "amount" if sort_by == "amount" else "pct_chg"
             order_dir = "DESC"
-            
+
             # Query hot stocks - use argMax to deduplicate and nested subquery to filter
             query = f"""
             SELECT 
@@ -937,58 +957,73 @@ class MarketService:
             ) b ON d.ts_code = b.ts_code
             ORDER BY d.{order_field} {order_dir}
             """
-            
-            result = self.db.execute_query(query, {
-                "trade_date": date,
-                "limit": limit
-            })
-            
+
+            result = self.db.execute_query(query, {"trade_date": date, "limit": limit})
+
             if result is None or result.empty:
                 return {"trade_date": date, "data": [], "sort_by": sort_by}
-            
+
             data = []
             for _, row in result.iterrows():
-                data.append({
-                    "ts_code": row.get("ts_code"),
-                    "name": row.get("name") or row.get("ts_code", "").split(".")[0],
-                    "close": _safe_float(row.get("close"), 0.0),
-                    "pct_chg": _safe_float(row.get("pct_chg"), 0.0),
-                    "amount": _safe_float(row.get("amount"), 0.0),
-                    "turnover_rate": _safe_float(row.get("turnover_rate"), None),
-                    "circ_mv": _safe_float(row.get("circ_mv"), None),
-                })
-            
-            return {
-                "trade_date": date,
-                "data": data,
-                "sort_by": sort_by
-            }
-            
+                data.append(
+                    {
+                        "ts_code": row.get("ts_code"),
+                        "name": row.get("name") or row.get("ts_code", "").split(".")[0],
+                        "close": _safe_float(row.get("close"), 0.0),
+                        "pct_chg": _safe_float(row.get("pct_chg"), 0.0),
+                        "amount": _safe_float(row.get("amount"), 0.0),
+                        "turnover_rate": _safe_float(row.get("turnover_rate"), None),
+                        "circ_mv": _safe_float(row.get("circ_mv"), None),
+                    }
+                )
+
+            return {"trade_date": date, "data": data, "sort_by": sort_by}
+
         except Exception as e:
             logger.error(f"Failed to get hot stocks: {e}")
             return {"trade_date": None, "data": [], "sort_by": sort_by}
-    
-    async def get_hot_sectors(self) -> Dict[str, Any]:
+
+    async def get_hot_sectors(self) -> dict[str, Any]:
         """Get hot sectors data."""
         # This would typically use industry index data
         # For now, return mock data
         return {
             "date": datetime.now().strftime("%Y-%m-%d"),
             "sectors": [
-                {"name": "新能源", "pct_chg": 3.5, "leading_stock": "宁德时代", "leading_stock_code": "300750.SZ"},
-                {"name": "半导体", "pct_chg": 2.8, "leading_stock": "北方华创", "leading_stock_code": "002371.SZ"},
-                {"name": "白酒", "pct_chg": 1.5, "leading_stock": "贵州茅台", "leading_stock_code": "600519.SH"},
-                {"name": "银行", "pct_chg": 0.8, "leading_stock": "招商银行", "leading_stock_code": "600036.SH"},
-            ]
+                {
+                    "name": "新能源",
+                    "pct_chg": 3.5,
+                    "leading_stock": "宁德时代",
+                    "leading_stock_code": "300750.SZ",
+                },
+                {
+                    "name": "半导体",
+                    "pct_chg": 2.8,
+                    "leading_stock": "北方华创",
+                    "leading_stock_code": "002371.SZ",
+                },
+                {
+                    "name": "白酒",
+                    "pct_chg": 1.5,
+                    "leading_stock": "贵州茅台",
+                    "leading_stock_code": "600519.SH",
+                },
+                {
+                    "name": "银行",
+                    "pct_chg": 0.8,
+                    "leading_stock": "招商银行",
+                    "leading_stock_code": "600036.SH",
+                },
+            ],
         }
-    
-    async def analyze_trend(self, code: str, period: int = 60) -> Dict[str, Any]:
+
+    async def analyze_trend(self, code: str, period: int = 60) -> dict[str, Any]:
         """Analyze stock trend.
-        
+
         Args:
             code: Stock code
             period: Analysis period
-            
+
         Returns:
             Trend analysis result
         """
@@ -996,12 +1031,12 @@ class MarketService:
         kline_result = await self.get_kline(
             code,
             (datetime.now() - timedelta(days=period + 30)).strftime("%Y-%m-%d"),
-            datetime.now().strftime("%Y-%m-%d")
+            datetime.now().strftime("%Y-%m-%d"),
         )
-        
+
         kline_data = kline_result.get("data", [])
         stock_name = kline_result.get("name", code)
-        
+
         if not kline_data:
             return {
                 "code": code,
@@ -1011,29 +1046,29 @@ class MarketService:
                 "resistance": 0,
                 "signals": [],
                 "summary": "无法获取股票数据",
-                "disclaimer": "以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。"
+                "disclaimer": "以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。",
             }
-        
+
         df = pd.DataFrame(kline_data)
-        df['volume'] = df['volume'].astype(float)
-        
+        df["volume"] = df["volume"].astype(float)
+
         # Calculate indicators
         indicators_data = calculate_indicators(df, ["MACD", "RSI", "KDJ", "BOLL", "MA"])
-        
+
         # Detect signals
         signals = detect_signals(df, indicators_data)
-        
+
         # Calculate support/resistance
         levels = calculate_support_resistance(df)
-        
+
         # Determine trend
         trend = determine_trend(df)
-        
+
         # Generate summary
         summary = self._generate_analysis_summary(
             code, stock_name, trend, levels, signals, df
         )
-        
+
         return {
             "code": code,
             "name": stock_name,
@@ -1045,33 +1080,35 @@ class MarketService:
                     "type": s["type"],
                     "indicator": s["indicator"],
                     "signal": s["signal"],
-                    "description": s["description"]
+                    "description": s["description"],
                 }
                 for s in signals
             ],
             "summary": summary,
-            "disclaimer": "以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。"
+            "disclaimer": "以上分析仅供参考，不构成投资建议。投资有风险，入市需谨慎。",
         }
-    
+
     def _generate_analysis_summary(
         self,
         code: str,
         name: str,
         trend: str,
-        levels: Dict[str, float],
-        signals: List[Dict],
-        df: pd.DataFrame
+        levels: dict[str, float],
+        signals: list[dict],
+        df: pd.DataFrame,
     ) -> str:
         """Generate analysis summary text."""
         if df.empty:
             return f"无法获取{name}({code})的行情数据"
-        
+
         last = df.iloc[-1]
-        current_price = float(last['close']) if pd.notna(last['close']) else 0.0
-        
+        current_price = float(last["close"]) if pd.notna(last["close"]) else 0.0
+
         # Calculate change
         if len(df) > 1:
-            prev_close = float(df.iloc[-2]['close']) if pd.notna(df.iloc[-2]['close']) else 0.0
+            prev_close = (
+                float(df.iloc[-2]["close"]) if pd.notna(df.iloc[-2]["close"]) else 0.0
+            )
             if prev_close > 0:
                 change = current_price - prev_close
                 change_pct = (change / prev_close) * 100
@@ -1081,53 +1118,53 @@ class MarketService:
         else:
             change = 0
             change_pct = 0
-        
+
         parts = []
-        
+
         # Basic info
         parts.append(f"{name}({code})当前价格{current_price:.2f}元，")
         if change >= 0:
             parts.append(f"涨{change_pct:.2f}%。")
         else:
             parts.append(f"跌{abs(change_pct):.2f}%。")
-        
+
         # Trend
         parts.append(f"当前处于{trend}。")
-        
+
         # Support/Resistance - handle potential NaN values
-        support = levels.get('support', 0) or 0
-        resistance = levels.get('resistance', 0) or 0
+        support = levels.get("support", 0) or 0
+        resistance = levels.get("resistance", 0) or 0
         parts.append(f"支撑位{support:.2f}，压力位{resistance:.2f}。")
-        
+
         # Signals
         bullish_signals = [s for s in signals if s["type"] == "bullish"]
         bearish_signals = [s for s in signals if s["type"] == "bearish"]
-        
+
         if bullish_signals:
             signal_names = [s["signal"] for s in bullish_signals[:3]]
             parts.append(f"看多信号：{'、'.join(signal_names)}。")
-        
+
         if bearish_signals:
             signal_names = [s["signal"] for s in bearish_signals[:3]]
             parts.append(f"看空信号：{'、'.join(signal_names)}。")
-        
+
         if not bullish_signals and not bearish_signals:
             parts.append("暂无明显技术信号。")
-        
+
         return "".join(parts)
-    
-    async def search_stock(self, keyword: str) -> List[Dict[str, str]]:
+
+    async def search_stock(self, keyword: str) -> list[dict[str, str]]:
         """Search stocks by keyword.
-        
+
         Searches A-shares, ETFs and HK stocks. Supports:
         - Full ts_code: 000001.SZ, 510050.SH, 00700.HK
         - Pure number: 000001, 510050, 00700
         - Chinese name: 平安银行, 沪深300ETF
         - Pinyin (HK): tx (for 腾讯)
-        
+
         Args:
             keyword: Search keyword
-            
+
         Returns:
             List of matching stocks
         """
@@ -1135,39 +1172,59 @@ class MarketService:
         keyword = keyword.strip()
         if not keyword:
             return results
-        
+
         # Normalize: if pure digits, also try with .SH / .SZ / .HK suffixes
-        is_pure_digits = keyword.replace('.', '').isdigit() and '.' not in keyword
-        
+        is_pure_digits = keyword.replace(".", "").isdigit() and "." not in keyword
+
         # Search A-shares via plugin
         if self.stock_basic_service:
             try:
-                a_share_results = self.stock_basic_service.search_stocks(keyword, limit=15)
+                a_share_results = self.stock_basic_service.search_stocks(
+                    keyword, limit=15
+                )
                 if a_share_results:
-                    results.extend([{"code": r["ts_code"], "name": r["name"], "market": "a_share"} for r in a_share_results])
+                    results.extend(
+                        [
+                            {
+                                "code": r["ts_code"],
+                                "name": r["name"],
+                                "market": "a_share",
+                            }
+                            for r in a_share_results
+                        ]
+                    )
             except Exception as e:
                 logger.warning(f"A-share search via plugin failed: {e}")
-        
+
         # Search HK stocks via plugin
         if self.hk_basic_service:
             try:
                 hk_results = self.hk_basic_service.search(keyword, limit=10)
                 if hk_results:
-                    results.extend([{"code": r["ts_code"], "name": r["name"], "market": "hk_stock"} for r in hk_results])
+                    results.extend(
+                        [
+                            {
+                                "code": r["ts_code"],
+                                "name": r["name"],
+                                "market": "hk_stock",
+                            }
+                            for r in hk_results
+                        ]
+                    )
             except Exception as e:
                 logger.warning(f"HK stock search via plugin failed: {e}")
-        
+
         if results:
             return results
-        
+
         # Fallback to direct DB query
         if self.db is None:
             return []
-        
+
         try:
             # Build keyword pattern for LIKE
             like_pattern = f"%{keyword}%"
-            
+
             if is_pure_digits:
                 # For pure digits, also match against symbol column and try exact ts_code with suffixes
                 query = """
@@ -1219,109 +1276,133 @@ class MarketService:
         except Exception as e:
             logger.error(f"Stock search failed: {e}")
             return []
-    
-    async def resolve_stock_code(self, code: str) -> Optional[Dict[str, str]]:
+
+    async def resolve_stock_code(self, code: str) -> dict[str, str] | None:
         """Resolve a possibly incomplete stock code to its full ts_code.
-        
+
         Handles cases like:
         - '000001' -> '000001.SZ'
-        - '510050' -> '510050.SH' 
+        - '510050' -> '510050.SH'
         - '00700'  -> '00700.HK'
         - '000001.SZ' -> '000001.SZ' (already complete)
-        
+
         Args:
             code: Stock code, with or without suffix
-            
+
         Returns:
             Dict with code, name, market or None if not found
         """
         code = code.strip()
         if not code:
             return None
-        
+
         # If already has a suffix, validate it exists
-        if '.' in code:
-            suffix = code.split('.')[-1].upper()
+        if "." in code:
+            suffix = code.split(".")[-1].upper()
             code = code.upper()
-            if suffix in ('SH', 'SZ'):
+            if suffix in ("SH", "SZ"):
                 # Try A-share
                 if self.db:
                     try:
                         df = self.db.execute_query(
                             "SELECT ts_code, name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1",
-                            {"code": code}
+                            {"code": code},
                         )
                         if not df.empty:
-                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "a_share"}
+                            return {
+                                "code": df.iloc[0]["ts_code"],
+                                "name": df.iloc[0]["name"],
+                                "market": "a_share",
+                            }
                         # Try ETF
                         df = self.db.execute_query(
                             "SELECT ts_code, csname as name FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1",
-                            {"code": code}
+                            {"code": code},
                         )
                         if not df.empty:
-                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "etf"}
+                            return {
+                                "code": df.iloc[0]["ts_code"],
+                                "name": df.iloc[0]["name"],
+                                "market": "etf",
+                            }
                     except Exception:
                         pass
-            elif suffix == 'HK':
+            elif suffix == "HK":
                 if self.db:
                     try:
                         df = self.db.execute_query(
                             "SELECT ts_code, name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1",
-                            {"code": code}
+                            {"code": code},
                         )
                         if not df.empty:
-                            return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "hk_stock"}
+                            return {
+                                "code": df.iloc[0]["ts_code"],
+                                "name": df.iloc[0]["name"],
+                                "market": "hk_stock",
+                            }
                     except Exception:
                         pass
             return None
-        
+
         # Pure digits — try all markets
         if not self.db:
             return None
-        
+
         try:
             # Try A-share by symbol
             df = self.db.execute_query(
                 "SELECT ts_code, name FROM ods_stock_basic WHERE symbol = %(code)s LIMIT 1",
-                {"code": code}
+                {"code": code},
             )
             if not df.empty:
-                return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "a_share"}
-            
+                return {
+                    "code": df.iloc[0]["ts_code"],
+                    "name": df.iloc[0]["name"],
+                    "market": "a_share",
+                }
+
             # Try ETF — ts_code starts with the code
-            for suffix in ['.SH', '.SZ']:
+            for suffix in [".SH", ".SZ"]:
                 ts = f"{code}{suffix}"
                 df = self.db.execute_query(
                     "SELECT ts_code, csname as name FROM ods_etf_basic WHERE ts_code = %(code)s LIMIT 1",
-                    {"code": ts}
+                    {"code": ts},
                 )
                 if not df.empty:
-                    return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "etf"}
-            
+                    return {
+                        "code": df.iloc[0]["ts_code"],
+                        "name": df.iloc[0]["name"],
+                        "market": "etf",
+                    }
+
             # Try HK stock
             ts_hk = f"{code.zfill(5)}.HK"
             df = self.db.execute_query(
                 "SELECT ts_code, name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1",
-                {"code": ts_hk}
+                {"code": ts_hk},
             )
             if not df.empty:
-                return {"code": df.iloc[0]["ts_code"], "name": df.iloc[0]["name"], "market": "hk_stock"}
+                return {
+                    "code": df.iloc[0]["ts_code"],
+                    "name": df.iloc[0]["name"],
+                    "market": "hk_stock",
+                }
         except Exception as e:
             logger.warning(f"Failed to resolve stock code {code}: {e}")
-        
+
         return None
-    
+
     def _is_etf_code(self, ts_code: str) -> bool:
         """Detect if a code is an ETF based on its numeric prefix."""
         return _is_etf_code(ts_code)
-    
+
     def _get_stock_name(self, code: str) -> str:
         """Get stock name by code.
-        
+
         Supports A-shares, HK stocks, and ETFs.
         """
         market_type = detect_market_type(code)
-        
+
         # HK stock
         if market_type == MarketType.HK_STOCK:
             if self.hk_basic_service:
@@ -1331,16 +1412,18 @@ class MarketService:
                         return info["name"]
                 except Exception:
                     pass
-            
+
             if self.db:
                 try:
-                    query = "SELECT name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1"
+                    query = (
+                        "SELECT name FROM ods_hk_basic WHERE ts_code = %(code)s LIMIT 1"
+                    )
                     df = self.db.execute_query(query, {"code": code})
                     if not df.empty:
                         return df.iloc[0]["name"]
                 except Exception:
                     pass
-            
+
             # HK stock mock names
             hk_names = {
                 "00700.HK": "腾讯控股",
@@ -1350,7 +1433,7 @@ class MarketService:
                 "09999.HK": "网易-S",
             }
             return hk_names.get(code, code)
-        
+
         # A-share (original logic)
         if self.stock_basic_service:
             try:
@@ -1359,7 +1442,7 @@ class MarketService:
                     return info["name"]
             except Exception:
                 pass
-        
+
         # Fallback to DB query
         if self.db:
             try:
@@ -1369,14 +1452,16 @@ class MarketService:
                     df = self.db.execute_query(query, {"code": code})
                     if not df.empty:
                         return df.iloc[0]["name"]
-                
-                query = "SELECT name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1"
+
+                query = (
+                    "SELECT name FROM ods_stock_basic WHERE ts_code = %(code)s LIMIT 1"
+                )
                 df = self.db.execute_query(query, {"code": code})
                 if not df.empty:
                     return df.iloc[0]["name"]
             except Exception:
                 pass
-        
+
         # Default mock names
         names = {
             "600519.SH": "贵州茅台",
@@ -1386,46 +1471,48 @@ class MarketService:
             "601318.SH": "中国平安",
         }
         return names.get(code, code)
-    
-    def _get_mock_kline(self, code: str, start_date: str, end_date: str) -> Dict[str, Any]:
+
+    def _get_mock_kline(
+        self, code: str, start_date: str, end_date: str
+    ) -> dict[str, Any]:
         """Generate mock K-line data."""
         import random
-        
+
         data = []
         current_date = datetime.strptime(self._format_date(start_date), "%Y-%m-%d")
         end = datetime.strptime(self._format_date(end_date), "%Y-%m-%d")
         price = 100.0
-        
+
         while current_date <= end:
             if current_date.weekday() < 5:  # Skip weekends
                 change = random.uniform(-0.03, 0.03)
                 open_price = price
                 close_price = price * (1 + change)
-                high_price = max(open_price, close_price) * (1 + random.uniform(0, 0.02))
+                high_price = max(open_price, close_price) * (
+                    1 + random.uniform(0, 0.02)
+                )
                 low_price = min(open_price, close_price) * (1 - random.uniform(0, 0.02))
-                
-                data.append({
-                    "date": current_date.strftime("%Y-%m-%d"),
-                    "open": round(open_price, 2),
-                    "high": round(high_price, 2),
-                    "low": round(low_price, 2),
-                    "close": round(close_price, 2),
-                    "volume": random.randint(1000000, 10000000),
-                    "amount": random.randint(100000000, 1000000000)
-                })
+
+                data.append(
+                    {
+                        "date": current_date.strftime("%Y-%m-%d"),
+                        "open": round(open_price, 2),
+                        "high": round(high_price, 2),
+                        "low": round(low_price, 2),
+                        "close": round(close_price, 2),
+                        "volume": random.randint(1000000, 10000000),
+                        "amount": random.randint(100000000, 1000000000),
+                    }
+                )
                 price = close_price
-            
+
             current_date += timedelta(days=1)
-        
-        return {
-            "code": code,
-            "name": self._get_stock_name(code),
-            "data": data
-        }
+
+        return {"code": code, "name": self._get_stock_name(code), "data": data}
 
 
 # Global service instance
-_market_service: Optional[MarketService] = None
+_market_service: MarketService | None = None
 
 
 def get_market_service() -> MarketService:

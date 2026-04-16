@@ -2,4 +2,4 @@
 
 from .plugin import TuShareThsMemberPlugin
 
-__all__ = ['TuShareThsMemberPlugin']
+__all__ = ["TuShareThsMemberPlugin"]

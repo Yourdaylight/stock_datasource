@@ -1,12 +1,14 @@
 """Tushare 业绩快报插件"""
 
-import pandas as pd
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from datetime import datetime
 import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
 
 from stock_datasource.plugins import BasePlugin
+
 from .extractor import extractor
 
 
@@ -28,14 +30,14 @@ class TuShareExpressPlugin(BasePlugin):
     @property
     def api_rate_limit(self) -> int:
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         return config.get("rate_limit", 120)
 
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """Get table schema from separate JSON file."""
         schema_file = Path(__file__).parent / "schema.json"
-        with open(schema_file, "r", encoding="utf-8") as f:
+        with open(schema_file, encoding="utf-8") as f:
             return json.load(f)
 
     def extract_data(self, **kwargs) -> pd.DataFrame:
@@ -64,29 +66,33 @@ class TuShareExpressPlugin(BasePlugin):
         if not ts_code:
             if not self.db:
                 raise ValueError("Database not initialized for batch mode")
-            
+
             self.logger.info("Extracting express data for all stocks (batch mode)")
-            
+
             # Get all stock codes from stock_basic table
-            stocks_query = "SELECT DISTINCT ts_code FROM ods_stock_basic WHERE list_status = 'L'"
+            stocks_query = (
+                "SELECT DISTINCT ts_code FROM ods_stock_basic WHERE list_status = 'L'"
+            )
             stocks_df = self.db.execute_query(stocks_query)
-            
+
             if stocks_df.empty:
                 self.logger.warning("No stocks found in stock_basic table")
                 return pd.DataFrame()
-            
+
             all_data = []
             for idx, row in stocks_df.iterrows():
-                stock_code = row['ts_code']
+                stock_code = row["ts_code"]
                 try:
-                    self.logger.info(f"Extracting express data for {stock_code} ({idx+1}/{len(stocks_df)})")
-                    
+                    self.logger.info(
+                        f"Extracting express data for {stock_code} ({idx + 1}/{len(stocks_df)})"
+                    )
+
                     # Use trade_date to set end_date if provided
                     if trade_date:
-                        stock_end_date = trade_date.replace('-', '')
+                        stock_end_date = trade_date.replace("-", "")
                     else:
                         stock_end_date = end_date
-                    
+
                     data = extractor.extract(
                         ts_code=stock_code,
                         ann_date=ann_date,
@@ -94,29 +100,34 @@ class TuShareExpressPlugin(BasePlugin):
                         end_date=stock_end_date,
                         period=period,
                     )
-                    
+
                     if not data.empty:
                         all_data.append(data)
-                    
+
                     # Rate limiting between API calls
                     import time
+
                     time.sleep(0.1)
-                    
+
                 except Exception as e:
-                    self.logger.warning(f"Failed to extract express for {stock_code}: {e}")
+                    self.logger.warning(
+                        f"Failed to extract express for {stock_code}: {e}"
+                    )
                     continue
-            
+
             if not all_data:
                 self.logger.warning("No express data extracted for any stock")
                 return pd.DataFrame()
-            
+
             combined_data = pd.concat(all_data, ignore_index=True)
             # Add system columns for batch mode
-            combined_data['version'] = int(datetime.now().timestamp())
-            combined_data['_ingested_at'] = datetime.now()
-            self.logger.info(f"Extracted {len(combined_data)} express records from {len(all_data)} stocks")
+            combined_data["version"] = int(datetime.now().timestamp())
+            combined_data["_ingested_at"] = datetime.now()
+            self.logger.info(
+                f"Extracted {len(combined_data)} express records from {len(all_data)} stocks"
+            )
             return combined_data
-        
+
         # Single stock mode
         self.logger.info(f"Extracting express data for ts_code={ts_code}")
 
@@ -166,7 +177,9 @@ class TuShareExpressPlugin(BasePlugin):
         date_columns = ["ann_date", "end_date"]
         for col in date_columns:
             if col in data.columns:
-                data[col] = pd.to_datetime(data[col], format="%Y%m%d", errors="coerce").dt.date
+                data[col] = pd.to_datetime(
+                    data[col], format="%Y%m%d", errors="coerce"
+                ).dt.date
 
         # 转换数值类型
         numeric_columns = [
@@ -204,7 +217,7 @@ class TuShareExpressPlugin(BasePlugin):
         self.logger.info(f"Transformed {len(data)} express records")
         return data
 
-    def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
+    def load_data(self, data: pd.DataFrame) -> dict[str, Any]:
         """加载数据到数据库"""
         if not self.db:
             self.logger.error("Database not initialized")
@@ -228,7 +241,9 @@ class TuShareExpressPlugin(BasePlugin):
             ods_data = self._prepare_data_for_insert(table_name, ods_data)
             self.db.insert_dataframe(table_name, ods_data)
 
-            results["tables_loaded"].append({"table": table_name, "records": len(ods_data)})
+            results["tables_loaded"].append(
+                {"table": table_name, "records": len(ods_data)}
+            )
             results["total_records"] += len(ods_data)
             self.logger.info(f"Loaded {len(ods_data)} records into {table_name}")
 
@@ -239,6 +254,6 @@ class TuShareExpressPlugin(BasePlugin):
 
         return results
 
-    def get_dependencies(self) -> List[str]:
+    def get_dependencies(self) -> list[str]:
         """Get plugin dependencies."""
         return []

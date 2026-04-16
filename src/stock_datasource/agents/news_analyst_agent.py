@@ -8,26 +8,27 @@ This agent provides AI-powered news analysis capabilities:
 - News summarization
 """
 
-from typing import Dict, Any, List, Callable, Optional
-import logging
 import asyncio
 import concurrent.futures
+import logging
+from collections.abc import Callable
+from typing import Any
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 
 logger = logging.getLogger(__name__)
 
 
 def _run_async_safely(coro):
     """Run an async coroutine safely in any context (sync or async).
-    
+
     Handles the case when called from a thread pool where there's no event loop.
     """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
-    
+
     if loop is not None and loop.is_running():
         # We're in an async context, need to run in a new thread
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -92,44 +93,56 @@ NEWS_ANALYST_SYSTEM_PROMPT = """你是一个专业的A股财经新闻分析师�
 
 
 # Tool functions for NewsAnalystAgent
-def get_news_by_stock(stock_code: str, days: int = 7, limit: int = 20) -> Dict[str, Any]:
+def get_news_by_stock(
+    stock_code: str, days: int = 7, limit: int = 20
+) -> dict[str, Any]:
     """获取指定股票的相关新闻和公告
-    
+
     Args:
         stock_code: 股票代码，如 600519.SH、000001.SZ
         days: 查询天数，默认7天
         limit: 返回数量，默认20条
-    
+
     Returns:
         股票相关新闻列表
     """
     try:
         from stock_datasource.modules.news.service import get_news_service
-        
-        logger.info(f"get_news_by_stock called with stock_code={stock_code}, days={days}, limit={limit}")
-        
+
+        logger.info(
+            f"get_news_by_stock called with stock_code={stock_code}, days={days}, limit={limit}"
+        )
+
         service = get_news_service()
-        news_items = _run_async_safely(service.get_news_by_stock(stock_code, days, limit))
-        
+        news_items = _run_async_safely(
+            service.get_news_by_stock(stock_code, days, limit)
+        )
+
         if not news_items:
             return {
                 "message": f"暂无 {stock_code} 的相关新闻",
                 "stock_code": stock_code,
                 "news_count": 0,
             }
-        
+
         # 格式化新闻列表供 LLM 理解
         formatted_news = []
         for news in news_items[:10]:  # 限制返回给 LLM 的数量
-            formatted_news.append({
-                "id": news.id,
-                "title": news.title,
-                "source": news.source,
-                "category": news.category,
-                "publish_time": news.publish_time.strftime("%Y-%m-%d %H:%M") if news.publish_time else "未知",
-                "content_preview": news.content[:100] + "..." if len(news.content) > 100 else news.content,
-            })
-        
+            formatted_news.append(
+                {
+                    "id": news.id,
+                    "title": news.title,
+                    "source": news.source,
+                    "category": news.category,
+                    "publish_time": news.publish_time.strftime("%Y-%m-%d %H:%M")
+                    if news.publish_time
+                    else "未知",
+                    "content_preview": news.content[:100] + "..."
+                    if len(news.content) > 100
+                    else news.content,
+                }
+            )
+
         return {
             "stock_code": stock_code,
             "news_count": len(news_items),
@@ -138,25 +151,25 @@ def get_news_by_stock(stock_code: str, days: int = 7, limit: int = 20) -> Dict[s
         }
     except Exception as e:
         logger.error(f"get_news_by_stock error: {e}", exc_info=True)
-        return {"message": f"获取新闻失败: {str(e)}", "stock_code": stock_code}
+        return {"message": f"获取新闻失败: {e!s}", "stock_code": stock_code}
 
 
-def get_market_news(category: str = "all", limit: int = 20) -> Dict[str, Any]:
+def get_market_news(category: str = "all", limit: int = 20) -> dict[str, Any]:
     """获取市场整体财经新闻
-    
+
     Args:
         category: 新闻分类，可选值: all(全部)/announcement(公告)/flash(快讯)/analysis(分析)/policy(政策)/industry(行业)
         limit: 返回数量，默认20条
-    
+
     Returns:
         市场新闻列表
     """
     try:
-        from stock_datasource.modules.news.service import get_news_service
         from stock_datasource.modules.news.schemas import NewsCategory
-        
+        from stock_datasource.modules.news.service import get_news_service
+
         logger.info(f"get_market_news called with category={category}, limit={limit}")
-        
+
         # 转换分类
         category_map = {
             "all": NewsCategory.ALL,
@@ -167,28 +180,32 @@ def get_market_news(category: str = "all", limit: int = 20) -> Dict[str, Any]:
             "industry": NewsCategory.INDUSTRY,
         }
         news_category = category_map.get(category.lower(), NewsCategory.ALL)
-        
+
         service = get_news_service()
         news_items = _run_async_safely(service.get_market_news(news_category, limit))
-        
+
         if not news_items:
             return {
                 "message": "暂无市场新闻",
                 "category": category,
                 "news_count": 0,
             }
-        
+
         # 格式化新闻列表
         formatted_news = []
         for news in news_items[:15]:
-            formatted_news.append({
-                "id": news.id,
-                "title": news.title,
-                "source": news.source,
-                "category": news.category,
-                "publish_time": news.publish_time.strftime("%Y-%m-%d %H:%M") if news.publish_time else "未知",
-            })
-        
+            formatted_news.append(
+                {
+                    "id": news.id,
+                    "title": news.title,
+                    "source": news.source,
+                    "category": news.category,
+                    "publish_time": news.publish_time.strftime("%Y-%m-%d %H:%M")
+                    if news.publish_time
+                    else "未知",
+                }
+            )
+
         return {
             "category": category,
             "news_count": len(news_items),
@@ -197,49 +214,55 @@ def get_market_news(category: str = "all", limit: int = 20) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"get_market_news error: {e}", exc_info=True)
-        return {"message": f"获取市场新闻失败: {str(e)}", "category": category}
+        return {"message": f"获取市场新闻失败: {e!s}", "category": category}
 
 
-def analyze_news_sentiment(stock_code: str, days: int = 7, limit: int = 10) -> Dict[str, Any]:
+def analyze_news_sentiment(
+    stock_code: str, days: int = 7, limit: int = 10
+) -> dict[str, Any]:
     """分析股票相关新闻的情绪倾向
-    
+
     Args:
         stock_code: 股票代码，如 600519.SH
         days: 查询天数，默认7天
         limit: 分析新闻数量，默认10条
-    
+
     Returns:
         情绪分析结果，包含利好/利空/中性统计
     """
     try:
         from stock_datasource.modules.news.service import get_news_service
-        
+
         logger.info(f"analyze_news_sentiment called with stock_code={stock_code}")
-        
+
         service = get_news_service()
-        
+
         # 获取新闻
-        news_items = _run_async_safely(service.get_news_by_stock(stock_code, days, limit))
-        
+        news_items = _run_async_safely(
+            service.get_news_by_stock(stock_code, days, limit)
+        )
+
         if not news_items:
             return {
                 "message": f"暂无 {stock_code} 的新闻可供分析",
                 "stock_code": stock_code,
             }
-        
+
         # 分析情绪
         sentiments = _run_async_safely(
             service.analyze_news_sentiment(news_items, f"股票代码: {stock_code}")
         )
-        
+
         # 统计情绪分布
         positive_count = sum(1 for s in sentiments if s.sentiment == "positive")
         negative_count = sum(1 for s in sentiments if s.sentiment == "negative")
         neutral_count = sum(1 for s in sentiments if s.sentiment == "neutral")
-        
+
         # 计算综合情绪分数
-        avg_score = sum(s.score for s in sentiments) / len(sentiments) if sentiments else 0
-        
+        avg_score = (
+            sum(s.score for s in sentiments) / len(sentiments) if sentiments else 0
+        )
+
         # 整体情绪判断
         if avg_score > 0.2:
             overall_sentiment = "偏利好"
@@ -247,19 +270,27 @@ def analyze_news_sentiment(stock_code: str, days: int = 7, limit: int = 10) -> D
             overall_sentiment = "偏利空"
         else:
             overall_sentiment = "中性"
-        
+
         # 详细结果
         details = []
         for s in sentiments:
-            sentiment_label = {"positive": "利好", "negative": "利空", "neutral": "中性"}.get(s.sentiment, "中性")
-            impact_label = {"high": "重大", "medium": "中等", "low": "轻微"}.get(s.impact_level, "轻微")
-            details.append({
-                "title": s.title,
-                "sentiment": sentiment_label,
-                "impact": impact_label,
-                "reasoning": s.reasoning,
-            })
-        
+            sentiment_label = {
+                "positive": "利好",
+                "negative": "利空",
+                "neutral": "中性",
+            }.get(s.sentiment, "中性")
+            impact_label = {"high": "重大", "medium": "中等", "low": "轻微"}.get(
+                s.impact_level, "轻微"
+            )
+            details.append(
+                {
+                    "title": s.title,
+                    "sentiment": sentiment_label,
+                    "impact": impact_label,
+                    "reasoning": s.reasoning,
+                }
+            )
+
         return {
             "stock_code": stock_code,
             "analyzed_count": len(sentiments),
@@ -274,86 +305,96 @@ def analyze_news_sentiment(stock_code: str, days: int = 7, limit: int = 10) -> D
         }
     except Exception as e:
         logger.error(f"analyze_news_sentiment error: {e}", exc_info=True)
-        return {"message": f"情绪分析失败: {str(e)}", "stock_code": stock_code}
+        return {"message": f"情绪分析失败: {e!s}", "stock_code": stock_code}
 
 
-def get_hot_topics(limit: int = 10) -> Dict[str, Any]:
+def get_hot_topics(limit: int = 10) -> dict[str, Any]:
     """获取当前市场热点话题
-    
+
     Args:
         limit: 返回热点数量，默认10个
-    
+
     Returns:
         热点话题列表
     """
     try:
         from stock_datasource.modules.news.service import get_news_service
-        
+
         logger.info(f"get_hot_topics called with limit={limit}")
-        
+
         service = get_news_service()
         topics = _run_async_safely(service.get_hot_topics(limit))
-        
+
         if not topics:
             return {
                 "message": "暂无热点话题",
                 "topic_count": 0,
             }
-        
+
         # 格式化热点列表
         formatted_topics = []
         for topic in topics:
-            formatted_topics.append({
-                "topic": topic.topic,
-                "keywords": topic.keywords,
-                "heat_score": topic.heat_score,
-                "summary": topic.summary,
-                "news_count": topic.news_count,
-            })
-        
+            formatted_topics.append(
+                {
+                    "topic": topic.topic,
+                    "keywords": topic.keywords,
+                    "heat_score": topic.heat_score,
+                    "summary": topic.summary,
+                    "news_count": topic.news_count,
+                }
+            )
+
         return {
             "topic_count": len(topics),
             "hot_topics": formatted_topics,
         }
     except Exception as e:
         logger.error(f"get_hot_topics error: {e}", exc_info=True)
-        return {"message": f"获取热点失败: {str(e)}"}
+        return {"message": f"获取热点失败: {e!s}"}
 
 
-def summarize_news(stock_code: str = None, focus: str = None, limit: int = 20) -> Dict[str, Any]:
+def summarize_news(
+    stock_code: str = None, focus: str = None, limit: int = 20
+) -> dict[str, Any]:
     """AI 生成新闻摘要和要点
-    
+
     Args:
         stock_code: 股票代码（可选），不提供则汇总市场新闻
         focus: 关注重点（可选），如"业绩"、"政策"等
         limit: 摘要新闻数量，默认20条
-    
+
     Returns:
         新闻摘要，包含要点和情绪概述
     """
     try:
-        from stock_datasource.modules.news.service import get_news_service
         from stock_datasource.modules.news.schemas import NewsCategory
-        
-        logger.info(f"summarize_news called with stock_code={stock_code}, focus={focus}")
-        
+        from stock_datasource.modules.news.service import get_news_service
+
+        logger.info(
+            f"summarize_news called with stock_code={stock_code}, focus={focus}"
+        )
+
         service = get_news_service()
-        
+
         # 获取新闻
         if stock_code:
-            news_items = _run_async_safely(service.get_news_by_stock(stock_code, days=7, limit=limit))
+            news_items = _run_async_safely(
+                service.get_news_by_stock(stock_code, days=7, limit=limit)
+            )
         else:
-            news_items = _run_async_safely(service.get_market_news(NewsCategory.ALL, limit))
-        
+            news_items = _run_async_safely(
+                service.get_market_news(NewsCategory.ALL, limit)
+            )
+
         if not news_items:
             return {
                 "message": "暂无新闻可供摘要",
                 "stock_code": stock_code,
             }
-        
+
         # 生成摘要
         result = _run_async_safely(service.summarize_news(news_items, focus))
-        
+
         return {
             "stock_code": stock_code or "市场整体",
             "focus": focus,
@@ -364,12 +405,12 @@ def summarize_news(stock_code: str = None, focus: str = None, limit: int = 20) -
         }
     except Exception as e:
         logger.error(f"summarize_news error: {e}", exc_info=True)
-        return {"message": f"生成摘要失败: {str(e)}"}
+        return {"message": f"生成摘要失败: {e!s}"}
 
 
 class NewsAnalystAgent(LangGraphAgent):
     """News Analyst Agent for AI-powered financial news analysis.
-    
+
     Inherits from LangGraphAgent and provides:
     - Stock news retrieval and analysis
     - Market news tracking
@@ -377,7 +418,7 @@ class NewsAnalystAgent(LangGraphAgent):
     - Hot topics discovery
     - News summarization
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="NewsAnalystAgent",
@@ -387,19 +428,20 @@ class NewsAnalystAgent(LangGraphAgent):
         )
         super().__init__(config)
         self._llm_client = None
-    
+
     @property
     def llm_client(self):
         """Lazy load LLM client with Langfuse integration."""
         if self._llm_client is None:
             try:
                 from stock_datasource.llm.client import get_llm_client
+
                 self._llm_client = get_llm_client()
             except Exception as e:
                 logger.warning(f"Failed to get LLM client: {e}")
         return self._llm_client
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return news analysis tools."""
         return [
             get_news_by_stock,
@@ -407,14 +449,14 @@ class NewsAnalystAgent(LangGraphAgent):
             analyze_news_sentiment,
             summarize_news,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for news analysis."""
         return NEWS_ANALYST_SYSTEM_PROMPT
 
 
 # Singleton instance
-_news_analyst_agent: Optional[NewsAnalystAgent] = None
+_news_analyst_agent: NewsAnalystAgent | None = None
 
 
 def get_news_analyst_agent() -> NewsAnalystAgent:

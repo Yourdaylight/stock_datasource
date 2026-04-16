@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ class FinancialAnalysisService:
         """Lazy load database client."""
         if self._db is None:
             from stock_datasource.models.database import db_client
+
             self._db = db_client
         return self._db
 
@@ -30,7 +31,10 @@ class FinancialAnalysisService:
     def financial_service(self):
         """Lazy load A-share financial report service."""
         if self._financial_service is None:
-            from stock_datasource.services.financial_report_service import FinancialReportService
+            from stock_datasource.services.financial_report_service import (
+                FinancialReportService,
+            )
+
             self._financial_service = FinancialReportService()
         return self._financial_service
 
@@ -38,7 +42,10 @@ class FinancialAnalysisService:
     def hk_financial_service(self):
         """Lazy load HK financial report service."""
         if self._hk_financial_service is None:
-            from stock_datasource.services.hk_financial_report_service import HKFinancialReportService
+            from stock_datasource.services.hk_financial_report_service import (
+                HKFinancialReportService,
+            )
+
             self._hk_financial_service = HKFinancialReportService()
         return self._hk_financial_service
 
@@ -51,7 +58,7 @@ class FinancialAnalysisService:
         industry: str = "",
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get paginated company list with search and filter.
 
         Args:
@@ -68,7 +75,9 @@ class FinancialAnalysisService:
             offset = (page - 1) * page_size
 
             if market == "HK":
-                return self._get_hk_companies(keyword, industry, page, page_size, offset)
+                return self._get_hk_companies(
+                    keyword, industry, page, page_size, offset
+                )
 
             # A-share: query ods_stock_basic
             where_clauses = ["list_status = 'L'"]
@@ -109,15 +118,17 @@ class FinancialAnalysisService:
                 list_date_val = row[6]
                 if hasattr(list_date_val, "strftime"):
                     list_date_val = list_date_val.strftime("%Y-%m-%d")
-                items.append({
-                    "ts_code": row[0],
-                    "symbol": row[1],
-                    "name": row[2],
-                    "area": row[3] or "",
-                    "industry": row[4] or "",
-                    "market": row[5] or "",
-                    "list_date": str(list_date_val) if list_date_val else "",
-                })
+                items.append(
+                    {
+                        "ts_code": row[0],
+                        "symbol": row[1],
+                        "name": row[2],
+                        "area": row[3] or "",
+                        "industry": row[4] or "",
+                        "market": row[5] or "",
+                        "list_date": str(list_date_val) if list_date_val else "",
+                    }
+                )
 
             return {
                 "status": "success",
@@ -132,7 +143,7 @@ class FinancialAnalysisService:
 
     def _get_hk_companies(
         self, keyword: str, industry: str, page: int, page_size: int, offset: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get HK stock companies from available HK tables."""
         try:
             # Query distinct HK stocks from fina_indicator table
@@ -175,15 +186,17 @@ class FinancialAnalysisService:
 
             items = []
             for row in rows:
-                items.append({
-                    "ts_code": row[0],
-                    "symbol": row[1],
-                    "name": row[2],
-                    "area": row[3] or "",
-                    "industry": row[4] or "",
-                    "market": row[5] or "HK",
-                    "list_date": row[6] or "",
-                })
+                items.append(
+                    {
+                        "ts_code": row[0],
+                        "symbol": row[1],
+                        "name": row[2],
+                        "area": row[3] or "",
+                        "industry": row[4] or "",
+                        "market": row[5] or "HK",
+                        "list_date": row[6] or "",
+                    }
+                )
 
             return {
                 "status": "success",
@@ -196,7 +209,7 @@ class FinancialAnalysisService:
             logger.error(f"Error getting HK companies: {e}")
             return {"status": "error", "error": str(e), "items": [], "total": 0}
 
-    def get_industries(self, market: str = "A") -> Dict[str, Any]:
+    def get_industries(self, market: str = "A") -> dict[str, Any]:
         """Get distinct industry list for filter dropdown."""
         try:
             if market == "HK":
@@ -217,9 +230,7 @@ class FinancialAnalysisService:
 
     # ========== Report Period List ==========
 
-    def get_report_periods(
-        self, ts_code: str, market: str = "A"
-    ) -> Dict[str, Any]:
+    def get_report_periods(self, ts_code: str, market: str = "A") -> dict[str, Any]:
         """Get all report periods for a company with core indicators summary.
 
         Args:
@@ -278,20 +289,22 @@ class FinancialAnalysisService:
                 income_info = income_map.get(end_date, {})
                 report_type = self._classify_report_type(end_date)
 
-                periods.append({
-                    "end_date": end_date,
-                    "report_type": report_type,
-                    "report_type_label": self._report_type_label(report_type),
-                    "revenue": self._safe_float(income_info.get("revenue")),
-                    "net_profit": self._safe_float(income_info.get("net_profit")),
-                    "roe": self._safe_float(row[1]),
-                    "gross_margin": self._safe_float(row[2]),
-                    "net_margin": self._safe_float(row[3]),
-                    "eps": self._safe_float(row[4]),
-                    "current_ratio": self._safe_float(row[5]),
-                    "debt_ratio": self._safe_float(row[6]),
-                    "has_analysis": analysis_status.get(end_date, False),
-                })
+                periods.append(
+                    {
+                        "end_date": end_date,
+                        "report_type": report_type,
+                        "report_type_label": self._report_type_label(report_type),
+                        "revenue": self._safe_float(income_info.get("revenue")),
+                        "net_profit": self._safe_float(income_info.get("net_profit")),
+                        "roe": self._safe_float(row[1]),
+                        "gross_margin": self._safe_float(row[2]),
+                        "net_margin": self._safe_float(row[3]),
+                        "eps": self._safe_float(row[4]),
+                        "current_ratio": self._safe_float(row[5]),
+                        "debt_ratio": self._safe_float(row[6]),
+                        "has_analysis": analysis_status.get(end_date, False),
+                    }
+                )
 
             return {
                 "status": "success",
@@ -302,7 +315,7 @@ class FinancialAnalysisService:
             logger.error(f"Error getting report periods for {ts_code}: {e}")
             return {"status": "error", "error": str(e), "company": {}, "periods": []}
 
-    def _get_hk_report_periods(self, ts_code: str) -> Dict[str, Any]:
+    def _get_hk_report_periods(self, ts_code: str) -> dict[str, Any]:
         """Get HK stock report periods."""
         try:
             company_info = self._get_company_info(ts_code, "HK")
@@ -345,20 +358,22 @@ class FinancialAnalysisService:
                 income_info = income_map.get(end_date, {})
                 report_type = self._classify_report_type(end_date)
 
-                periods.append({
-                    "end_date": end_date,
-                    "report_type": report_type,
-                    "report_type_label": self._report_type_label(report_type),
-                    "revenue": self._safe_float(income_info.get("revenue")),
-                    "net_profit": self._safe_float(income_info.get("net_profit")),
-                    "roe": self._safe_float(row[1]),
-                    "gross_margin": self._safe_float(row[2]),
-                    "net_margin": self._safe_float(row[3]),
-                    "eps": self._safe_float(row[4]),
-                    "current_ratio": None,
-                    "debt_ratio": None,
-                    "has_analysis": analysis_status.get(end_date, False),
-                })
+                periods.append(
+                    {
+                        "end_date": end_date,
+                        "report_type": report_type,
+                        "report_type_label": self._report_type_label(report_type),
+                        "revenue": self._safe_float(income_info.get("revenue")),
+                        "net_profit": self._safe_float(income_info.get("net_profit")),
+                        "roe": self._safe_float(row[1]),
+                        "gross_margin": self._safe_float(row[2]),
+                        "net_margin": self._safe_float(row[3]),
+                        "eps": self._safe_float(row[4]),
+                        "current_ratio": None,
+                        "debt_ratio": None,
+                        "has_analysis": analysis_status.get(end_date, False),
+                    }
+                )
 
             return {
                 "status": "success",
@@ -373,16 +388,20 @@ class FinancialAnalysisService:
 
     def get_report_detail(
         self, ts_code: str, end_date: str, market: str = "A"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get detailed financial report for a specific period.
 
         Reuses existing FinancialReportService / HKFinancialReportService.
         """
         try:
             if market == "HK":
-                analysis = self.hk_financial_service.get_comprehensive_analysis(ts_code, 8)
+                analysis = self.hk_financial_service.get_comprehensive_analysis(
+                    ts_code, 8
+                )
             else:
-                analysis = self.financial_service.get_comprehensive_analysis(ts_code, 12)
+                analysis = self.financial_service.get_comprehensive_analysis(
+                    ts_code, 12
+                )
 
             if analysis.get("status") == "error":
                 return analysis
@@ -402,7 +421,9 @@ class FinancialAnalysisService:
                 "company": company_info,
                 "end_date": end_date,
                 "report_type": self._classify_report_type(end_date),
-                "report_type_label": self._report_type_label(self._classify_report_type(end_date)),
+                "report_type_label": self._report_type_label(
+                    self._classify_report_type(end_date)
+                ),
                 "analysis": analysis,
                 "statements": statements,
             }
@@ -410,25 +431,33 @@ class FinancialAnalysisService:
             logger.error(f"Error getting report detail for {ts_code}/{end_date}: {e}")
             return {"status": "error", "error": str(e)}
 
-    def _get_a_statements(self, ts_code: str, end_date: str) -> Dict[str, Any]:
+    def _get_a_statements(self, ts_code: str, end_date: str) -> dict[str, Any]:
         """Get A-share three statements for a specific period."""
         try:
             income = self.financial_service.get_income_statement(ts_code, periods=4)
             balance = self.financial_service.get_balance_sheet(ts_code, periods=4)
             cashflow = self.financial_service.get_cash_flow(ts_code, periods=4)
             return {
-                "income": income.get("data", []) if income.get("status") == "success" else [],
-                "balance": balance.get("data", []) if balance.get("status") == "success" else [],
-                "cashflow": cashflow.get("data", []) if cashflow.get("status") == "success" else [],
+                "income": income.get("data", [])
+                if income.get("status") == "success"
+                else [],
+                "balance": balance.get("data", [])
+                if balance.get("status") == "success"
+                else [],
+                "cashflow": cashflow.get("data", [])
+                if cashflow.get("status") == "success"
+                else [],
             }
         except Exception as e:
             logger.error(f"Error getting A-share statements: {e}")
             return {"income": [], "balance": [], "cashflow": []}
 
-    def _get_hk_statements(self, ts_code: str, end_date: str) -> Dict[str, Any]:
+    def _get_hk_statements(self, ts_code: str, end_date: str) -> dict[str, Any]:
         """Get HK three statements for a specific period."""
         try:
-            result = self.hk_financial_service.get_full_statements_pivot(ts_code, periods=4)
+            result = self.hk_financial_service.get_full_statements_pivot(
+                ts_code, periods=4
+            )
             if result.get("status") == "success":
                 return {
                     "income": result.get("income", []),
@@ -448,7 +477,7 @@ class FinancialAnalysisService:
         end_date: str,
         market: str = "A",
         analysis_type: str = "comprehensive",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run professional AI financial analysis and persist the result.
 
         The analysis follows a professional 8-module methodology:
@@ -476,13 +505,19 @@ class FinancialAnalysisService:
             stock_name = company_info.get("name", ts_code)
 
             if market == "HK":
-                analysis_data = self.hk_financial_service.get_comprehensive_analysis(ts_code, 8)
+                analysis_data = self.hk_financial_service.get_comprehensive_analysis(
+                    ts_code, 8
+                )
             else:
-                analysis_data = self.financial_service.get_comprehensive_analysis(ts_code, 8)
+                analysis_data = self.financial_service.get_comprehensive_analysis(
+                    ts_code, 8
+                )
 
             health_score = 0
             if analysis_data.get("status") == "success":
-                health_score = analysis_data.get("health_analysis", {}).get("health_score", 0)
+                health_score = analysis_data.get("health_analysis", {}).get(
+                    "health_score", 0
+                )
 
             # 2. Build comprehensive professional report using existing Agent + enhanced structuring
             report_content = self._build_professional_report(
@@ -517,15 +552,21 @@ class FinancialAnalysisService:
                     "report_type": report_type,
                     "analysis_type": analysis_type,
                     "report_content": report_content,
-                    "data_snapshot": json.dumps(data_snapshot, ensure_ascii=False, default=str),
+                    "data_snapshot": json.dumps(
+                        data_snapshot, ensure_ascii=False, default=str
+                    ),
                     "health_score": float(health_score),
-                    "analysis_sections": json.dumps(analysis_sections, ensure_ascii=False),
-                    "analysis_metadata": json.dumps({
-                        "model": "report_agent",
-                        "version": "2.0",
-                        "methodology": "professional_8_module",
-                        "created_at": datetime.now().isoformat(),
-                    }),
+                    "analysis_sections": json.dumps(
+                        analysis_sections, ensure_ascii=False
+                    ),
+                    "analysis_metadata": json.dumps(
+                        {
+                            "model": "report_agent",
+                            "version": "2.0",
+                            "methodology": "professional_8_module",
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    ),
                 },
             )
 
@@ -546,7 +587,9 @@ class FinancialAnalysisService:
                 },
             }
         except Exception as e:
-            logger.error(f"Error running analysis for {ts_code}/{end_date}: {e}", exc_info=True)
+            logger.error(
+                f"Error running analysis for {ts_code}/{end_date}: {e}", exc_info=True
+            )
             return {"status": "error", "error": str(e)}
 
     # ========== LLM AI Deep Analysis ==========
@@ -556,7 +599,7 @@ class FinancialAnalysisService:
         ts_code: str,
         end_date: str,
         market: str = "A",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run real LLM-powered deep financial analysis (manually triggered).
 
         This method calls the configured LLM (e.g., GPT-4 / Kimi) to generate
@@ -576,22 +619,32 @@ class FinancialAnalysisService:
             stock_name = company_info.get("name", ts_code)
 
             if market == "HK":
-                analysis_data = self.hk_financial_service.get_comprehensive_analysis(ts_code, 8)
+                analysis_data = self.hk_financial_service.get_comprehensive_analysis(
+                    ts_code, 8
+                )
             else:
-                analysis_data = self.financial_service.get_comprehensive_analysis(ts_code, 8)
+                analysis_data = self.financial_service.get_comprehensive_analysis(
+                    ts_code, 8
+                )
 
             health_score = 0
             if analysis_data.get("status") == "success":
-                health_score = analysis_data.get("health_analysis", {}).get("health_score", 0)
+                health_score = analysis_data.get("health_analysis", {}).get(
+                    "health_score", 0
+                )
 
             # 2. Build prompt for LLM
-            prompt = self._build_llm_prompt(ts_code, stock_name, end_date, market, analysis_data)
+            prompt = self._build_llm_prompt(
+                ts_code, stock_name, end_date, market, analysis_data
+            )
 
             # 3. Call LLM
             from stock_datasource.llm.client import get_llm_client
 
             llm_client = get_llm_client()
-            logger.info(f"Starting LLM analysis for {ts_code}/{end_date}, client type: {type(llm_client).__name__}")
+            logger.info(
+                f"Starting LLM analysis for {ts_code}/{end_date}, client type: {type(llm_client).__name__}"
+            )
 
             # Run async LLM call in sync context
             try:
@@ -614,6 +667,7 @@ class FinancialAnalysisService:
 
             if loop and loop.is_running():
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     llm_content = pool.submit(
                         lambda: asyncio.run(
@@ -636,10 +690,15 @@ class FinancialAnalysisService:
                 )
 
             if not llm_content or len(llm_content) < 50:
-                return {"status": "error", "error": "LLM returned empty or too short response"}
+                return {
+                    "status": "error",
+                    "error": "LLM returned empty or too short response",
+                }
 
             # 4. Compose final report: data header + LLM content
-            report_type_label = self._report_type_label(self._classify_report_type(end_date))
+            report_type_label = self._report_type_label(
+                self._classify_report_type(end_date)
+            )
             year = end_date[:4] if len(end_date) >= 4 else end_date
 
             report_content = (
@@ -677,19 +736,27 @@ class FinancialAnalysisService:
                     "report_type": report_type,
                     "analysis_type": "ai_deep",
                     "report_content": report_content,
-                    "data_snapshot": json.dumps(data_snapshot, ensure_ascii=False, default=str),
+                    "data_snapshot": json.dumps(
+                        data_snapshot, ensure_ascii=False, default=str
+                    ),
                     "health_score": float(health_score),
-                    "analysis_sections": json.dumps(analysis_sections, ensure_ascii=False),
-                    "analysis_metadata": json.dumps({
-                        "model": self._get_llm_model_name(),
-                        "version": "1.0",
-                        "methodology": "llm_deep_analysis",
-                        "created_at": datetime.now().isoformat(),
-                    }),
+                    "analysis_sections": json.dumps(
+                        analysis_sections, ensure_ascii=False
+                    ),
+                    "analysis_metadata": json.dumps(
+                        {
+                            "model": self._get_llm_model_name(),
+                            "version": "1.0",
+                            "methodology": "llm_deep_analysis",
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    ),
                 },
             )
 
-            logger.info(f"LLM analysis completed for {ts_code}/{end_date}, id={record_id}")
+            logger.info(
+                f"LLM analysis completed for {ts_code}/{end_date}, id={record_id}"
+            )
 
             return {
                 "status": "success",
@@ -708,7 +775,10 @@ class FinancialAnalysisService:
                 },
             }
         except Exception as e:
-            logger.error(f"Error running LLM analysis for {ts_code}/{end_date}: {e}", exc_info=True)
+            logger.error(
+                f"Error running LLM analysis for {ts_code}/{end_date}: {e}",
+                exc_info=True,
+            )
             return {"status": "error", "error": str(e)}
 
     def _build_llm_prompt(
@@ -717,10 +787,12 @@ class FinancialAnalysisService:
         stock_name: str,
         end_date: str,
         market: str,
-        analysis_data: Dict[str, Any],
+        analysis_data: dict[str, Any],
     ) -> str:
         """Build a structured prompt for LLM financial analysis."""
-        report_type_label = self._report_type_label(self._classify_report_type(end_date))
+        report_type_label = self._report_type_label(
+            self._classify_report_type(end_date)
+        )
         year = end_date[:4] if len(end_date) >= 4 else end_date
 
         summary = analysis_data.get("summary", {})
@@ -738,28 +810,46 @@ class FinancialAnalysisService:
         data_lines.append(f"报告期：{year}年{report_type_label}（{end_date}）")
         data_lines.append("")
         data_lines.append("## 盈利能力指标")
-        for k, label in [("roe", "ROE"), ("roa", "ROA"), ("gross_profit_margin", "毛利率"), ("net_profit_margin", "净利率")]:
+        for k, label in [
+            ("roe", "ROE"),
+            ("roa", "ROA"),
+            ("gross_profit_margin", "毛利率"),
+            ("net_profit_margin", "净利率"),
+        ]:
             val = profitability.get(k)
             if val is not None and val != "\\N":
                 data_lines.append(f"- {label}: {self._fmt_pct(val)}")
 
         data_lines.append("")
         data_lines.append("## 偿债能力指标")
-        for k, label in [("debt_to_assets", "资产负债率"), ("current_ratio", "流动比率"), ("quick_ratio", "速动比率")]:
+        for k, label in [
+            ("debt_to_assets", "资产负债率"),
+            ("current_ratio", "流动比率"),
+            ("quick_ratio", "速动比率"),
+        ]:
             val = solvency.get(k)
             if val is not None and val != "\\N":
-                data_lines.append(f"- {label}: {self._fmt_num(val) if k != 'debt_to_assets' else self._fmt_pct(val)}")
+                data_lines.append(
+                    f"- {label}: {self._fmt_num(val) if k != 'debt_to_assets' else self._fmt_pct(val)}"
+                )
 
         data_lines.append("")
         data_lines.append("## 营运能力指标")
-        for k, label in [("asset_turnover", "资产周转率"), ("inventory_turnover", "存货周转率"), ("receivable_turnover", "应收账款周转率")]:
+        for k, label in [
+            ("asset_turnover", "资产周转率"),
+            ("inventory_turnover", "存货周转率"),
+            ("receivable_turnover", "应收账款周转率"),
+        ]:
             val = efficiency.get(k)
             if val is not None and val != "\\N":
                 data_lines.append(f"- {label}: {self._fmt_num(val)}")
 
         data_lines.append("")
         data_lines.append("## 成长能力指标")
-        for k, label in [("revenue_growth", "营收增长率"), ("profit_growth", "净利润增长率")]:
+        for k, label in [
+            ("revenue_growth", "营收增长率"),
+            ("profit_growth", "净利润增长率"),
+        ]:
             val = growth_data.get(k)
             if val is not None and val != "\\N":
                 data_lines.append(f"- {label}: {self._fmt_pct(val)}")
@@ -827,6 +917,7 @@ class FinancialAnalysisService:
     def _get_llm_model_name() -> str:
         """Get the configured LLM model name."""
         import os
+
         return os.getenv("OPENAI_MODEL", "unknown")
 
     def _build_professional_report(
@@ -835,13 +926,15 @@ class FinancialAnalysisService:
         stock_name: str,
         end_date: str,
         market: str,
-        analysis_data: Dict[str, Any],
+        analysis_data: dict[str, Any],
     ) -> str:
         """Build a professional 8-module financial analysis report.
 
         Combines data-driven structured analysis with AI-generated insights.
         """
-        report_type_label = self._report_type_label(self._classify_report_type(end_date))
+        report_type_label = self._report_type_label(
+            self._classify_report_type(end_date)
+        )
         year = end_date[:4] if len(end_date) >= 4 else end_date
 
         # Extract data sections
@@ -861,7 +954,7 @@ class FinancialAnalysisService:
         # Build the report following professional methodology
         report = f"""# {stock_name}（{ts_code}）{year}年{report_type_label}专业财务分析
 
-> 分析日期：{datetime.now().strftime('%Y-%m-%d')} | 报告期：{end_date} | 综合评分：**{health_score}/100**
+> 分析日期：{datetime.now().strftime("%Y-%m-%d")} | 报告期：{end_date} | 综合评分：**{health_score}/100**
 
 ---
 
@@ -871,10 +964,10 @@ class FinancialAnalysisService:
 
 | 指标 | 数值 | 评价 |
 |------|------|------|
-| ROE（净资产收益率） | {self._fmt_pct(profitability.get('roe'))} | {self._rate_indicator(profitability.get('roe'), 'roe')} |
-| ROA（总资产收益率） | {self._fmt_pct(profitability.get('roa'))} | {self._rate_indicator(profitability.get('roa'), 'roa')} |
-| 毛利率 | {self._fmt_pct(profitability.get('gross_profit_margin'))} | {self._rate_indicator(profitability.get('gross_profit_margin'), 'gross_margin')} |
-| 净利率 | {self._fmt_pct(profitability.get('net_profit_margin'))} | {self._rate_indicator(profitability.get('net_profit_margin'), 'net_margin')} |
+| ROE（净资产收益率） | {self._fmt_pct(profitability.get("roe"))} | {self._rate_indicator(profitability.get("roe"), "roe")} |
+| ROA（总资产收益率） | {self._fmt_pct(profitability.get("roa"))} | {self._rate_indicator(profitability.get("roa"), "roa")} |
+| 毛利率 | {self._fmt_pct(profitability.get("gross_profit_margin"))} | {self._rate_indicator(profitability.get("gross_profit_margin"), "gross_margin")} |
+| 净利率 | {self._fmt_pct(profitability.get("net_profit_margin"))} | {self._rate_indicator(profitability.get("net_profit_margin"), "net_margin")} |
 
 **分析要点：**
 {self._profitability_commentary(profitability)}
@@ -887,9 +980,9 @@ class FinancialAnalysisService:
 
 | 指标 | 数值 | 评价 |
 |------|------|------|
-| 资产负债率 | {self._fmt_pct(solvency.get('debt_to_assets'))} | {self._rate_indicator(solvency.get('debt_to_assets'), 'debt_ratio')} |
-| 流动比率 | {self._fmt_num(solvency.get('current_ratio'))} | {self._rate_indicator(solvency.get('current_ratio'), 'current_ratio')} |
-| 速动比率 | {self._fmt_num(solvency.get('quick_ratio'))} | {self._rate_indicator(solvency.get('quick_ratio'), 'quick_ratio')} |
+| 资产负债率 | {self._fmt_pct(solvency.get("debt_to_assets"))} | {self._rate_indicator(solvency.get("debt_to_assets"), "debt_ratio")} |
+| 流动比率 | {self._fmt_num(solvency.get("current_ratio"))} | {self._rate_indicator(solvency.get("current_ratio"), "current_ratio")} |
+| 速动比率 | {self._fmt_num(solvency.get("quick_ratio"))} | {self._rate_indicator(solvency.get("quick_ratio"), "quick_ratio")} |
 
 **分析要点：**
 {self._solvency_commentary(solvency)}
@@ -902,9 +995,9 @@ class FinancialAnalysisService:
 
 | 指标 | 数值 | 评价 |
 |------|------|------|
-| 资产周转率 | {self._fmt_num(efficiency.get('asset_turnover'))} | {self._rate_indicator(efficiency.get('asset_turnover'), 'asset_turnover')} |
-| 存货周转率 | {self._fmt_num(efficiency.get('inventory_turnover'))} | {self._rate_indicator(efficiency.get('inventory_turnover'), 'inventory_turnover')} |
-| 应收账款周转率 | {self._fmt_num(efficiency.get('receivable_turnover'))} | {self._rate_indicator(efficiency.get('receivable_turnover'), 'receivable_turnover')} |
+| 资产周转率 | {self._fmt_num(efficiency.get("asset_turnover"))} | {self._rate_indicator(efficiency.get("asset_turnover"), "asset_turnover")} |
+| 存货周转率 | {self._fmt_num(efficiency.get("inventory_turnover"))} | {self._rate_indicator(efficiency.get("inventory_turnover"), "inventory_turnover")} |
+| 应收账款周转率 | {self._fmt_num(efficiency.get("receivable_turnover"))} | {self._rate_indicator(efficiency.get("receivable_turnover"), "receivable_turnover")} |
 
 **分析要点：**
 {self._efficiency_commentary(efficiency)}
@@ -917,8 +1010,8 @@ class FinancialAnalysisService:
 
 | 指标 | 数值 | 评价 |
 |------|------|------|
-| 营收增长率 | {self._fmt_pct(growth_data.get('revenue_growth'))} | {self._rate_growth(growth_data.get('revenue_growth'))} |
-| 净利润增长率 | {self._fmt_pct(growth_data.get('profit_growth'))} | {self._rate_growth(growth_data.get('profit_growth'))} |
+| 营收增长率 | {self._fmt_pct(growth_data.get("revenue_growth"))} | {self._rate_growth(growth_data.get("revenue_growth"))} |
+| 净利润增长率 | {self._fmt_pct(growth_data.get("profit_growth"))} | {self._rate_growth(growth_data.get("profit_growth"))} |
 
 **分析要点：**
 {self._growth_commentary(growth_data)}
@@ -942,10 +1035,10 @@ class FinancialAnalysisService:
 
 | 驱动因素 | 数值 | 说明 |
 |----------|------|------|
-| 净利率 | {self._fmt_pct(profitability.get('net_profit_margin'))} | 每元营收贡献的利润 |
-| 资产周转率 | {self._fmt_num(efficiency.get('asset_turnover'))} | 资产运用效率 |
+| 净利率 | {self._fmt_pct(profitability.get("net_profit_margin"))} | 每元营收贡献的利润 |
+| 资产周转率 | {self._fmt_num(efficiency.get("asset_turnover"))} | 资产运用效率 |
 | 权益乘数 | {self._fmt_num(self._calc_equity_multiplier(solvency))} | 财务杠杆水平 |
-| **ROE** | **{self._fmt_pct(profitability.get('roe'))}** | **综合盈利能力** |
+| **ROE** | **{self._fmt_pct(profitability.get("roe"))}** | **综合盈利能力** |
 
 {self._dupont_commentary(profitability, efficiency, solvency)}
 
@@ -956,16 +1049,16 @@ class FinancialAnalysisService:
 ### 财务健康度评分：{health_score}/100 {self._score_emoji(health_score)}
 
 ### 主要优势
-{self._format_bullet_list(strengths, '暂无明显优势')}
+{self._format_bullet_list(strengths, "暂无明显优势")}
 
 ### 关注风险
-{self._format_bullet_list(weaknesses, '财务状况良好，无明显风险点')}
+{self._format_bullet_list(weaknesses, "财务状况良好，无明显风险点")}
 
 ---
 
 ## 八、投资建议 💡
 
-{self._format_bullet_list(recommendations, '建议投资者结合行业前景和估值水平综合判断')}
+{self._format_bullet_list(recommendations, "建议投资者结合行业前景和估值水平综合判断")}
 
 ---
 
@@ -977,6 +1070,7 @@ class FinancialAnalysisService:
                 from stock_datasource.agents.hk_report_agent import (
                     get_hk_comprehensive_financial_analysis,
                 )
+
                 ai_content = get_hk_comprehensive_financial_analysis(ts_code, periods=8)
                 if isinstance(ai_content, dict):
                     ai_content = ai_content.get("report", "")
@@ -984,6 +1078,7 @@ class FinancialAnalysisService:
                 from stock_datasource.agents.report_agent import (
                     get_comprehensive_financial_analysis,
                 )
+
                 ai_result = get_comprehensive_financial_analysis(ts_code, periods=8)
                 if isinstance(ai_result, dict):
                     ai_content = ai_result.get("report", "")
@@ -1030,16 +1125,63 @@ class FinancialAnalysisService:
             return "⬜ 数据缺失"
 
         thresholds = {
-            "roe": [(15, "🟢 优秀"), (8, "🟡 良好"), (0, "🟠 一般"), (float("-inf"), "🔴 较弱")],
-            "roa": [(8, "🟢 优秀"), (4, "🟡 良好"), (0, "🟠 一般"), (float("-inf"), "🔴 较弱")],
-            "gross_margin": [(40, "🟢 优秀"), (20, "🟡 良好"), (10, "🟠 一般"), (float("-inf"), "🔴 较弱")],
-            "net_margin": [(15, "🟢 优秀"), (8, "🟡 良好"), (0, "🟠 一般"), (float("-inf"), "🔴 较弱")],
-            "debt_ratio": [(40, "🟢 稳健"), (60, "🟡 适中"), (70, "🟠 偏高"), (float("inf"), "🔴 高风险")],
-            "current_ratio": [(2, "🟢 充裕"), (1.5, "🟡 适中"), (1, "🟠 偏紧"), (float("-inf"), "🔴 紧张")],
-            "quick_ratio": [(1.5, "🟢 充裕"), (1, "🟡 适中"), (0.5, "🟠 偏紧"), (float("-inf"), "🔴 紧张")],
-            "asset_turnover": [(1, "🟢 高效"), (0.5, "🟡 适中"), (float("-inf"), "🟠 偏低")],
-            "inventory_turnover": [(8, "🟢 高效"), (4, "🟡 适中"), (float("-inf"), "🟠 偏低")],
-            "receivable_turnover": [(10, "🟢 高效"), (5, "🟡 适中"), (float("-inf"), "🟠 偏低")],
+            "roe": [
+                (15, "🟢 优秀"),
+                (8, "🟡 良好"),
+                (0, "🟠 一般"),
+                (float("-inf"), "🔴 较弱"),
+            ],
+            "roa": [
+                (8, "🟢 优秀"),
+                (4, "🟡 良好"),
+                (0, "🟠 一般"),
+                (float("-inf"), "🔴 较弱"),
+            ],
+            "gross_margin": [
+                (40, "🟢 优秀"),
+                (20, "🟡 良好"),
+                (10, "🟠 一般"),
+                (float("-inf"), "🔴 较弱"),
+            ],
+            "net_margin": [
+                (15, "🟢 优秀"),
+                (8, "🟡 良好"),
+                (0, "🟠 一般"),
+                (float("-inf"), "🔴 较弱"),
+            ],
+            "debt_ratio": [
+                (40, "🟢 稳健"),
+                (60, "🟡 适中"),
+                (70, "🟠 偏高"),
+                (float("inf"), "🔴 高风险"),
+            ],
+            "current_ratio": [
+                (2, "🟢 充裕"),
+                (1.5, "🟡 适中"),
+                (1, "🟠 偏紧"),
+                (float("-inf"), "🔴 紧张"),
+            ],
+            "quick_ratio": [
+                (1.5, "🟢 充裕"),
+                (1, "🟡 适中"),
+                (0.5, "🟠 偏紧"),
+                (float("-inf"), "🔴 紧张"),
+            ],
+            "asset_turnover": [
+                (1, "🟢 高效"),
+                (0.5, "🟡 适中"),
+                (float("-inf"), "🟠 偏低"),
+            ],
+            "inventory_turnover": [
+                (8, "🟢 高效"),
+                (4, "🟡 适中"),
+                (float("-inf"), "🟠 偏低"),
+            ],
+            "receivable_turnover": [
+                (10, "🟢 高效"),
+                (5, "🟡 适中"),
+                (float("-inf"), "🟠 偏低"),
+            ],
         }
 
         rules = thresholds.get(indicator_type, [])
@@ -1088,7 +1230,7 @@ class FinancialAnalysisService:
             return "🔴"
 
     @staticmethod
-    def _calc_equity_multiplier(solvency: dict) -> Optional[float]:
+    def _calc_equity_multiplier(solvency: dict) -> float | None:
         """Calculate equity multiplier from debt-to-assets ratio."""
         debt_ratio = solvency.get("debt_to_assets")
         if debt_ratio is None or debt_ratio == "\\N":
@@ -1102,7 +1244,7 @@ class FinancialAnalysisService:
             return None
 
     @staticmethod
-    def _format_bullet_list(items: List[str], empty_msg: str = "") -> str:
+    def _format_bullet_list(items: list[str], empty_msg: str = "") -> str:
         """Format a list of strings as markdown bullets."""
         if not items:
             return f"- {empty_msg}" if empty_msg else ""
@@ -1120,7 +1262,9 @@ class FinancialAnalysisService:
             try:
                 roe_val = float(roe)
                 if roe_val >= 15:
-                    parts.append(f"- ROE达{roe_val:.2f}%，表明公司股东权益回报率优秀，核心盈利能力突出")
+                    parts.append(
+                        f"- ROE达{roe_val:.2f}%，表明公司股东权益回报率优秀，核心盈利能力突出"
+                    )
                 elif roe_val >= 8:
                     parts.append(f"- ROE为{roe_val:.2f}%，股东权益回报处于良好水平")
                 else:
@@ -1132,11 +1276,15 @@ class FinancialAnalysisService:
             try:
                 gross_val = float(gross)
                 if gross_val >= 40:
-                    parts.append(f"- 毛利率{gross_val:.2f}%，反映出较强的产品定价权和竞争壁垒")
+                    parts.append(
+                        f"- 毛利率{gross_val:.2f}%，反映出较强的产品定价权和竞争壁垒"
+                    )
                 elif gross_val >= 20:
                     parts.append(f"- 毛利率{gross_val:.2f}%，处于行业中等水平")
                 else:
-                    parts.append(f"- 毛利率仅{gross_val:.2f}%，产品附加值较低，需关注成本控制")
+                    parts.append(
+                        f"- 毛利率仅{gross_val:.2f}%，产品附加值较低，需关注成本控制"
+                    )
             except (ValueError, TypeError):
                 pass
 
@@ -1153,7 +1301,9 @@ class FinancialAnalysisService:
             try:
                 debt_val = float(debt)
                 if debt_val <= 40:
-                    parts.append(f"- 资产负债率{debt_val:.2f}%，财务结构稳健，偿债压力小")
+                    parts.append(
+                        f"- 资产负债率{debt_val:.2f}%，财务结构稳健，偿债压力小"
+                    )
                 elif debt_val <= 60:
                     parts.append(f"- 资产负债率{debt_val:.2f}%，财务杠杆适中")
                 else:
@@ -1189,7 +1339,9 @@ class FinancialAnalysisService:
                 elif at_val >= 0.5:
                     parts.append(f"- 资产周转率{at_val:.2f}，处于正常水平")
                 else:
-                    parts.append(f"- 资产周转率仅{at_val:.2f}，资产运用效率偏低，可能存在资产冗余")
+                    parts.append(
+                        f"- 资产周转率仅{at_val:.2f}，资产运用效率偏低，可能存在资产冗余"
+                    )
             except (ValueError, TypeError):
                 pass
 
@@ -1237,7 +1389,9 @@ class FinancialAnalysisService:
         parts = []
         parts.append("- 经营活动现金流是判断企业造血能力的核心指标")
         parts.append("- 理想模型为「经营活动流入 + 投资活动流出 + 筹资活动流出」")
-        parts.append("- 需重点关注经营现金流与净利润的匹配程度（现金流/净利润 > 1 为佳）")
+        parts.append(
+            "- 需重点关注经营现金流与净利润的匹配程度（现金流/净利润 > 1 为佳）"
+        )
 
         health = analysis_data.get("health_analysis", {})
         recs = health.get("recommendations", [])
@@ -1293,8 +1447,8 @@ class FinancialAnalysisService:
         return "\n".join(parts)
 
     def get_analysis_history(
-        self, ts_code: str, end_date: Optional[str] = None, limit: int = 20
-    ) -> Dict[str, Any]:
+        self, ts_code: str, end_date: str | None = None, limit: int = 20
+    ) -> dict[str, Any]:
         """Get historical analysis records for a company.
 
         Args:
@@ -1304,7 +1458,7 @@ class FinancialAnalysisService:
         """
         try:
             where_clauses = ["ts_code = %(ts_code)s"]
-            params: Dict[str, Any] = {"ts_code": ts_code, "limit": limit}
+            params: dict[str, Any] = {"ts_code": ts_code, "limit": limit}
 
             if end_date:
                 where_clauses.append("end_date = %(end_date)s")
@@ -1325,27 +1479,31 @@ class FinancialAnalysisService:
 
             records = []
             for row in rows:
-                records.append({
-                    "id": row[0],
-                    "ts_code": row[1],
-                    "stock_name": row[2],
-                    "market": row[3],
-                    "end_date": row[4],
-                    "report_type": row[5],
-                    "analysis_type": row[6],
-                    "report_content": row[7],
-                    "health_score": row[8],
-                    "analysis_sections": self._safe_json_parse(row[9]),
-                    "analysis_metadata": self._safe_json_parse(row[10]),
-                    "created_at": row[11].isoformat() if hasattr(row[11], "isoformat") else str(row[11]),
-                })
+                records.append(
+                    {
+                        "id": row[0],
+                        "ts_code": row[1],
+                        "stock_name": row[2],
+                        "market": row[3],
+                        "end_date": row[4],
+                        "report_type": row[5],
+                        "analysis_type": row[6],
+                        "report_content": row[7],
+                        "health_score": row[8],
+                        "analysis_sections": self._safe_json_parse(row[9]),
+                        "analysis_metadata": self._safe_json_parse(row[10]),
+                        "created_at": row[11].isoformat()
+                        if hasattr(row[11], "isoformat")
+                        else str(row[11]),
+                    }
+                )
 
             return {"status": "success", "records": records}
         except Exception as e:
             logger.error(f"Error getting analysis history for {ts_code}: {e}")
             return {"status": "error", "error": str(e), "records": []}
 
-    def get_analysis_record(self, record_id: str) -> Dict[str, Any]:
+    def get_analysis_record(self, record_id: str) -> dict[str, Any]:
         """Get a single analysis record by ID."""
         try:
             query = """
@@ -1377,7 +1535,9 @@ class FinancialAnalysisService:
                     "health_score": row[9],
                     "analysis_sections": self._safe_json_parse(row[10]),
                     "analysis_metadata": self._safe_json_parse(row[11]),
-                    "created_at": row[12].isoformat() if hasattr(row[12], "isoformat") else str(row[12]),
+                    "created_at": row[12].isoformat()
+                    if hasattr(row[12], "isoformat")
+                    else str(row[12]),
                 },
             }
         except Exception as e:
@@ -1386,7 +1546,7 @@ class FinancialAnalysisService:
 
     # ========== Helpers ==========
 
-    def _get_company_info(self, ts_code: str, market: str = "A") -> Dict[str, Any]:
+    def _get_company_info(self, ts_code: str, market: str = "A") -> dict[str, Any]:
         """Get company basic info."""
         try:
             if market == "HK":
@@ -1421,12 +1581,28 @@ class FinancialAnalysisService:
                     "market": row[5] or "",
                     "list_date": str(list_date_val) if list_date_val else "",
                 }
-            return {"ts_code": ts_code, "name": ts_code, "symbol": "", "area": "", "industry": "", "market": "A", "list_date": ""}
+            return {
+                "ts_code": ts_code,
+                "name": ts_code,
+                "symbol": "",
+                "area": "",
+                "industry": "",
+                "market": "A",
+                "list_date": "",
+            }
         except Exception as e:
             logger.error(f"Error getting company info for {ts_code}: {e}")
-            return {"ts_code": ts_code, "name": ts_code, "symbol": "", "area": "", "industry": "", "market": market, "list_date": ""}
+            return {
+                "ts_code": ts_code,
+                "name": ts_code,
+                "symbol": "",
+                "area": "",
+                "industry": "",
+                "market": market,
+                "list_date": "",
+            }
 
-    def _get_analysis_status_map(self, ts_code: str) -> Dict[str, bool]:
+    def _get_analysis_status_map(self, ts_code: str) -> dict[str, bool]:
         """Get a map of end_date -> has_analysis for a stock."""
         try:
             query = """
@@ -1439,7 +1615,7 @@ class FinancialAnalysisService:
         except Exception:
             return {}
 
-    def _build_data_snapshot(self, analysis_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_data_snapshot(self, analysis_data: dict[str, Any]) -> dict[str, Any]:
         """Build a compact data snapshot for persistence."""
         if analysis_data.get("status") != "success":
             return {}
@@ -1449,23 +1625,25 @@ class FinancialAnalysisService:
                 snapshot[key] = analysis_data[key]
         return snapshot
 
-    def _extract_sections(self, report_content: str) -> List[Dict[str, str]]:
+    def _extract_sections(self, report_content: str) -> list[dict[str, str]]:
         """Extract structured sections from markdown report."""
         import re
 
         sections = []
         # Split by ## or ### headers
-        parts = re.split(r'\n(#{2,3}\s+)', report_content)
+        parts = re.split(r"\n(#{2,3}\s+)", report_content)
 
         current_title = ""
         for i, part in enumerate(parts):
-            if re.match(r'^#{2,3}\s+', part):
+            if re.match(r"^#{2,3}\s+", part):
                 current_title = part.strip("# \n")
             elif current_title:
-                sections.append({
-                    "title": current_title,
-                    "content": part.strip(),
-                })
+                sections.append(
+                    {
+                        "title": current_title,
+                        "content": part.strip(),
+                    }
+                )
                 current_title = ""
 
         return sections
@@ -1499,7 +1677,7 @@ class FinancialAnalysisService:
         return labels.get(report_type, "其他")
 
     @staticmethod
-    def _safe_float(val) -> Optional[float]:
+    def _safe_float(val) -> float | None:
         """Safely convert value to float."""
         if val is None or val == "\\N" or val == "None" or val == "":
             return None

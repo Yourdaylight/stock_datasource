@@ -1,5 +1,7 @@
 """Memory module."""
 
+from .fact_extractor import FactExtractor, LLMIntentClassifier, RegexSignalDetector
+from .memory_update_queue import MemoryUpdateQueue, get_memory_update_queue
 from .models import (
     AgentSharedResult,
     ContextSize,
@@ -11,8 +13,6 @@ from .models import (
     UserProfileEntry,
 )
 from .store import MemoryStore, get_memory_store, is_memory_store_enabled
-from .fact_extractor import FactExtractor, LLMIntentClassifier, RegexSignalDetector
-from .memory_update_queue import MemoryUpdateQueue, get_memory_update_queue
 
 __all__ = [
     # Models

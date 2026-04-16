@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from stock_datasource.config.runtime_config import (
     get_realtime_config,
-    save_realtime_config,
     get_realtime_plugin_config,
+    save_realtime_config,
     save_realtime_plugin_config,
 )
 
@@ -35,7 +35,7 @@ def _is_realtime_plugin(config_path: Path) -> bool:
         return False
 
 
-def _get_plugin_config_data(config_path: Path) -> Dict[str, Any]:
+def _get_plugin_config_data(config_path: Path) -> dict[str, Any]:
     """Read a plugin's config.json."""
     try:
         with config_path.open("r", encoding="utf-8") as f:
@@ -47,9 +47,9 @@ def _get_plugin_config_data(config_path: Path) -> Dict[str, Any]:
 class RealtimeManageService:
     """Service for managing realtime data plugins and watchlist integration."""
 
-    _instance: Optional["RealtimeManageService"] = None
+    _instance: RealtimeManageService | None = None
 
-    def __new__(cls) -> "RealtimeManageService":
+    def __new__(cls) -> RealtimeManageService:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -58,13 +58,11 @@ class RealtimeManageService:
         if hasattr(self, "_initialized"):
             return
         self._initialized = True
-        self._plugins_dir = (
-            Path(__file__).parent.parent.parent / "plugins"
-        )
+        self._plugins_dir = Path(__file__).parent.parent.parent / "plugins"
 
     # ---- Config CRUD ----
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get full realtime configuration."""
         cfg = get_realtime_config()
         # Ensure all realtime plugins have an entry in plugin_configs
@@ -78,10 +76,10 @@ class RealtimeManageService:
 
     def update_config(
         self,
-        enabled: Optional[bool] = None,
-        watchlist_monitor_enabled: Optional[bool] = None,
-        collect_freq: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        enabled: bool | None = None,
+        watchlist_monitor_enabled: bool | None = None,
+        collect_freq: str | None = None,
+    ) -> dict[str, Any]:
         """Update global realtime configuration.
 
         When enabling realtime, also enables watchlist monitoring by default.
@@ -91,7 +89,7 @@ class RealtimeManageService:
         if collect_freq and collect_freq.upper() not in VALID_FREQS:
             raise ValueError(f"Invalid freq: {collect_freq}. Valid: {VALID_FREQS}")
 
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if enabled is not None:
             kwargs["enabled"] = enabled
             # Auto-link watchlist monitoring
@@ -124,6 +122,7 @@ class RealtimeManageService:
                 pause_collection,
                 resume_collection,
             )
+
             if enabled:
                 resume_collection()
             else:
@@ -131,15 +130,17 @@ class RealtimeManageService:
         except Exception as e:
             logger.warning(f"Failed to toggle collection job: {e}")
 
-    def update_plugin_config(self, plugin_name: str, enabled: bool) -> Dict[str, Any]:
+    def update_plugin_config(self, plugin_name: str, enabled: bool) -> dict[str, Any]:
         """Enable or disable a specific realtime plugin."""
         save_realtime_plugin_config(plugin_name, enabled)
-        logger.info(f"Realtime plugin '{plugin_name}' {'enabled' if enabled else 'disabled'}")
+        logger.info(
+            f"Realtime plugin '{plugin_name}' {'enabled' if enabled else 'disabled'}"
+        )
         return self.get_config()
 
     # ---- Plugin discovery ----
 
-    def get_realtime_plugins(self) -> List[Dict[str, Any]]:
+    def get_realtime_plugins(self) -> list[dict[str, Any]]:
         """Discover all realtime plugins by scanning plugin directories."""
         plugins = []
         if not self._plugins_dir.exists():
@@ -156,15 +157,17 @@ class RealtimeManageService:
 
             cfg = _get_plugin_config_data(config_path)
             rt_pc = get_realtime_plugin_config(cfg.get("plugin_name", plugin_dir.name))
-            plugins.append({
-                "plugin_name": cfg.get("plugin_name", plugin_dir.name),
-                "display_name": cfg.get("display_name", plugin_dir.name),
-                "description": cfg.get("description", ""),
-                "api_name": cfg.get("api_name", ""),
-                "category": cfg.get("category", ""),
-                "tags": cfg.get("tags", []),
-                "enabled": rt_pc.get("enabled", False),
-            })
+            plugins.append(
+                {
+                    "plugin_name": cfg.get("plugin_name", plugin_dir.name),
+                    "display_name": cfg.get("display_name", plugin_dir.name),
+                    "description": cfg.get("description", ""),
+                    "api_name": cfg.get("api_name", ""),
+                    "category": cfg.get("category", ""),
+                    "tags": cfg.get("tags", []),
+                    "enabled": rt_pc.get("enabled", False),
+                }
+            )
 
         return plugins
 
@@ -177,28 +180,30 @@ class RealtimeManageService:
 
     # ---- Watchlist integration ----
 
-    def get_watchlist_codes(self) -> List[str]:
+    def get_watchlist_codes(self) -> list[str]:
         """Read watchlist codes from user portfolio positions + memory store.
 
         Priority:
         1. user_positions table (ClickHouse) — the user's actual holdings
         2. MemoryStore watchlist — user-added watchlist codes
         """
-        codes: List[str] = []
+        codes: list[str] = []
 
         # 1. From user_positions (actual holdings)
         try:
             from stock_datasource.models.database import db_client
+
             query = "SELECT DISTINCT ts_code FROM user_positions"
             df = db_client.execute_query(query)
             if not df.empty:
-                codes.extend(df['ts_code'].tolist())
+                codes.extend(df["ts_code"].tolist())
         except Exception as e:
             logger.warning(f"Failed to read watchlist from user_positions: {e}")
 
         # 2. From MemoryStore watchlist (user-added codes)
         try:
             from stock_datasource.modules.memory.store import get_memory_store
+
             store = get_memory_store()
             # Search across all users for watchlist entries
             results = store.raw_store.search(("users",), limit=200)
@@ -227,14 +232,16 @@ class RealtimeManageService:
             logger.info("No watchlist/position codes to sync")
             return
 
-        logger.info(f"Syncing {len(codes)} watchlist/position codes to realtime collector memory")
+        logger.info(
+            f"Syncing {len(codes)} watchlist/position codes to realtime collector memory"
+        )
         try:
             from stock_datasource.modules.realtime_minute import config as rt_cfg
 
             # All A-share/ETF/index codes go to ASTOCK_BATCHES (same rt_min API)
             # HK codes go to HK_CODES
-            cn_new = [c for c in codes if not c.endswith('.HK')]
-            hk_new = [c for c in codes if c.endswith('.HK')]
+            cn_new = [c for c in codes if not c.endswith(".HK")]
+            hk_new = [c for c in codes if c.endswith(".HK")]
 
             # Merge into ASTOCK_BATCHES
             existing_cn = set()
@@ -247,7 +254,7 @@ class RealtimeManageService:
             if new_cn:
                 batch_size = 100
                 for i in range(0, len(new_cn), batch_size):
-                    rt_cfg.ASTOCK_BATCHES.append(new_cn[i:i + batch_size])
+                    rt_cfg.ASTOCK_BATCHES.append(new_cn[i : i + batch_size])
                 logger.info(f"Injected {len(new_cn)} CN codes into ASTOCK_BATCHES")
 
             # Merge into HK_CODES
@@ -260,7 +267,7 @@ class RealtimeManageService:
         except Exception as e:
             logger.warning(f"Failed to inject watchlist codes: {e}")
 
-    def get_realtime_status(self) -> Dict[str, Any]:
+    def get_realtime_status(self) -> dict[str, Any]:
         """Get current realtime system status summary."""
         cfg = self.get_config()
         plugins = self.get_realtime_plugins()
@@ -270,7 +277,10 @@ class RealtimeManageService:
         # Check scheduler state
         collection_paused = True
         try:
-            from stock_datasource.modules.realtime_minute.scheduler import is_collection_paused
+            from stock_datasource.modules.realtime_minute.scheduler import (
+                is_collection_paused,
+            )
+
             collection_paused = is_collection_paused()
         except Exception:
             pass

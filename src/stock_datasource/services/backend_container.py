@@ -64,7 +64,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
 
     for command in _build_commands():
-        processes.append(subprocess.Popen(command, cwd=str(Path(__file__).resolve().parents[3])))
+        processes.append(
+            subprocess.Popen(command, cwd=str(Path(__file__).resolve().parents[3]))
+        )
 
     exit_code = 0
     try:

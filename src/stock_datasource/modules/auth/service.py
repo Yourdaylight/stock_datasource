@@ -1,10 +1,9 @@
 """Authentication service with JWT token and password hashing."""
 
+import logging
 import os
 import uuid
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jwt
@@ -18,7 +17,9 @@ logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT configuration
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "stock-datasource-secret-key-change-in-production")
+JWT_SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY", "stock-datasource-secret-key-change-in-production"
+)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
 
@@ -30,20 +31,20 @@ DEFAULT_ADMIN_USERNAME = "admin"
 
 class AuthService:
     """Authentication service for user management."""
-    
+
     def __init__(self):
         self.client = db_client
         self._tables_initialized = False
         self._default_admin_created = False
-    
+
     def _ensure_tables(self) -> None:
         """Ensure auth tables exist (lazy initialization).
-        
+
         Creates tables on both primary and backup databases (dual write).
         """
         if self._tables_initialized:
             return
-        
+
         schema_file = Path(__file__).parent / "schema.sql"
         if schema_file.exists():
             sql_content = schema_file.read_text()
@@ -54,93 +55,102 @@ class AuthService:
                     try:
                         self.client.primary.execute(statement)
                     except Exception as e:
-                        logger.warning(f"Failed to execute schema statement on primary: {e}")
+                        logger.warning(
+                            f"Failed to execute schema statement on primary: {e}"
+                        )
                     # Execute on backup if available
                     if self.client.backup:
                         try:
                             self.client.backup.execute(statement)
                         except Exception as e:
-                            logger.warning(f"Failed to execute schema statement on backup: {e}")
-        
+                            logger.warning(
+                                f"Failed to execute schema statement on backup: {e}"
+                            )
+
         self._tables_initialized = True
-        
+
         # Initialize default admin user after tables are created
         self._ensure_default_admin()
-    
+
     def _ensure_default_admin(self) -> None:
         """Ensure default admin user exists.
-        
+
         Creates the default admin user (admin@localhost / Admin1234) if it doesn't exist.
         This provides a fallback for first-time setup.
         """
         if self._default_admin_created:
             return
-        
+
         try:
             # Check if default admin already exists
             existing_admin = self.get_user_by_email(DEFAULT_ADMIN_EMAIL)
             if existing_admin:
-                logger.debug(f"Default admin user already exists: {DEFAULT_ADMIN_EMAIL}")
+                logger.debug(
+                    f"Default admin user already exists: {DEFAULT_ADMIN_EMAIL}"
+                )
                 self._default_admin_created = True
                 return
-            
+
             # Create default admin user
             user_id = str(uuid.uuid4())
             password_hash = self.hash_password(DEFAULT_ADMIN_PASSWORD)
             now = datetime.now()
-            
+
             insert_query = """
                 INSERT INTO users (id, email, username, password_hash, is_active, is_admin, created_at, updated_at)
                 VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, 1, %(created_at)s, %(updated_at)s)
             """
-            
-            self.client.execute(insert_query, {
-                "id": user_id,
-                "email": DEFAULT_ADMIN_EMAIL,
-                "username": DEFAULT_ADMIN_USERNAME,
-                "password_hash": password_hash,
-                "created_at": now,
-                "updated_at": now,
-            })
-            
+
+            self.client.execute(
+                insert_query,
+                {
+                    "id": user_id,
+                    "email": DEFAULT_ADMIN_EMAIL,
+                    "username": DEFAULT_ADMIN_USERNAME,
+                    "password_hash": password_hash,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+
             logger.info(f"Default admin user created: {DEFAULT_ADMIN_EMAIL}")
             self._default_admin_created = True
-            
+
         except Exception as e:
             logger.warning(f"Failed to create default admin user: {e}")
-    
+
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt."""
         return pwd_context.hash(password)
-    
+
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash."""
         return pwd_context.verify(plain_password, hashed_password)
-    
+
     def create_access_token(self, user_id: str, email: str) -> tuple[str, int]:
         """Create a JWT access token.
-        
+
         Returns:
             Tuple of (token, expires_in_seconds)
         """
         expires_delta = timedelta(days=JWT_EXPIRATION_DAYS)
-        expire = datetime.now(timezone.utc) + expires_delta
-        
+        expire = datetime.now(UTC) + expires_delta
+
         payload = {
             "sub": user_id,
             "email": email,
             "exp": expire,
-            "iat": datetime.now(timezone.utc),
+            "iat": datetime.now(UTC),
         }
-        
+
         token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
         expires_in = int(expires_delta.total_seconds())
-        
+
         return token, expires_in
-    
-    def decode_token(self, token: str) -> Optional[dict]:
+
+    def decode_token(self, token: str) -> dict | None:
         """Decode and validate a JWT token.
-        
+
         Returns:
             Token payload if valid, None otherwise
         """
@@ -153,7 +163,7 @@ class AuthService:
         except jwt.InvalidTokenError as e:
             logger.debug(f"Invalid token: {e}")
             return None
-    
+
     def is_email_whitelisted(self, email: str) -> bool:
         """Check if email is in the whitelist."""
         self._ensure_tables()
@@ -164,17 +174,18 @@ class AuthService:
         """
         result = self.client.execute(query, {"email": email.lower()})
         return result[0][0] > 0 if result else False
-    
+
     def _is_admin_email(self, email: str) -> bool:
         """Check if email is in the admin email list from config."""
         from stock_datasource.config.settings import settings
+
         admin_emails = getattr(settings, "AUTH_ADMIN_EMAILS", "")
         if not admin_emails:
             return False
         admin_list = [e.strip().lower() for e in admin_emails.split(",") if e.strip()]
         return email.lower() in admin_list
-    
-    def get_user_by_email(self, email: str) -> Optional[dict]:
+
+    def get_user_by_email(self, email: str) -> dict | None:
         """Get user by email."""
         self._ensure_tables()
         query = """
@@ -200,8 +211,8 @@ class AuthService:
                 "updated_at": row[7] if len(row) > 7 else row[6],
             }
         return None
-    
-    def get_user_by_id(self, user_id: str) -> Optional[dict]:
+
+    def get_user_by_id(self, user_id: str) -> dict | None:
         """Get user by ID."""
         self._ensure_tables()
         query = """
@@ -228,8 +239,8 @@ class AuthService:
                 "updated_at": row[7] if len(row) > 7 else row[6],
             }
         return None
-    
-    def _resolve_whitelist_file(self) -> Optional[Path]:
+
+    def _resolve_whitelist_file(self) -> Path | None:
         """Resolve whitelist file path from settings.
 
         Compatibility notes:
@@ -297,7 +308,9 @@ class AuthService:
         """
         from stock_datasource.config.settings import settings
 
-        whitelist_enabled = bool(getattr(settings, "AUTH_EMAIL_WHITELIST_ENABLED", False))
+        whitelist_enabled = bool(
+            getattr(settings, "AUTH_EMAIL_WHITELIST_ENABLED", False)
+        )
         if not whitelist_enabled:
             return True
 
@@ -318,9 +331,11 @@ class AuthService:
 
         return False
 
-    def register_user(self, email: str, password: str, username: Optional[str] = None) -> tuple[bool, str, Optional[dict]]:
+    def register_user(
+        self, email: str, password: str, username: str | None = None
+    ) -> tuple[bool, str, dict | None]:
         """Register a new user.
-        
+
         Returns:
             Tuple of (success, message, user_dict)
         """
@@ -329,39 +344,42 @@ class AuthService:
         # Check whitelist (configurable)
         if not self.is_email_allowed_for_registration(email):
             return False, "该邮箱不在允许注册的范围内", None
-        
+
         # Check if email already registered
         existing_user = self.get_user_by_email(email)
         if existing_user:
             return False, "该邮箱已被注册", None
-        
+
         # Create user
         user_id = str(uuid.uuid4())
         if not username:
             username = email.split("@")[0]
-        
+
         password_hash = self.hash_password(password)
         now = datetime.now()
-        
+
         # Check if user should be admin
         is_admin = 1 if self._is_admin_email(email) else 0
-        
+
         insert_query = """
             INSERT INTO users (id, email, username, password_hash, is_active, is_admin, created_at, updated_at)
             VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, %(is_admin)s, %(created_at)s, %(updated_at)s)
         """
-        
+
         try:
-            self.client.execute(insert_query, {
-                "id": user_id,
-                "email": email,
-                "username": username,
-                "password_hash": password_hash,
-                "is_admin": is_admin,
-                "created_at": now,
-                "updated_at": now,
-            })
-            
+            self.client.execute(
+                insert_query,
+                {
+                    "id": user_id,
+                    "email": email,
+                    "username": username,
+                    "password_hash": password_hash,
+                    "is_admin": is_admin,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+
             user = {
                 "id": user_id,
                 "email": email,
@@ -370,75 +388,81 @@ class AuthService:
                 "is_admin": bool(is_admin),
                 "created_at": now,
             }
-            
+
             return True, "注册成功", user
         except Exception as e:
             logger.error(f"Failed to register user: {e}")
-            return False, f"注册失败: {str(e)}", None
-    
-    def login_user(self, email: str, password: str) -> tuple[bool, str, Optional[dict]]:
+            return False, f"注册失败: {e!s}", None
+
+    def login_user(self, email: str, password: str) -> tuple[bool, str, dict | None]:
         """Login a user.
-        
+
         Returns:
             Tuple of (success, message, token_info)
         """
         email = email.lower()
-        
+
         user = self.get_user_by_email(email)
         if not user:
             return False, "邮箱或密码错误", None
-        
+
         if not self.verify_password(password, user["password_hash"]):
             return False, "邮箱或密码错误", None
-        
+
         token, expires_in = self.create_access_token(user["id"], user["email"])
-        
-        return True, "登录成功", {
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in": expires_in,
-        }
-    
-    def add_email_to_whitelist(self, email: str, added_by: str = "system") -> tuple[bool, str, Optional[dict]]:
+
+        return (
+            True,
+            "登录成功",
+            {
+                "access_token": token,
+                "token_type": "bearer",
+                "expires_in": expires_in,
+            },
+        )
+
+    def add_email_to_whitelist(
+        self, email: str, added_by: str = "system"
+    ) -> tuple[bool, str, dict | None]:
         """Add an email to the whitelist.
-        
+
         Writes to both primary and backup databases (dual write).
-        
+
         Returns:
             Tuple of (success, message, whitelist_entry)
         """
         email = email.lower()
-        
+
         # Check if already exists
         if self.is_email_whitelisted(email):
             return False, "该邮箱已在白名单中", None
-        
+
         entry_id = str(uuid.uuid4())
         now = datetime.now()
-        
+
         insert_query = """
             INSERT INTO email_whitelist (id, email, added_by, is_active, created_at)
             VALUES (%(id)s, %(email)s, %(added_by)s, 1, %(created_at)s)
         """
-        
+
         params = {
             "id": entry_id,
             "email": email,
             "added_by": added_by,
             "created_at": now,
         }
-        
+
         try:
             # Write to primary
             self.client.primary.execute(insert_query, params)
-            
+
             # Write to backup if available
             if self.client.backup:
                 try:
                     self.client.backup.execute(insert_query, params)
                 except Exception as e:
                     logger.warning(f"Failed to add email to whitelist on backup: {e}")
-            
+
             entry = {
                 "id": entry_id,
                 "email": email,
@@ -446,12 +470,12 @@ class AuthService:
                 "is_active": True,
                 "created_at": now,
             }
-            
+
             return True, "添加成功", entry
         except Exception as e:
             logger.error(f"Failed to add email to whitelist: {e}")
-            return False, f"添加失败: {str(e)}", None
-    
+            return False, f"添加失败: {e!s}", None
+
     def get_whitelist(self, limit: int = 100, offset: int = 0) -> list[dict]:
         """Get whitelist emails."""
         self._ensure_tables()
@@ -463,7 +487,7 @@ class AuthService:
             LIMIT %(limit)s OFFSET %(offset)s
         """
         result = self.client.execute(query, {"limit": limit, "offset": offset})
-        
+
         return [
             {
                 "id": row[0],
@@ -474,12 +498,12 @@ class AuthService:
             }
             for row in result
         ]
-    
+
     def import_whitelist_from_file(self, file_path: str) -> tuple[int, int]:
         """Import emails from a file to whitelist.
-        
+
         Supports both semicolon-separated and newline-separated formats.
-        
+
         Returns:
             Tuple of (imported_count, skipped_count)
         """
@@ -487,45 +511,47 @@ class AuthService:
         if not path.exists():
             logger.warning(f"Whitelist file not found: {file_path}")
             return 0, 0
-        
+
         content = path.read_text().strip()
-        
+
         # Parse emails (support both ; and newline separators)
         if ";" in content:
             emails = [e.strip().lower() for e in content.split(";") if e.strip()]
         else:
             emails = [e.strip().lower() for e in content.split("\n") if e.strip()]
-        
+
         imported = 0
         skipped = 0
-        
+
         for email in emails:
             if not email or "@" not in email:
                 continue
-            
+
             success, _, _ = self.add_email_to_whitelist(email, added_by="file_import")
             if success:
                 imported += 1
             else:
                 skipped += 1
-        
-        logger.info(f"Whitelist import complete: {imported} imported, {skipped} skipped")
+
+        logger.info(
+            f"Whitelist import complete: {imported} imported, {skipped} skipped"
+        )
         return imported, skipped
-    
+
     def sync_whitelist_to_backup(self) -> tuple[int, int]:
         """Sync all whitelist entries from primary to backup database.
-        
+
         This is a one-time sync operation for existing data.
-        
+
         Returns:
             Tuple of (synced_count, skipped_count)
         """
         if not self.client.backup:
             logger.warning("Backup database not configured, sync skipped")
             return 0, 0
-        
+
         self._ensure_tables()
-        
+
         # Get all whitelist entries from primary
         query = """
             SELECT id, email, added_by, is_active, created_at
@@ -533,22 +559,22 @@ class AuthService:
             WHERE is_active = 1
         """
         primary_entries = self.client.primary.execute(query)
-        
+
         if not primary_entries:
             logger.info("No whitelist entries to sync")
             return 0, 0
-        
+
         synced = 0
         skipped = 0
-        
+
         insert_query = """
             INSERT INTO email_whitelist (id, email, added_by, is_active, created_at)
             VALUES (%(id)s, %(email)s, %(added_by)s, %(is_active)s, %(created_at)s)
         """
-        
+
         for row in primary_entries:
             entry_id, email, added_by, is_active, created_at = row
-            
+
             # Check if already exists in backup
             check_query = """
                 SELECT count() FROM email_whitelist FINAL
@@ -559,37 +585,42 @@ class AuthService:
                 if result and result[0][0] > 0:
                     skipped += 1
                     continue
-                
+
                 # Insert into backup
-                self.client.backup.execute(insert_query, {
-                    "id": entry_id,
-                    "email": email,
-                    "added_by": added_by,
-                    "is_active": is_active,
-                    "created_at": created_at,
-                })
+                self.client.backup.execute(
+                    insert_query,
+                    {
+                        "id": entry_id,
+                        "email": email,
+                        "added_by": added_by,
+                        "is_active": is_active,
+                        "created_at": created_at,
+                    },
+                )
                 synced += 1
             except Exception as e:
                 logger.warning(f"Failed to sync email {email} to backup: {e}")
                 skipped += 1
-        
-        logger.info(f"Whitelist sync to backup complete: {synced} synced, {skipped} skipped")
+
+        logger.info(
+            f"Whitelist sync to backup complete: {synced} synced, {skipped} skipped"
+        )
         return synced, skipped
-    
+
     def sync_whitelist_from_backup(self) -> tuple[int, int]:
         """Sync all whitelist entries from backup to primary database.
-        
+
         Use this when primary database is missing data.
-        
+
         Returns:
             Tuple of (synced_count, skipped_count)
         """
         if not self.client.backup:
             logger.warning("Backup database not configured, sync skipped")
             return 0, 0
-        
+
         self._ensure_tables()
-        
+
         # Get all whitelist entries from backup
         query = """
             SELECT id, email, added_by, is_active, created_at
@@ -597,22 +628,22 @@ class AuthService:
             WHERE is_active = 1
         """
         backup_entries = self.client.backup.execute(query)
-        
+
         if not backup_entries:
             logger.info("No whitelist entries in backup to sync")
             return 0, 0
-        
+
         synced = 0
         skipped = 0
-        
+
         insert_query = """
             INSERT INTO email_whitelist (id, email, added_by, is_active, created_at)
             VALUES (%(id)s, %(email)s, %(added_by)s, %(is_active)s, %(created_at)s)
         """
-        
+
         for row in backup_entries:
             entry_id, email, added_by, is_active, created_at = row
-            
+
             # Check if already exists in primary
             check_query = """
                 SELECT count() FROM email_whitelist FINAL
@@ -623,26 +654,31 @@ class AuthService:
                 if result and result[0][0] > 0:
                     skipped += 1
                     continue
-                
+
                 # Insert into primary
-                self.client.primary.execute(insert_query, {
-                    "id": entry_id,
-                    "email": email,
-                    "added_by": added_by,
-                    "is_active": is_active,
-                    "created_at": created_at,
-                })
+                self.client.primary.execute(
+                    insert_query,
+                    {
+                        "id": entry_id,
+                        "email": email,
+                        "added_by": added_by,
+                        "is_active": is_active,
+                        "created_at": created_at,
+                    },
+                )
                 synced += 1
             except Exception as e:
                 logger.warning(f"Failed to sync email {email} to primary: {e}")
                 skipped += 1
-        
-        logger.info(f"Whitelist sync from backup complete: {synced} synced, {skipped} skipped")
+
+        logger.info(
+            f"Whitelist sync from backup complete: {synced} synced, {skipped} skipped"
+        )
         return synced, skipped
 
 
 # Singleton instance
-_auth_service: Optional[AuthService] = None
+_auth_service: AuthService | None = None
 
 
 def get_auth_service() -> AuthService:

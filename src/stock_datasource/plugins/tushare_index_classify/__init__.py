@@ -2,4 +2,4 @@
 
 from .plugin import TuShareIndexClassifyPlugin
 
-__all__ = ['TuShareIndexClassifyPlugin']
+__all__ = ["TuShareIndexClassifyPlugin"]

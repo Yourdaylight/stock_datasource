@@ -1,25 +1,37 @@
 """Query service for institutional survey data."""
 
-from typing import List, Dict, Any, Optional
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+from typing import Any
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 class StkSurvService(BaseService):
     """Service for querying institutional survey (机构调研) data."""
-    
+
     def __init__(self):
         super().__init__("tushare_stk_surv")
-    
+
     @query_method(
         description="查询指定日期的机构调研数据",
         params=[
-            QueryParam(name="surv_date", type="str", required=True, 
-                      description="调研日期，格式 YYYY-MM-DD"),
-            QueryParam(name="limit", type="int", required=False, default=100,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="surv_date",
+                type="str",
+                required=True,
+                description="调研日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=100,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_surveys_by_date(self, surv_date: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_surveys_by_date(
+        self, surv_date: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """Get institutional surveys for a specific date."""
         query = f"""
             SELECT 
@@ -38,33 +50,55 @@ class StkSurvService(BaseService):
             ORDER BY ts_code
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="查询指定股票的机构调研历史",
         params=[
-            QueryParam(name="ts_code", type="str", required=True,
-                      description="股票代码，如 000001.SZ"),
-            QueryParam(name="start_date", type="str", required=False,
-                      description="开始日期，格式 YYYY-MM-DD"),
-            QueryParam(name="end_date", type="str", required=False,
-                      description="结束日期，格式 YYYY-MM-DD"),
-            QueryParam(name="limit", type="int", required=False, default=100,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="ts_code",
+                type="str",
+                required=True,
+                description="股票代码，如 000001.SZ",
+            ),
+            QueryParam(
+                name="start_date",
+                type="str",
+                required=False,
+                description="开始日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="end_date",
+                type="str",
+                required=False,
+                description="结束日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=100,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_surveys_by_stock(self, ts_code: str, start_date: Optional[str] = None,
-                             end_date: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_surveys_by_stock(
+        self,
+        ts_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
         """Get institutional survey history for a specific stock."""
         conditions = [f"ts_code = '{ts_code}'"]
-        
+
         if start_date:
             conditions.append(f"surv_date >= '{start_date}'")
         if end_date:
             conditions.append(f"surv_date <= '{end_date}'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         query = f"""
             SELECT 
                 ts_code,
@@ -82,18 +116,30 @@ class StkSurvService(BaseService):
             ORDER BY surv_date DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取近期被调研次数最多的股票排名",
         params=[
-            QueryParam(name="days", type="int", required=False, default=30,
-                      description="统计天数"),
-            QueryParam(name="limit", type="int", required=False, default=20,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=30,
+                description="统计天数",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=20,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_hot_surveyed_stocks(self, days: int = 30, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_hot_surveyed_stocks(
+        self, days: int = 30, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """Get stocks with most institutional surveys in recent days."""
         query = f"""
             SELECT 
@@ -109,26 +155,36 @@ class StkSurvService(BaseService):
             ORDER BY survey_count DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取调研机构类型统计",
         params=[
-            QueryParam(name="ts_code", type="str", required=False,
-                      description="股票代码，不填则统计全部"),
-            QueryParam(name="days", type="int", required=False, default=30,
-                      description="统计天数")
-        ]
+            QueryParam(
+                name="ts_code",
+                type="str",
+                required=False,
+                description="股票代码，不填则统计全部",
+            ),
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=30,
+                description="统计天数",
+            ),
+        ],
     )
-    def get_org_type_stats(self, ts_code: Optional[str] = None, 
-                           days: int = 30) -> List[Dict[str, Any]]:
+    def get_org_type_stats(
+        self, ts_code: str | None = None, days: int = 30
+    ) -> list[dict[str, Any]]:
         """Get statistics by organization type."""
         conditions = [f"surv_date >= today() - {days}"]
         if ts_code:
             conditions.append(f"ts_code = '{ts_code}'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         query = f"""
             SELECT 
                 org_type,
@@ -139,21 +195,33 @@ class StkSurvService(BaseService):
             GROUP BY org_type
             ORDER BY survey_count DESC
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="搜索调研内容关键词",
         params=[
-            QueryParam(name="keyword", type="str", required=True,
-                      description="搜索关键词"),
-            QueryParam(name="days", type="int", required=False, default=90,
-                      description="搜索天数范围"),
-            QueryParam(name="limit", type="int", required=False, default=50,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="keyword", type="str", required=True, description="搜索关键词"
+            ),
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=90,
+                description="搜索天数范围",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=50,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def search_survey_content(self, keyword: str, days: int = 90, 
-                              limit: int = 50) -> List[Dict[str, Any]]:
+    def search_survey_content(
+        self, keyword: str, days: int = 90, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """Search survey content by keyword."""
         query = f"""
             SELECT 
@@ -169,7 +237,7 @@ class StkSurvService(BaseService):
             ORDER BY surv_date DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
+        return self.db.execute_query(query).to_dict("records")
 
 
 # Service instance

@@ -5,8 +5,8 @@ import inspect
 import logging
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
-from typing import Any, Optional
 
 from fastmcp import Client
 
@@ -36,24 +36,28 @@ def _should_use_internal_auth(server_url: str) -> bool:
     return hostname in {"127.0.0.1", "localhost", "::1"}
 
 
-def get_internal_mcp_bearer() -> Optional[str]:
+def get_internal_mcp_bearer() -> str | None:
     bearer = os.getenv("MCP_INTERNAL_BEARER", "").strip()
     return bearer or None
 
 
 class MCPClient:
     """MCP client for stock data service."""
-    
-    def __init__(self, server_url: Optional[str] = None):
+
+    def __init__(self, server_url: str | None = None):
         """Initialize MCP client.
-        
+
         Args:
             server_url: URL of the MCP server (HTTP streamable endpoint)
         """
-        self.server_url = normalize_mcp_server_url(server_url) if server_url else get_default_mcp_server_url()
-        self.client: Optional[Client] = None
+        self.server_url = (
+            normalize_mcp_server_url(server_url)
+            if server_url
+            else get_default_mcp_server_url()
+        )
+        self.client: Client | None = None
         self._entered = False
-    
+
     async def connect(self) -> None:
         """Connect to MCP server."""
         try:
@@ -85,7 +89,7 @@ class MCPClient:
             self._entered = False
             logger.error(f"Failed to connect to MCP server: {e}")
             raise
-    
+
     async def disconnect(self) -> None:
         """Disconnect from MCP server."""
         if self.client:
@@ -104,20 +108,20 @@ class MCPClient:
             finally:
                 self._entered = False
                 self.client = None
-    
+
     async def call_tool(self, tool_name: str, **kwargs) -> Any:
         """Call a tool on the MCP server.
-        
+
         Args:
             tool_name: Name of the tool to call
             **kwargs: Tool arguments
-        
+
         Returns:
             Tool result
         """
         if not self.client:
             raise RuntimeError("Not connected to MCP server")
-        
+
         try:
             result = await self.client.call_tool(tool_name, kwargs)
             logger.info(f"Called tool {tool_name} successfully")
@@ -125,16 +129,16 @@ class MCPClient:
         except Exception as e:
             logger.error(f"Failed to call tool {tool_name}: {e}")
             raise
-    
+
     async def list_tools(self) -> list:
         """List all available tools on the MCP server.
-        
+
         Returns:
             List of tool definitions
         """
         if not self.client:
             raise RuntimeError("Not connected to MCP server")
-        
+
         try:
             tools = await self.client.list_tools()
             logger.info(f"Retrieved {len(tools)} tools from MCP server")
@@ -147,22 +151,22 @@ class MCPClient:
 async def main():
     """Example usage of MCP client."""
     client = MCPClient()
-    
+
     try:
         # Connect to MCP server
         await client.connect()
-        
+
         # List available tools
         tools = await client.list_tools()
         print(f"\nAvailable tools ({len(tools)}):")
         for tool in tools:
             print(f"  - {tool.name}: {tool.description}")
-        
+
         # Call a tool
         if tools:
             tool_name = tools[0].name
             print(f"\nCalling tool: {tool_name}")
-            
+
             # Example: call tushare_daily_get_daily_data
             if "get_daily_data" in tool_name:
                 result = await client.call_tool(
@@ -172,7 +176,7 @@ async def main():
                     end_date="2024-01-31",
                 )
                 print(f"Result: {result}")
-    
+
     finally:
         # Disconnect from MCP server
         await client.disconnect()

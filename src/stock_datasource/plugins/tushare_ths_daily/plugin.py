@@ -3,12 +3,13 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
 import pandas as pd
 
-from stock_datasource.plugins import BasePlugin
 from stock_datasource.core.base_plugin import PluginCategory, PluginRole
+from stock_datasource.plugins import BasePlugin
+
 from .extractor import extractor
 
 
@@ -30,14 +31,14 @@ class TuShareTHSDailyPlugin(BasePlugin):
     @property
     def api_rate_limit(self) -> int:
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         return config.get("rate_limit", 120)
 
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """Get table schema from separate JSON file."""
         schema_file = Path(__file__).parent / "schema.json"
-        with open(schema_file, "r", encoding="utf-8") as f:
+        with open(schema_file, encoding="utf-8") as f:
             return json.load(f)
 
     def get_category(self) -> PluginCategory:
@@ -48,7 +49,7 @@ class TuShareTHSDailyPlugin(BasePlugin):
         """Get plugin role."""
         return PluginRole.PRIMARY
 
-    def get_dependencies(self) -> List[str]:
+    def get_dependencies(self) -> list[str]:
         """Get plugin dependencies."""
         return []
 
@@ -61,7 +62,9 @@ class TuShareTHSDailyPlugin(BasePlugin):
         fields = kwargs.get("fields")
 
         if not trade_date and not (start_date and end_date):
-            raise ValueError("Either trade_date or (start_date and end_date) is required")
+            raise ValueError(
+                "Either trade_date or (start_date and end_date) is required"
+            )
 
         self.logger.info(
             "Extracting THS daily data with params: "
@@ -123,7 +126,7 @@ class TuShareTHSDailyPlugin(BasePlugin):
             "total_mv",
             "float_mv",
         ]
-        
+
         # 为缺失的列添加 None 值
         for col in numeric_columns:
             if col not in data.columns:
@@ -132,11 +135,13 @@ class TuShareTHSDailyPlugin(BasePlugin):
                 data[col] = pd.to_numeric(data[col], errors="coerce")
 
         if "trade_date" in data.columns:
-            data["trade_date"] = pd.to_datetime(data["trade_date"], format="%Y%m%d").dt.date
+            data["trade_date"] = pd.to_datetime(
+                data["trade_date"], format="%Y%m%d"
+            ).dt.date
 
         return data
 
-    def load_data(self, data: pd.DataFrame) -> Dict[str, Any]:
+    def load_data(self, data: pd.DataFrame) -> dict[str, Any]:
         """Load THS daily data into database."""
         if not self.db:
             self.logger.error("Database not initialized")

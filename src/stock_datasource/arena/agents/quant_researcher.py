@@ -7,9 +7,9 @@ Agent responsible for quantitative research and factor-based analysis.
 import json
 import logging
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
-from ..models import AgentConfig, AgentRole, ArenaStrategy, CompetitionStage
+from ..models import ArenaStrategy, CompetitionStage
 from .base import ArenaAgentBase
 
 logger = logging.getLogger(__name__)
@@ -17,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 class QuantResearcherAgent(ArenaAgentBase):
     """Agent that provides quantitative research insights.
-    
+
     This agent specializes in factor analysis, statistical methods,
     and academic research-backed strategy optimization.
     """
-    
+
     @property
     def role_name(self) -> str:
         return "Quant Researcher"
-    
+
     def get_system_prompt(self) -> str:
         """Get system prompt for quant research."""
         return """你是一个专业的量化研究员。
@@ -44,11 +44,11 @@ class QuantResearcherAgent(ArenaAgentBase):
 
 你应该像一个严谨的学术研究者一样分析问题，用数据说话。
 """
-    
+
     async def generate_strategy(
         self,
-        symbols: List[str],
-        market_context: Dict[str, Any] = None,
+        symbols: list[str],
+        market_context: dict[str, Any] = None,
         round_id: str = "",
     ) -> ArenaStrategy:
         """Generate a factor-based strategy."""
@@ -56,10 +56,10 @@ class QuantResearcherAgent(ArenaAgentBase):
             "基于量化因子研究，生成因子驱动的交易策略...",
             round_id=round_id,
         )
-        
+
         prompt = f"""作为量化研究员，请生成一个基于因子的交易策略。
 
-目标股票: {', '.join(symbols[:10])}
+目标股票: {", ".join(symbols[:10])}
 
 请设计一个多因子策略，考虑:
 1. 价值因子 (PB, PE, PCF)
@@ -74,21 +74,26 @@ class QuantResearcherAgent(ArenaAgentBase):
 - 再平衡频率
 - 风险预算
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         strategy = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name="多因子策略",
             description="基于学术研究的多因子量化策略",
             logic=response,
             rules={
                 "factors": {
                     "value": {"weight": 0.25, "indicators": ["pb", "pe"]},
-                    "momentum": {"weight": 0.25, "indicators": ["return_1m", "return_3m"]},
+                    "momentum": {
+                        "weight": 0.25,
+                        "indicators": ["return_1m", "return_3m"],
+                    },
                     "quality": {"weight": 0.25, "indicators": ["roe", "profit_margin"]},
                     "volatility": {"weight": 0.25, "indicators": ["volatility_20d"]},
                 },
@@ -101,26 +106,26 @@ class QuantResearcherAgent(ArenaAgentBase):
             stage=CompetitionStage.BACKTEST,
             discussion_rounds=[round_id] if round_id else [],
         )
-        
+
         await self.conclude(
             f"多因子策略生成完成: {strategy.name}",
             round_id=round_id,
         )
-        
+
         return strategy
-    
+
     async def critique_strategy(
         self,
         strategy: ArenaStrategy,
-        market_context: Dict[str, Any] = None,
+        market_context: dict[str, Any] = None,
         round_id: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Critique strategy from quantitative perspective."""
         await self.think(
             f"从量化研究角度评估策略: {strategy.name}",
             round_id=round_id,
         )
-        
+
         prompt = f"""请从量化研究角度评估以下策略:
 
 策略名称: {strategy.name}
@@ -157,9 +162,9 @@ class QuantResearcherAgent(ArenaAgentBase):
     "overall_score": 0-100
 }}
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         try:
             critique = self._extract_json(response)
         except:
@@ -184,44 +189,44 @@ class QuantResearcherAgent(ArenaAgentBase):
                 "overall_score": 50,
                 "raw_response": response,
             }
-        
+
         critique.setdefault("statistical_analysis", {})
         critique.setdefault("factor_assessment", {})
         critique.setdefault("strengths", [])
         critique.setdefault("weaknesses", [])
         critique.setdefault("suggestions", [])
         critique.setdefault("overall_score", 50)
-        
+
         stats = critique.get("statistical_analysis", {})
         factors = critique.get("factor_assessment", {})
-        
+
         await self.argue(
-            f"## 量化评估报告: {strategy.name}\n\n" +
-            f"### 统计指标预测\n" +
-            f"- 预期夏普比率: {stats.get('expected_sharpe', 'N/A'):.2f}\n" +
-            f"- 预期年化收益: {stats.get('expected_return', 'N/A'):.1%}\n" +
-            f"- 预期波动率: {stats.get('expected_volatility', 'N/A'):.1%}\n" +
-            f"- 预期换手率: {stats.get('turnover_rate', 'N/A'):.1f}x/年\n" +
-            f"- 交易成本影响: {stats.get('trading_cost_impact', 'N/A'):.1%}\n\n" +
-            f"### 因子评估\n" +
-            f"- 因子有效性: {factors.get('factor_validity', 'N/A')}\n" +
-            f"- 因子衰减风险: {factors.get('factor_decay_risk', 'N/A')}\n" +
-            f"- 因子拥挤度: {factors.get('factor_crowding', 'N/A')}\n\n" +
-            f"### 风险评估\n" +
-            f"- 过拟合风险: {critique.get('overfitting_risk', 'N/A')}\n" +
-            f"- 统计显著性: {critique.get('statistical_significance', 'N/A'):.0%}\n\n" +
-            f"### 优化建议\n" +
-            "\n".join(f"- {s}" for s in critique['suggestions']),
+            f"## 量化评估报告: {strategy.name}\n\n"
+            + "### 统计指标预测\n"
+            + f"- 预期夏普比率: {stats.get('expected_sharpe', 'N/A'):.2f}\n"
+            + f"- 预期年化收益: {stats.get('expected_return', 'N/A'):.1%}\n"
+            + f"- 预期波动率: {stats.get('expected_volatility', 'N/A'):.1%}\n"
+            + f"- 预期换手率: {stats.get('turnover_rate', 'N/A'):.1f}x/年\n"
+            + f"- 交易成本影响: {stats.get('trading_cost_impact', 'N/A'):.1%}\n\n"
+            + "### 因子评估\n"
+            + f"- 因子有效性: {factors.get('factor_validity', 'N/A')}\n"
+            + f"- 因子衰减风险: {factors.get('factor_decay_risk', 'N/A')}\n"
+            + f"- 因子拥挤度: {factors.get('factor_crowding', 'N/A')}\n\n"
+            + "### 风险评估\n"
+            + f"- 过拟合风险: {critique.get('overfitting_risk', 'N/A')}\n"
+            + f"- 统计显著性: {critique.get('statistical_significance', 'N/A'):.0%}\n\n"
+            + "### 优化建议\n"
+            + "\n".join(f"- {s}" for s in critique["suggestions"]),
             round_id=round_id,
             target_strategy_id=strategy.id,
         )
-        
+
         return critique
-    
+
     async def refine_strategy(
         self,
         strategy: ArenaStrategy,
-        critiques: List[Dict[str, Any]],
+        critiques: list[dict[str, Any]],
         round_id: str = "",
     ) -> ArenaStrategy:
         """Refine strategy with quantitative improvements."""
@@ -229,11 +234,11 @@ class QuantResearcherAgent(ArenaAgentBase):
             "正在应用量化方法优化策略参数...",
             round_id=round_id,
         )
-        
+
         # Extract quantitative suggestions
         quant_suggestions = []
         overfitting_warnings = []
-        
+
         for critique in critiques:
             quant_suggestions.extend(critique.get("suggestions", []))
             if critique.get("overfitting_risk") == "high":
@@ -241,7 +246,7 @@ class QuantResearcherAgent(ArenaAgentBase):
             stats = critique.get("statistical_analysis", {})
             if stats.get("trading_cost_impact", 0) > 0.05:
                 overfitting_warnings.append("需要降低换手率")
-        
+
         prompt = f"""请应用量化方法优化策略:
 
 原策略:
@@ -249,67 +254,75 @@ class QuantResearcherAgent(ArenaAgentBase):
 - 规则: {json.dumps(strategy.rules, ensure_ascii=False)}
 
 量化建议:
-{chr(10).join(f'- {s}' for s in quant_suggestions)}
+{chr(10).join(f"- {s}" for s in quant_suggestions)}
 
 风险警告:
-{chr(10).join(f'- {w}' for w in overfitting_warnings) if overfitting_warnings else '无'}
+{chr(10).join(f"- {w}" for w in overfitting_warnings) if overfitting_warnings else "无"}
 
 请优化因子权重和参数设置，降低过拟合风险。
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         refined_rules = dict(strategy.rules)
         # Add robustness measures
         refined_rules["out_of_sample_validation"] = True
         refined_rules["walk_forward_optimization"] = True
-        refined_rules["rebalance_frequency"] = refined_rules.get("rebalance_frequency", "monthly")
-        
+        refined_rules["rebalance_frequency"] = refined_rules.get(
+            "rebalance_frequency", "monthly"
+        )
+
         refined = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name=f"{strategy.name} (量化优化版)",
             description=strategy.description,
             logic=response,
             rules=refined_rules,
             symbols=strategy.symbols,
             stage=CompetitionStage.BACKTEST,
-            refinement_history=strategy.refinement_history + [{
-                "quant_researcher_id": self.agent_id,
-                "robustness_measures_added": True,
-            }],
-            discussion_rounds=strategy.discussion_rounds + [round_id] if round_id else strategy.discussion_rounds,
+            refinement_history=strategy.refinement_history
+            + [
+                {
+                    "quant_researcher_id": self.agent_id,
+                    "robustness_measures_added": True,
+                }
+            ],
+            discussion_rounds=strategy.discussion_rounds + [round_id]
+            if round_id
+            else strategy.discussion_rounds,
         )
-        
+
         await self.conclude(
             f"量化优化完成: {refined.name}\n已添加样本外验证和滚动优化",
             round_id=round_id,
         )
-        
+
         return refined
-    
-    def _extract_json(self, text: str) -> Dict[str, Any]:
+
+    def _extract_json(self, text: str) -> dict[str, Any]:
         """Extract JSON from text."""
-        import re
-        
-        start = text.find('{')
+
+        start = text.find("{")
         if start != -1:
             depth = 0
             end = start
             for i, char in enumerate(text[start:], start):
-                if char == '{':
+                if char == "{":
                     depth += 1
-                elif char == '}':
+                elif char == "}":
                     depth -= 1
                     if depth == 0:
                         end = i + 1
                         break
-            
+
             try:
                 return json.loads(text[start:end])
             except json.JSONDecodeError:
                 pass
-        
+
         raise ValueError("No valid JSON found in text")

@@ -9,7 +9,6 @@ import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -19,7 +18,6 @@ from stock_datasource.models.database import db_client
 from .benford_checker import check_benford_for_stock
 from .data_readiness import get_data_readiness_checker
 from .schemas import (
-    DataReadinessResult,
     RuleExecutionDetail,
     ScreeningResult,
     ScreeningResultItem,
@@ -84,11 +82,11 @@ class ScreeningEngine:
     ONLY reads from ClickHouse. Each rule returns RuleExecutionDetail for frontend.
     """
 
-    def __init__(self, rules: Optional[list[ScreeningRule]] = None):
+    def __init__(self, rules: list[ScreeningRule] | None = None):
         self.rules = rules or default_screening_rules()
         self.readiness_checker = get_data_readiness_checker()
 
-    async def run_screening(self, trade_date: Optional[str] = None) -> ScreeningResult:
+    async def run_screening(self, trade_date: str | None = None) -> ScreeningResult:
         """Run full-market screening.
 
         1. Check data readiness
@@ -140,7 +138,12 @@ class ScreeningEngine:
 
         # Step 3: Execute rules
         stock_results: dict[str, dict] = {
-            code: {"ts_code": code, "pass": True, "reject_reasons": [], "rule_details": []}
+            code: {
+                "ts_code": code,
+                "pass": True,
+                "reject_reasons": [],
+                "rule_details": [],
+            }
             for code in all_ts_codes
         }
 
@@ -205,16 +208,20 @@ class ScreeningEngine:
                     for code in failed:
                         if code in stock_results:
                             stock_results[code]["pass"] = False
-                            stock_results[code]["reject_reasons"].append(rule.description)
+                            stock_results[code]["reject_reasons"].append(
+                                rule.description
+                            )
 
                 # Record rule detail on each stock
                 for code in all_ts_codes:
                     if code in stock_results:
-                        stock_results[code]["rule_details"].append({
-                            "rule_name": rule.name,
-                            "passed": code in passed,
-                            "skipped": code in skipped,
-                        })
+                        stock_results[code]["rule_details"].append(
+                            {
+                                "rule_name": rule.name,
+                                "passed": code in passed,
+                                "skipped": code in skipped,
+                            }
+                        )
 
             except Exception as e:
                 logger.error(f"Rule {rule.name} execution error: {e}")
@@ -313,7 +320,9 @@ class ScreeningEngine:
                 skipped.add(code)
                 continue
 
-            latest_profit = pd.to_numeric(stock_data.iloc[0].get("n_income", None), errors="coerce")
+            latest_profit = pd.to_numeric(
+                stock_data.iloc[0].get("n_income", None), errors="coerce"
+            )
             if pd.isna(latest_profit):
                 skipped.add(code)
             elif latest_profit > 0:
@@ -354,8 +363,11 @@ class ScreeningEngine:
         return passed, failed, skipped
 
     def _check_cashflow_sync(
-        self, income_df: pd.DataFrame, cashflow_df: pd.DataFrame,
-        ts_codes: set, params: dict,
+        self,
+        income_df: pd.DataFrame,
+        cashflow_df: pd.DataFrame,
+        ts_codes: set,
+        params: dict,
     ) -> tuple[set, set, set]:
         """Cashflow sync ratio: operating_cf / (revenue + expense) > threshold."""
         passed, failed, skipped = set(), set(), set()
@@ -376,8 +388,12 @@ class ScreeningEngine:
 
             ok_count = 0
             for i in range(min(years, len(inc_data), len(cf_data))):
-                revenue = pd.to_numeric(inc_data.iloc[i].get("total_revenue", 0), errors="coerce")
-                cashflow = pd.to_numeric(cf_data.iloc[i].get("n_cashflow_act", 0), errors="coerce")
+                revenue = pd.to_numeric(
+                    inc_data.iloc[i].get("total_revenue", 0), errors="coerce"
+                )
+                cashflow = pd.to_numeric(
+                    cf_data.iloc[i].get("n_cashflow_act", 0), errors="coerce"
+                )
 
                 if pd.isna(revenue) or pd.isna(cashflow) or revenue == 0:
                     continue
@@ -422,9 +438,11 @@ class ScreeningEngine:
                 passed.add(code)
                 continue
 
-            expenses = stock_data[available_cols].apply(
-                pd.to_numeric, errors="coerce"
-            ).sum(axis=1)
+            expenses = (
+                stock_data[available_cols]
+                .apply(pd.to_numeric, errors="coerce")
+                .sum(axis=1)
+            )
             ratios = expenses / revenues.replace(0, np.nan)
             ratios = ratios.dropna()
 
@@ -441,8 +459,11 @@ class ScreeningEngine:
         return passed, failed, skipped
 
     def _check_receivable_revenue(
-        self, income_df: pd.DataFrame, balance_df: pd.DataFrame,
-        ts_codes: set, params: dict,
+        self,
+        income_df: pd.DataFrame,
+        balance_df: pd.DataFrame,
+        ts_codes: set,
+        params: dict,
     ) -> tuple[set, set, set]:
         """Receivable growth - Revenue growth < max_gap."""
         passed, failed, skipped = set(), set(), set()
@@ -461,14 +482,27 @@ class ScreeningEngine:
                 continue
 
             # Revenue growth
-            rev_curr = pd.to_numeric(inc_data.iloc[0].get("total_revenue", 0), errors="coerce")
-            rev_prev = pd.to_numeric(inc_data.iloc[1].get("total_revenue", 0), errors="coerce")
+            rev_curr = pd.to_numeric(
+                inc_data.iloc[0].get("total_revenue", 0), errors="coerce"
+            )
+            rev_prev = pd.to_numeric(
+                inc_data.iloc[1].get("total_revenue", 0), errors="coerce"
+            )
 
             # Receivable growth
-            recv_curr = pd.to_numeric(bal_data.iloc[0].get("accounts_receiv", 0), errors="coerce")
-            recv_prev = pd.to_numeric(bal_data.iloc[1].get("accounts_receiv", 0), errors="coerce")
+            recv_curr = pd.to_numeric(
+                bal_data.iloc[0].get("accounts_receiv", 0), errors="coerce"
+            )
+            recv_prev = pd.to_numeric(
+                bal_data.iloc[1].get("accounts_receiv", 0), errors="coerce"
+            )
 
-            if pd.isna(rev_prev) or rev_prev == 0 or pd.isna(recv_prev) or recv_prev == 0:
+            if (
+                pd.isna(rev_prev)
+                or rev_prev == 0
+                or pd.isna(recv_prev)
+                or recv_prev == 0
+            ):
                 skipped.add(code)
                 continue
 
@@ -496,8 +530,12 @@ class ScreeningEngine:
                 skipped.add(code)
                 continue
 
-            revenue = pd.to_numeric(stock_data.get("total_revenue", pd.Series()), errors="coerce")
-            profit = pd.to_numeric(stock_data.get("n_income", pd.Series()), errors="coerce")
+            revenue = pd.to_numeric(
+                stock_data.get("total_revenue", pd.Series()), errors="coerce"
+            )
+            profit = pd.to_numeric(
+                stock_data.get("n_income", pd.Series()), errors="coerce"
+            )
 
             result = check_benford_for_stock(revenue, profit, p_threshold)
             if result["pass"]:
@@ -585,9 +623,7 @@ class ScreeningEngine:
     def _load_stock_names(self) -> dict[str, str]:
         """Load stock name mapping."""
         try:
-            df = db_client.execute_query(
-                "SELECT ts_code, name FROM dim_stock_basic"
-            )
+            df = db_client.execute_query("SELECT ts_code, name FROM dim_stock_basic")
             return dict(zip(df["ts_code"], df["name"]))
         except Exception:
             return {}
@@ -605,7 +641,9 @@ class ScreeningEngine:
                 "rule_stats": json.dumps(
                     [d.model_dump() for d in result.rule_details], ensure_ascii=False
                 ),
-                "data_readiness": result.data_readiness.model_dump_json() if result.data_readiness else "",
+                "data_readiness": result.data_readiness.model_dump_json()
+                if result.data_readiness
+                else "",
                 "execution_time_ms": result.execution_time_ms,
                 "status": result.status,
             }
@@ -616,15 +654,19 @@ class ScreeningEngine:
             if result.passed_stocks:
                 rows = []
                 for stock in result.passed_stocks:
-                    rows.append({
-                        "run_date": result.run_date,
-                        "run_id": result.run_id,
-                        "ts_code": stock.ts_code,
-                        "stock_name": stock.stock_name,
-                        "overall_pass": 1,
-                        "reject_reasons": stock.reject_reasons,
-                        "rule_details": json.dumps(stock.rule_details, ensure_ascii=False),
-                    })
+                    rows.append(
+                        {
+                            "run_date": result.run_date,
+                            "run_id": result.run_id,
+                            "ts_code": stock.ts_code,
+                            "stock_name": stock.stock_name,
+                            "overall_pass": 1,
+                            "reject_reasons": stock.reject_reasons,
+                            "rule_details": json.dumps(
+                                stock.rule_details, ensure_ascii=False
+                            ),
+                        }
+                    )
                 if rows:
                     df = pd.DataFrame(rows)
                     db_client.insert_dataframe("quant_screening_result", df)
@@ -634,7 +676,7 @@ class ScreeningEngine:
 
 
 # Singleton
-_screening_engine: Optional[ScreeningEngine] = None
+_screening_engine: ScreeningEngine | None = None
 
 
 def get_screening_engine() -> ScreeningEngine:

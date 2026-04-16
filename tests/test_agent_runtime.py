@@ -6,16 +6,14 @@ Covers:
 - AgentRuntime: feature flag, SSE adapter, supervisor build
 """
 
-import asyncio
 import os
-import pytest
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Stubs
 # ---------------------------------------------------------------------------
+
 
 class FakeAgentConfig:
     def __init__(self, name, description=""):
@@ -25,10 +23,13 @@ class FakeAgentConfig:
 
 class FakeLangGraphAgent:
     COMMON_OUTPUT_RULES = "\n## Test output rules"
+
     def __init__(self, name="FakeAgent", description="Fake"):
         self.config = FakeAgentConfig(name, description)
+
     def get_tools(self):
         return []
+
     def get_system_prompt(self):
         return "You are a fake agent."
 
@@ -37,22 +38,28 @@ class FakeLangGraphAgent:
 # AgentRegistry Tests
 # ===========================================================================
 
-class TestAgentRegistry:
 
+class TestAgentRegistry:
     def _make_registry(self):
         from stock_datasource.services.agent_registry import AgentRegistry
+
         return AgentRegistry()
 
     def _make_descriptor(self, name="TestAgent", enabled=True, role=None, intents=None):
         from stock_datasource.services.agent_registry import (
-            AgentDescriptor, AgentRole, CapabilityDescriptor,
+            AgentDescriptor,
+            AgentRole,
+            CapabilityDescriptor,
         )
+
         return AgentDescriptor(
             name=name,
             description=f"Description of {name}",
-            agent_class=type(name, (FakeLangGraphAgent,), {
-                "__init__": lambda self: FakeLangGraphAgent.__init__(self, name)
-            }),
+            agent_class=type(
+                name,
+                (FakeLangGraphAgent,),
+                {"__init__": lambda self: FakeLangGraphAgent.__init__(self, name)},
+            ),
             role=role or AgentRole.AGENT,
             capability=CapabilityDescriptor(intents=intents or []),
             enabled=enabled,
@@ -91,6 +98,7 @@ class TestAgentRegistry:
 
     def test_role_filter(self):
         from stock_datasource.services.agent_registry import AgentRole
+
         reg = self._make_registry()
         reg.register(self._make_descriptor("A", role=AgentRole.AGENT))
         reg.register(self._make_descriptor("B", role=AgentRole.SUB_AGENT))
@@ -133,9 +141,12 @@ class TestAgentRegistry:
 
     def test_priority_ordering(self):
         reg = self._make_registry()
-        d1 = self._make_descriptor("Lo"); d1.priority = 1
-        d2 = self._make_descriptor("Hi"); d2.priority = 10
-        reg.register(d1); reg.register(d2)
+        d1 = self._make_descriptor("Lo")
+        d1.priority = 1
+        d2 = self._make_descriptor("Hi")
+        d2.priority = 10
+        reg.register(d1)
+        reg.register(d2)
         assert reg.list_descriptors()[0].name == "Hi"
 
     def test_register_many(self):
@@ -148,15 +159,18 @@ class TestAgentRegistry:
 # ExecutionPlanner Tests
 # ===========================================================================
 
-class TestExecutionPlanner:
 
+class TestExecutionPlanner:
     def _make_planner(self):
         from stock_datasource.services.execution_planner import ExecutionPlanner
+
         return ExecutionPlanner()
 
     def test_expand_single_agent(self):
         p = self._make_planner()
-        assert p.expand_agents(primary="MarketAgent", available_agents={"MarketAgent"}) == ["MarketAgent"]
+        assert p.expand_agents(
+            primary="MarketAgent", available_agents={"MarketAgent"}
+        ) == ["MarketAgent"]
 
     def test_expand_none(self):
         p = self._make_planner()
@@ -165,15 +179,18 @@ class TestExecutionPlanner:
     def test_expand_market_with_a_shares(self):
         p = self._make_planner()
         agents = p.expand_agents(
-            primary="MarketAgent", stock_codes=["600519.SH"],
-            query="分析600519", available_agents={"MarketAgent", "ReportAgent", "HKReportAgent"},
+            primary="MarketAgent",
+            stock_codes=["600519.SH"],
+            query="分析600519",
+            available_agents={"MarketAgent", "ReportAgent", "HKReportAgent"},
         )
         assert "MarketAgent" in agents and "ReportAgent" in agents
 
     def test_expand_market_with_hk(self):
         p = self._make_planner()
         agents = p.expand_agents(
-            primary="MarketAgent", stock_codes=["00700.HK"],
+            primary="MarketAgent",
+            stock_codes=["00700.HK"],
             available_agents={"MarketAgent", "HKReportAgent"},
         )
         assert "HKReportAgent" in agents
@@ -181,16 +198,20 @@ class TestExecutionPlanner:
     def test_reverse_expansion_hk_tech(self):
         p = self._make_planner()
         agents = p.expand_agents(
-            primary="HKReportAgent", stock_codes=["00700.HK"],
-            query="腾讯技术面", available_agents={"MarketAgent", "HKReportAgent"},
+            primary="HKReportAgent",
+            stock_codes=["00700.HK"],
+            query="腾讯技术面",
+            available_agents={"MarketAgent", "HKReportAgent"},
         )
         assert "MarketAgent" in agents
 
     def test_reverse_expansion_report_tech(self):
         p = self._make_planner()
         agents = p.expand_agents(
-            primary="ReportAgent", stock_codes=["600519.SH"],
-            query="茅台技术走势", available_agents={"MarketAgent", "ReportAgent"},
+            primary="ReportAgent",
+            stock_codes=["600519.SH"],
+            query="茅台技术走势",
+            available_agents={"MarketAgent", "ReportAgent"},
         )
         assert "MarketAgent" in agents
 
@@ -206,14 +227,15 @@ class TestExecutionPlanner:
 
 
 class TestEnums:
-
     def test_execution_mode_values(self):
         from stock_datasource.services.execution_planner import ExecutionMode
+
         assert ExecutionMode.ROUTE_ONLY.value == "route_only"
         assert ExecutionMode.SUPERVISOR.value == "supervisor"
 
     def test_node_status_values(self):
         from stock_datasource.services.execution_planner import NodeStatus
+
         assert NodeStatus.PENDING.value == "pending"
         assert NodeStatus.TIMED_OUT.value == "timed_out"
 
@@ -222,15 +244,17 @@ class TestEnums:
 # AgentRuntime Tests
 # ===========================================================================
 
-class TestAgentRuntime:
 
+class TestAgentRuntime:
     def test_feature_flag_default_off(self):
         from stock_datasource.services.agent_runtime import is_runtime_enabled
+
         os.environ.pop("AGENT_RUNTIME_ENABLED", None)
         assert is_runtime_enabled() is False
 
     def test_feature_flag_on(self):
         from stock_datasource.services.agent_runtime import is_runtime_enabled
+
         os.environ["AGENT_RUNTIME_ENABLED"] = "true"
         try:
             assert is_runtime_enabled() is True
@@ -239,6 +263,7 @@ class TestAgentRuntime:
 
     def test_feature_flag_variants(self):
         from stock_datasource.services.agent_runtime import is_runtime_enabled
+
         for val in ("1", "yes", "True", "TRUE"):
             os.environ["AGENT_RUNTIME_ENABLED"] = val
             assert is_runtime_enabled() is True, f"Expected True for {val}"
@@ -249,6 +274,7 @@ class TestAgentRuntime:
 
     def test_sse_adapter_content_stream(self):
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         # Simulate on_chat_model_stream with a mock chunk
         chunk = MagicMock()
         chunk.content = "Hello world"
@@ -260,6 +286,7 @@ class TestAgentRuntime:
 
     def test_sse_adapter_tool_start(self):
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         event = {
             "event": "on_tool_start",
             "name": "get_stock_data",
@@ -273,6 +300,7 @@ class TestAgentRuntime:
 
     def test_sse_adapter_tool_end(self):
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         event = {
             "event": "on_tool_end",
             "name": "get_stock_data",
@@ -285,12 +313,14 @@ class TestAgentRuntime:
 
     def test_sse_adapter_skip_internal(self):
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         for etype in ("on_chain_start", "on_chain_end", "on_chat_model_start"):
             event = {"event": etype, "data": {}, "tags": []}
             assert adapt_langgraph_event_to_sse(event) is None
 
     def test_sse_adapter_empty_chunk(self):
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         chunk = MagicMock()
         chunk.content = ""
         event = {"event": "on_chat_model_stream", "data": {"chunk": chunk}}
@@ -299,6 +329,7 @@ class TestAgentRuntime:
     def test_sse_adapter_list_content(self):
         """Handle thinking model content (list of blocks)."""
         from stock_datasource.services.agent_runtime import adapt_langgraph_event_to_sse
+
         chunk = MagicMock()
         chunk.content = [
             {"type": "thinking", "thinking": "reasoning..."},
@@ -314,6 +345,7 @@ class TestAgentRuntime:
         """AgentRuntime can be created with an empty registry."""
         from stock_datasource.services.agent_registry import AgentRegistry
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         reg = AgentRegistry()
         rt = AgentRuntime(registry=reg)
         assert rt.registry is reg
@@ -322,6 +354,7 @@ class TestAgentRuntime:
     def test_runtime_reset(self):
         from stock_datasource.services.agent_registry import AgentRegistry
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         rt = AgentRuntime(registry=AgentRegistry())
         rt._sub_agents["test"] = "dummy"
         rt.reset()
@@ -331,22 +364,28 @@ class TestAgentRuntime:
     def test_runtime_agent_names_empty(self):
         from stock_datasource.services.agent_registry import AgentRegistry
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         rt = AgentRuntime(registry=AgentRegistry())
         assert rt.agent_names == set()
 
     def test_supervisor_prompt_generation(self):
         """Test that supervisor prompt includes agent descriptions."""
         from stock_datasource.services.agent_registry import (
-            AgentRegistry, AgentDescriptor, AgentRole, CapabilityDescriptor,
+            AgentDescriptor,
+            AgentRegistry,
+            CapabilityDescriptor,
         )
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         reg = AgentRegistry()
-        reg.register(AgentDescriptor(
-            name="MarketAgent",
-            description="A股行情分析",
-            agent_class=FakeLangGraphAgent,
-            capability=CapabilityDescriptor(markets=["A", "HK"]),
-        ))
+        reg.register(
+            AgentDescriptor(
+                name="MarketAgent",
+                description="A股行情分析",
+                agent_class=FakeLangGraphAgent,
+                capability=CapabilityDescriptor(markets=["A", "HK"]),
+            )
+        )
         rt = AgentRuntime(registry=reg)
         prompt = rt._get_supervisor_prompt()
         assert "MarketAgent" in prompt
@@ -358,10 +397,13 @@ class TestAgentRuntime:
 # SessionMemoryService Tests
 # ===========================================================================
 
-class TestSessionMemoryService:
 
+class TestSessionMemoryService:
     def _make_service(self):
-        from stock_datasource.services.session_memory_service import SessionMemoryService
+        from stock_datasource.services.session_memory_service import (
+            SessionMemoryService,
+        )
+
         return SessionMemoryService()
 
     def test_session_lifecycle(self):
@@ -398,7 +440,7 @@ class TestSessionMemoryService:
         svc = self._make_service()
         svc.set_cache("s1", "key", "val", ttl=1)
         assert svc.get_cache("s1", "key") == "val"
-        import time; time.sleep(1.1)
+        time.sleep(1.1)
         assert svc.get_cache("s1", "key") is None
 
     def test_preferences(self):
@@ -451,17 +493,21 @@ class TestSessionMemoryService:
 # SubAgentEnvelope Tests (Task 4.3)
 # ===========================================================================
 
-class TestSubAgentEnvelope:
 
+class TestSubAgentEnvelope:
     def test_envelope_creation(self):
         from stock_datasource.services.session_memory_service import SubAgentEnvelope
-        env = SubAgentEnvelope(agent_name="MarketAgent", session_id="s1", query="分析600519")
+
+        env = SubAgentEnvelope(
+            agent_name="MarketAgent", session_id="s1", query="分析600519"
+        )
         assert env.agent_name == "MarketAgent"
         assert env.success is True
         assert env.response == ""
 
     def test_envelope_fill_response(self):
         from stock_datasource.services.session_memory_service import SubAgentEnvelope
+
         env = SubAgentEnvelope(agent_name="Test", session_id="s1")
         env.response = "Analysis complete"
         env.success = True
@@ -471,6 +517,7 @@ class TestSubAgentEnvelope:
 
     def test_envelope_defaults(self):
         from stock_datasource.services.session_memory_service import SubAgentEnvelope
+
         env = SubAgentEnvelope(agent_name="A", session_id="s")
         assert env.user_id == "default"
         assert env.scoped_history == []
@@ -482,11 +529,12 @@ class TestSubAgentEnvelope:
 # AgentRuntime Stats Tests (Task 5.2)
 # ===========================================================================
 
-class TestAgentRuntimeStats:
 
+class TestAgentRuntimeStats:
     def test_runtime_stats_initial(self):
         from stock_datasource.services.agent_registry import AgentRegistry
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         rt = AgentRuntime(registry=AgentRegistry())
         stats = rt.stats
         assert stats["total_invocations"] == 0
@@ -497,6 +545,7 @@ class TestAgentRuntimeStats:
     def test_runtime_stats_after_reset(self):
         from stock_datasource.services.agent_registry import AgentRegistry
         from stock_datasource.services.agent_runtime import AgentRuntime
+
         rt = AgentRuntime(registry=AgentRegistry())
         rt._cold_start_ms = 500.0
         rt.reset()
@@ -507,14 +556,16 @@ class TestAgentRuntimeStats:
 # SkillRegistry Tests
 # ===========================================================================
 
-class TestSkillRegistry:
 
+class TestSkillRegistry:
     def _make_registry(self):
         from stock_datasource.services.skill_registry import SkillRegistry
+
         return SkillRegistry()
 
     def test_register_and_list(self):
         from stock_datasource.services.skill_registry import SkillDescriptor
+
         reg = self._make_registry()
         reg.register(SkillDescriptor(name="s1", category="market", source="builtin"))
         reg.register(SkillDescriptor(name="s2", category="report", source="mcp"))
@@ -523,6 +574,7 @@ class TestSkillRegistry:
 
     def test_find_by_trigger(self):
         from stock_datasource.services.skill_registry import SkillDescriptor
+
         reg = self._make_registry()
         reg.register(SkillDescriptor(name="s1", triggers=["stock_query"]))
         found = reg.find_by_trigger("stock_query")
@@ -530,6 +582,7 @@ class TestSkillRegistry:
 
     def test_catalog(self):
         from stock_datasource.services.skill_registry import SkillDescriptor
+
         reg = self._make_registry()
         reg.register(SkillDescriptor(name="s1", description="test", category="c"))
         cat = reg.to_catalog()
@@ -541,24 +594,31 @@ class TestSkillRegistry:
 # Singletons
 # ===========================================================================
 
-class TestSingletons:
 
+class TestSingletons:
     def test_agent_registry_singleton(self):
         from stock_datasource.services.agent_registry import get_agent_registry
+
         assert get_agent_registry() is get_agent_registry()
 
     def test_execution_planner_singleton(self):
         from stock_datasource.services.execution_planner import get_execution_planner
+
         assert get_execution_planner() is get_execution_planner()
 
     def test_agent_runtime_singleton(self):
         from stock_datasource.services.agent_runtime import get_agent_runtime
+
         assert get_agent_runtime() is get_agent_runtime()
 
     def test_session_memory_singleton(self):
-        from stock_datasource.services.session_memory_service import get_session_memory_service
+        from stock_datasource.services.session_memory_service import (
+            get_session_memory_service,
+        )
+
         assert get_session_memory_service() is get_session_memory_service()
 
     def test_skill_registry_singleton(self):
         from stock_datasource.services.skill_registry import get_skill_registry
+
         assert get_skill_registry() is get_skill_registry()

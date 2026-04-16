@@ -7,9 +7,9 @@ Agent responsible for analyzing risk exposure and suggesting risk management mea
 import json
 import logging
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
-from ..models import AgentConfig, AgentRole, ArenaStrategy, CompetitionStage
+from ..models import ArenaStrategy, CompetitionStage
 from .base import ArenaAgentBase
 
 logger = logging.getLogger(__name__)
@@ -17,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 class RiskAnalystAgent(ArenaAgentBase):
     """Agent that analyzes risk exposure in trading strategies.
-    
+
     This agent specializes in identifying and quantifying risks,
     and suggesting appropriate risk management measures.
     """
-    
+
     @property
     def role_name(self) -> str:
         return "Risk Analyst"
-    
+
     def get_system_prompt(self) -> str:
         """Get system prompt for risk analysis."""
         return """你是一个专业的量化风险分析师。
@@ -44,11 +44,11 @@ class RiskAnalystAgent(ArenaAgentBase):
 
 你应该像一个谨慎的风险管理官一样思考问题。
 """
-    
+
     async def generate_strategy(
         self,
-        symbols: List[str],
-        market_context: Dict[str, Any] = None,
+        symbols: list[str],
+        market_context: dict[str, Any] = None,
         round_id: str = "",
     ) -> ArenaStrategy:
         """Generate a low-risk focused strategy."""
@@ -56,10 +56,10 @@ class RiskAnalystAgent(ArenaAgentBase):
             "从风险管理角度出发，生成一个以控制风险为核心的策略...",
             round_id=round_id,
         )
-        
+
         prompt = f"""作为风险分析师，请生成一个以风险控制为核心的交易策略。
 
-目标股票: {', '.join(symbols[:10])}
+目标股票: {", ".join(symbols[:10])}
 
 请特别关注:
 1. 严格的止损机制
@@ -69,14 +69,16 @@ class RiskAnalystAgent(ArenaAgentBase):
 
 输出一个风险优先的策略，包括名称、描述、逻辑和交易规则。
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         strategy = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name="低风险策略",
             description="以风险控制为核心的保守型策略",
             logic=response,
@@ -92,26 +94,26 @@ class RiskAnalystAgent(ArenaAgentBase):
             stage=CompetitionStage.BACKTEST,
             discussion_rounds=[round_id] if round_id else [],
         )
-        
+
         await self.conclude(
             f"风险导向策略生成完成: {strategy.name}",
             round_id=round_id,
         )
-        
+
         return strategy
-    
+
     async def critique_strategy(
         self,
         strategy: ArenaStrategy,
-        market_context: Dict[str, Any] = None,
+        market_context: dict[str, Any] = None,
         round_id: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Analyze risk exposure in a strategy."""
         await self.think(
             f"开始分析策略 {strategy.name} 的风险敞口...",
             round_id=round_id,
         )
-        
+
         prompt = f"""请从风险分析角度评估以下交易策略:
 
 策略名称: {strategy.name}
@@ -146,9 +148,9 @@ class RiskAnalystAgent(ArenaAgentBase):
     "risk_adjusted_recommendation": "approve/revise/reject"
 }}
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         try:
             critique = self._extract_json(response)
         except:
@@ -169,7 +171,7 @@ class RiskAnalystAgent(ArenaAgentBase):
                 "risk_adjusted_recommendation": "revise",
                 "raw_response": response,
             }
-        
+
         # Ensure required fields
         critique.setdefault("risk_metrics", {})
         critique.setdefault("strengths", [])
@@ -177,30 +179,30 @@ class RiskAnalystAgent(ArenaAgentBase):
         critique.setdefault("risk_scenarios", [])
         critique.setdefault("suggestions", [])
         critique.setdefault("overall_score", 50)
-        
+
         metrics = critique.get("risk_metrics", {})
-        
+
         await self.argue(
-            f"## 风险分析报告: {strategy.name}\n\n" +
-            f"### 风险指标\n" +
-            f"- 预估最大回撤: {metrics.get('estimated_max_drawdown', 'N/A'):.1%}\n" +
-            f"- 95% VaR: {metrics.get('var_95', 'N/A'):.1%}\n" +
-            f"- 99% VaR: {metrics.get('var_99', 'N/A'):.1%}\n" +
-            f"- 尾部风险评分: {metrics.get('tail_risk_score', 'N/A')}/100\n" +
-            f"- 流动性风险: {metrics.get('liquidity_risk', 'N/A')}\n" +
-            f"- 集中度风险: {metrics.get('concentration_risk', 'N/A')}\n\n" +
-            f"### 风险控制建议\n" +
-            "\n".join(f"- {s}" for s in critique.get('suggestions', [])),
+            f"## 风险分析报告: {strategy.name}\n\n"
+            + "### 风险指标\n"
+            + f"- 预估最大回撤: {metrics.get('estimated_max_drawdown', 'N/A'):.1%}\n"
+            + f"- 95% VaR: {metrics.get('var_95', 'N/A'):.1%}\n"
+            + f"- 99% VaR: {metrics.get('var_99', 'N/A'):.1%}\n"
+            + f"- 尾部风险评分: {metrics.get('tail_risk_score', 'N/A')}/100\n"
+            + f"- 流动性风险: {metrics.get('liquidity_risk', 'N/A')}\n"
+            + f"- 集中度风险: {metrics.get('concentration_risk', 'N/A')}\n\n"
+            + "### 风险控制建议\n"
+            + "\n".join(f"- {s}" for s in critique.get("suggestions", [])),
             round_id=round_id,
             target_strategy_id=strategy.id,
         )
-        
+
         return critique
-    
+
     async def refine_strategy(
         self,
         strategy: ArenaStrategy,
-        critiques: List[Dict[str, Any]],
+        critiques: list[dict[str, Any]],
         round_id: str = "",
     ) -> ArenaStrategy:
         """Refine strategy with focus on risk management."""
@@ -208,11 +210,11 @@ class RiskAnalystAgent(ArenaAgentBase):
             "正在优化策略的风险管理措施...",
             round_id=round_id,
         )
-        
+
         # Extract risk-related suggestions
         all_suggestions = []
         risk_issues = []
-        
+
         for critique in critiques:
             all_suggestions.extend(critique.get("suggestions", []))
             if "risk_metrics" in critique:
@@ -221,7 +223,7 @@ class RiskAnalystAgent(ArenaAgentBase):
                     risk_issues.append("最大回撤过高")
                 if metrics.get("tail_risk_score", 0) > 70:
                     risk_issues.append("尾部风险较大")
-        
+
         prompt = f"""请优化策略的风险管理:
 
 原策略:
@@ -229,70 +231,78 @@ class RiskAnalystAgent(ArenaAgentBase):
 - 规则: {json.dumps(strategy.rules, ensure_ascii=False)}
 
 发现的风险问题:
-{chr(10).join(f'- {r}' for r in risk_issues)}
+{chr(10).join(f"- {r}" for r in risk_issues)}
 
 风险管理建议:
-{chr(10).join(f'- {s}' for s in all_suggestions)}
+{chr(10).join(f"- {s}" for s in all_suggestions)}
 
 请调整策略参数，加强风险控制。
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         # Apply stricter risk parameters
         refined_rules = dict(strategy.rules)
         refined_rules["stop_loss"] = min(refined_rules.get("stop_loss", -0.08), -0.05)
-        refined_rules["position_size"] = min(refined_rules.get("position_size", 0.2), 0.15)
+        refined_rules["position_size"] = min(
+            refined_rules.get("position_size", 0.2), 0.15
+        )
         refined_rules["max_portfolio_risk"] = 0.15
-        
+
         refined = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name=f"{strategy.name} (风控优化版)",
             description=strategy.description,
             logic=response,
             rules=refined_rules,
             symbols=strategy.symbols,
             stage=CompetitionStage.BACKTEST,
-            refinement_history=strategy.refinement_history + [{
-                "risk_analyst_id": self.agent_id,
-                "risk_issues_addressed": len(risk_issues),
-            }],
-            discussion_rounds=strategy.discussion_rounds + [round_id] if round_id else strategy.discussion_rounds,
+            refinement_history=strategy.refinement_history
+            + [
+                {
+                    "risk_analyst_id": self.agent_id,
+                    "risk_issues_addressed": len(risk_issues),
+                }
+            ],
+            discussion_rounds=strategy.discussion_rounds + [round_id]
+            if round_id
+            else strategy.discussion_rounds,
         )
-        
+
         await self.conclude(
-            f"风险优化完成: {refined.name}\n" +
-            f"止损调整为: {refined_rules['stop_loss']:.1%}\n" +
-            f"仓位调整为: {refined_rules['position_size']:.1%}",
+            f"风险优化完成: {refined.name}\n"
+            + f"止损调整为: {refined_rules['stop_loss']:.1%}\n"
+            + f"仓位调整为: {refined_rules['position_size']:.1%}",
             round_id=round_id,
         )
-        
+
         return refined
-    
-    def _extract_json(self, text: str) -> Dict[str, Any]:
+
+    def _extract_json(self, text: str) -> dict[str, Any]:
         """Extract JSON from text."""
-        import re
-        
+
         # Look for nested JSON (may contain nested objects)
-        start = text.find('{')
+        start = text.find("{")
         if start != -1:
             depth = 0
             end = start
             for i, char in enumerate(text[start:], start):
-                if char == '{':
+                if char == "{":
                     depth += 1
-                elif char == '}':
+                elif char == "}":
                     depth -= 1
                     if depth == 0:
                         end = i + 1
                         break
-            
+
             try:
                 return json.loads(text[start:end])
             except json.JSONDecodeError:
                 pass
-        
+
         raise ValueError("No valid JSON found in text")

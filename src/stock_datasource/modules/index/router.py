@@ -1,19 +1,16 @@
 """FastAPI router for Index module."""
 
-from typing import Optional, List
-from fastapi import APIRouter, Query, HTTPException
 import logging
 
-from .service import get_index_service
+from fastapi import APIRouter, HTTPException, Query
+
 from .schemas import (
-    IndexListResponse,
-    IndexInfo,
-    ConstituentResponse,
-    FactorResponse,
     AnalyzeRequest,
     AnalyzeResponse,
-    AnalysisResult,
+    IndexInfo,
+    IndexListResponse,
 )
+from .service import get_index_service
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +19,13 @@ router = APIRouter()
 
 @router.get("/indices", response_model=IndexListResponse, summary="获取指数列表")
 async def get_indices(
-    market: Optional[str] = Query(None, description="市场筛选 (SSE/SZSE/CSI)"),
-    category: Optional[str] = Query(None, description="类别筛选"),
-    keyword: Optional[str] = Query(None, description="名称搜索关键词"),
-    trade_date: Optional[str] = Query(None, description="交易日期筛选 (YYYYMMDD)"),
-    publisher: Optional[str] = Query(None, description="发布机构筛选"),
-    pct_chg_min: Optional[float] = Query(None, description="最小涨跌幅 (%)"),
-    pct_chg_max: Optional[float] = Query(None, description="最大涨跌幅 (%)"),
+    market: str | None = Query(None, description="市场筛选 (SSE/SZSE/CSI)"),
+    category: str | None = Query(None, description="类别筛选"),
+    keyword: str | None = Query(None, description="名称搜索关键词"),
+    trade_date: str | None = Query(None, description="交易日期筛选 (YYYYMMDD)"),
+    publisher: str | None = Query(None, description="发布机构筛选"),
+    pct_chg_min: float | None = Query(None, description="最小涨跌幅 (%)"),
+    pct_chg_max: float | None = Query(None, description="最大涨跌幅 (%)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
 ):
@@ -61,7 +58,7 @@ async def get_index_detail(ts_code: str):
 @router.get("/indices/{ts_code}/constituents", summary="获取成分股")
 async def get_constituents(
     ts_code: str,
-    trade_date: Optional[str] = Query(None, description="交易日期 (YYYYMMDD)"),
+    trade_date: str | None = Query(None, description="交易日期 (YYYYMMDD)"),
     limit: int = Query(100, ge=1, le=500, description="返回数量"),
 ):
     """获取指数成分股及权重。"""
@@ -74,7 +71,7 @@ async def get_constituents(
 async def get_factors(
     ts_code: str,
     days: int = Query(30, ge=1, le=250, description="获取天数"),
-    indicators: Optional[str] = Query(None, description="指标列表，逗号分隔"),
+    indicators: str | None = Query(None, description="指标列表，逗号分隔"),
 ):
     """获取指数技术因子数据。"""
     service = get_index_service()
@@ -97,13 +94,18 @@ async def get_index_daily(
 @router.get("/indices/{ts_code}/kline", summary="获取指数K线数据")
 async def get_index_kline(
     ts_code: str,
-    start_date: Optional[str] = Query(None, description="开始日期 (YYYYMMDD)"),
-    end_date: Optional[str] = Query(None, description="结束日期 (YYYYMMDD)"),
-    freq: str = Query("daily", description="数据频率 (daily=日线, weekly=周线, monthly=月线)"),
+    start_date: str | None = Query(None, description="开始日期 (YYYYMMDD)"),
+    end_date: str | None = Query(None, description="结束日期 (YYYYMMDD)"),
+    freq: str = Query(
+        "daily", description="数据频率 (daily=日线, weekly=周线, monthly=月线)"
+    ),
 ):
     """获取指数K线数据，支持日线/周线/月线切换。"""
     if freq not in ["daily", "weekly", "monthly"]:
-        raise HTTPException(status_code=400, detail="Invalid freq, must be one of: daily, weekly, monthly")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid freq, must be one of: daily, weekly, monthly",
+        )
     service = get_index_service()
     result = service.get_kline(ts_code, start_date, end_date, freq)
     return result
@@ -142,7 +144,7 @@ async def get_trade_dates(
 @router.post("/analyze", response_model=AnalyzeResponse, summary="AI量化分析")
 async def analyze_index(request: AnalyzeRequest):
     """使用AI进行指数量化分析，支持多轮对话记忆。
-    
+
     - 同一个ts_code + user_id组合会保持对话上下文
     - 设置clear_history=true可清空历史重新开始
     - 历史消息会在1小时后自动过期

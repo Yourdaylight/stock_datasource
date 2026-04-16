@@ -5,8 +5,7 @@ import os
 import time
 import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from stock_datasource.models.database import db_client
 
@@ -23,7 +22,7 @@ def _ensure_tables() -> None:
 
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     try:
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -36,7 +35,9 @@ def _ensure_tables() -> None:
                     try:
                         db_client.backup.execute(statement)
                     except Exception as e:
-                        logger.warning(f"Failed to execute open_api schema on backup: {e}")
+                        logger.warning(
+                            f"Failed to execute open_api schema on backup: {e}"
+                        )
         _schema_initialized = True
         logger.info("Open API Gateway schema initialized")
     except Exception as e:
@@ -49,7 +50,7 @@ class OpenApiService:
     def __init__(self):
         self.client = db_client
         # In-memory policy cache: {api_path: policy_dict}
-        self._policy_cache: Dict[str, Dict[str, Any]] = {}
+        self._policy_cache: dict[str, dict[str, Any]] = {}
         self._cache_ts: float = 0
         self._cache_ttl: float = float(os.getenv("OPEN_API_POLICY_CACHE_TTL", "300"))
 
@@ -57,16 +58,19 @@ class OpenApiService:
     # Endpoint discovery — ONLY from plugin services
     # ------------------------------------------------------------------
 
-    def discover_endpoints(self) -> List[Dict[str, Any]]:
+    def discover_endpoints(self) -> list[dict[str, Any]]:
         """Discover all available plugin endpoints.
 
         CRITICAL: Only scans plugins/*/service.py via ServiceGenerator.
         Never scans module routers or app.routes.
         """
-        from stock_datasource.services.http_server import _discover_services, _get_or_create_service
         from stock_datasource.core.service_generator import ServiceGenerator
+        from stock_datasource.services.http_server import (
+            _discover_services,
+            _get_or_create_service,
+        )
 
-        endpoints: List[Dict[str, Any]] = []
+        endpoints: list[dict[str, Any]] = []
 
         for service_name, service_class in _discover_services():
             try:
@@ -78,20 +82,24 @@ class OpenApiService:
                     api_path = f"{service_name}/{method_name}"
                     params = []
                     for p in info["metadata"]["params"]:
-                        params.append({
-                            "name": p.name,
-                            "type": p.type,
-                            "description": p.description,
-                            "required": p.required,
-                            "default": p.default,
-                        })
-                    endpoints.append({
-                        "plugin_name": service_name,
-                        "method_name": method_name,
-                        "api_path": api_path,
-                        "description": info["metadata"]["description"],
-                        "parameters": params,
-                    })
+                        params.append(
+                            {
+                                "name": p.name,
+                                "type": p.type,
+                                "description": p.description,
+                                "required": p.required,
+                                "default": p.default,
+                            }
+                        )
+                    endpoints.append(
+                        {
+                            "plugin_name": service_name,
+                            "method_name": method_name,
+                            "api_path": api_path,
+                            "description": info["metadata"]["description"],
+                            "parameters": params,
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Failed to discover endpoints for {service_name}: {e}")
 
@@ -101,7 +109,7 @@ class OpenApiService:
     # Policy CRUD
     # ------------------------------------------------------------------
 
-    def get_all_policies(self) -> List[Dict[str, Any]]:
+    def get_all_policies(self) -> list[dict[str, Any]]:
         """Get all access policies (with FINAL for ReplacingMergeTree)."""
         _ensure_tables()
         try:
@@ -131,7 +139,7 @@ class OpenApiService:
             logger.error(f"Failed to get policies: {e}")
             return []
 
-    def get_policy(self, api_path: str) -> Optional[Dict[str, Any]]:
+    def get_policy(self, api_path: str) -> dict[str, Any] | None:
         """Get policy for a specific api_path (cache-first)."""
         self._refresh_cache_if_needed()
         return self._policy_cache.get(api_path)
@@ -139,12 +147,12 @@ class OpenApiService:
     def upsert_policy(
         self,
         api_path: str,
-        is_enabled: Optional[bool] = None,
-        rate_limit_per_min: Optional[int] = None,
-        rate_limit_per_day: Optional[int] = None,
-        max_records: Optional[int] = None,
-        description: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+        is_enabled: bool | None = None,
+        rate_limit_per_min: int | None = None,
+        rate_limit_per_day: int | None = None,
+        max_records: int | None = None,
+        description: str | None = None,
+    ) -> tuple[bool, str]:
         """Create or update an access policy."""
         _ensure_tables()
         try:
@@ -158,11 +166,21 @@ class OpenApiService:
                     "policy_id": policy_id,
                     "api_path": api_path,
                     "api_type": existing["api_type"],
-                    "is_enabled": int(is_enabled) if is_enabled is not None else existing["is_enabled"],
-                    "rate_limit_per_min": rate_limit_per_min if rate_limit_per_min is not None else existing["rate_limit_per_min"],
-                    "rate_limit_per_day": rate_limit_per_day if rate_limit_per_day is not None else existing["rate_limit_per_day"],
-                    "max_records": max_records if max_records is not None else existing["max_records"],
-                    "description": description if description is not None else existing["description"],
+                    "is_enabled": int(is_enabled)
+                    if is_enabled is not None
+                    else existing["is_enabled"],
+                    "rate_limit_per_min": rate_limit_per_min
+                    if rate_limit_per_min is not None
+                    else existing["rate_limit_per_min"],
+                    "rate_limit_per_day": rate_limit_per_day
+                    if rate_limit_per_day is not None
+                    else existing["rate_limit_per_day"],
+                    "max_records": max_records
+                    if max_records is not None
+                    else existing["max_records"],
+                    "description": description
+                    if description is not None
+                    else existing["description"],
                     "created_at": existing["created_at"],
                     "now": now,
                 }
@@ -207,7 +225,7 @@ class OpenApiService:
             logger.error(f"Failed to upsert policy for {api_path}: {e}")
             return False, f"策略操作失败: {e}"
 
-    def batch_toggle(self, api_paths: List[str], is_enabled: bool) -> Tuple[bool, str]:
+    def batch_toggle(self, api_paths: list[str], is_enabled: bool) -> tuple[bool, str]:
         """Batch enable/disable policies."""
         _ensure_tables()
         success_count = 0
@@ -215,9 +233,12 @@ class OpenApiService:
             ok, _ = self.upsert_policy(path, is_enabled=is_enabled)
             if ok:
                 success_count += 1
-        return True, f"已{'启用' if is_enabled else '禁用'} {success_count}/{len(api_paths)} 个接口"
+        return (
+            True,
+            f"已{'启用' if is_enabled else '禁用'} {success_count}/{len(api_paths)} 个接口",
+        )
 
-    def sync_policies_from_plugins(self) -> Tuple[int, int]:
+    def sync_policies_from_plugins(self) -> tuple[int, int]:
         """Discover all plugin endpoints and create default policies for new ones.
 
         Returns (created, existing).
@@ -292,14 +313,14 @@ class OpenApiService:
     def get_usage_stats(
         self,
         days: int = 7,
-        api_path: Optional[str] = None,
-        api_key_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        api_path: str | None = None,
+        api_key_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get aggregated usage statistics."""
         _ensure_tables()
         try:
             conditions = ["created_at >= now() - toIntervalDay(%(days)s)"]
-            params: Dict[str, Any] = {"days": days}
+            params: dict[str, Any] = {"days": days}
 
             if api_path:
                 conditions.append("api_path = %(api_path)s")
@@ -343,7 +364,7 @@ class OpenApiService:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _query_policy_from_db(self, api_path: str) -> Optional[Dict[str, Any]]:
+    def _query_policy_from_db(self, api_path: str) -> dict[str, Any] | None:
         """Query a single policy directly from DB."""
         try:
             rows = self.client.query(
@@ -390,7 +411,7 @@ class OpenApiService:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_service: Optional[OpenApiService] = None
+_service: OpenApiService | None = None
 
 
 def get_open_api_service() -> OpenApiService:

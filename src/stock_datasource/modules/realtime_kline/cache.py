@@ -12,7 +12,7 @@ import logging
 import math
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from . import config as cfg
 
@@ -39,6 +39,7 @@ class RealtimeKlineCacheStore:
             return self._redis
         try:
             from redis import Redis
+
             from stock_datasource.config.settings import settings
 
             if not settings.REDIS_ENABLED:
@@ -82,19 +83,21 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Latest snapshot (String)
     # ------------------------------------------------------------------
-    def set_latest(self, market: str, ts_code: str, data: Dict[str, Any]) -> bool:
+    def set_latest(self, market: str, ts_code: str, data: dict[str, Any]) -> bool:
         redis = self._get_redis()
         if redis is None:
             return False
         try:
             bar_json = json.dumps(data, ensure_ascii=False, default=str)
-            redis.setex(self.latest_key(market, ts_code), cfg.CACHE_LATEST_TTL, bar_json)
+            redis.setex(
+                self.latest_key(market, ts_code), cfg.CACHE_LATEST_TTL, bar_json
+            )
             return True
         except Exception as e:
             logger.error("Redis set_latest failed for %s:%s: %s", market, ts_code, e)
             return False
 
-    def get_latest(self, market: str, ts_code: str) -> Optional[Dict[str, Any]]:
+    def get_latest(self, market: str, ts_code: str) -> dict[str, Any] | None:
         redis = self._get_redis()
         if redis is None:
             return None
@@ -106,12 +109,16 @@ class RealtimeKlineCacheStore:
             logger.warning("Redis get_latest failed: %s", e)
         return None
 
-    def get_all_latest(self, market: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_all_latest(self, market: str | None = None) -> list[dict[str, Any]]:
         redis = self._get_redis()
         if redis is None:
             return []
-        pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:*" if market else f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
-        results: List[Dict[str, Any]] = []
+        pattern = (
+            f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:*"
+            if market
+            else f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
+        )
+        results: list[dict[str, Any]] = []
         try:
             cursor = 0
             while True:
@@ -129,7 +136,7 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Stream (XADD / XREAD / XRANGE)
     # ------------------------------------------------------------------
-    def xadd_event(self, market: str, event: Dict[str, str]) -> Optional[str]:
+    def xadd_event(self, market: str, event: dict[str, str]) -> str | None:
         """Append an event to the market stream. Returns stream entry ID."""
         redis = self._get_redis()
         if redis is None:
@@ -149,26 +156,30 @@ class RealtimeKlineCacheStore:
 
     def xrange_since(
         self, market: str, min_id: str = "-", max_id: str = "+", count: int = 5000
-    ) -> List[Tuple[str, Dict[str, str]]]:
+    ) -> list[tuple[str, dict[str, str]]]:
         """Read a range of stream entries."""
         redis = self._get_redis()
         if redis is None:
             return []
         try:
-            return redis.xrange(self.stream_key(market), min=min_id, max=max_id, count=count)
+            return redis.xrange(
+                self.stream_key(market), min=min_id, max=max_id, count=count
+            )
         except Exception as e:
             logger.error("Redis XRANGE failed for %s: %s", market, e)
             return []
 
     def xread_after(
         self, market: str, last_id: str = "0-0", count: int = 5000
-    ) -> List[Tuple[str, Dict[str, str]]]:
+    ) -> list[tuple[str, dict[str, str]]]:
         """Read new entries after last_id (non-blocking)."""
         redis = self._get_redis()
         if redis is None:
             return []
         try:
-            result = redis.xread({self.stream_key(market): last_id}, count=count, block=0)
+            result = redis.xread(
+                {self.stream_key(market): last_id}, count=count, block=0
+            )
             if result:
                 # result = [(stream_key, [(id, fields), ...])]
                 return result[0][1]
@@ -234,7 +245,7 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Push switch (runtime)
     # ------------------------------------------------------------------
-    def get_push_switch(self) -> Optional[bool]:
+    def get_push_switch(self) -> bool | None:
         """Read runtime push switch. Returns None if not set (fall back to env)."""
         redis = self._get_redis()
         if redis is None:
@@ -255,12 +266,17 @@ class RealtimeKlineCacheStore:
             old_val = redis.get(cfg.REDIS_KEY_SWITCH_PUSH)
             redis.set(cfg.REDIS_KEY_SWITCH_PUSH, "true" if enabled else "false")
             # Audit log
-            redis.xadd(cfg.REDIS_KEY_AUDIT_SWITCH, {
-                "timestamp": datetime.now().isoformat(),
-                "old_state": str(old_val),
-                "new_state": "on" if enabled else "off",
-                "source": source,
-            }, maxlen=10000, approximate=True)
+            redis.xadd(
+                cfg.REDIS_KEY_AUDIT_SWITCH,
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "old_state": str(old_val),
+                    "new_state": "on" if enabled else "off",
+                    "source": source,
+                },
+                maxlen=10000,
+                approximate=True,
+            )
             return True
         except Exception as e:
             logger.error("Failed to set push switch: %s", e)
@@ -269,7 +285,7 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Last acked state (for delta computation)
     # ------------------------------------------------------------------
-    def get_last_acked_state(self, market: str, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_last_acked_state(self, market: str, symbol: str) -> dict[str, Any] | None:
         redis = self._get_redis()
         if redis is None:
             return None
@@ -281,7 +297,9 @@ class RealtimeKlineCacheStore:
             pass
         return None
 
-    def set_last_acked_state(self, market: str, symbol: str, state: Dict[str, Any]) -> bool:
+    def set_last_acked_state(
+        self, market: str, symbol: str, state: dict[str, Any]
+    ) -> bool:
         redis = self._get_redis()
         if redis is None:
             return False
@@ -323,7 +341,9 @@ class RealtimeKlineCacheStore:
         if redis is None:
             return False
         try:
-            redis.set(f"{cfg.REDIS_KEY_CIRCUIT_BREAKER}:{market}", "1" if active else "0")
+            redis.set(
+                f"{cfg.REDIS_KEY_CIRCUIT_BREAKER}:{market}", "1" if active else "0"
+            )
             return True
         except Exception:
             return False
@@ -331,16 +351,20 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Dead-letter queues (push & sink)
     # ------------------------------------------------------------------
-    def push_to_dlq(self, dlq_prefix: str, market: str, event: Dict[str, Any]) -> bool:
+    def push_to_dlq(self, dlq_prefix: str, market: str, event: dict[str, Any]) -> bool:
         redis = self._get_redis()
         if redis is None:
             return False
         try:
             key = f"{dlq_prefix}:{market}"
-            payload = json.dumps({
-                **event,
-                "_dlq_time": datetime.now().isoformat(),
-            }, ensure_ascii=False, default=str)
+            payload = json.dumps(
+                {
+                    **event,
+                    "_dlq_time": datetime.now().isoformat(),
+                },
+                ensure_ascii=False,
+                default=str,
+            )
             redis.rpush(key, payload)
             return True
         except Exception as e:
@@ -395,15 +419,21 @@ class RealtimeKlineCacheStore:
             return
         try:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            redis.hset(cfg.REDIS_KEY_STATUS, market, json.dumps({
-                "last_collect_time": now_str,
-                "records": records,
-            }))
+            redis.hset(
+                cfg.REDIS_KEY_STATUS,
+                market,
+                json.dumps(
+                    {
+                        "last_collect_time": now_str,
+                        "records": records,
+                    }
+                ),
+            )
             redis.expire(cfg.REDIS_KEY_STATUS, 30 * 86400)
         except Exception as e:
             logger.warning("Failed to update status: %s", e)
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         redis = self._get_redis()
         if redis is None:
             return {}
@@ -422,7 +452,7 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Batch snapshot write (collector → Redis)
     # ------------------------------------------------------------------
-    def store_snapshots(self, market: str, rows: List[Dict[str, Any]]) -> int:
+    def store_snapshots(self, market: str, rows: list[dict[str, Any]]) -> int:
         """Write a batch of snapshots to latest + stream."""
         redis = self._get_redis()
         if redis is None or not rows:
@@ -442,7 +472,11 @@ class RealtimeKlineCacheStore:
             bar_json = json.dumps(bar, ensure_ascii=False, default=str)
 
             # 1) latest (String)
-            pipe.setex(self.latest_key(market, ts_code), settings.RT_KLINE_LATEST_TTL_SECONDS, bar_json)
+            pipe.setex(
+                self.latest_key(market, ts_code),
+                settings.RT_KLINE_LATEST_TTL_SECONDS,
+                bar_json,
+            )
 
             # 2) stream (XADD) — flatten key fields for stream entry
             stream_entry = {
@@ -451,7 +485,12 @@ class RealtimeKlineCacheStore:
                 "version": str(bar.get("version", "")),
                 "payload": bar_json,
             }
-            pipe.xadd(stream_key, stream_entry, maxlen=cfg.STREAM_MAXLEN_PER_MARKET, approximate=True)
+            pipe.xadd(
+                stream_key,
+                stream_entry,
+                maxlen=cfg.STREAM_MAXLEN_PER_MARKET,
+                approximate=True,
+            )
             count += 1
 
         try:
@@ -465,11 +504,15 @@ class RealtimeKlineCacheStore:
     # ------------------------------------------------------------------
     # Cleanup helpers
     # ------------------------------------------------------------------
-    def cleanup_latest(self, market: Optional[str] = None) -> int:
+    def cleanup_latest(self, market: str | None = None) -> int:
         redis = self._get_redis()
         if redis is None:
             return 0
-        pattern = f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:*" if market else f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
+        pattern = (
+            f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:*"
+            if market
+            else f"{cfg.REDIS_KEY_PREFIX_LATEST}:*"
+        )
         deleted = 0
         try:
             cursor = 0
@@ -491,7 +534,9 @@ class RealtimeKlineCacheStore:
         try:
             cursor = 0
             while True:
-                cursor, keys = redis.scan(cursor, match=f"{cfg.REDIS_KEY_PREFIX_LATEST}:*", count=500)
+                cursor, keys = redis.scan(
+                    cursor, match=f"{cfg.REDIS_KEY_PREFIX_LATEST}:*", count=500
+                )
                 count += len(keys)
                 if cursor == 0:
                     break
@@ -500,7 +545,7 @@ class RealtimeKlineCacheStore:
         return count
 
 
-_cache_store: Optional[RealtimeKlineCacheStore] = None
+_cache_store: RealtimeKlineCacheStore | None = None
 
 
 def get_cache_store() -> RealtimeKlineCacheStore:

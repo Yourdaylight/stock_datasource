@@ -3,13 +3,13 @@
 Provides news data retrieval and sentiment analysis.
 """
 
+from .schemas import NewsCategory, NewsItem, NewsSentiment
 from .service import NewsService, get_news_service
-from .schemas import NewsItem, NewsSentiment, NewsCategory
 
 __all__ = [
-    "NewsService",
-    "get_news_service",
+    "NewsCategory",
     "NewsItem",
     "NewsSentiment",
-    "NewsCategory",
+    "NewsService",
+    "get_news_service",
 ]

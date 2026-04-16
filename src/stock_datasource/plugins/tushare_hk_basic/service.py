@@ -1,16 +1,16 @@
 """TuShare Hong Kong Stock Basic Info query service."""
 
-from typing import Any, Dict, List, Optional
-import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+from typing import Any
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 class TuShareHKBasicService(BaseService):
     """Query service for TuShare Hong Kong Stock basic info."""
-    
+
     def __init__(self):
         super().__init__("tushare_hk_basic")
-    
+
     @query_method(
         description="Get HK stock basic info by ts_code",
         params=[
@@ -20,15 +20,15 @@ class TuShareHKBasicService(BaseService):
                 description="TS code (e.g., 00001.HK)",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_by_ts_code(self, ts_code: str) -> Optional[Dict[str, Any]]:
+    def get_by_ts_code(self, ts_code: str) -> dict[str, Any] | None:
         """
         Get HK stock basic info by ts_code.
-        
+
         Args:
             ts_code: TS code (e.g., '00001.HK')
-        
+
         Returns:
             Stock basic info or None
         """
@@ -39,12 +39,12 @@ class TuShareHKBasicService(BaseService):
         ORDER BY version DESC
         LIMIT 1
         """
-        
-        df = self.db.execute_query(query, {'ts_code': ts_code})
+
+        df = self.db.execute_query(query, {"ts_code": ts_code})
         if df.empty:
             return None
         return df.iloc[0].to_dict()
-    
+
     @query_method(
         description="Get all listed HK stocks",
         params=[
@@ -54,18 +54,18 @@ class TuShareHKBasicService(BaseService):
                 description="Listing status: L=Listed, D=Delisted, P=Paused (default: L)",
                 required=False,
             ),
-        ]
+        ],
     )
     def get_stock_list(
         self,
-        list_status: str = 'L',
-    ) -> List[Dict[str, Any]]:
+        list_status: str = "L",
+    ) -> list[dict[str, Any]]:
         """
         Get HK stock list by listing status.
-        
+
         Args:
             list_status: Listing status (L/D/P), default 'L'
-        
+
         Returns:
             List of stock basic info
         """
@@ -75,10 +75,10 @@ class TuShareHKBasicService(BaseService):
         WHERE list_status = %(list_status)s
         ORDER BY ts_code ASC
         """
-        
-        df = self.db.execute_query(query, {'list_status': list_status})
-        return df.to_dict('records')
-    
+
+        df = self.db.execute_query(query, {"list_status": list_status})
+        return df.to_dict("records")
+
     @query_method(
         description="Search HK stocks by name or code",
         params=[
@@ -94,20 +94,20 @@ class TuShareHKBasicService(BaseService):
                 description="Maximum results (default: 20)",
                 required=False,
             ),
-        ]
+        ],
     )
     def search(
         self,
         keyword: str,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search HK stocks by name, code, or pinyin.
-        
+
         Args:
             keyword: Search keyword
             limit: Maximum results
-        
+
         Returns:
             List of matching stocks
         """
@@ -121,11 +121,11 @@ class TuShareHKBasicService(BaseService):
         ORDER BY ts_code ASC
         LIMIT %(limit)s
         """
-        
+
         pattern = f"%{keyword}%"
-        df = self.db.execute_query(query, {'pattern': pattern, 'limit': limit})
-        return df.to_dict('records')
-    
+        df = self.db.execute_query(query, {"pattern": pattern, "limit": limit})
+        return df.to_dict("records")
+
     @query_method(
         description="Get HK stocks by market",
         params=[
@@ -135,15 +135,15 @@ class TuShareHKBasicService(BaseService):
                 description="Market category",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_by_market(self, market: str) -> List[Dict[str, Any]]:
+    def get_by_market(self, market: str) -> list[dict[str, Any]]:
         """
         Get HK stocks by market category.
-        
+
         Args:
             market: Market category
-        
+
         Returns:
             List of stocks in the market
         """
@@ -154,18 +154,15 @@ class TuShareHKBasicService(BaseService):
         AND list_status = 'L'
         ORDER BY ts_code ASC
         """
-        
-        df = self.db.execute_query(query, {'market': market})
-        return df.to_dict('records')
-    
-    @query_method(
-        description="Get stock count by listing status",
-        params=[]
-    )
-    def get_statistics(self) -> Dict[str, int]:
+
+        df = self.db.execute_query(query, {"market": market})
+        return df.to_dict("records")
+
+    @query_method(description="Get stock count by listing status", params=[])
+    def get_statistics(self) -> dict[str, int]:
         """
         Get HK stock count statistics.
-        
+
         Returns:
             Statistics by listing status
         """
@@ -176,15 +173,17 @@ class TuShareHKBasicService(BaseService):
         FROM ods_hk_basic
         GROUP BY list_status
         """
-        
+
         df = self.db.execute_query(query)
         result = {}
         for _, row in df.iterrows():
-            status = row['list_status']
-            status_name = {'L': 'listed', 'D': 'delisted', 'P': 'paused'}.get(status, status)
-            result[status_name] = int(row['count'])
+            status = row["list_status"]
+            status_name = {"L": "listed", "D": "delisted", "P": "paused"}.get(
+                status, status
+            )
+            result[status_name] = int(row["count"])
         return result
-    
+
     @query_method(
         description="Get recently listed HK stocks",
         params=[
@@ -200,20 +199,20 @@ class TuShareHKBasicService(BaseService):
                 description="Maximum results (default: 50)",
                 required=False,
             ),
-        ]
+        ],
     )
     def get_recent_ipo(
         self,
         days: int = 30,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get recently listed HK stocks.
-        
+
         Args:
             days: Number of days to look back
             limit: Maximum results
-        
+
         Returns:
             List of recently listed stocks
         """
@@ -225,18 +224,15 @@ class TuShareHKBasicService(BaseService):
         ORDER BY list_date DESC
         LIMIT %(limit)s
         """
-        
-        df = self.db.execute_query(query, {'days': days, 'limit': limit})
-        return df.to_dict('records')
-    
-    @query_method(
-        description="Get all ts_codes for listed stocks",
-        params=[]
-    )
-    def get_all_ts_codes(self) -> List[str]:
+
+        df = self.db.execute_query(query, {"days": days, "limit": limit})
+        return df.to_dict("records")
+
+    @query_method(description="Get all ts_codes for listed stocks", params=[])
+    def get_all_ts_codes(self) -> list[str]:
         """
         Get all ts_codes for listed HK stocks.
-        
+
         Returns:
             List of ts_codes
         """
@@ -246,6 +242,6 @@ class TuShareHKBasicService(BaseService):
         WHERE list_status = 'L'
         ORDER BY ts_code ASC
         """
-        
+
         df = self.db.execute_query(query)
-        return df['ts_code'].tolist()
+        return df["ts_code"].tolist()

@@ -1,7 +1,6 @@
 """Financial Analysis module router - company list, report browsing, AI analysis."""
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -20,6 +19,7 @@ service = FinancialAnalysisService()
 
 class AnalyzeRequest(BaseModel):
     """Request model for triggering AI analysis."""
+
     code: str = Field(..., description="Stock code (e.g., 600519 or 00700.HK)")
     end_date: str = Field(..., description="Report period (e.g., 20241231)")
     market: str = Field(default="A", description="Market: 'A' or 'HK'")
@@ -31,7 +31,9 @@ class AnalyzeRequest(BaseModel):
 
 def _normalize_code(code: str, market: str = "auto") -> str:
     """Normalize stock code, raise HTTP 400 on invalid."""
-    is_valid, normalized, error_msg = validate_and_normalize_stock_code(code, market=market)
+    is_valid, normalized, error_msg = validate_and_normalize_stock_code(
+        code, market=market
+    )
     if not is_valid:
         raise HTTPException(status_code=400, detail=error_msg)
     return normalized
@@ -143,7 +145,9 @@ async def run_analysis(request: AnalyzeRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in run_analysis for {request.code}/{request.end_date}: {e}")
+        logger.error(
+            f"Error in run_analysis for {request.code}/{request.end_date}: {e}"
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -168,14 +172,16 @@ async def run_llm_analysis(request: AnalyzeRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in run_llm_analysis for {request.code}/{request.end_date}: {e}")
+        logger.error(
+            f"Error in run_llm_analysis for {request.code}/{request.end_date}: {e}"
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/companies/{code}/analyses")
 async def get_analysis_history(
     code: str,
-    end_date: Optional[str] = Query(default=None, description="Filter by report period"),
+    end_date: str | None = Query(default=None, description="Filter by report period"),
     market: str = Query(default="A", description="Market: 'A' or 'HK'"),
     limit: int = Query(default=20, ge=1, le=100, description="Max records"),
 ):
@@ -183,7 +189,9 @@ async def get_analysis_history(
     try:
         market_hint = "hk" if market == "HK" else "cn"
         normalized_code = _normalize_code(code, market=market_hint)
-        result = service.get_analysis_history(normalized_code, end_date=end_date, limit=limit)
+        result = service.get_analysis_history(
+            normalized_code, end_date=end_date, limit=limit
+        )
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("error"))
         return result

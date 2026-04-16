@@ -119,6 +119,7 @@ def pytest_configure(config):
 
 def pytest_unconfigure(config):
     import shutil
+
     try:
         shutil.rmtree(_test_log_dir, ignore_errors=True)
     except Exception:

@@ -1,12 +1,13 @@
 """TuShare rt_etf_k plugin implementation."""
 
-from pathlib import Path
 import json
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from stock_datasource.plugins import BasePlugin
+
 from .extractor import RtEtfKExtractor
 
 
@@ -26,13 +27,13 @@ class TuShareRtEtfKPlugin(BasePlugin):
     @property
     def api_rate_limit(self) -> int:
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         return config.get("rate_limit", 120)
 
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         schema_file = Path(__file__).parent / "schema.json"
-        with open(schema_file, "r", encoding="utf-8") as f:
+        with open(schema_file, encoding="utf-8") as f:
             return json.load(f)
 
     def extract_data(self, **kwargs) -> pd.DataFrame:

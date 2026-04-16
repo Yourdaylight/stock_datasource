@@ -3,9 +3,9 @@
 Provides daily market overview and AI analysis services.
 """
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -13,18 +13,22 @@ logger = logging.getLogger(__name__)
 def _get_db():
     """Get database connection."""
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
 def _sanitize_value(v):
     """Replace inf/NaN with None for JSON compatibility."""
     import math
+
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return None
     return v
 
 
-def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _execute_query(
+    query: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Execute query and return results as list of dicts.
 
     This helper should be resilient: if ClickHouse is initializing or a table is missing,
@@ -41,7 +45,9 @@ def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[
 
     if df is None or df.empty:
         return []
-    return [{k: _sanitize_value(v) for k, v in r.items()} for r in df.to_dict('records')]
+    return [
+        {k: _sanitize_value(v) for k, v in r.items()} for r in df.to_dict("records")
+    ]
 
 
 # Major indices to track
@@ -59,31 +65,31 @@ MAJOR_INDICES = [
 
 class OverviewService:
     """Service for market overview operations."""
-    
+
     def __init__(self):
         self.db = _get_db()
 
-    def _get_best_available_trade_date(self) -> Optional[str]:
+    def _get_best_available_trade_date(self) -> str | None:
         """Pick the freshest available market date across overview sources."""
         for table in ["ods_idx_factor_pro", "fact_daily_bar", "ods_etf_fund_daily"]:
             latest = self._get_latest_trade_date(table)
             if latest:
                 return latest
         return None
-    
-    def _get_latest_trade_date(self, table: str = "ods_idx_factor_pro") -> Optional[str]:
+
+    def _get_latest_trade_date(self, table: str = "ods_idx_factor_pro") -> str | None:
         """Get latest trade date from table."""
         query = f"""
         SELECT max(trade_date) as latest_date
         FROM {table}
         """
         result = _execute_query(query)
-        if result and result[0].get('latest_date'):
-            latest = result[0]['latest_date']
-            if hasattr(latest, 'strftime'):
-                date_str = latest.strftime('%Y%m%d')
+        if result and result[0].get("latest_date"):
+            latest = result[0]["latest_date"]
+            if hasattr(latest, "strftime"):
+                date_str = latest.strftime("%Y%m%d")
             else:
-                date_str = str(latest).replace('-', '')
+                date_str = str(latest).replace("-", "")
 
             # ClickHouse max(Date) on empty table returns 1970-01-01
             if date_str in {"19700101", "1970-01-01"}:
@@ -91,20 +97,20 @@ class OverviewService:
 
             return date_str
         return None
-    
-    def get_daily_overview(self, date: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_daily_overview(self, date: str | None = None) -> dict[str, Any]:
         """Get daily market overview.
-        
+
         Args:
             date: Trade date (YYYYMMDD), defaults to latest
-            
+
         Returns:
             Dict with major indices, market stats, hot ETFs
         """
         # Get latest date if not specified
         if not date:
             date = self._get_best_available_trade_date()
-        
+
         if not date:
             return {
                 "trade_date": None,
@@ -113,7 +119,7 @@ class OverviewService:
                 "hot_etfs_by_amount": [],
                 "hot_etfs_by_change": [],
             }
-        
+
         trade_date = datetime.strptime(date, "%Y%m%d").date()
 
         # Get major indices
@@ -125,7 +131,7 @@ class OverviewService:
         # Get hot ETFs
         hot_etfs_by_amount = self._get_hot_etfs(trade_date, sort_by="amount", limit=10)
         hot_etfs_by_change = self._get_hot_etfs(trade_date, sort_by="pct_chg", limit=10)
-        
+
         return {
             "trade_date": date,
             "major_indices": major_indices,
@@ -133,16 +139,16 @@ class OverviewService:
             "hot_etfs_by_amount": hot_etfs_by_amount,
             "hot_etfs_by_change": hot_etfs_by_change,
         }
-    
-    def _get_major_indices(self, trade_date) -> List[Dict[str, Any]]:
-        """Get major indices status for a date. 
+
+    def _get_major_indices(self, trade_date) -> list[dict[str, Any]]:
+        """Get major indices status for a date.
         Priority: rt_minute_latest (realtime) > ods_idx_factor_pro (daily).
         """
         # 1. 先尝试从分钟缓存获取（秒级精度）
         rt_indices = self._get_major_indices_from_minute_cache()
         if rt_indices:
             return rt_indices
-        
+
         # 2. Fallback 到日线表
         indices_codes = [f"'{code}'" for code, _ in MAJOR_INDICES]
         indices_str = ", ".join(indices_codes)
@@ -163,21 +169,24 @@ class OverviewService:
         """
 
         result = _execute_query(query, {"trade_date": trade_date})
-        
+
         # Sort by predefined order
         code_order = {code: i for i, (code, _) in enumerate(MAJOR_INDICES)}
-        result.sort(key=lambda x: code_order.get(x.get('ts_code', ''), 999))
-        
+        result.sort(key=lambda x: code_order.get(x.get("ts_code", ""), 999))
+
         return result
-    
-    def _get_major_indices_from_minute_cache(self) -> List[Dict[str, Any]]:
+
+    def _get_major_indices_from_minute_cache(self) -> list[dict[str, Any]]:
         """从分钟缓存获取主要指数的最新数据（秒级精度）。"""
         try:
-            from stock_datasource.modules.realtime_minute.cache_store import get_cache_store
+            from stock_datasource.modules.realtime_minute.cache_store import (
+                get_cache_store,
+            )
+
             cache = get_cache_store()
             if not cache.available:
                 return []
-            
+
             result = []
             for code, name in MAJOR_INDICES:
                 latest = cache.get_latest("index", code, "1min")
@@ -190,15 +199,17 @@ class OverviewService:
                             pct_chg = round((c - o) / o * 100, 2)
                         else:
                             pct_chg = 0
-                    result.append({
-                        "ts_code": code,
-                        "name": name,
-                        "close": latest["close"],
-                        "pct_chg": pct_chg,
-                        "vol": latest.get("vol"),
-                        "amount": latest.get("amount"),
-                    })
-            
+                    result.append(
+                        {
+                            "ts_code": code,
+                            "name": name,
+                            "close": latest["close"],
+                            "pct_chg": pct_chg,
+                            "vol": latest.get("vol"),
+                            "amount": latest.get("amount"),
+                        }
+                    )
+
             # 必须全部8个指数都有数据才用分钟缓存
             if len(result) >= 4:
                 return result
@@ -206,8 +217,8 @@ class OverviewService:
         except Exception as e:
             logger.warning(f"Failed to get indices from minute cache: {e}")
             return []
-    
-    def _get_market_stats(self, trade_date, date_str: str) -> Optional[Dict[str, Any]]:
+
+    def _get_market_stats(self, trade_date, date_str: str) -> dict[str, Any] | None:
         """Get market statistics for a date."""
         # Use fact_daily_bar which has pct_chg field
         # amount is in 千元, convert to 亿 in SQL
@@ -231,23 +242,23 @@ class OverviewService:
             stats = result[0]
             return {
                 "trade_date": date_str,
-                "up_count": int(stats.get('up_count', 0) or 0),
-                "down_count": int(stats.get('down_count', 0) or 0),
-                "flat_count": int(stats.get('flat_count', 0) or 0),
-                "limit_up_count": int(stats.get('limit_up_count', 0) or 0),
-                "limit_down_count": int(stats.get('limit_down_count', 0) or 0),
-                "total_amount": stats.get('total_amount'),
-                "total_vol": stats.get('total_vol'),
+                "up_count": int(stats.get("up_count", 0) or 0),
+                "down_count": int(stats.get("down_count", 0) or 0),
+                "flat_count": int(stats.get("flat_count", 0) or 0),
+                "limit_up_count": int(stats.get("limit_up_count", 0) or 0),
+                "limit_down_count": int(stats.get("limit_down_count", 0) or 0),
+                "total_amount": stats.get("total_amount"),
+                "total_vol": stats.get("total_vol"),
             }
 
         return None
-    
+
     def _get_hot_etfs(
         self,
         trade_date,
         sort_by: str = "amount",
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get hot ETFs for a date."""
         order_field = "amount" if sort_by == "amount" else "pct_chg"
         order_dir = "DESC"
@@ -270,105 +281,101 @@ class OverviewService:
         """
 
         return _execute_query(query, {"trade_date": trade_date})
-    
+
     def get_hot_etfs(
         self,
-        date: Optional[str] = None,
+        date: str | None = None,
         sort_by: str = "amount",
         limit: int = 10,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get hot ETFs.
-        
+
         Args:
             date: Trade date (YYYYMMDD), defaults to latest
             sort_by: Sort field (amount or pct_chg)
             limit: Number of ETFs to return
-            
+
         Returns:
             Dict with trade_date, sort_by, data
         """
         if not date:
-            date = self._get_latest_trade_date("ods_etf_fund_daily") or self._get_best_available_trade_date()
-        
+            date = (
+                self._get_latest_trade_date("ods_etf_fund_daily")
+                or self._get_best_available_trade_date()
+            )
+
         if not date:
             return {
                 "trade_date": None,
                 "sort_by": sort_by,
                 "data": [],
             }
-        
+
         trade_date = datetime.strptime(date, "%Y%m%d").date()
         data = self._get_hot_etfs(trade_date, sort_by, limit)
-        
-        return {
-            "trade_date": date,
-            "sort_by": sort_by,
-            "data": data
-        }
-    
-    def get_indices(self, date: Optional[str] = None) -> Dict[str, Any]:
+
+        return {"trade_date": date, "sort_by": sort_by, "data": data}
+
+    def get_indices(self, date: str | None = None) -> dict[str, Any]:
         """Get major indices status.
-        
+
         Args:
             date: Trade date (YYYYMMDD), defaults to latest
-            
+
         Returns:
             Dict with trade_date and indices data
         """
         if not date:
             date = self._get_best_available_trade_date()
-        
+
         if not date:
             return {
                 "trade_date": None,
                 "data": [],
             }
-        
+
         trade_date = datetime.strptime(date, "%Y%m%d").date()
         indices = self._get_major_indices(trade_date)
 
-        return {
-            "trade_date": date,
-            "data": indices
-        }
-    
+        return {"trade_date": date, "data": indices}
+
     async def analyze_market(
         self,
         question: str,
         user_id: str = "default",
-        date: Optional[str] = None,
+        date: str | None = None,
         clear_history: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Analyze market using Overview Agent with conversation memory.
-        
+
         Args:
             question: User question
             user_id: User identifier for session tracking
             date: Analysis date (defaults to latest)
             clear_history: Whether to clear conversation history
-            
+
         Returns:
             Analysis result with session info
         """
         from stock_datasource.agents import get_overview_agent
-        
+
         if not date:
             date = self._get_best_available_trade_date()
-        
+
         agent = get_overview_agent()
-        
+
         # Build task
         task = f"请基于{date}的市场数据回答：{question}"
-        
+
         # Execute agent with context
         context = {
             "user_id": user_id,
             "context_key": f"overview_{date}",
             "clear_history": clear_history,
         }
-        
+
         result = await agent.execute(task, context)
-        
+
         return {
             "date": date,
             "question": question,
@@ -378,18 +385,18 @@ class OverviewService:
             "session_id": result.metadata.get("session_id", ""),
             "history_length": result.metadata.get("history_length", 0),
         }
-    
-    def get_quick_analysis(self, date: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_quick_analysis(self, date: str | None = None) -> dict[str, Any]:
         """Get quick market analysis without AI.
-        
+
         Args:
             date: Analysis date (defaults to latest)
-            
+
         Returns:
             Quick analysis result
         """
         from stock_datasource.agents.overview_tools import get_market_daily_summary
-        
+
         if not date:
             date = self._get_best_available_trade_date()
 
@@ -397,9 +404,8 @@ class OverviewService:
         return get_market_daily_summary(date)
 
 
-
 # Singleton instance
-_overview_service: Optional[OverviewService] = None
+_overview_service: OverviewService | None = None
 
 
 def get_overview_service() -> OverviewService:

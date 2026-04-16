@@ -3,52 +3,60 @@
 
 数据查询(GET)需要登录，写操作(POST)需要登录。
 """
-from typing import List, Dict, Any, Optional
-from datetime import datetime, date
-from fastapi import APIRouter, HTTPException, Depends, Query
+
+from datetime import datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..services.toplist_service import TopListService
-from ..services.toplist_analysis_service import TopListAnalysisService
-from ..services.anomaly_detection_service import AnomalyDetectionService
 from ..agents.toplist_agent import TopListAgent
 from ..modules.auth.dependencies import get_current_user
+from ..services.anomaly_detection_service import AnomalyDetectionService
+from ..services.toplist_analysis_service import TopListAnalysisService
+from ..services.toplist_service import TopListService
 
 router = APIRouter(prefix="/api/toplist", tags=["toplist"])
+
 
 # 请求/响应模型
 class TopListItem(BaseModel):
     """龙虎榜单项"""
+
     trade_date: str
     ts_code: str
     name: str
-    close: Optional[float] = None
-    pct_chg: Optional[float] = None
-    turnover_rate: Optional[float] = None
-    amount: Optional[float] = None
-    l_sell: Optional[float] = None
-    l_buy: Optional[float] = None
-    l_amount: Optional[float] = None
-    net_amount: Optional[float] = None
-    net_rate: Optional[float] = None
-    amount_rate: Optional[float] = None
-    float_values: Optional[float] = None
+    close: float | None = None
+    pct_chg: float | None = None
+    turnover_rate: float | None = None
+    amount: float | None = None
+    l_sell: float | None = None
+    l_buy: float | None = None
+    l_amount: float | None = None
+    net_amount: float | None = None
+    net_rate: float | None = None
+    amount_rate: float | None = None
+    float_values: float | None = None
     reason: str
+
 
 class TopInstItem(BaseModel):
     """机构席位单项"""
+
     trade_date: str
     ts_code: str
     exalter: str
-    buy: Optional[float] = None
-    buy_rate: Optional[float] = None
-    sell: Optional[float] = None
-    sell_rate: Optional[float] = None
-    net_buy: Optional[float] = None
+    buy: float | None = None
+    buy_rate: float | None = None
+    sell: float | None = None
+    sell_rate: float | None = None
+    net_buy: float | None = None
     seat_type: str = "unknown"
+
 
 class TopListSummary(BaseModel):
     """龙虎榜摘要"""
+
     trade_date: str
     total_stocks: int
     total_amount: float
@@ -61,22 +69,28 @@ class TopListSummary(BaseModel):
     net_institution_flow: float
     net_hot_money_flow: float
 
+
 class TopListResponse(BaseModel):
     """龙虎榜响应"""
+
     success: bool
-    data: List[TopListItem]
-    summary: Optional[TopListSummary] = None
+    data: list[TopListItem]
+    summary: TopListSummary | None = None
     total_count: int
     message: str
 
+
 class InstitutionalAnalysisResponse(BaseModel):
     """机构分析响应"""
+
     success: bool
-    data: Dict[str, Any]
+    data: dict[str, Any]
     message: str
+
 
 class AnomalyAlert(BaseModel):
     """异动预警"""
+
     ts_code: str
     name: str
     trade_date: str
@@ -84,42 +98,51 @@ class AnomalyAlert(BaseModel):
     severity: str
     description: str
     confidence: float
-    metrics: Dict[str, Any]
+    metrics: dict[str, Any]
+
 
 class AnomalyResponse(BaseModel):
     """异动检测响应"""
+
     success: bool
-    data: Dict[str, List[AnomalyAlert]]
+    data: dict[str, list[AnomalyAlert]]
     total_alerts: int
     critical_count: int
     high_count: int
     message: str
 
+
 class TopListQuery(BaseModel):
     """龙虎榜查询参数"""
-    trade_date: Optional[str] = None
-    ts_code: Optional[str] = None
+
+    trade_date: str | None = None
+    ts_code: str | None = None
     page: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=100)
+
 
 # 依赖注入
 def get_toplist_service() -> TopListService:
     return TopListService()
 
+
 def get_analysis_service() -> TopListAnalysisService:
     return TopListAnalysisService()
+
 
 def get_anomaly_service() -> AnomalyDetectionService:
     return AnomalyDetectionService()
 
+
 def get_toplist_agent() -> TopListAgent:
     return TopListAgent()
+
 
 # API路由
 @router.get("/data/{trade_date}", response_model=TopListResponse)
 async def get_top_list_by_date(
     trade_date: str,
-    ts_code: Optional[str] = Query(None, description="股票代码，可选"),
+    ts_code: str | None = Query(None, description="股票代码，可选"),
     service: TopListService = Depends(get_toplist_service),
     current_user: dict = Depends(get_current_user),
 ):
@@ -130,36 +153,44 @@ async def get_top_list_by_date(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         # 验证日期有效性
         try:
             datetime.strptime(formatted_date, "%Y-%m-%d")
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD or YYYYMMDD")
-        
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date format. Use YYYY-MM-DD or YYYYMMDD",
+            )
+
         # 获取数据
         top_list_data = await service.get_top_list_by_date(formatted_date)
         summary = await service.get_top_list_summary(formatted_date)
-        
+
         # 如果指定了股票代码，过滤数据
         if ts_code:
-            top_list_data = [item for item in top_list_data if item.get("ts_code") == ts_code]
-        
+            top_list_data = [
+                item for item in top_list_data if item.get("ts_code") == ts_code
+            ]
+
         return TopListResponse(
             success=True,
             data=[TopListItem(**item) for item in top_list_data],
             summary=TopListSummary(**summary) if summary else None,
             total_count=len(top_list_data),
-            message=f"Successfully retrieved top list data for {formatted_date}"
+            message=f"Successfully retrieved top list data for {formatted_date}",
         )
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get top list data: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get top list data: {e!s}"
+        )
+
 
 @router.get("/institutional-seats/{trade_date}")
 async def get_institutional_seats(
     trade_date: str,
-    ts_code: Optional[str] = Query(None, description="股票代码，可选"),
+    ts_code: str | None = Query(None, description="股票代码，可选"),
     service: TopListService = Depends(get_toplist_service),
     current_user: dict = Depends(get_current_user),
 ):
@@ -170,25 +201,30 @@ async def get_institutional_seats(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         # 获取数据
         inst_data = await service.get_top_inst_by_date(formatted_date)
-        
+
         # 如果指定了股票代码，过滤数据
         if ts_code:
             inst_data = [item for item in inst_data if item.get("ts_code") == ts_code]
-        
+
         return {
             "success": True,
             "data": [TopInstItem(**item) for item in inst_data],
             "total_count": len(inst_data),
-            "message": f"Successfully retrieved institutional seats data for {formatted_date}"
+            "message": f"Successfully retrieved institutional seats data for {formatted_date}",
         }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get institutional seats data: {str(e)}")
 
-@router.get("/analysis/institutional/{trade_date}", response_model=InstitutionalAnalysisResponse)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get institutional seats data: {e!s}"
+        )
+
+
+@router.get(
+    "/analysis/institutional/{trade_date}", response_model=InstitutionalAnalysisResponse
+)
 async def get_institutional_analysis(
     trade_date: str,
     service: TopListAnalysisService = Depends(get_analysis_service),
@@ -201,17 +237,20 @@ async def get_institutional_analysis(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         analysis = await service.analyze_institutional_flow(formatted_date)
-        
+
         return InstitutionalAnalysisResponse(
             success=True,
             data=analysis,
-            message=f"Successfully analyzed institutional flow for {formatted_date}"
+            message=f"Successfully analyzed institutional flow for {formatted_date}",
         )
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze institutional flow: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to analyze institutional flow: {e!s}"
+        )
+
 
 @router.get("/analysis/hot-money")
 async def get_hot_money_targets(
@@ -222,18 +261,18 @@ async def get_hot_money_targets(
     """获取游资目标股票"""
     try:
         targets = await service.identify_hot_money_targets(days)
-        
+
         return {
             "success": True,
-            "data": {
-                "targets": targets,
-                "analysis_period": f"最近{days}天"
-            },
-            "message": f"Successfully identified {len(targets)} hot money targets"
+            "data": {"targets": targets, "analysis_period": f"最近{days}天"},
+            "message": f"Successfully identified {len(targets)} hot money targets",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to identify hot money targets: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to identify hot money targets: {e!s}"
+        )
+
 
 @router.get("/analysis/concentration/{ts_code}")
 async def get_seat_concentration(
@@ -245,15 +284,18 @@ async def get_seat_concentration(
     """获取股票席位集中度分析"""
     try:
         concentration = await service.calculate_seat_concentration(ts_code, days)
-        
+
         return {
             "success": True,
             "data": concentration,
-            "message": f"Successfully calculated seat concentration for {ts_code}"
+            "message": f"Successfully calculated seat concentration for {ts_code}",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to calculate seat concentration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to calculate seat concentration: {e!s}"
+        )
+
 
 @router.get("/anomalies/detection", response_model=AnomalyResponse)
 async def get_anomaly_detection(
@@ -263,15 +305,10 @@ async def get_anomaly_detection(
     """获取异动检测结果"""
     try:
         alerts = await service.generate_anomaly_alerts()
-        
+
         # 按严重程度分类
-        anomalies_by_severity = {
-            "critical": [],
-            "high": [],
-            "medium": [],
-            "low": []
-        }
-        
+        anomalies_by_severity = {"critical": [], "high": [], "medium": [], "low": []}
+
         for alert in alerts:
             anomaly_alert = AnomalyAlert(
                 ts_code=alert.ts_code,
@@ -281,21 +318,24 @@ async def get_anomaly_detection(
                 severity=alert.severity,
                 description=alert.description,
                 confidence=alert.confidence,
-                metrics=alert.metrics
+                metrics=alert.metrics,
             )
             anomalies_by_severity[alert.severity].append(anomaly_alert)
-        
+
         return AnomalyResponse(
             success=True,
             data=anomalies_by_severity,
             total_alerts=len(alerts),
             critical_count=len(anomalies_by_severity["critical"]),
             high_count=len(anomalies_by_severity["high"]),
-            message=f"Successfully detected {len(alerts)} anomalies"
+            message=f"Successfully detected {len(alerts)} anomalies",
         )
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to detect anomalies: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to detect anomalies: {e!s}"
+        )
+
 
 @router.get("/stock/{ts_code}/history")
 async def get_stock_toplist_history(
@@ -307,19 +347,22 @@ async def get_stock_toplist_history(
     """获取股票龙虎榜历史"""
     try:
         history = await service.get_stock_top_list_history(ts_code, days)
-        
+
         return {
             "success": True,
             "data": {
                 "history": [TopListItem(**item) for item in history],
                 "appearance_count": len(history),
-                "analysis_period": f"最近{days}天"
+                "analysis_period": f"最近{days}天",
             },
-            "message": f"{ts_code} appeared on top list {len(history)} times in last {days} days"
+            "message": f"{ts_code} appeared on top list {len(history)} times in last {days} days",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get stock history: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get stock history: {e!s}"
+        )
+
 
 @router.get("/analysis/sector/{trade_date}")
 async def get_sector_analysis(
@@ -334,17 +377,20 @@ async def get_sector_analysis(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         sector_analysis = await service.analyze_sector_flow(formatted_date)
-        
+
         return {
             "success": True,
             "data": sector_analysis,
-            "message": f"Successfully analyzed sector flows for {formatted_date}"
+            "message": f"Successfully analyzed sector flows for {formatted_date}",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze sector flows: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to analyze sector flows: {e!s}"
+        )
+
 
 @router.get("/report/{trade_date}")
 async def get_comprehensive_report(
@@ -359,13 +405,14 @@ async def get_comprehensive_report(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         report = await agent.generate_toplist_report(formatted_date)
-        
+
         return report
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {e!s}")
+
 
 @router.get("/active-stocks")
 async def get_active_stocks(
@@ -376,18 +423,21 @@ async def get_active_stocks(
     """获取活跃股票（频繁上榜）"""
     try:
         active_stocks = await service.get_active_stocks(days)
-        
+
         return {
             "success": True,
             "data": {
                 "active_stocks": active_stocks,
-                "analysis_period": f"最近{days}天"
+                "analysis_period": f"最近{days}天",
             },
-            "message": f"Found {len(active_stocks)} active stocks in last {days} days"
+            "message": f"Found {len(active_stocks)} active stocks in last {days} days",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get active stocks: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get active stocks: {e!s}"
+        )
+
 
 @router.get("/statistics/reasons/{trade_date}")
 async def get_reason_statistics(
@@ -402,25 +452,27 @@ async def get_reason_statistics(
             formatted_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
         else:
             formatted_date = trade_date
-        
+
         statistics = await service.get_reason_statistics(formatted_date)
-        
+
         return {
             "success": True,
-            "data": {
-                "statistics": statistics,
-                "trade_date": formatted_date
-            },
-            "message": f"Successfully retrieved reason statistics for {formatted_date}"
+            "data": {"statistics": statistics, "trade_date": formatted_date},
+            "message": f"Successfully retrieved reason statistics for {formatted_date}",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get reason statistics: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get reason statistics: {e!s}"
+        )
+
 
 # 组合分析相关路由
 class PortfolioAnalyzeRequest(BaseModel):
     """组合分析请求"""
+
     user_id: str = "default_user"
+
 
 @router.post("/portfolio/analyze")
 async def analyze_portfolio_toplist(
@@ -431,9 +483,10 @@ async def analyze_portfolio_toplist(
     """分析持仓组合的龙虎榜情况"""
     try:
         # 获取最近的龙虎榜数据作为分析基础
-        from datetime import datetime, timedelta
+        from datetime import datetime
+
         today = datetime.now().date()
-        
+
         # 尝试获取最近7天内的数据
         analysis_result = {
             "on_list_positions": [],
@@ -441,24 +494,27 @@ async def analyze_portfolio_toplist(
                 "total_net_flow": 0.0,
                 "average_concentration": 0.0,
                 "positions_on_toplist": 0,
-                "high_risk_positions": 0
+                "high_risk_positions": 0,
             },
             "risk_alerts": [],
             "investment_suggestions": [
                 "建议关注龙虎榜中机构净买入的股票",
                 "注意回避连续上榜但资金净流出的个股",
-                "关注席位集中度较高的股票，可能存在主力资金运作"
-            ]
+                "关注席位集中度较高的股票，可能存在主力资金运作",
+            ],
         }
-        
+
         return {
             "success": True,
             "data": analysis_result,
-            "message": "Portfolio analysis completed"
+            "message": "Portfolio analysis completed",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze portfolio: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to analyze portfolio: {e!s}"
+        )
+
 
 @router.post("/portfolio/status")
 async def check_portfolio_status(
@@ -474,13 +530,16 @@ async def check_portfolio_status(
                 "positions_status": [],
                 "total_positions": 0,
                 "on_toplist_count": 0,
-                "toplist_ratio": 0.0
+                "toplist_ratio": 0.0,
             },
-            "message": "Portfolio status check completed"
+            "message": "Portfolio status check completed",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to check portfolio status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to check portfolio status: {e!s}"
+        )
+
 
 @router.post("/portfolio/capital-flow")
 async def analyze_portfolio_capital_flow(
@@ -500,14 +559,17 @@ async def analyze_portfolio_capital_flow(
                     "analyzed_positions": 0,
                     "net_inflow_positions": 0,
                     "net_outflow_positions": 0,
-                    "total_net_flow": 0.0
-                }
+                    "total_net_flow": 0.0,
+                },
             },
-            "message": f"Capital flow analysis completed for last {days} days"
+            "message": f"Capital flow analysis completed for last {days} days",
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to analyze capital flow: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to analyze capital flow: {e!s}"
+        )
+
 
 # 健康检查
 @router.get("/health")
@@ -516,5 +578,5 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "toplist_api",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }

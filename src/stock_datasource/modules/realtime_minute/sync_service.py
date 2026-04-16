@@ -6,7 +6,7 @@ Tables are named ``ods_min_kline_{market}`` and created lazily on first sync.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -42,6 +42,7 @@ COMMENT '{comment}'
 
 def _get_db():
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
@@ -64,7 +65,7 @@ class RealtimeMinuteSyncService:
         }
         return comments.get(market, "分钟K线行情数据")
 
-    def ensure_table(self, market: Optional[str] = None) -> None:
+    def ensure_table(self, market: str | None = None) -> None:
         """Create table(s) if they do not exist.
 
         If *market* is ``None``, ensure all market tables.
@@ -77,6 +78,7 @@ class RealtimeMinuteSyncService:
             try:
                 db = _get_db()
                 from stock_datasource.config.settings import settings
+
                 database = settings.CLICKHOUSE_DATABASE
                 sql = _CREATE_TABLE_SQL.format(
                     db=database, table=table, comment=self._table_comment(m)
@@ -91,7 +93,7 @@ class RealtimeMinuteSyncService:
     # Sync
     # ------------------------------------------------------------------
 
-    def sync(self, date: Optional[str] = None) -> Dict[str, Any]:
+    def sync(self, date: str | None = None) -> dict[str, Any]:
         """Read today's data from SQLite cache and write to ClickHouse per-market tables.
 
         Returns a summary dict.
@@ -133,9 +135,18 @@ class RealtimeMinuteSyncService:
 
         # Write to ClickHouse grouped by market
         total_synced = 0
-        per_market: Dict[str, int] = {}
-        db_cols = ["ts_code", "freq", "trade_time",
-                   "open", "close", "high", "low", "vol", "amount"]
+        per_market: dict[str, int] = {}
+        db_cols = [
+            "ts_code",
+            "freq",
+            "trade_time",
+            "open",
+            "close",
+            "high",
+            "low",
+            "vol",
+            "amount",
+        ]
 
         for market, group_df in df.groupby("market_type"):
             table = cfg.get_table_for_market(str(market))
@@ -163,14 +174,19 @@ class RealtimeMinuteSyncService:
     # Cleanup
     # ------------------------------------------------------------------
 
-    def cleanup(self, date: Optional[str] = None) -> Dict[str, int]:
+    def cleanup(self, date: str | None = None) -> dict[str, int]:
         """Remove synced SQLite cache data for a given date."""
         cache = get_cache_store()
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
         deleted = cache.cleanup_date(date)
         latest_deleted = cache.cleanup_latest()
-        logger.info("Cleanup for %s: %d zset keys, %d latest keys", date, deleted, latest_deleted)
+        logger.info(
+            "Cleanup for %s: %d zset keys, %d latest keys",
+            date,
+            deleted,
+            latest_deleted,
+        )
         return {"zset_deleted": deleted, "latest_deleted": latest_deleted}
 
 
@@ -178,7 +194,7 @@ class RealtimeMinuteSyncService:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_sync_service: Optional[RealtimeMinuteSyncService] = None
+_sync_service: RealtimeMinuteSyncService | None = None
 
 
 def get_sync_service() -> RealtimeMinuteSyncService:

@@ -1,3 +1,3 @@
 from .plugin import TuShareIdxFactorProPlugin
 
-__all__ = ['TuShareIdxFactorProPlugin']
+__all__ = ["TuShareIdxFactorProPlugin"]

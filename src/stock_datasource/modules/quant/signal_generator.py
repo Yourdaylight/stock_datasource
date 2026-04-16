@@ -8,7 +8,6 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -35,14 +34,14 @@ class SignalGenerator:
     Market risk: CSI300 below MA250 -> reduce position
     """
 
-    def __init__(self, config: Optional[SignalConfig] = None):
+    def __init__(self, config: SignalConfig | None = None):
         self.config = config or SignalConfig()
         self.readiness_checker = get_data_readiness_checker()
 
     async def generate_signals(
         self,
         pool_stocks: list[str],
-        signal_date: Optional[str] = None,
+        signal_date: str | None = None,
     ) -> SignalResult:
         """Generate signals for pool stocks.
 
@@ -107,9 +106,13 @@ class SignalGenerator:
         ma_long = close.rolling(self.config.ma_long).mean()
 
         latest_close = float(close.iloc[-1])
-        latest_ma_short = float(ma_short.iloc[-1]) if not pd.isna(ma_short.iloc[-1]) else 0
+        latest_ma_short = (
+            float(ma_short.iloc[-1]) if not pd.isna(ma_short.iloc[-1]) else 0
+        )
         latest_ma_long = float(ma_long.iloc[-1]) if not pd.isna(ma_long.iloc[-1]) else 0
-        prev_ma_short = float(ma_short.iloc[-2]) if not pd.isna(ma_short.iloc[-2]) else 0
+        prev_ma_short = (
+            float(ma_short.iloc[-2]) if not pd.isna(ma_short.iloc[-2]) else 0
+        )
         prev_ma_long = float(ma_long.iloc[-2]) if not pd.isna(ma_long.iloc[-2]) else 0
 
         # Base context for all signals
@@ -131,82 +134,99 @@ class SignalGenerator:
             elif market_risk.risk_level == "danger":
                 position *= 0.3
 
-            signals.append(TradingSignal(
-                signal_date=signal_date,
-                ts_code=ts_code,
-                stock_name=stock_name,
-                signal_type="buy",
-                signal_source="ma_crossover",
-                price=latest_close,
-                target_position=round(position / 3, 4),  # First 1/3
-                confidence=min(0.8, 0.5 + (latest_ma_short - latest_ma_long) / latest_ma_long * 10),
-                reason=f"MA{self.config.ma_short}上穿MA{self.config.ma_long}金叉，建仓1/3",
-                ma25=latest_ma_short,
-                ma120=latest_ma_long,
-                signal_context={**base_context, "crossover_type": "golden_cross", "batch": "1/3"},
-            ))
+            signals.append(
+                TradingSignal(
+                    signal_date=signal_date,
+                    ts_code=ts_code,
+                    stock_name=stock_name,
+                    signal_type="buy",
+                    signal_source="ma_crossover",
+                    price=latest_close,
+                    target_position=round(position / 3, 4),  # First 1/3
+                    confidence=min(
+                        0.8,
+                        0.5 + (latest_ma_short - latest_ma_long) / latest_ma_long * 10,
+                    ),
+                    reason=f"MA{self.config.ma_short}上穿MA{self.config.ma_long}金叉，建仓1/3",
+                    ma25=latest_ma_short,
+                    ma120=latest_ma_long,
+                    signal_context={
+                        **base_context,
+                        "crossover_type": "golden_cross",
+                        "batch": "1/3",
+                    },
+                )
+            )
 
         # 2. Death cross / Stop loss
         if prev_ma_short >= prev_ma_long and latest_ma_short < latest_ma_long:
-            signals.append(TradingSignal(
-                signal_date=signal_date,
-                ts_code=ts_code,
-                stock_name=stock_name,
-                signal_type="sell",
-                signal_source="ma_crossover",
-                price=latest_close,
-                target_position=0,
-                confidence=0.7,
-                reason=f"MA{self.config.ma_short}下穿MA{self.config.ma_long}死叉，清仓",
-                ma25=latest_ma_short,
-                ma120=latest_ma_long,
-                signal_context={**base_context, "crossover_type": "death_cross"},
-            ))
+            signals.append(
+                TradingSignal(
+                    signal_date=signal_date,
+                    ts_code=ts_code,
+                    stock_name=stock_name,
+                    signal_type="sell",
+                    signal_source="ma_crossover",
+                    price=latest_close,
+                    target_position=0,
+                    confidence=0.7,
+                    reason=f"MA{self.config.ma_short}下穿MA{self.config.ma_long}死叉，清仓",
+                    ma25=latest_ma_short,
+                    ma120=latest_ma_long,
+                    signal_context={**base_context, "crossover_type": "death_cross"},
+                )
+            )
 
         # 3. Stop loss: price below MA120 by > 5%
         if latest_ma_long > 0 and latest_close < latest_ma_long * 0.95:
-            signals.append(TradingSignal(
-                signal_date=signal_date,
-                ts_code=ts_code,
-                stock_name=stock_name,
-                signal_type="sell",
-                signal_source="stop_loss",
-                price=latest_close,
-                target_position=0,
-                confidence=0.9,
-                reason=f"价格{latest_close:.2f}跌破MA{self.config.ma_long}({latest_ma_long:.2f})的95%，止损",
-                ma25=latest_ma_short,
-                ma120=latest_ma_long,
-                signal_context={
-                    **base_context,
-                    "stop_type": "ma_break",
-                    "ma_gap_pct": round((latest_close / latest_ma_long - 1) * 100, 2),
-                },
-            ))
+            signals.append(
+                TradingSignal(
+                    signal_date=signal_date,
+                    ts_code=ts_code,
+                    stock_name=stock_name,
+                    signal_type="sell",
+                    signal_source="stop_loss",
+                    price=latest_close,
+                    target_position=0,
+                    confidence=0.9,
+                    reason=f"价格{latest_close:.2f}跌破MA{self.config.ma_long}({latest_ma_long:.2f})的95%，止损",
+                    ma25=latest_ma_short,
+                    ma120=latest_ma_long,
+                    signal_context={
+                        **base_context,
+                        "stop_type": "ma_break",
+                        "ma_gap_pct": round(
+                            (latest_close / latest_ma_long - 1) * 100, 2
+                        ),
+                    },
+                )
+            )
 
         # 4. Trailing stop: check if pulled back > threshold from recent high
         if len(close) >= 20:
             recent_high = close.iloc[-20:].max()
             pullback = (recent_high - latest_close) / recent_high * 100
             if pullback > self.config.trailing_stop_pct * 100:
-                signals.append(TradingSignal(
-                    signal_date=signal_date,
-                    ts_code=ts_code,
-                    stock_name=stock_name,
-                    signal_type="reduce",
-                    signal_source="stop_profit",
-                    price=latest_close,
-                    target_position=0,
-                    confidence=0.75,
-                    reason=f"从近期高点{recent_high:.2f}回撤{pullback:.1f}%，移动止盈",
-                    ma25=latest_ma_short,
-                    ma120=latest_ma_long,
-                    signal_context={
-                        **base_context,
-                        "recent_high": round(float(recent_high), 2),
-                        "pullback_pct": round(pullback, 2),
-                    },
-                ))
+                signals.append(
+                    TradingSignal(
+                        signal_date=signal_date,
+                        ts_code=ts_code,
+                        stock_name=stock_name,
+                        signal_type="reduce",
+                        signal_source="stop_profit",
+                        price=latest_close,
+                        target_position=0,
+                        confidence=0.75,
+                        reason=f"从近期高点{recent_high:.2f}回撤{pullback:.1f}%，移动止盈",
+                        ma25=latest_ma_short,
+                        ma120=latest_ma_long,
+                        signal_context={
+                            **base_context,
+                            "recent_high": round(float(recent_high), 2),
+                            "pullback_pct": round(pullback, 2),
+                        },
+                    )
+                )
 
         return signals
 
@@ -283,21 +303,25 @@ class SignalGenerator:
         try:
             rows = []
             for s in signals:
-                rows.append({
-                    "signal_date": s.signal_date,
-                    "ts_code": s.ts_code,
-                    "stock_name": s.stock_name,
-                    "signal_type": s.signal_type,
-                    "signal_source": s.signal_source,
-                    "price": s.price,
-                    "target_position": s.target_position,
-                    "confidence": s.confidence,
-                    "reason": s.reason,
-                    "pool_type": s.pool_type,
-                    "ma25": s.ma25,
-                    "ma120": s.ma120,
-                    "signal_context": json.dumps(s.signal_context, ensure_ascii=False),
-                })
+                rows.append(
+                    {
+                        "signal_date": s.signal_date,
+                        "ts_code": s.ts_code,
+                        "stock_name": s.stock_name,
+                        "signal_type": s.signal_type,
+                        "signal_source": s.signal_source,
+                        "price": s.price,
+                        "target_position": s.target_position,
+                        "confidence": s.confidence,
+                        "reason": s.reason,
+                        "pool_type": s.pool_type,
+                        "ma25": s.ma25,
+                        "ma120": s.ma120,
+                        "signal_context": json.dumps(
+                            s.signal_context, ensure_ascii=False
+                        ),
+                    }
+                )
             df = pd.DataFrame(rows)
             db_client.insert_dataframe("quant_trading_signal", df)
             logger.info(f"Saved {len(signals)} trading signals")
@@ -306,10 +330,10 @@ class SignalGenerator:
 
 
 # Singleton
-_generator: Optional[SignalGenerator] = None
+_generator: SignalGenerator | None = None
 
 
-def get_signal_generator(config: Optional[SignalConfig] = None) -> SignalGenerator:
+def get_signal_generator(config: SignalConfig | None = None) -> SignalGenerator:
     global _generator
     if _generator is None:
         _generator = SignalGenerator(config)

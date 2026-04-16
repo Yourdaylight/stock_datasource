@@ -1,10 +1,8 @@
 """Log parser for parsing various log formats."""
 
-import re
 import logging
-from datetime import datetime
-from datetime import timedelta
-from typing import List, Optional
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,50 +16,50 @@ class LogParser:
         # NEW Loguru format with request_id, user_id & middleware_trace_id:
         # 2026-01-26 10:30:45.123 | INFO | abc123 | user1 | mwid123 | name:function:line - message
         re.compile(
-            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$"
         ),
         # OLD Loguru format with request_id & user_id (6 groups):
         # 2026-01-26 10:30:45.123 | INFO | abc123 | user1 | name:function:line - message
         re.compile(
-            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*-\s*(.*)$"
         ),
         # OLDER Loguru format: 2026-01-26 10:30:45 | INFO     | name:function:line - message
         re.compile(
-            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*-\s*(.*)$'
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s*(\w+)\s*\|\s*([^|]+?)\s*-\s*(.*)$"
         ),
         # Python logging format: 2026-01-26 10:30:45,123 INFO module:message
         re.compile(
-            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:,\d{3})?)\s+(\w+)\s+(\w+?):\s*(.*)$'
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:,\d{3})?)\s+(\w+)\s+(\w+?):\s*(.*)$"
         ),
         # Standard format: 2026-01-26 10:30:45 [INFO] module - message
         re.compile(
-            r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+(\w+)\s*-\s*(.*)$'
+            r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+(\w+)\s*-\s*(.*)$"
         ),
         # Simple format: [INFO] message
-        re.compile(r'^\[(\w+)\]\s+(.*)$'),
+        re.compile(r"^\[(\w+)\]\s+(.*)$"),
     ]
 
     # Timestamp formats to try
     TIMESTAMP_FORMATS = [
         "%Y-%m-%d %H:%M:%S,%f",  # 2026-01-26 10:30:45,123
-        "%Y-%m-%d %H:%M:%S",     # 2026-01-26 10:30:45
+        "%Y-%m-%d %H:%M:%S",  # 2026-01-26 10:30:45
         "%Y-%m-%d %H:%M:%S.%f",  # 2026-01-26 10:30:45.123
     ]
 
     ERROR_SIGNATURE_PATTERNS = [
-        re.compile(r'(\w+(?:Error|Exception|Timeout|Refused|Unavailable))'),
-        re.compile(r'\b(Traceback)\b'),
+        re.compile(r"(\w+(?:Error|Exception|Timeout|Refused|Unavailable))"),
+        re.compile(r"\b(Traceback)\b"),
     ]
 
     def __init__(self):
         self.module_mapping = {
-            'backend.log': 'backend',
-            'worker.log': 'worker',
-            'server.log': 'server',
-            'application.log': 'application',
+            "backend.log": "backend",
+            "worker.log": "worker",
+            "server.log": "server",
+            "application.log": "application",
         }
 
-    def parse_line(self, line: str, filename: str = "unknown") -> Optional[dict]:
+    def parse_line(self, line: str, filename: str = "unknown") -> dict | None:
         """Parse a single log line.
 
         Args:
@@ -80,17 +78,17 @@ class LogParser:
             return None
 
         return {
-            'timestamp': datetime.now(),
-            'level': 'INFO',
-            'module': self._get_module_from_filename(filename),
-            'message': line.strip(),
-            'raw_line': line,
-            'request_id': '-',
-            'user_id': '-',
-            'middleware_trace_id': '-',
+            "timestamp": datetime.now(),
+            "level": "INFO",
+            "module": self._get_module_from_filename(filename),
+            "message": line.strip(),
+            "raw_line": line,
+            "request_id": "-",
+            "user_id": "-",
+            "middleware_trace_id": "-",
         }
 
-    def _parse_line_strict(self, line: str, filename: str = "unknown") -> Optional[dict]:
+    def _parse_line_strict(self, line: str, filename: str = "unknown") -> dict | None:
         """Parse line only when line matches known log patterns."""
         if not line or not line.strip():
             return None
@@ -104,11 +102,7 @@ class LogParser:
 
         return None
 
-    def parse_file(
-        self,
-        filepath: str,
-        max_lines: Optional[int] = None
-    ) -> List[dict]:
+    def parse_file(self, filepath: str, max_lines: int | None = None) -> list[dict]:
         """Parse entire log file.
 
         Args:
@@ -118,7 +112,7 @@ class LogParser:
         Returns:
             List of parsed log entries
         """
-        entries: List[dict] = []
+        entries: list[dict] = []
         path = Path(filepath)
 
         if not path.exists():
@@ -126,7 +120,7 @@ class LogParser:
             return entries
 
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 for i, line in enumerate(f):
                     if max_lines and i >= max_lines:
                         break
@@ -137,8 +131,12 @@ class LogParser:
                         continue
 
                     if self._is_continuation_line(line) and entries:
-                        entries[-1]['message'] = f"{entries[-1]['message']}\n{line.rstrip()}"
-                        entries[-1]['raw_line'] = f"{entries[-1]['raw_line']}\n{line.rstrip()}"
+                        entries[-1]["message"] = (
+                            f"{entries[-1]['message']}\n{line.rstrip()}"
+                        )
+                        entries[-1]["raw_line"] = (
+                            f"{entries[-1]['raw_line']}\n{line.rstrip()}"
+                        )
                         continue
 
                     fallback_entry = self.parse_line(line, path.name)
@@ -165,92 +163,126 @@ class LogParser:
 
         # NEWEST format with request_id, user_id & middleware_trace_id: 7 groups
         # timestamp, level, request_id, user_id, middleware_trace_id, location, message
-        if len(groups) == 7 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
-            timestamp_str, level, request_id, user_id, middleware_trace_id, location, message = groups
+        if len(groups) == 7 and groups[1].strip().upper() in (
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "DEBUG",
+            "TRACE",
+            "SUCCESS",
+        ):
+            (
+                timestamp_str,
+                level,
+                request_id,
+                user_id,
+                middleware_trace_id,
+                location,
+                message,
+            ) = groups
             timestamp = self._parse_timestamp(timestamp_str)
             module = self._extract_module_from_location(location.strip())
             return {
-                'timestamp': timestamp,
-                'level': level.strip().upper(),
-                'module': module,
-                'message': message,
-                'raw_line': line,
-                'request_id': request_id.strip(),
-                'user_id': user_id.strip(),
-                'middleware_trace_id': middleware_trace_id.strip(),
+                "timestamp": timestamp,
+                "level": level.strip().upper(),
+                "module": module,
+                "message": message,
+                "raw_line": line,
+                "request_id": request_id.strip(),
+                "user_id": user_id.strip(),
+                "middleware_trace_id": middleware_trace_id.strip(),
             }
 
         # OLD format with request_id & user_id: 6 groups
         # timestamp, level, request_id, user_id, location, message
-        if len(groups) == 6 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
+        if len(groups) == 6 and groups[1].strip().upper() in (
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "DEBUG",
+            "TRACE",
+            "SUCCESS",
+        ):
             timestamp_str, level, request_id, user_id, location, message = groups
             timestamp = self._parse_timestamp(timestamp_str)
             module = self._extract_module_from_location(location.strip())
             return {
-                'timestamp': timestamp,
-                'level': level.strip().upper(),
-                'module': module,
-                'message': message,
-                'raw_line': line,
-                'request_id': request_id.strip(),
-                'user_id': user_id.strip(),
-                'middleware_trace_id': '-',
+                "timestamp": timestamp,
+                "level": level.strip().upper(),
+                "module": module,
+                "message": message,
+                "raw_line": line,
+                "request_id": request_id.strip(),
+                "user_id": user_id.strip(),
+                "middleware_trace_id": "-",
             }
 
         # OLD Loguru format: 4 groups — timestamp, level, location, message
-        if len(groups) == 4 and groups[1].strip().upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG', 'TRACE', 'SUCCESS'):
+        if len(groups) == 4 and groups[1].strip().upper() in (
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "DEBUG",
+            "TRACE",
+            "SUCCESS",
+        ):
             timestamp_str, level, location, message = groups
             timestamp = self._parse_timestamp(timestamp_str)
             module = self._extract_module_from_location(location.strip())
             return {
-                'timestamp': timestamp,
-                'level': level.strip().upper(),
-                'module': module,
-                'message': message,
-                'raw_line': line,
-                'request_id': '-',
-                'user_id': '-',
-                'middleware_trace_id': '-',
+                "timestamp": timestamp,
+                "level": level.strip().upper(),
+                "module": module,
+                "message": message,
+                "raw_line": line,
+                "request_id": "-",
+                "user_id": "-",
+                "middleware_trace_id": "-",
             }
 
         # Pattern with timestamp, level, module, message
-        if len(groups) == 4 and groups[1].upper() in ('INFO', 'WARNING', 'ERROR', 'DEBUG'):
+        if len(groups) == 4 and groups[1].upper() in (
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "DEBUG",
+        ):
             timestamp_str, level, module, message = groups
             timestamp = self._parse_timestamp(timestamp_str)
             return {
-                'timestamp': timestamp,
-                'level': level.upper(),
-                'module': module,
-                'message': message,
-                'raw_line': line,
-                'request_id': '-',
-                'user_id': '-',
-                'middleware_trace_id': '-',
+                "timestamp": timestamp,
+                "level": level.upper(),
+                "module": module,
+                "message": message,
+                "raw_line": line,
+                "request_id": "-",
+                "user_id": "-",
+                "middleware_trace_id": "-",
             }
 
         # Pattern with level, message only
         elif len(groups) == 2:
             level, message = groups
             return {
-                'timestamp': datetime.now(),
-                'level': level.upper(),
-                'module': self._get_module_from_filename(filename),
-                'message': message,
-                'raw_line': line,
-                'request_id': '-',
-                'user_id': '-',
-                'middleware_trace_id': '-',
+                "timestamp": datetime.now(),
+                "level": level.upper(),
+                "module": self._get_module_from_filename(filename),
+                "message": message,
+                "raw_line": line,
+                "request_id": "-",
+                "user_id": "-",
+                "middleware_trace_id": "-",
             }
 
         return {
-            'timestamp': datetime.now(),
-            'level': 'INFO',
-            'module': self._get_module_from_filename(filename),
-            'message': line,
-            'raw_line': line,
-            'request_id': '-',
-            'user_id': '-',
-            'middleware_trace_id': '-',
+            "timestamp": datetime.now(),
+            "level": "INFO",
+            "module": self._get_module_from_filename(filename),
+            "message": line,
+            "raw_line": line,
+            "request_id": "-",
+            "user_id": "-",
+            "middleware_trace_id": "-",
         }
 
     def _is_continuation_line(self, line: str) -> bool:
@@ -262,7 +294,11 @@ class LogParser:
         if line.startswith(" ") or line.startswith("\t"):
             return True
 
-        return stripped.startswith("File ") or stripped.startswith("Traceback") or stripped.startswith("During handling")
+        return (
+            stripped.startswith("File ")
+            or stripped.startswith("Traceback")
+            or stripped.startswith("During handling")
+        )
 
     def extract_error_signature(self, message: str) -> str:
         """Extract stable error signature for clustering."""
@@ -288,14 +324,14 @@ class LogParser:
             Module name
         """
         # Split by colon to get the name part
-        parts = location.split(':')
+        parts = location.split(":")
         if parts:
             name = parts[0]
             # Extract the last part (e.g., "stock_datasource.services.task_queue" -> "task_queue")
-            module_parts = name.split('.')
+            module_parts = name.split(".")
             if module_parts:
                 return module_parts[-1]
-        return 'unknown'
+        return "unknown"
 
     def _remove_ansi_codes(self, text: str) -> str:
         """Remove ANSI color codes from text.
@@ -307,8 +343,8 @@ class LogParser:
             Text without ANSI codes
         """
         # ANSI escape sequences: \x1B[ followed by any characters until m
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        return ansi_escape.sub('', text)
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        return ansi_escape.sub("", text)
 
     def _parse_timestamp(self, timestamp_str: str) -> datetime:
         """Parse timestamp string.
@@ -337,7 +373,7 @@ class LogParser:
         Returns:
             Module name or 'unknown'
         """
-        return self.module_mapping.get(filename, 'unknown')
+        return self.module_mapping.get(filename, "unknown")
 
 
 class LogFileReader:
@@ -356,14 +392,14 @@ class LogFileReader:
     def read_logs(
         self,
         log_file: str = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        level: Optional[str] = None,
-        keyword: Optional[str] = None,
-        request_id: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        level: str | None = None,
+        keyword: str | None = None,
+        request_id: str | None = None,
         limit: int = 100,
-        offset: int = 0
-    ) -> List[dict]:
+        offset: int = 0,
+    ) -> list[dict]:
         """Read and filter logs.
 
         Args:
@@ -399,17 +435,17 @@ class LogFileReader:
                         matched_logs.append(log)
 
         # Sort by timestamp descending
-        matched_logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        matched_logs.sort(key=lambda x: x["timestamp"], reverse=True)
 
         # Apply pagination
-        return matched_logs[offset:offset + limit]
+        return matched_logs[offset : offset + limit]
 
     def _resolve_log_files(
         self,
-        log_file: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-    ) -> List[Path]:
+        log_file: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[Path]:
         """Return candidate log files ordered from newest to oldest."""
         if log_file:
             return [self.log_dir / log_file]
@@ -439,39 +475,39 @@ class LogFileReader:
     def _matches_filters(
         self,
         log: dict,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        level: Optional[str] = None,
-        keyword: Optional[str] = None,
-        request_id: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        level: str | None = None,
+        keyword: str | None = None,
+        request_id: str | None = None,
     ) -> bool:
         """Check whether a single log entry matches the given filters."""
-        if start_time and log['timestamp'] < start_time:
+        if start_time and log["timestamp"] < start_time:
             return False
 
-        if end_time and log['timestamp'] > end_time:
+        if end_time and log["timestamp"] > end_time:
             return False
 
-        if level and log['level'] != level.upper():
+        if level and log["level"] != level.upper():
             return False
 
-        if keyword and keyword.lower() not in log['message'].lower():
+        if keyword and keyword.lower() not in log["message"].lower():
             return False
 
-        if request_id and str(log.get('request_id', '-')).strip() != request_id.strip():
+        if request_id and str(log.get("request_id", "-")).strip() != request_id.strip():
             return False
 
         return True
 
     def _apply_filters(
         self,
-        logs: List[dict],
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        level: Optional[str] = None,
-        keyword: Optional[str] = None,
-        request_id: Optional[str] = None,
-    ) -> List[dict]:
+        logs: list[dict],
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        level: str | None = None,
+        keyword: str | None = None,
+        request_id: str | None = None,
+    ) -> list[dict]:
         """Apply filters to log list.
 
         Args:
@@ -487,7 +523,8 @@ class LogFileReader:
         filtered = logs
 
         filtered = [
-            log for log in filtered
+            log
+            for log in filtered
             if self._matches_filters(
                 log,
                 start_time=start_time,
@@ -500,7 +537,7 @@ class LogFileReader:
 
         return filtered
 
-    def get_log_files(self) -> List[dict]:
+    def get_log_files(self) -> list[dict]:
         """Get list of all log files.
 
         Returns:
@@ -518,21 +555,23 @@ class LogFileReader:
                     # Estimate line count (rough estimate: average 200 chars per line)
                     estimated_lines = stat.st_size // 200
 
-                    files.append({
-                        'name': filepath.name,
-                        'size': stat.st_size,
-                        'modified_time': datetime.fromtimestamp(stat.st_mtime),
-                        'line_count': estimated_lines
-                    })
+                    files.append(
+                        {
+                            "name": filepath.name,
+                            "size": stat.st_size,
+                            "modified_time": datetime.fromtimestamp(stat.st_mtime),
+                            "line_count": estimated_lines,
+                        }
+                    )
                 except Exception as e:
                     logger.error(f"Error getting file info for {filepath}: {e}")
 
         # Sort by modified time descending
-        files.sort(key=lambda x: x['modified_time'], reverse=True)
+        files.sort(key=lambda x: x["modified_time"], reverse=True)
 
         return files
 
-    def get_archive_files(self) -> List[dict]:
+    def get_archive_files(self) -> list[dict]:
         """Get list of archived log files.
 
         Returns:
@@ -548,16 +587,18 @@ class LogFileReader:
             if filepath.is_file():
                 try:
                     stat = filepath.stat()
-                    files.append({
-                        'name': filepath.name,
-                        'size': stat.st_size,
-                        'modified_time': datetime.fromtimestamp(stat.st_mtime),
-                        'line_count': 0  # Cannot estimate without decompressing
-                    })
+                    files.append(
+                        {
+                            "name": filepath.name,
+                            "size": stat.st_size,
+                            "modified_time": datetime.fromtimestamp(stat.st_mtime),
+                            "line_count": 0,  # Cannot estimate without decompressing
+                        }
+                    )
                 except Exception as e:
                     logger.error(f"Error getting archive info for {filepath}: {e}")
 
         # Sort by modified time descending
-        files.sort(key=lambda x: x['modified_time'], reverse=True)
+        files.sort(key=lambda x: x["modified_time"], reverse=True)
 
         return files

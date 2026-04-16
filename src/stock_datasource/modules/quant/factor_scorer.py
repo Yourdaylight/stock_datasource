@@ -5,9 +5,7 @@ Core constraint: ONLY reads from ClickHouse local data.
 """
 
 import logging
-from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from stock_datasource.models.database import db_client
@@ -39,12 +37,10 @@ class FactorScorer:
     Reads from ClickHouse only. Returns per-stock factor breakdown for frontend.
     """
 
-    def __init__(self, weights: Optional[FactorWeight] = None):
+    def __init__(self, weights: FactorWeight | None = None):
         self.weights = weights or FactorWeight()
 
-    async def score_stocks(
-        self, ts_codes: list[str]
-    ) -> list[FactorScoreDetail]:
+    async def score_stocks(self, ts_codes: list[str]) -> list[FactorScoreDetail]:
         """Score a list of stocks on all factors.
 
         Returns list sorted by total_score descending.
@@ -118,14 +114,22 @@ class FactorScorer:
         all_data = fina_df
 
         # ROE
-        roe = pd.to_numeric(stock_data["roe"].iloc[0], errors="coerce") if "roe" in stock_data else 0
+        roe = (
+            pd.to_numeric(stock_data["roe"].iloc[0], errors="coerce")
+            if "roe" in stock_data
+            else 0
+        )
         all_roe = pd.to_numeric(all_data["roe"], errors="coerce").dropna()
         breakdown["roe"] = _percentile_score(roe, all_roe)
 
         # Gross margin
         if "grossprofit_margin" in stock_data.columns:
-            gm = pd.to_numeric(stock_data["grossprofit_margin"].iloc[0], errors="coerce")
-            all_gm = pd.to_numeric(all_data["grossprofit_margin"], errors="coerce").dropna()
+            gm = pd.to_numeric(
+                stock_data["grossprofit_margin"].iloc[0], errors="coerce"
+            )
+            all_gm = pd.to_numeric(
+                all_data["grossprofit_margin"], errors="coerce"
+            ).dropna()
             breakdown["gross_margin"] = _percentile_score(gm, all_gm)
         else:
             breakdown["gross_margin"] = 50.0
@@ -138,7 +142,11 @@ class FactorScorer:
         else:
             breakdown["debt_ratio"] = 50.0
 
-        score = (breakdown["roe"] * 0.5 + breakdown["gross_margin"] * 0.3 + breakdown["debt_ratio"] * 0.2)
+        score = (
+            breakdown["roe"] * 0.5
+            + breakdown["gross_margin"] * 0.3
+            + breakdown["debt_ratio"] * 0.2
+        )
         return round(score, 2), breakdown
 
     def _calc_growth(self, ts_code: str, fina_df: pd.DataFrame) -> tuple[float, dict]:
@@ -151,19 +159,29 @@ class FactorScorer:
         all_data = fina_df
 
         # Revenue growth
-        rg = pd.to_numeric(stock_data["revenue_yoy"].iloc[0], errors="coerce") if "revenue_yoy" in stock_data else 0
+        rg = (
+            pd.to_numeric(stock_data["revenue_yoy"].iloc[0], errors="coerce")
+            if "revenue_yoy" in stock_data
+            else 0
+        )
         all_rg = pd.to_numeric(all_data["revenue_yoy"], errors="coerce").dropna()
         breakdown["revenue_growth"] = _percentile_score(rg, all_rg)
 
         # Profit growth
-        pg = pd.to_numeric(stock_data["netprofit_yoy"].iloc[0], errors="coerce") if "netprofit_yoy" in stock_data else 0
+        pg = (
+            pd.to_numeric(stock_data["netprofit_yoy"].iloc[0], errors="coerce")
+            if "netprofit_yoy" in stock_data
+            else 0
+        )
         all_pg = pd.to_numeric(all_data["netprofit_yoy"], errors="coerce").dropna()
         breakdown["profit_growth"] = _percentile_score(pg, all_pg)
 
         score = breakdown["revenue_growth"] * 0.5 + breakdown["profit_growth"] * 0.5
         return round(score, 2), breakdown
 
-    def _calc_value(self, ts_code: str, daily_basic_df: pd.DataFrame) -> tuple[float, dict]:
+    def _calc_value(
+        self, ts_code: str, daily_basic_df: pd.DataFrame
+    ) -> tuple[float, dict]:
         """Value factor: PE percentile, PB percentile (lower is better)."""
         breakdown = {"pe_percentile": 0, "pb_percentile": 0}
         stock_data = daily_basic_df[daily_basic_df["ts_code"] == ts_code]
@@ -173,21 +191,35 @@ class FactorScorer:
         all_data = daily_basic_df
 
         # PE (lower is better)
-        pe = pd.to_numeric(stock_data["pe"].iloc[0], errors="coerce") if "pe" in stock_data else 0
+        pe = (
+            pd.to_numeric(stock_data["pe"].iloc[0], errors="coerce")
+            if "pe" in stock_data
+            else 0
+        )
         all_pe = pd.to_numeric(all_data["pe"], errors="coerce").dropna()
         all_pe = all_pe[(all_pe > 0) & (all_pe < 500)]
-        breakdown["pe_percentile"] = _inverse_percentile_score(pe, all_pe) if pe > 0 else 0
+        breakdown["pe_percentile"] = (
+            _inverse_percentile_score(pe, all_pe) if pe > 0 else 0
+        )
 
         # PB (lower is better)
-        pb = pd.to_numeric(stock_data["pb"].iloc[0], errors="coerce") if "pb" in stock_data else 0
+        pb = (
+            pd.to_numeric(stock_data["pb"].iloc[0], errors="coerce")
+            if "pb" in stock_data
+            else 0
+        )
         all_pb = pd.to_numeric(all_data["pb"], errors="coerce").dropna()
         all_pb = all_pb[(all_pb > 0) & (all_pb < 50)]
-        breakdown["pb_percentile"] = _inverse_percentile_score(pb, all_pb) if pb > 0 else 0
+        breakdown["pb_percentile"] = (
+            _inverse_percentile_score(pb, all_pb) if pb > 0 else 0
+        )
 
         score = breakdown["pe_percentile"] * 0.5 + breakdown["pb_percentile"] * 0.5
         return round(score, 2), breakdown
 
-    def _calc_momentum(self, ts_code: str, daily_df: pd.DataFrame) -> tuple[float, dict]:
+    def _calc_momentum(
+        self, ts_code: str, daily_df: pd.DataFrame
+    ) -> tuple[float, dict]:
         """Momentum factor: half-year return."""
         breakdown = {"half_year_return": 0}
         stock_data = daily_df[daily_df["ts_code"] == ts_code].sort_values("trade_date")
@@ -274,10 +306,10 @@ class FactorScorer:
 
 
 # Singleton
-_scorer: Optional[FactorScorer] = None
+_scorer: FactorScorer | None = None
 
 
-def get_factor_scorer(weights: Optional[FactorWeight] = None) -> FactorScorer:
+def get_factor_scorer(weights: FactorWeight | None = None) -> FactorScorer:
     global _scorer
     if _scorer is None:
         _scorer = FactorScorer(weights)

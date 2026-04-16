@@ -3,7 +3,6 @@
 import logging
 import math
 import os
-from typing import Dict, List, Optional
 
 from ...models.database import db_client
 
@@ -19,7 +18,7 @@ async def _ensure_schema():
         return
     try:
         schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -38,7 +37,7 @@ def _mask_key(key: str) -> str:
     return key[:6] + "***" + key[-4:]
 
 
-def _clean_nan(records: List[Dict]) -> List[Dict]:
+def _clean_nan(records: list[dict]) -> list[dict]:
     """Clean NaN values from DataFrame-converted records."""
     for rec in records:
         for key, val in rec.items():
@@ -51,7 +50,7 @@ class UserLlmConfigService:
     """Service for managing user-level LLM configurations."""
 
     @staticmethod
-    async def get_configs(user_id: str) -> List[Dict]:
+    async def get_configs(user_id: str) -> list[dict]:
         """Get all LLM configs for a user."""
         await _ensure_schema()
         try:
@@ -60,9 +59,9 @@ class UserLlmConfigService:
                 "toString(updated_at) as updated_at "
                 "FROM user_llm_config FINAL "
                 "WHERE user_id = %(user_id)s AND is_active = 1",
-                {"user_id": user_id}
+                {"user_id": user_id},
             )
-            records = df.to_dict('records') if not df.empty else []
+            records = df.to_dict("records") if not df.empty else []
             records = _clean_nan(records)
             return [
                 {
@@ -86,7 +85,7 @@ class UserLlmConfigService:
         api_key: str,
         base_url: str = "",
         model_name: str = "",
-    ) -> Dict:
+    ) -> dict:
         """Create or update a user's LLM config for a provider."""
         await _ensure_schema()
         try:
@@ -101,7 +100,7 @@ class UserLlmConfigService:
                     "api_key": api_key,
                     "base_url": base_url or "",
                     "model_name": model_name or "",
-                }
+                },
             )
             logger.info(f"Saved LLM config for user {user_id}, provider={provider}")
             return {
@@ -126,7 +125,7 @@ class UserLlmConfigService:
                 "SELECT user_id, provider, api_key, base_url, model_name, 0, now() "
                 "FROM user_llm_config FINAL "
                 "WHERE user_id = %(user_id)s AND provider = %(provider)s",
-                {"user_id": user_id, "provider": provider}
+                {"user_id": user_id, "provider": provider},
             )
             logger.info(f"Deleted LLM config for user {user_id}, provider={provider}")
             return True
@@ -135,7 +134,7 @@ class UserLlmConfigService:
             return False
 
     @staticmethod
-    async def get_active_key(user_id: str, provider: str = "openai") -> Optional[Dict]:
+    async def get_active_key(user_id: str, provider: str = "openai") -> dict | None:
         """Get the active API key for a user and provider (returns raw key)."""
         await _ensure_schema()
         try:
@@ -143,9 +142,9 @@ class UserLlmConfigService:
                 "SELECT api_key, base_url, model_name "
                 "FROM user_llm_config FINAL "
                 "WHERE user_id = %(user_id)s AND provider = %(provider)s AND is_active = 1",
-                {"user_id": user_id, "provider": provider}
+                {"user_id": user_id, "provider": provider},
             )
-            records = df.to_dict('records') if not df.empty else []
+            records = df.to_dict("records") if not df.empty else []
             records = _clean_nan(records)
             if records:
                 return records[0]
@@ -160,10 +159,11 @@ class UserLlmConfigService:
         base_url: str = "",
         model_name: str = "",
         provider: str = "openai",
-    ) -> Dict:
+    ) -> dict:
         """Test an LLM config by making a simple API call."""
         try:
             import httpx
+
             url = base_url.rstrip("/") if base_url else "https://api.openai.com/v1"
             test_model = model_name or "gpt-4o-mini"
 
@@ -195,6 +195,6 @@ class UserLlmConfigService:
         except Exception as e:
             return {
                 "success": False,
-                "message": f"连接失败: {str(e)}",
+                "message": f"连接失败: {e!s}",
                 "model_name": "",
             }

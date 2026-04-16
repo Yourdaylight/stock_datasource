@@ -11,13 +11,13 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
 from . import config as cfg
-from .cache import get_cache_store
 from . import metrics as m
+from .cache import get_cache_store
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ COMMENT '{comment}'
 
 def _get_db():
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
@@ -63,7 +64,7 @@ class MinuteSinkWorker:
         self._cache = get_cache_store()
         self._markets = list(cfg.CLICKHOUSE_TABLES.keys())
         self._ensured_tables: set = set()
-        self._market_fail_count: Dict[str, int] = {mkt: 0 for mkt in self._markets}
+        self._market_fail_count: dict[str, int] = {mkt: 0 for mkt in self._markets}
 
     # ------------------------------------------------------------------
     # Table management
@@ -71,6 +72,7 @@ class MinuteSinkWorker:
     def ensure_tables(self) -> bool:
         """Verify all target tables exist. Returns True if all OK."""
         from stock_datasource.config.settings import settings
+
         db = _get_db()
         all_ok = True
         for market, table in cfg.CLICKHOUSE_TABLES.items():
@@ -93,11 +95,10 @@ class MinuteSinkWorker:
     # ------------------------------------------------------------------
     # Main tick — called every 60s
     # ------------------------------------------------------------------
-    def tick(self) -> Dict[str, Any]:
+    def tick(self) -> dict[str, Any]:
         self.ensure_tables()
 
-        from stock_datasource.config.settings import settings
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
         all_ok = True
 
         for market in self._markets:
@@ -115,7 +116,9 @@ class MinuteSinkWorker:
         for market in self._markets:
             depth = self._cache.xlen(market)
             m.sink_backlog(market, depth)
-            m.sink_dlq_size(market, self._cache.dlq_size(cfg.REDIS_KEY_DLQ_SINK, market))
+            m.sink_dlq_size(
+                market, self._cache.dlq_size(cfg.REDIS_KEY_DLQ_SINK, market)
+            )
 
         return {"all_ok": all_ok, "markets": results}
 
@@ -139,12 +142,14 @@ class MinuteSinkWorker:
 
         for batch_idx in range(max_batches):
             # Read new entries since checkpoint
-            entries = self._cache.xread_after(market, last_id=current_id, count=batch_size)
+            entries = self._cache.xread_after(
+                market, last_id=current_id, count=batch_size
+            )
             if not entries:
                 break
 
             # Parse entries into rows
-            rows: List[Dict[str, Any]] = []
+            rows: list[dict[str, Any]] = []
             max_id = current_id
             for entry_id, fields in entries:
                 try:
@@ -200,18 +205,27 @@ class MinuteSinkWorker:
                     m.sink_market_failure(market)
                     logger.warning(
                         "ClickHouse insert to %s failed (attempt %d/%d): %s",
-                        table, attempt + 1, retry_limit, e,
+                        table,
+                        attempt + 1,
+                        retry_limit,
+                        e,
                     )
-                    time.sleep(min(2 ** attempt, 8))
+                    time.sleep(min(2**attempt, 8))
             else:
                 # All retries exhausted — isolate this market batch
-                self._market_fail_count[market] = self._market_fail_count.get(market, 0) + 1
+                self._market_fail_count[market] = (
+                    self._market_fail_count.get(market, 0) + 1
+                )
                 logger.error(
                     "Market %s sink failed after %d retries, sending to DLQ (fail_count=%d)",
-                    market, retry_limit, self._market_fail_count[market],
+                    market,
+                    retry_limit,
+                    self._market_fail_count[market],
                 )
                 for _, row in df.iterrows():
-                    self._cache.push_to_dlq(cfg.REDIS_KEY_DLQ_SINK, market, row.to_dict())
+                    self._cache.push_to_dlq(
+                        cfg.REDIS_KEY_DLQ_SINK, market, row.to_dict()
+                    )
                 return (False, total_synced)
 
         return (True, total_synced)
@@ -226,11 +240,22 @@ class MinuteSinkWorker:
             return df
 
         columns = [
-            "ts_code", "trade_date", "trade_time", "name",
-            "open", "close", "high", "low", "pre_close",
-            "vol", "amount", "pct_chg",
-            "bid", "ask",
-            "collected_at", "version",
+            "ts_code",
+            "trade_date",
+            "trade_time",
+            "name",
+            "open",
+            "close",
+            "high",
+            "low",
+            "pre_close",
+            "vol",
+            "amount",
+            "pct_chg",
+            "bid",
+            "ask",
+            "collected_at",
+            "version",
         ]
 
         for col in columns:
@@ -239,8 +264,21 @@ class MinuteSinkWorker:
 
         # Type coercions
         if "trade_date" in df.columns:
-            df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
-        for col in ("open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
+            df["trade_date"] = pd.to_datetime(
+                df["trade_date"], format="%Y%m%d", errors="coerce"
+            )
+        for col in (
+            "open",
+            "close",
+            "high",
+            "low",
+            "pre_close",
+            "vol",
+            "amount",
+            "pct_chg",
+            "bid",
+            "ask",
+        ):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         if "collected_at" in df.columns:
@@ -248,9 +286,11 @@ class MinuteSinkWorker:
         else:
             df["collected_at"] = datetime.now()
         if "version" in df.columns:
-            df["version"] = pd.to_numeric(df["version"], errors="coerce").fillna(
-                int(datetime.now().timestamp() * 1000)
-            ).astype("int64")
+            df["version"] = (
+                pd.to_numeric(df["version"], errors="coerce")
+                .fillna(int(datetime.now().timestamp() * 1000))
+                .astype("int64")
+            )
         else:
             df["version"] = int(datetime.now().timestamp() * 1000)
 
@@ -265,12 +305,15 @@ class MinuteSinkWorker:
     # ------------------------------------------------------------------
     # Stream cleanup
     # ------------------------------------------------------------------
-    def cleanup_streams(self) -> Dict[str, int]:
+    def cleanup_streams(self) -> dict[str, int]:
         """Trim stream entries older than configured TTL."""
         from stock_datasource.config.settings import settings
+
         result = {}
         for market in self._markets:
-            trimmed = self._cache.xtrim_older_than(market, settings.RT_KLINE_STREAM_TTL_HOURS)
+            trimmed = self._cache.xtrim_older_than(
+                market, settings.RT_KLINE_STREAM_TTL_HOURS
+            )
             result[market] = trimmed
         return result
 
@@ -283,14 +326,14 @@ class MinuteSinkWorker:
     # ------------------------------------------------------------------
     # Clear last_acked_state (called at start of new trading day)
     # ------------------------------------------------------------------
-    def clear_push_state(self) -> Dict[str, int]:
+    def clear_push_state(self) -> dict[str, int]:
         result = {}
         for market in self._markets:
             result[market] = self._cache.clear_last_acked_state(market)
         return result
 
 
-_sink_worker: Optional[MinuteSinkWorker] = None
+_sink_worker: MinuteSinkWorker | None = None
 
 
 def get_sink_worker() -> MinuteSinkWorker:

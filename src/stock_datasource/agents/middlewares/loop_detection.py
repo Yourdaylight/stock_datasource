@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import AgentContext, AgentResponse, BaseMiddleware
 
@@ -45,7 +45,8 @@ class LoopDetectionMiddleware(BaseMiddleware):
                 context.loop_detected = True
                 logger.warning(
                     "Loop detected: tool=%s called %d times with same args",
-                    loop["tool"], loop["count"],
+                    loop["tool"],
+                    loop["count"],
                 )
                 self._log.warning(
                     "middleware.loop_detected",
@@ -58,7 +59,9 @@ class LoopDetectionMiddleware(BaseMiddleware):
         context.trace(self.name, "done")
         return context
 
-    async def after(self, context: AgentContext, response: AgentResponse) -> AgentResponse:
+    async def after(
+        self, context: AgentContext, response: AgentResponse
+    ) -> AgentResponse:
         """Track tool calls from this response for future loop detection."""
         if not self.enabled:
             return response
@@ -86,7 +89,7 @@ class LoopDetectionMiddleware(BaseMiddleware):
 
         return response
 
-    def _detect_loop(self, tool_calls: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _detect_loop(self, tool_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
         """Detect if there's a loop in recent tool calls.
 
         Returns dict with tool name and count if loop detected, else None.
@@ -95,7 +98,7 @@ class LoopDetectionMiddleware(BaseMiddleware):
             return None
 
         # Check the last N calls for same tool+args pattern
-        recent = tool_calls[-self._max_consecutive * 2:]  # Look at last 2x threshold
+        recent = tool_calls[-self._max_consecutive * 2 :]  # Look at last 2x threshold
         call_signatures = []
 
         for tc in recent:

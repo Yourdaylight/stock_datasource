@@ -4,10 +4,10 @@ This is a general-purpose stock analysis agent that combines all tools.
 For specialized tasks, use the specific agents (MarketAgent, ScreenerAgent, etc.)
 """
 
-from typing import Dict, Any, Optional, List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 from .tools import STOCK_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 class StockDeepAgent(LangGraphAgent):
     """General-purpose stock analysis agent using DeepAgents framework.
-    
+
     This agent has access to all stock analysis tools and can handle
     a wide variety of queries. For specialized tasks, consider using
     the specific agents (MarketAgent, ScreenerAgent, etc.)
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="StockDeepAgent",
@@ -28,11 +28,11 @@ class StockDeepAgent(LangGraphAgent):
             recursion_limit=50,
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return all stock analysis tools."""
         return STOCK_TOOLS
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for the general agent."""
         return """你是一个专业的A股股票分析AI助手。
@@ -63,7 +63,7 @@ class StockDeepAgent(LangGraphAgent):
 
 
 # Singleton instance
-_stock_agent: Optional[StockDeepAgent] = None
+_stock_agent: StockDeepAgent | None = None
 
 
 def get_stock_agent() -> StockDeepAgent:

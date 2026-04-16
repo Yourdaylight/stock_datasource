@@ -5,19 +5,18 @@ automatically by the module registration in modules/__init__.py).
 """
 
 import logging
-from typing import Optional, List
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from .schemas import (
-    MinuteDataResponse,
     BatchMinuteDataResponse,
-    RankResponse,
+    CollectStatusResponse,
     MarketOverviewResponse,
     MarketStatsResponse,
-    CollectStatusResponse,
-    TriggerResponse,
+    MinuteDataResponse,
+    RankResponse,
     RefreshCodesResponse,
+    TriggerResponse,
 )
 from .service import get_realtime_minute_service
 
@@ -30,24 +29,27 @@ router = APIRouter()
 # Basic queries
 # ===================================================================
 
+
 @router.get("/minute", response_model=MinuteDataResponse, summary="查询实时分钟数据")
 async def get_minute_data(
     ts_code: str = Query(..., description="证券代码，如 600000.SH"),
     freq: str = Query("1min", description="频率: 1min/5min/15min/30min/60min"),
-    date: Optional[str] = Query(None, description="日期 YYYYMMDD，默认今天"),
-    start_time: Optional[str] = Query(None, description="开始时间 HH:MM:SS"),
-    end_time: Optional[str] = Query(None, description="结束时间 HH:MM:SS"),
+    date: str | None = Query(None, description="日期 YYYYMMDD，默认今天"),
+    start_time: str | None = Query(None, description="开始时间 HH:MM:SS"),
+    end_time: str | None = Query(None, description="结束时间 HH:MM:SS"),
 ):
     """查询单只证券的实时分钟K线数据。"""
     svc = get_realtime_minute_service()
     return svc.get_minute_data(ts_code, freq, date, start_time, end_time)
 
 
-@router.get("/minute/batch", response_model=BatchMinuteDataResponse, summary="批量查询分钟数据")
+@router.get(
+    "/minute/batch", response_model=BatchMinuteDataResponse, summary="批量查询分钟数据"
+)
 async def get_batch_minute_data(
     ts_codes: str = Query(..., description="逗号分隔的证券代码列表"),
     freq: str = Query("1min", description="频率"),
-    date: Optional[str] = Query(None, description="日期 YYYYMMDD"),
+    date: str | None = Query(None, description="日期 YYYYMMDD"),
 ):
     """批量查询多只证券的实时分钟数据。"""
     codes = [c.strip() for c in ts_codes.split(",") if c.strip()]
@@ -76,7 +78,7 @@ async def get_latest_minute(
 async def get_kline_data(
     ts_code: str = Query(..., description="证券代码"),
     freq: str = Query("1min", description="频率"),
-    date: Optional[str] = Query(None, description="日期 YYYYMMDD"),
+    date: str | None = Query(None, description="日期 YYYYMMDD"),
 ):
     """返回前端 K 线图组件兼容的数据格式。"""
     svc = get_realtime_minute_service()
@@ -94,10 +96,11 @@ async def get_collect_status():
 # Rankings
 # ===================================================================
 
+
 @router.get("/rank/gainers", response_model=RankResponse, summary="分钟涨幅榜")
 async def get_top_gainers(
     freq: str = Query("1min", description="频率"),
-    market: Optional[str] = Query(None, description="市场过滤: a_stock/etf/index/hk"),
+    market: str | None = Query(None, description="市场过滤: a_stock/etf/index/hk"),
     limit: int = Query(20, ge=1, le=100, description="返回条数"),
 ):
     """获取最近一分钟涨幅最大的证券。"""
@@ -110,7 +113,7 @@ async def get_top_gainers(
 @router.get("/rank/losers", response_model=RankResponse, summary="分钟跌幅榜")
 async def get_top_losers(
     freq: str = Query("1min", description="频率"),
-    market: Optional[str] = Query(None, description="市场过滤"),
+    market: str | None = Query(None, description="市场过滤"),
     limit: int = Query(20, ge=1, le=100, description="返回条数"),
 ):
     """获取最近一分钟跌幅最大的证券。"""
@@ -123,7 +126,7 @@ async def get_top_losers(
 @router.get("/rank/volume", response_model=RankResponse, summary="成交量榜")
 async def get_top_volume(
     freq: str = Query("1min", description="频率"),
-    market: Optional[str] = Query(None, description="市场过滤"),
+    market: str | None = Query(None, description="市场过滤"),
     limit: int = Query(20, ge=1, le=100, description="返回条数"),
 ):
     """获取最近一分钟成交量最大的证券。"""
@@ -136,7 +139,7 @@ async def get_top_volume(
 @router.get("/rank/amount", response_model=RankResponse, summary="成交额榜")
 async def get_top_amount(
     freq: str = Query("1min", description="频率"),
-    market: Optional[str] = Query(None, description="市场过滤"),
+    market: str | None = Query(None, description="市场过滤"),
     limit: int = Query(20, ge=1, le=100, description="返回条数"),
 ):
     """获取最近一分钟成交额最大的证券。"""
@@ -150,7 +153,10 @@ async def get_top_amount(
 # Market overview
 # ===================================================================
 
-@router.get("/market/overview", response_model=MarketOverviewResponse, summary="市场整体概览")
+
+@router.get(
+    "/market/overview", response_model=MarketOverviewResponse, summary="市场整体概览"
+)
 async def get_market_overview(
     freq: str = Query("1min", description="频率"),
 ):
@@ -170,10 +176,11 @@ async def get_market_stats():
 # Admin / management
 # ===================================================================
 
+
 @router.post("/trigger", response_model=TriggerResponse, summary="手动触发采集")
 async def trigger_collection(
     freq: str = Query("1min", description="频率"),
-    markets: Optional[str] = Query(None, description="逗号分隔的市场列表，默认全部"),
+    markets: str | None = Query(None, description="逗号分隔的市场列表，默认全部"),
 ):
     """手动触发一次数据采集。"""
     try:
@@ -201,7 +208,9 @@ async def trigger_collection(
         )
 
 
-@router.post("/refresh-codes", response_model=RefreshCodesResponse, summary="刷新代码列表")
+@router.post(
+    "/refresh-codes", response_model=RefreshCodesResponse, summary="刷新代码列表"
+)
 async def refresh_codes():
     """从数据库刷新代码列表（管理员操作）。
 
@@ -212,7 +221,9 @@ async def refresh_codes():
 
     try:
         counts = cfg_module.refresh_codes_from_db()
-        return RefreshCodesResponse(success=True, message="Codes refreshed from DB", counts=counts)
+        return RefreshCodesResponse(
+            success=True, message="Codes refreshed from DB", counts=counts
+        )
     except Exception as e:
         logger.error("Refresh codes failed: %s", e)
         return RefreshCodesResponse(success=False, message=str(e), counts={})

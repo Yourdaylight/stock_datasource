@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from stock_datasource.modules.memory.store import MemoryStore, get_memory_store
 
 from .base import AgentContext, AgentResponse, BaseMiddleware
-from stock_datasource.modules.memory.store import MemoryStore, get_memory_store
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class CrossValidationMiddleware(BaseMiddleware):
     Only active when context.is_deep_research=True and ≥2 agents have results.
     """
 
-    def __init__(self, store: Optional[MemoryStore] = None):
+    def __init__(self, store: MemoryStore | None = None):
         super().__init__()
         self._store = store or get_memory_store()
 
@@ -52,7 +53,9 @@ class CrossValidationMiddleware(BaseMiddleware):
         context.trace(self.name, "skip_before")
         return context
 
-    async def after(self, context: AgentContext, response: AgentResponse) -> AgentResponse:
+    async def after(
+        self, context: AgentContext, response: AgentResponse
+    ) -> AgentResponse:
         """Cross-validate agent conclusions if deep research."""
         if not self.enabled:
             return response
@@ -84,7 +87,7 @@ class CrossValidationMiddleware(BaseMiddleware):
 
         return response
 
-    async def _validate(self, shared_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _validate(self, shared_results: dict[str, Any]) -> dict[str, Any] | None:
         """Run LLM cross-validation on agent results."""
         try:
             from stock_datasource.agents.base_agent import get_langchain_model
@@ -92,22 +95,32 @@ class CrossValidationMiddleware(BaseMiddleware):
             # Build agent conclusions text
             conclusions = []
             for key, result in shared_results.items():
-                findings = "; ".join(result.key_findings) if result.key_findings else "已执行分析"
+                findings = (
+                    "; ".join(result.key_findings)
+                    if result.key_findings
+                    else "已执行分析"
+                )
                 conclusions.append(f"- {result.agent_name}: {findings}")
 
             if len(conclusions) < 2:
                 return None
 
             agent_conclusions = "\n".join(conclusions)
-            prompt = _CROSS_VALIDATION_PROMPT.format(agent_conclusions=agent_conclusions)
+            prompt = _CROSS_VALIDATION_PROMPT.format(
+                agent_conclusions=agent_conclusions
+            )
 
             model = get_langchain_model()
             llm_response = await model.ainvoke([{"role": "user", "content": prompt}])
 
-            content = llm_response.content if hasattr(llm_response, "content") else str(llm_response)
+            content = (
+                llm_response.content
+                if hasattr(llm_response, "content")
+                else str(llm_response)
+            )
 
             # Parse JSON response
-            match = re.search(r'\{.*\}', content, re.DOTALL)
+            match = re.search(r"\{.*\}", content, re.DOTALL)
             if match:
                 return json.loads(match.group(0))
 
@@ -117,7 +130,7 @@ class CrossValidationMiddleware(BaseMiddleware):
         return None
 
     @staticmethod
-    def _format_validation_result(result: Dict[str, Any]) -> str:
+    def _format_validation_result(result: dict[str, Any]) -> str:
         """Format validation result for user display."""
         lines = []
 
@@ -142,6 +155,8 @@ class CrossValidationMiddleware(BaseMiddleware):
 
         if partial_overlaps:
             for po in partial_overlaps[:3]:
-                lines.append(f"💡 部分一致：{po.get('common', '')}，但{po.get('diff', '')}")
+                lines.append(
+                    f"💡 部分一致：{po.get('common', '')}，但{po.get('diff', '')}"
+                )
 
         return "\n".join(lines) if lines else ""

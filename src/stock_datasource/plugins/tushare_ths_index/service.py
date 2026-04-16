@@ -1,6 +1,6 @@
 """TuShare THS index metadata query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -54,13 +54,13 @@ class TuShareTHSIndexService(BaseService):
     )
     def get_ths_index_list(
         self,
-        exchange: Optional[str] = None,
-        index_type: Optional[str] = None,
+        exchange: str | None = None,
+        index_type: str | None = None,
         limit: int = 1000,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query THS index list with optional filters."""
         conditions = ["1=1"]
-        params: Dict[str, Any] = {"limit": limit}
+        params: dict[str, Any] = {"limit": limit}
 
         if exchange:
             conditions.append("exchange = %(exchange)s")
@@ -104,7 +104,7 @@ class TuShareTHSIndexService(BaseService):
     def get_ths_index_by_code(
         self,
         ts_code: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get THS index details by code."""
         query = """
         SELECT
@@ -146,7 +146,7 @@ class TuShareTHSIndexService(BaseService):
         self,
         keyword: str,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search THS index by name keyword."""
         query = """
         SELECT
@@ -176,7 +176,7 @@ class TuShareTHSIndexService(BaseService):
         description="Get THS index statistics by type",
         params=[],
     )
-    def get_ths_index_stats(self) -> List[Dict[str, Any]]:
+    def get_ths_index_stats(self) -> list[dict[str, Any]]:
         """Get THS index statistics grouped by type."""
         query = """
         SELECT

@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class MonthlyService:
@@ -18,7 +18,7 @@ class MonthlyService:
                 user=settings.BACKUP_CLICKHOUSE_USER,
                 password=settings.BACKUP_CLICKHOUSE_PASSWORD,
                 database=settings.BACKUP_CLICKHOUSE_DATABASE,
-                name="backup"
+                name="backup",
             )
         else:
             self.client = db_client.primary
@@ -56,7 +56,7 @@ class MonthlyService:
         query = f"""
             SELECT *
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY trade_date DESC
             LIMIT %(limit)s
         """
@@ -87,7 +87,9 @@ class MonthlyService:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"trade_date": trade_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"trade_date": trade_date, "limit": limit}
+        )
         return df.to_dict(orient="records")
 
     def get_top_gainers(
@@ -114,7 +116,9 @@ class MonthlyService:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"trade_date": trade_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"trade_date": trade_date, "limit": limit}
+        )
         return df.to_dict(orient="records")
 
     def get_top_losers(
@@ -141,7 +145,9 @@ class MonthlyService:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"trade_date": trade_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"trade_date": trade_date, "limit": limit}
+        )
         return df.to_dict(orient="records")
 
     def get_monthly_statistics(
@@ -182,7 +188,7 @@ class MonthlyService:
                 avg(vol) AS avg_vol,
                 avg(amount) AS avg_amount
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
         """
 
         df = self.client.execute_query(query, params)

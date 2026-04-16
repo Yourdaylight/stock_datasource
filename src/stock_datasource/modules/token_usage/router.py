@@ -1,12 +1,12 @@
 """Token usage API routes."""
 
 import logging
-from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 
 from ..auth.dependencies import get_current_user
-from .service import TokenUsageService
 from .schemas import TokenBalance, UsageHistoryResponse, UsageStatsResponse
+from .service import TokenUsageService
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ async def get_balance(current_user: dict = Depends(get_current_user)):
 async def get_usage_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     current_user: dict = Depends(get_current_user),
 ):
     """Get paginated token usage history."""

@@ -1,16 +1,21 @@
 """TuShare index weekly query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y-%m-%d')
+        return obj.strftime("%Y-%m-%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,11 +25,11 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareIndexWeeklyService(BaseService):
     """Query service for TuShare index weekly data."""
-    
+
     def __init__(self):
         super().__init__("tushare_index_weekly")
         self.table = "ods_index_weekly"
-    
+
     @query_method(
         description="查询指数周线行情数据",
         params=[
@@ -53,48 +58,48 @@ class TuShareIndexWeeklyService(BaseService):
                 required=False,
                 default=100,
             ),
-        ]
+        ],
     )
     def get_by_code(
         self,
         ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query index weekly data by code and date range.
-        
+
         Args:
             ts_code: TS index code (e.g., 000001.SH)
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
             limit: Max number of records to return
-        
+
         Returns:
             List of index weekly records
         """
         conditions = ["ts_code = %(ts_code)s"]
-        params: Dict[str, Any] = {"ts_code": ts_code, "limit": limit}
-        
+        params: dict[str, Any] = {"ts_code": ts_code, "limit": limit}
+
         if start_date:
             conditions.append("trade_date >= %(start_date)s")
             params["start_date"] = start_date
         if end_date:
             conditions.append("trade_date <= %(end_date)s")
             params["end_date"] = end_date
-        
+
         query = f"""
             SELECT *
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY trade_date DESC
             LIMIT %(limit)s
         """
-        
+
         df = self.db.execute_query(query, params)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="查询指定交易日的所有指数周线数据",
         params=[
@@ -111,19 +116,19 @@ class TuShareIndexWeeklyService(BaseService):
                 required=False,
                 default=100,
             ),
-        ]
+        ],
     )
     def get_by_date(
         self,
         trade_date: str,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query all index weekly data for a specific date.
-        
+
         Args:
             trade_date: Trade date in YYYYMMDD format
             limit: Max number of records to return
-        
+
         Returns:
             List of index weekly records
         """
@@ -134,11 +139,11 @@ class TuShareIndexWeeklyService(BaseService):
             ORDER BY ts_code
             LIMIT %(limit)s
         """
-        
+
         df = self.db.execute_query(query, {"trade_date": trade_date, "limit": limit})
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="查询指数最新周线数据",
         params=[
@@ -148,17 +153,17 @@ class TuShareIndexWeeklyService(BaseService):
                 description="TS指数代码，如 000001.SH",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_latest(
         self,
         ts_code: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Query latest weekly data for an index.
-        
+
         Args:
             ts_code: TS index code (e.g., 000001.SH)
-        
+
         Returns:
             Latest index weekly record
         """
@@ -169,14 +174,14 @@ class TuShareIndexWeeklyService(BaseService):
             ORDER BY trade_date DESC
             LIMIT 1
         """
-        
+
         df = self.db.execute_query(query, {"ts_code": ts_code})
         if df.empty:
             return {}
-        
+
         record = df.iloc[0].to_dict()
         return _convert_to_json_serializable(record)
-    
+
     @query_method(
         description="查询周涨幅排行榜",
         params=[
@@ -193,19 +198,19 @@ class TuShareIndexWeeklyService(BaseService):
                 required=False,
                 default=10,
             ),
-        ]
+        ],
     )
     def get_top_gainers(
         self,
         trade_date: str,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query top gaining indices for a week.
-        
+
         Args:
             trade_date: Trade date in YYYYMMDD format
             limit: Max number of records to return
-        
+
         Returns:
             List of top gaining indices
         """
@@ -217,11 +222,11 @@ class TuShareIndexWeeklyService(BaseService):
             ORDER BY pct_chg DESC
             LIMIT %(limit)s
         """
-        
+
         df = self.db.execute_query(query, {"trade_date": trade_date, "limit": limit})
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="查询周跌幅排行榜",
         params=[
@@ -238,19 +243,19 @@ class TuShareIndexWeeklyService(BaseService):
                 required=False,
                 default=10,
             ),
-        ]
+        ],
     )
     def get_top_losers(
         self,
         trade_date: str,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query top losing indices for a week.
-        
+
         Args:
             trade_date: Trade date in YYYYMMDD format
             limit: Max number of records to return
-        
+
         Returns:
             List of top losing indices
         """
@@ -262,11 +267,11 @@ class TuShareIndexWeeklyService(BaseService):
             ORDER BY pct_chg ASC
             LIMIT %(limit)s
         """
-        
+
         df = self.db.execute_query(query, {"trade_date": trade_date, "limit": limit})
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="获取多个指数的最新周线数据",
         params=[
@@ -276,27 +281,27 @@ class TuShareIndexWeeklyService(BaseService):
                 description="指数代码列表",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_latest_batch(
         self,
-        ts_codes: List[str],
-    ) -> List[Dict[str, Any]]:
+        ts_codes: list[str],
+    ) -> list[dict[str, Any]]:
         """Query latest weekly data for multiple indices.
-        
+
         Args:
             ts_codes: List of index codes
-        
+
         Returns:
             List of latest index weekly records
         """
         if not ts_codes:
             return []
-        
+
         # Use parameterized query with tuple
-        placeholders = ', '.join(['%(code_{})s'.format(i) for i in range(len(ts_codes))])
-        params = {f'code_{i}': code for i, code in enumerate(ts_codes)}
-        
+        placeholders = ", ".join([f"%(code_{i})s" for i in range(len(ts_codes))])
+        params = {f"code_{i}": code for i, code in enumerate(ts_codes)}
+
         query = f"""
             SELECT *
             FROM (
@@ -309,7 +314,7 @@ class TuShareIndexWeeklyService(BaseService):
             WHERE rn = 1
             ORDER BY ts_code
         """
-        
+
         df = self.db.execute_query(query, params)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]

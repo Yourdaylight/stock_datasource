@@ -10,7 +10,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -21,8 +21,8 @@ from stock_datasource.plugins.tushare_rt_idx_k.extractor import RtIdxKExtractor
 from stock_datasource.plugins.tushare_rt_k.extractor import RtKExtractor
 
 from . import config as cfg
-from .schemas import MarketType
 from . import metrics as m
+from .schemas import MarketType
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,9 @@ class BackoffController:
 
     def __init__(self):
         self._levels = cfg.BACKOFF_LEVELS  # [1.5, 3.0, 5.0]
-        self._current_idx: Dict[str, int] = {}
-        self._consecutive_fails: Dict[str, int] = {}
-        self._consecutive_ok: Dict[str, int] = {}
+        self._current_idx: dict[str, int] = {}
+        self._consecutive_fails: dict[str, int] = {}
+        self._consecutive_ok: dict[str, int] = {}
 
     def current_interval(self, market: str) -> float:
         idx = self._current_idx.get(market, 0)
@@ -78,11 +78,13 @@ class RealtimeKlineCollector:
         self.rt_idx_extractor = RtIdxKExtractor()
         self.rt_hk_extractor = RtHkKExtractor()
         self.backoff = BackoffController()
-        self.market_inner_concurrency = max(1, int(settings.RT_KLINE_MARKET_INNER_CONCURRENCY))
+        self.market_inner_concurrency = max(
+            1, int(settings.RT_KLINE_MARKET_INNER_CONCURRENCY)
+        )
         self._hk_cursor = 0
         self._hk_cursor_lock = threading.Lock()
 
-    def _pick_hk_patterns(self) -> List[str]:
+    def _pick_hk_patterns(self) -> list[str]:
         patterns = cfg.HK_PATTERNS
         if not patterns:
             return []
@@ -94,7 +96,9 @@ class RealtimeKlineCollector:
             self._hk_cursor = (start + per_round) % len(patterns)
         return selected
 
-    def _collect_parallel(self, items: List[Any], extract_fn, market_label: str) -> pd.DataFrame:
+    def _collect_parallel(
+        self, items: list[Any], extract_fn, market_label: str
+    ) -> pd.DataFrame:
         if not items:
             return pd.DataFrame()
 
@@ -107,11 +111,15 @@ class RealtimeKlineCollector:
                     if not df.empty:
                         dfs.append(df)
                 except Exception as e:
-                    logger.warning("%s collect failed for %s: %s", market_label, item, e)
+                    logger.warning(
+                        "%s collect failed for %s: %s", market_label, item, e
+                    )
             return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
         dfs = []
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=f"rt-{market_label}") as executor:
+        with ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix=f"rt-{market_label}"
+        ) as executor:
             future_map = {executor.submit(extract_fn, item): item for item in items}
             for future in as_completed(future_map):
                 item = future_map[future]
@@ -120,7 +128,9 @@ class RealtimeKlineCollector:
                     if not df.empty:
                         dfs.append(df)
                 except Exception as e:
-                    logger.warning("%s collect failed for %s: %s", market_label, item, e)
+                    logger.warning(
+                        "%s collect failed for %s: %s", market_label, item, e
+                    )
 
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
@@ -128,7 +138,7 @@ class RealtimeKlineCollector:
     # Normalize
     # ------------------------------------------------------------------
     @staticmethod
-    def _normalize(df: pd.DataFrame, market: MarketType) -> List[Dict[str, Any]]:
+    def _normalize(df: pd.DataFrame, market: MarketType) -> list[dict[str, Any]]:
         """Normalize a DataFrame into a list of canonical snapshot dicts."""
         if df.empty:
             return []
@@ -138,7 +148,11 @@ class RealtimeKlineCollector:
         if "trade_time" in df.columns:
             df["trade_time"] = pd.to_datetime(df["trade_time"], errors="coerce")
             df["trade_date"] = df["trade_time"].apply(
-                lambda x: x.strftime("%Y%m%d") if pd.notna(x) else datetime.now().strftime("%Y%m%d")
+                lambda x: (
+                    x.strftime("%Y%m%d")
+                    if pd.notna(x)
+                    else datetime.now().strftime("%Y%m%d")
+                )
             )
             df["trade_time"] = df["trade_time"].apply(
                 lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else None
@@ -148,8 +162,18 @@ class RealtimeKlineCollector:
             df["trade_time"] = None
 
         for col in [
-            "ts_code", "name", "open", "close", "high", "low", "pre_close",
-            "vol", "amount", "pct_chg", "bid", "ask",
+            "ts_code",
+            "name",
+            "open",
+            "close",
+            "high",
+            "low",
+            "pre_close",
+            "vol",
+            "amount",
+            "pct_chg",
+            "bid",
+            "ask",
         ]:
             if col not in df.columns:
                 df[col] = None
@@ -167,38 +191,53 @@ class RealtimeKlineCollector:
         mask = df["pct_chg"].isna() & df["pre_close"].notna() & df["close"].notna()
         if mask.any():
             df.loc[mask, "pct_chg"] = (
-                (df.loc[mask, "close"] - df.loc[mask, "pre_close"]) / df.loc[mask, "pre_close"] * 100
+                (df.loc[mask, "close"] - df.loc[mask, "pre_close"])
+                / df.loc[mask, "pre_close"]
+                * 100
             ).round(2)
 
-        for col in ("open", "close", "high", "low", "pre_close", "vol", "amount", "pct_chg", "bid", "ask"):
+        for col in (
+            "open",
+            "close",
+            "high",
+            "low",
+            "pre_close",
+            "vol",
+            "amount",
+            "pct_chg",
+            "bid",
+            "ask",
+        ):
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
         now = datetime.now()
         collected_at = now.strftime("%Y-%m-%d %H:%M:%S")
         version = int(now.timestamp() * 1000)
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for _, row in df.iterrows():
-            rows.append({
-                "ts_code": row.get("ts_code"),
-                "name": _safe_value(row.get("name")),
-                "trade_date": row.get("trade_date"),
-                "trade_time": row.get("trade_time"),
-                "open": _safe_value(row.get("open")),
-                "high": _safe_value(row.get("high")),
-                "low": _safe_value(row.get("low")),
-                "close": _safe_value(row.get("close")),
-                "pre_close": _safe_value(row.get("pre_close")),
-                "vol": _safe_value(row.get("vol")),
-                "amount": _safe_value(row.get("amount")),
-                "pct_chg": _safe_value(row.get("pct_chg")),
-                "bid": _safe_value(row.get("bid")),
-                "ask": _safe_value(row.get("ask")),
-                "market": market.value,
-                "source_api": cfg.MARKET_API_MAP.get(market.value, ""),
-                "collected_at": collected_at,
-                "version": version,
-            })
+            rows.append(
+                {
+                    "ts_code": row.get("ts_code"),
+                    "name": _safe_value(row.get("name")),
+                    "trade_date": row.get("trade_date"),
+                    "trade_time": row.get("trade_time"),
+                    "open": _safe_value(row.get("open")),
+                    "high": _safe_value(row.get("high")),
+                    "low": _safe_value(row.get("low")),
+                    "close": _safe_value(row.get("close")),
+                    "pre_close": _safe_value(row.get("pre_close")),
+                    "vol": _safe_value(row.get("vol")),
+                    "amount": _safe_value(row.get("amount")),
+                    "pct_chg": _safe_value(row.get("pct_chg")),
+                    "bid": _safe_value(row.get("bid")),
+                    "ask": _safe_value(row.get("ask")),
+                    "market": market.value,
+                    "source_api": cfg.MARKET_API_MAP.get(market.value, ""),
+                    "collected_at": collected_at,
+                    "version": version,
+                }
+            )
         return rows
 
     # ------------------------------------------------------------------
@@ -217,29 +256,37 @@ class RealtimeKlineCollector:
     def _is_hk_collect_time(self) -> bool:
         return any(self._in_window_hms(window) for window in cfg.HK_TRADING_HOURS)
 
-    def _collect_market(self, market: str) -> List[Dict[str, Any]]:
+    def _collect_market(self, market: str) -> list[dict[str, Any]]:
         market_enum = MarketType(market)
 
         t0 = time.monotonic()
         try:
             if market == "a_stock":
-                raw = self._collect_parallel(cfg.ASTOCK_PATTERNS, self.rt_k_extractor.extract, "a_stock")
+                raw = self._collect_parallel(
+                    cfg.ASTOCK_PATTERNS, self.rt_k_extractor.extract, "a_stock"
+                )
             elif market == "etf":
                 raw = self._collect_parallel(
                     cfg.ETF_QUERY_PATTERNS,
-                    lambda q: self.rt_etf_extractor.extract(ts_code=q["ts_code"], topic=q.get("topic")),
+                    lambda q: self.rt_etf_extractor.extract(
+                        ts_code=q["ts_code"], topic=q.get("topic")
+                    ),
                     "etf",
                 )
             elif market == "index":
                 raw = self._collect_parallel(
                     cfg.INDEX_QUERY_PATTERNS,
-                    lambda q: self.rt_idx_extractor.extract(ts_code=q["ts_code"], fields=q.get("fields")),
+                    lambda q: self.rt_idx_extractor.extract(
+                        ts_code=q["ts_code"], fields=q.get("fields")
+                    ),
                     "index",
                 )
             elif market == "hk":
                 hk_patterns = self._pick_hk_patterns()
                 logger.info("HK round-robin shards: %s", hk_patterns)
-                raw = self._collect_parallel(hk_patterns, self.rt_hk_extractor.extract, "hk")
+                raw = self._collect_parallel(
+                    hk_patterns, self.rt_hk_extractor.extract, "hk"
+                )
             else:
                 raw = pd.DataFrame()
 
@@ -256,23 +303,32 @@ class RealtimeKlineCollector:
             logger.error("Collection failed for %s: %s", market, e)
             return []
 
-    def collect_all(self, markets: Optional[List[str]] = None) -> Dict[str, List[Dict[str, Any]]]:
+    def collect_all(
+        self, markets: list[str] | None = None
+    ) -> dict[str, list[dict[str, Any]]]:
         if markets is None:
             markets = list(cfg.CLICKHOUSE_TABLES.keys())
 
         valid_markets = [m for m in markets if m in cfg.CLICKHOUSE_TABLES]
         if not self._is_cn_collect_time():
-            valid_markets = [m for m in valid_markets if m not in ("a_stock", "etf", "index")]
+            valid_markets = [
+                m for m in valid_markets if m not in ("a_stock", "etf", "index")
+            ]
         if not self._is_hk_collect_time():
             valid_markets = [m for m in valid_markets if m != "hk"]
         if not valid_markets:
             return {}
 
         max_workers = min(len(valid_markets), len(cfg.CLICKHOUSE_TABLES))
-        results: Dict[str, List[Dict[str, Any]]] = {m: [] for m in valid_markets}
+        results: dict[str, list[dict[str, Any]]] = {m: [] for m in valid_markets}
 
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="rt-kline-collect") as executor:
-            future_map = {executor.submit(self._collect_market, market): market for market in valid_markets}
+        with ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="rt-kline-collect"
+        ) as executor:
+            future_map = {
+                executor.submit(self._collect_market, market): market
+                for market in valid_markets
+            }
             for future in as_completed(future_map):
                 market = future_map[future]
                 try:
@@ -286,7 +342,7 @@ class RealtimeKlineCollector:
         return results
 
 
-_collector: Optional[RealtimeKlineCollector] = None
+_collector: RealtimeKlineCollector | None = None
 
 
 def get_collector() -> RealtimeKlineCollector:

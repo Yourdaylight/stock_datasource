@@ -3,22 +3,25 @@
 import io
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, Any
+
 import pandas as pd
 
-from stock_datasource.utils.logger import logger
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
-from stock_datasource.core.base_plugin import PluginCategory
+from stock_datasource.utils.logger import logger
 
-from .sql_validator import SqlValidator, SqlValidationError
 from .schemas import (
-    ExplorerTableInfo, ExplorerTableSchema, ExplorerColumnInfo,
-    ExplorerTableListResponse, ExplorerSimpleQueryRequest,
-    ExplorerSqlExecuteResponse, ExportFormat,
-    SqlTemplate, SqlTemplateCreate
+    ExplorerColumnInfo,
+    ExplorerSimpleQueryRequest,
+    ExplorerSqlExecuteResponse,
+    ExplorerTableInfo,
+    ExplorerTableListResponse,
+    ExplorerTableSchema,
+    ExportFormat,
+    SqlTemplate,
+    SqlTemplateCreate,
 )
-
+from .sql_validator import SqlValidator
 
 # Category labels mapping
 CATEGORY_LABELS = {
@@ -29,28 +32,30 @@ CATEGORY_LABELS = {
     "market": "市场数据",
     "reference": "参考数据",
     "fundamental": "基本面",
-    "system": "系统"
+    "system": "系统",
 }
 
 
 class DataExplorerService:
     """Service for data exploration and SQL query execution."""
-    
+
     def __init__(self):
         self.logger = logger.bind(component="DataExplorerService")
-        self._table_cache: Dict[str, ExplorerTableInfo] = {}
-        self._row_count_cache: Dict[str, Tuple[int, datetime]] = {}  # table -> (count, timestamp)
-        self._validator: Optional[SqlValidator] = None
+        self._table_cache: dict[str, ExplorerTableInfo] = {}
+        self._row_count_cache: dict[
+            str, tuple[int, datetime]
+        ] = {}  # table -> (count, timestamp)
+        self._validator: SqlValidator | None = None
         self._cache_ttl = 300  # 5 minutes for table list
         self._row_count_cache_ttl = 3600  # 1 hour for row counts
-    
+
     def _get_validator(self) -> SqlValidator:
         """Get SQL validator with lazy initialization."""
         if self._validator is None:
             tables = self._get_all_allowed_tables()
             self._validator = SqlValidator(tables)
         return self._validator
-    
+
     def _refresh_validator(self):
         """Refresh the SQL validator with current tables."""
         tables = self._get_all_allowed_tables()
@@ -58,17 +63,17 @@ class DataExplorerService:
             self._validator.refresh_allowed_tables(tables)
         else:
             self._validator = SqlValidator(tables)
-    
-    def _get_all_allowed_tables(self) -> Set[str]:
+
+    def _get_all_allowed_tables(self) -> set[str]:
         """Get all allowed table names from plugins."""
         tables = set()
-        
+
         # Ensure plugins are discovered
         plugin_list = plugin_manager.list_plugins()
         if not plugin_list:
             plugin_manager.discover_plugins()
             plugin_list = plugin_manager.list_plugins()
-        
+
         for plugin_name in plugin_list:
             try:
                 plugin = plugin_manager.get_plugin(plugin_name)
@@ -77,9 +82,11 @@ class DataExplorerService:
                     if schema and schema.get("table_name"):
                         tables.add(schema["table_name"])
             except Exception as e:
-                self.logger.warning(f"Failed to get table name for plugin {plugin_name}: {e}")
+                self.logger.warning(
+                    f"Failed to get table name for plugin {plugin_name}: {e}"
+                )
         return tables
-    
+
     def _get_plugin_category(self, plugin_name: str) -> str:
         """Get plugin category with normalization and inference."""
         try:
@@ -90,38 +97,48 @@ class DataExplorerService:
                 if cat:
                     # Normalize to lowercase
                     return cat.lower()
-                
+
                 # Infer category from plugin name
                 name_lower = plugin_name.lower()
-                if "index" in name_lower or "sw_" in name_lower or "ths_index" in name_lower:
+                if (
+                    "index" in name_lower
+                    or "sw_" in name_lower
+                    or "ths_index" in name_lower
+                ):
                     return "index"
                 elif "etf" in name_lower or "fund" in name_lower:
                     return "etf_fund"
                 elif "hk_" in name_lower or "ggt_" in name_lower:
                     return "hk_stock"
-                elif any(x in name_lower for x in ["daily", "stock", "stk_", "adj_", "top_", "limit"]):
+                elif any(
+                    x in name_lower
+                    for x in ["daily", "stock", "stk_", "adj_", "top_", "limit"]
+                ):
                     return "cn_stock"
-                elif any(x in name_lower for x in ["income", "balance", "cashflow", "fina_", "dividend"]):
+                elif any(
+                    x in name_lower
+                    for x in ["income", "balance", "cashflow", "fina_", "dividend"]
+                ):
                     return "fundamental"
                 elif "calendar" in name_lower or "basic" in name_lower:
                     return "reference"
         except:
             pass
         return "other"
-    
-    def _get_table_row_count(self, table_name: str) -> Optional[int]:
+
+    def _get_table_row_count(self, table_name: str) -> int | None:
         """Get table row count with caching."""
         # Check cache
         if table_name in self._row_count_cache:
             count, timestamp = self._row_count_cache[table_name]
             if (datetime.now() - timestamp).total_seconds() < self._row_count_cache_ttl:
                 return count
-        
+
         try:
             # Check if table exists first
             if not db_client.table_exists(table_name):
                 return None
-            
+
             # Get approximate count (faster than exact count for large tables)
             query = f"SELECT count() FROM {table_name}"
             result = db_client.execute_query(query)
@@ -132,71 +149,77 @@ class DataExplorerService:
         except Exception as e:
             self.logger.warning(f"Failed to get row count for {table_name}: {e}")
         return None
-    
-    def get_available_tables(self, category: Optional[str] = None) -> ExplorerTableListResponse:
+
+    def get_available_tables(
+        self, category: str | None = None
+    ) -> ExplorerTableListResponse:
         """Get all available tables for exploration.
-        
+
         Args:
             category: Filter by category (cn_stock, index, etf_fund, etc.)
-            
+
         Returns:
             ExplorerTableListResponse with tables and categories
         """
         tables = []
-        
+
         # Ensure plugins are discovered
         plugin_list = plugin_manager.list_plugins()
         if not plugin_list:
             plugin_manager.discover_plugins()
             plugin_list = plugin_manager.list_plugins()
-        
+
         for plugin_name in plugin_list:
             try:
                 plugin = plugin_manager.get_plugin(plugin_name)
                 if not plugin:
                     continue
-                
+
                 schema = plugin.get_schema()
                 config = plugin.get_config()
-                
+
                 table_name = schema.get("table_name") if schema else None
                 if not table_name:
                     continue
-                
+
                 # Get plugin category (normalized and inferred)
                 plugin_category = self._get_plugin_category(plugin_name)
-                
+
                 # Apply category filter
                 if category and plugin_category != category:
                     continue
-                
+
                 # Get row count (cached)
                 row_count = self._get_table_row_count(table_name)
-                
+
                 # Parse columns
                 columns = []
                 for col in schema.get("columns", []):
-                    columns.append(ExplorerColumnInfo(
-                        name=col.get("name", ""),
-                        data_type=col.get("data_type", "String"),
-                        nullable=col.get("nullable", True),
-                        comment=col.get("comment")
-                    ))
-                
-                tables.append(ExplorerTableInfo(
-                    plugin_name=plugin_name,
-                    table_name=table_name,
-                    category=plugin_category,
-                    columns=columns,
-                    row_count=row_count,
-                    description=config.get("description", "")
-                ))
+                    columns.append(
+                        ExplorerColumnInfo(
+                            name=col.get("name", ""),
+                            data_type=col.get("data_type", "String"),
+                            nullable=col.get("nullable", True),
+                            comment=col.get("comment"),
+                        )
+                    )
+
+                tables.append(
+                    ExplorerTableInfo(
+                        plugin_name=plugin_name,
+                        table_name=table_name,
+                        category=plugin_category,
+                        columns=columns,
+                        row_count=row_count,
+                        description=config.get("description", ""),
+                    )
+                )
             except Exception as e:
                 self.logger.warning(f"Failed to get info for plugin {plugin_name}: {e}")
-        
+
         # Sort tables by category and name
         tables.sort(key=lambda t: (t.category, t.table_name))
-        
+
         # Category info
         categories = [
             {"key": "cn_stock", "label": "A股"},
@@ -207,17 +230,17 @@ class DataExplorerService:
             {"key": "market", "label": "市场数据"},
             {"key": "reference", "label": "参考数据"},
             {"key": "system", "label": "系统"},
-            {"key": "other", "label": "其他"}
+            {"key": "other", "label": "其他"},
         ]
-        
+
         return ExplorerTableListResponse(tables=tables, categories=categories)
-    
-    def get_table_schema(self, table_name: str) -> Optional[ExplorerTableSchema]:
+
+    def get_table_schema(self, table_name: str) -> ExplorerTableSchema | None:
         """Get detailed table schema.
-        
+
         Args:
             table_name: Table name
-            
+
         Returns:
             ExplorerTableSchema or None if not found
         """
@@ -226,14 +249,14 @@ class DataExplorerService:
         if not plugin_list:
             plugin_manager.discover_plugins()
             plugin_list = plugin_manager.list_plugins()
-        
+
         # Find plugin by table name
         for plugin_name in plugin_list:
             try:
                 plugin = plugin_manager.get_plugin(plugin_name)
                 if not plugin:
                     continue
-                
+
                 schema = plugin.get_schema()
                 if schema and schema.get("table_name") == table_name:
                     columns = [
@@ -241,35 +264,35 @@ class DataExplorerService:
                             name=col.get("name", ""),
                             data_type=col.get("data_type", "String"),
                             nullable=col.get("nullable", True),
-                            comment=col.get("comment")
+                            comment=col.get("comment"),
                         )
                         for col in schema.get("columns", [])
                     ]
-                    
+
                     return ExplorerTableSchema(
                         table_name=table_name,
                         columns=columns,
                         partition_by=schema.get("partition_by"),
                         order_by=schema.get("order_by"),
                         engine=schema.get("engine", "ReplacingMergeTree"),
-                        comment=schema.get("comment")
+                        comment=schema.get("comment"),
                     )
             except Exception as e:
-                self.logger.warning(f"Failed to get schema for plugin {plugin_name}: {e}")
-        
+                self.logger.warning(
+                    f"Failed to get schema for plugin {plugin_name}: {e}"
+                )
+
         return None
-    
+
     def execute_simple_query(
-        self, 
-        table_name: str, 
-        request: ExplorerSimpleQueryRequest
+        self, table_name: str, request: ExplorerSimpleQueryRequest
     ) -> ExplorerSqlExecuteResponse:
         """Execute simple filter query on a table.
-        
+
         Args:
             table_name: Table name to query
             request: Query parameters (filters, sorting, pagination)
-            
+
         Returns:
             ExplorerSqlExecuteResponse with query results
         """
@@ -285,9 +308,9 @@ class DataExplorerService:
                 total_count=0,
                 execution_time_ms=0,
                 truncated=False,
-                table_not_exists=True
+                table_not_exists=True,
             )
-        
+
         # Check if table actually exists in database
         if not db_client.table_exists(table_name):
             # Return empty result with table_not_exists flag
@@ -298,18 +321,18 @@ class DataExplorerService:
                 total_count=0,
                 execution_time_ms=0,
                 truncated=False,
-                table_not_exists=True
+                table_not_exists=True,
             )
-        
+
         # Build query
         where_clauses = []
         params = {}
-        
+
         # Process filters
         for key, value in request.filters.items():
             if value is None:
                 continue
-            
+
             # Handle date range filters
             if key == "start_date" and value:
                 # Find date column
@@ -326,7 +349,9 @@ class DataExplorerService:
                 # Handle code filter (list of codes)
                 code_col = self._find_code_column(schema)
                 if code_col and isinstance(value, list) and len(value) > 0:
-                    placeholders = ", ".join([f"%(code_{i})s" for i in range(len(value))])
+                    placeholders = ", ".join(
+                        [f"%(code_{i})s" for i in range(len(value))]
+                    )
                     where_clauses.append(f"{code_col} IN ({placeholders})")
                     for i, code in enumerate(value):
                         params[f"code_{i}"] = code
@@ -335,38 +360,44 @@ class DataExplorerService:
                 if code_col:
                     where_clauses.append(f"{code_col} LIKE %(code_pattern)s")
                     params["code_pattern"] = f"%{value}%"
-        
+
         # Build SQL
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-        
+
         # Validate sort column exists
         sort_col = request.sort_by
         if sort_col:
             valid_cols = {col.name for col in schema.columns}
             if sort_col not in valid_cols:
                 sort_col = None
-        
+
         # Default sort by date if available
         if not sort_col:
             date_col = self._find_date_column(schema)
-            sort_col = date_col if date_col else schema.columns[0].name if schema.columns else None
-        
+            sort_col = (
+                date_col
+                if date_col
+                else schema.columns[0].name
+                if schema.columns
+                else None
+            )
+
         order_sql = f"ORDER BY {sort_col} {request.sort_order}" if sort_col else ""
-        
+
         # Calculate offset
         offset = (request.page - 1) * request.page_size
-        
+
         # Execute count query
         count_sql = f"SELECT count() FROM {table_name} WHERE {where_sql}"
         start_time = time.time()
-        
+
         try:
             count_result = db_client.execute_query(count_sql, params)
             total_count = int(count_result.iloc[0, 0]) if not count_result.empty else 0
         except Exception as e:
             self.logger.error(f"Count query failed: {e}")
             total_count = 0
-        
+
         # Execute data query
         data_sql = f"""
         SELECT * FROM {table_name} 
@@ -374,14 +405,14 @@ class DataExplorerService:
         {order_sql}
         LIMIT {request.page_size} OFFSET {offset}
         """
-        
+
         try:
             result = db_client.execute_query(data_sql, params)
             execution_time_ms = int((time.time() - start_time) * 1000)
-            
+
             columns = list(result.columns)
-            data = result.to_dict(orient='records')
-            
+            data = result.to_dict(orient="records")
+
             # Convert datetime objects to strings for JSON serialization
             for row in data:
                 for key, value in row.items():
@@ -389,47 +420,44 @@ class DataExplorerService:
                         row[key] = value.isoformat() if pd.notna(value) else None
                     elif pd.isna(value):
                         row[key] = None
-            
+
             return ExplorerSqlExecuteResponse(
                 columns=columns,
                 data=data,
                 row_count=len(data),
                 total_count=total_count,
                 execution_time_ms=execution_time_ms,
-                truncated=False
+                truncated=False,
             )
         except Exception as e:
-            raise ValueError(f"查询执行失败: {str(e)}")
-    
-    def _find_date_column(self, schema: ExplorerTableSchema) -> Optional[str]:
+            raise ValueError(f"查询执行失败: {e!s}")
+
+    def _find_date_column(self, schema: ExplorerTableSchema) -> str | None:
         """Find the date column in a table schema."""
         date_columns = ["trade_date", "date", "cal_date", "ann_date", "end_date"]
         for col in schema.columns:
             if col.name.lower() in date_columns:
                 return col.name
         return None
-    
-    def _find_code_column(self, schema: ExplorerTableSchema) -> Optional[str]:
+
+    def _find_code_column(self, schema: ExplorerTableSchema) -> str | None:
         """Find the code column in a table schema."""
         code_columns = ["ts_code", "code", "stock_code", "symbol", "index_code"]
         for col in schema.columns:
             if col.name.lower() in code_columns:
                 return col.name
         return None
-    
+
     def execute_sql_query(
-        self, 
-        sql: str, 
-        max_rows: int = 1000,
-        timeout: int = 30
+        self, sql: str, max_rows: int = 1000, timeout: int = 30
     ) -> ExplorerSqlExecuteResponse:
         """Execute SQL query with security validation.
-        
+
         Args:
             sql: SQL query to execute
             max_rows: Maximum rows to return
             timeout: Query timeout in seconds
-            
+
         Returns:
             ExplorerSqlExecuteResponse with query results
         """
@@ -438,27 +466,26 @@ class DataExplorerService:
         is_valid, error = validator.validate(sql)
         if not is_valid:
             raise ValueError(error)
-        
+
         # Add LIMIT if missing
         sql = validator.add_limit_if_missing(sql, max_rows)
-        
+
         # Execute query
         start_time = time.time()
         try:
             result = db_client.execute_query(
-                sql, 
-                settings={'max_execution_time': timeout}
+                sql, settings={"max_execution_time": timeout}
             )
         except Exception as e:
-            raise ValueError(f"查询执行失败: {str(e)}")
-        
+            raise ValueError(f"查询执行失败: {e!s}")
+
         execution_time_ms = int((time.time() - start_time) * 1000)
-        
+
         # Convert result
         columns = list(result.columns)
-        data = result.to_dict(orient='records')
+        data = result.to_dict(orient="records")
         row_count = len(data)
-        
+
         # Convert datetime objects to strings
         for row in data:
             for key, value in row.items():
@@ -466,63 +493,67 @@ class DataExplorerService:
                     row[key] = value.isoformat() if pd.notna(value) else None
                 elif pd.isna(value):
                     row[key] = None
-        
+
         return ExplorerSqlExecuteResponse(
             columns=columns,
             data=data,
             row_count=row_count,
             execution_time_ms=execution_time_ms,
-            truncated=row_count >= max_rows
+            truncated=row_count >= max_rows,
         )
-    
+
     def export_query_result(
         self,
         sql: str,
         format: ExportFormat,
-        filename: Optional[str] = None,
-        max_rows: int = 10000
-    ) -> Tuple[bytes, str]:
+        filename: str | None = None,
+        max_rows: int = 10000,
+    ) -> tuple[bytes, str]:
         """Export query results to CSV or Excel.
-        
+
         Args:
             sql: SQL query
             format: Export format (csv or xlsx)
             filename: Optional filename
             max_rows: Maximum rows to export
-            
+
         Returns:
             Tuple of (file content bytes, filename)
         """
         # Execute query
         result = self.execute_sql_query(sql, max_rows=max_rows)
         df = pd.DataFrame(result.data)
-        
+
         # Generate filename
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"query_result_{timestamp}"
-        
+
         # Export based on format
         if format == ExportFormat.CSV:
-            content = df.to_csv(index=False).encode('utf-8-sig')  # UTF-8 with BOM for Excel compatibility
+            content = df.to_csv(index=False).encode(
+                "utf-8-sig"
+            )  # UTF-8 with BOM for Excel compatibility
             filename = f"{filename}.csv"
         else:  # Excel
             buffer = io.BytesIO()
-            df.to_excel(buffer, index=False, engine='openpyxl')
+            df.to_excel(buffer, index=False, engine="openpyxl")
             content = buffer.getvalue()
             filename = f"{filename}.xlsx"
-        
+
         return content, filename
-    
+
     # ============ SQL Template Management ============
-    
-    def get_templates(self, user_id: str, category: Optional[str] = None) -> List[SqlTemplate]:
+
+    def get_templates(
+        self, user_id: str, category: str | None = None
+    ) -> list[SqlTemplate]:
         """Get SQL templates for a user.
-        
+
         Args:
             user_id: User ID
             category: Optional category filter
-            
+
         Returns:
             List of SqlTemplate
         """
@@ -530,14 +561,14 @@ class DataExplorerService:
             # Check if table exists
             if not db_client.table_exists("user_sql_templates"):
                 return []
-            
+
             where_clauses = ["user_id = %(user_id)s"]
             params = {"user_id": user_id}
-            
+
             if category:
                 where_clauses.append("category = %(category)s")
                 params["category"] = category
-            
+
             where_sql = " AND ".join(where_clauses)
             query = f"""
             SELECT id, name, description, sql, category, user_id, created_at, updated_at
@@ -545,34 +576,36 @@ class DataExplorerService:
             WHERE {where_sql}
             ORDER BY updated_at DESC
             """
-            
+
             result = db_client.execute_query(query, params)
-            
+
             templates = []
             for _, row in result.iterrows():
-                templates.append(SqlTemplate(
-                    id=int(row["id"]),
-                    name=row["name"],
-                    description=row.get("description"),
-                    sql=row["sql"],
-                    category=row.get("category"),
-                    user_id=row.get("user_id"),
-                    created_at=row.get("created_at"),
-                    updated_at=row.get("updated_at")
-                ))
-            
+                templates.append(
+                    SqlTemplate(
+                        id=int(row["id"]),
+                        name=row["name"],
+                        description=row.get("description"),
+                        sql=row["sql"],
+                        category=row.get("category"),
+                        user_id=row.get("user_id"),
+                        created_at=row.get("created_at"),
+                        updated_at=row.get("updated_at"),
+                    )
+                )
+
             return templates
         except Exception as e:
             self.logger.error(f"Failed to get templates: {e}")
             return []
-    
+
     def create_template(self, user_id: str, template: SqlTemplateCreate) -> SqlTemplate:
         """Create a new SQL template.
-        
+
         Args:
             user_id: User ID
             template: Template data
-            
+
         Returns:
             Created SqlTemplate
         """
@@ -580,16 +613,16 @@ class DataExplorerService:
             # Generate ID
             now = datetime.now()
             template_id = int(now.timestamp() * 1000)
-            
+
             # Ensure table exists
             self._ensure_templates_table()
-            
+
             # Insert template
             query = """
             INSERT INTO user_sql_templates (id, user_id, name, description, sql, category, created_at, updated_at)
             VALUES (%(id)s, %(user_id)s, %(name)s, %(description)s, %(sql)s, %(category)s, %(created_at)s, %(updated_at)s)
             """
-            
+
             params = {
                 "id": template_id,
                 "user_id": user_id,
@@ -598,11 +631,11 @@ class DataExplorerService:
                 "sql": template.sql,
                 "category": template.category or "",
                 "created_at": now,
-                "updated_at": now
+                "updated_at": now,
             }
-            
+
             db_client.execute_query(query, params)
-            
+
             return SqlTemplate(
                 id=template_id,
                 name=template.name,
@@ -611,19 +644,19 @@ class DataExplorerService:
                 category=template.category,
                 user_id=user_id,
                 created_at=now,
-                updated_at=now
+                updated_at=now,
             )
         except Exception as e:
             self.logger.error(f"Failed to create template: {e}")
-            raise ValueError(f"创建模板失败: {str(e)}")
-    
+            raise ValueError(f"创建模板失败: {e!s}")
+
     def delete_template(self, user_id: str, template_id: int) -> bool:
         """Delete a SQL template.
-        
+
         Args:
             user_id: User ID (for authorization)
             template_id: Template ID to delete
-            
+
         Returns:
             True if deleted, False if not found or not authorized
         """
@@ -634,28 +667,32 @@ class DataExplorerService:
             WHERE id = %(id)s AND user_id = %(user_id)s
             LIMIT 1
             """
-            result = db_client.execute_query(check_query, {"id": template_id, "user_id": user_id})
-            
+            result = db_client.execute_query(
+                check_query, {"id": template_id, "user_id": user_id}
+            )
+
             if result.empty:
                 return False
-            
+
             # Delete (use ALTER TABLE DELETE for ClickHouse)
             delete_query = """
             ALTER TABLE user_sql_templates DELETE WHERE id = %(id)s AND user_id = %(user_id)s
             """
-            db_client.execute_query(delete_query, {"id": template_id, "user_id": user_id})
-            
+            db_client.execute_query(
+                delete_query, {"id": template_id, "user_id": user_id}
+            )
+
             return True
         except Exception as e:
             self.logger.error(f"Failed to delete template: {e}")
             return False
-    
+
     def _ensure_templates_table(self):
         """Ensure the user_sql_templates table exists."""
         try:
             if db_client.table_exists("user_sql_templates"):
                 return
-            
+
             create_sql = """
             CREATE TABLE IF NOT EXISTS user_sql_templates (
                 id UInt64,
@@ -669,7 +706,7 @@ class DataExplorerService:
             ) ENGINE = ReplacingMergeTree(updated_at)
             ORDER BY (user_id, id)
             """
-            
+
             db_client.execute_query(create_sql)
             self.logger.info("Created user_sql_templates table")
         except Exception as e:

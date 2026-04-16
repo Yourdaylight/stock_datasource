@@ -4,14 +4,14 @@ Note: ODS/DIM/FACT table schemas are now defined in plugins and loaded dynamical
 This file only contains metadata table schemas for system operations.
 """
 
-from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
-from datetime import date, datetime
 from enum import Enum
+
+from pydantic import BaseModel
 
 
 class TableType(str, Enum):
     """Table types."""
+
     ODS = "ods"  # Operational Data Store
     DIM = "dim"  # Dimension table
     FACT = "fact"  # Fact table
@@ -21,23 +21,25 @@ class TableType(str, Enum):
 
 class ColumnDefinition(BaseModel):
     """Column definition for dynamic schema."""
+
     name: str
     data_type: str
     nullable: bool = True
-    default_value: Optional[str] = None
-    comment: Optional[str] = None
+    default_value: str | None = None
+    comment: str | None = None
 
 
 class TableSchema(BaseModel):
     """Table schema definition."""
+
     table_name: str
     table_type: TableType
-    columns: List[ColumnDefinition]
-    partition_by: Optional[str] = None
-    order_by: List[str]
+    columns: list[ColumnDefinition]
+    partition_by: str | None = None
+    order_by: list[str]
     engine: str = "ReplacingMergeTree"
-    engine_params: Optional[List[str]] = None
-    comment: Optional[str] = None
+    engine_params: list[str] | None = None
+    comment: str | None = None
 
 
 # Metadata Schemas (System tables)
@@ -53,14 +55,21 @@ META_INGESTION_LOG_SCHEMA = TableSchema(
         ColumnDefinition(name="end_time", data_type="DateTime", nullable=True),
         ColumnDefinition(name="status", data_type="String", nullable=False),
         ColumnDefinition(name="records_processed", data_type="UInt64", nullable=True),
-        ColumnDefinition(name="error_message", data_type="Nullable(String)", nullable=True),
-        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(
+            name="error_message", data_type="Nullable(String)", nullable=True
+        ),
+        ColumnDefinition(
+            name="created_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
     ],
     partition_by="toYYYYMM(created_at)",
     order_by=["created_at", "task_id"],
     engine="MergeTree",
     engine_params=None,
-    comment="Ingestion execution log"
+    comment="Ingestion execution log",
 )
 
 
@@ -74,15 +83,24 @@ META_FAILED_TASK_SCHEMA = TableSchema(
         ColumnDefinition(name="table_name", data_type="String", nullable=False),
         ColumnDefinition(name="failed_at", data_type="DateTime", nullable=False),
         ColumnDefinition(name="error_message", data_type="String", nullable=False),
-        ColumnDefinition(name="retry_count", data_type="UInt8", nullable=False, default_value="0"),
-        ColumnDefinition(name="max_retries", data_type="UInt8", nullable=False, default_value="3"),
-        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(
+            name="retry_count", data_type="UInt8", nullable=False, default_value="0"
+        ),
+        ColumnDefinition(
+            name="max_retries", data_type="UInt8", nullable=False, default_value="3"
+        ),
+        ColumnDefinition(
+            name="created_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
     ],
     partition_by="toYYYYMM(failed_at)",
     order_by=["failed_at", "task_id"],
     engine="MergeTree",
     engine_params=None,
-    comment="Failed task records for retry management"
+    comment="Failed task records for retry management",
 )
 
 
@@ -95,17 +113,28 @@ META_QUALITY_CHECK_SCHEMA = TableSchema(
         ColumnDefinition(name="table_name", data_type="String", nullable=False),
         ColumnDefinition(name="check_date", data_type="Date", nullable=False),
         ColumnDefinition(name="check_result", data_type="String", nullable=False),
-        ColumnDefinition(name="expected_value", data_type="Nullable(String)", nullable=True),
-        ColumnDefinition(name="actual_value", data_type="Nullable(String)", nullable=True),
+        ColumnDefinition(
+            name="expected_value", data_type="Nullable(String)", nullable=True
+        ),
+        ColumnDefinition(
+            name="actual_value", data_type="Nullable(String)", nullable=True
+        ),
         ColumnDefinition(name="status", data_type="String", nullable=False),
-        ColumnDefinition(name="error_details", data_type="Nullable(String)", nullable=True),
-        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(
+            name="error_details", data_type="Nullable(String)", nullable=True
+        ),
+        ColumnDefinition(
+            name="created_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
     ],
     partition_by="toYYYYMM(check_date)",
     order_by=["check_date", "check_name"],
     engine="MergeTree",
     engine_params=None,
-    comment="Data quality check results"
+    comment="Data quality check results",
 )
 
 
@@ -118,17 +147,31 @@ META_SCHEMA_CATALOG_SCHEMA = TableSchema(
         ColumnDefinition(name="column_name", data_type="String", nullable=False),
         ColumnDefinition(name="data_type", data_type="String", nullable=False),
         ColumnDefinition(name="nullable", data_type="Bool", nullable=False),
-        ColumnDefinition(name="default_value", data_type="Nullable(String)", nullable=True),
+        ColumnDefinition(
+            name="default_value", data_type="Nullable(String)", nullable=True
+        ),
         ColumnDefinition(name="comment", data_type="Nullable(String)", nullable=True),
-        ColumnDefinition(name="is_active", data_type="Bool", nullable=False, default_value="true"),
-        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
-        ColumnDefinition(name="updated_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(
+            name="is_active", data_type="Bool", nullable=False, default_value="true"
+        ),
+        ColumnDefinition(
+            name="created_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
+        ColumnDefinition(
+            name="updated_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
     ],
     partition_by="toYYYYMM(created_at)",
     order_by=["table_name", "column_name"],
     engine="MergeTree",
     engine_params=None,
-    comment="Schema catalog for dynamic table management"
+    comment="Schema catalog for dynamic table management",
 )
 
 
@@ -142,26 +185,48 @@ FACT_DAILY_BAR_SCHEMA = TableSchema(
     table_name="fact_daily_bar",
     table_type=TableType.FACT,
     columns=[
-        ColumnDefinition(name="ts_code", data_type="LowCardinality(String)", nullable=False),
+        ColumnDefinition(
+            name="ts_code", data_type="LowCardinality(String)", nullable=False
+        ),
         ColumnDefinition(name="trade_date", data_type="Date", nullable=False),
-
         ColumnDefinition(name="open", data_type="Nullable(Float64)", nullable=True),
         ColumnDefinition(name="high", data_type="Nullable(Float64)", nullable=True),
         ColumnDefinition(name="low", data_type="Nullable(Float64)", nullable=True),
         ColumnDefinition(name="close", data_type="Nullable(Float64)", nullable=True),
-        ColumnDefinition(name="pre_close", data_type="Nullable(Float64)", nullable=True),
+        ColumnDefinition(
+            name="pre_close", data_type="Nullable(Float64)", nullable=True
+        ),
         ColumnDefinition(name="change", data_type="Nullable(Float64)", nullable=True),
         ColumnDefinition(name="pct_chg", data_type="Nullable(Float64)", nullable=True),
-
         ColumnDefinition(name="vol", data_type="Nullable(Float64)", nullable=True),
         ColumnDefinition(name="amount", data_type="Nullable(Float64)", nullable=True),
-
-        ColumnDefinition(name="adj_factor", data_type="Nullable(Float64)", nullable=True),
-
-        ColumnDefinition(name="version", data_type="UInt32", nullable=False, default_value="toUInt32(toUnixTimestamp(now()))"),
-        ColumnDefinition(name="_ingested_at", data_type="DateTime", nullable=False, default_value="now()"),
-        ColumnDefinition(name="created_at", data_type="DateTime", nullable=False, default_value="now()"),
-        ColumnDefinition(name="updated_at", data_type="DateTime", nullable=False, default_value="now()"),
+        ColumnDefinition(
+            name="adj_factor", data_type="Nullable(Float64)", nullable=True
+        ),
+        ColumnDefinition(
+            name="version",
+            data_type="UInt32",
+            nullable=False,
+            default_value="toUInt32(toUnixTimestamp(now()))",
+        ),
+        ColumnDefinition(
+            name="_ingested_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
+        ColumnDefinition(
+            name="created_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
+        ColumnDefinition(
+            name="updated_at",
+            data_type="DateTime",
+            nullable=False,
+            default_value="now()",
+        ),
     ],
     partition_by="toYYYYMM(trade_date)",
     order_by=["ts_code", "trade_date"],

@@ -1,9 +1,9 @@
 """Memory module router."""
 
-from fastapi import APIRouter, Query
-from typing import List, Optional
-from pydantic import BaseModel
 import logging
+
+from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ router = APIRouter()
 class UserPreference(BaseModel):
     risk_level: str = "moderate"
     investment_style: str = "balanced"
-    favorite_sectors: List[str] = []
+    favorite_sectors: list[str] = []
 
 
 class WatchlistItem(BaseModel):
@@ -36,15 +36,15 @@ class InteractionHistory(BaseModel):
     id: str
     intent: str
     user_input: str
-    stocks_mentioned: List[str] = []
+    stocks_mentioned: list[str] = []
     timestamp: str
 
 
 class UserProfile(BaseModel):
     active_level: str = "medium"
     expertise_level: str = "intermediate"
-    focus_industries: List[str] = []
-    focus_stocks: List[str] = []
+    focus_industries: list[str] = []
+    focus_stocks: list[str] = []
     trading_style: str = "balanced"
 
 
@@ -60,12 +60,22 @@ async def update_preference(data: UserPreference):
     return {"success": True}
 
 
-@router.get("/watchlist", response_model=List[WatchlistItem])
-async def get_watchlist(group: Optional[str] = None):
+@router.get("/watchlist", response_model=list[WatchlistItem])
+async def get_watchlist(group: str | None = None):
     """Get user watchlist."""
     return [
-        WatchlistItem(ts_code="600519.SH", stock_name="贵州茅台", group_name="default", created_at="2024-01-01"),
-        WatchlistItem(ts_code="000858.SZ", stock_name="五粮液", group_name="default", created_at="2024-01-02"),
+        WatchlistItem(
+            ts_code="600519.SH",
+            stock_name="贵州茅台",
+            group_name="default",
+            created_at="2024-01-01",
+        ),
+        WatchlistItem(
+            ts_code="000858.SZ",
+            stock_name="五粮液",
+            group_name="default",
+            created_at="2024-01-02",
+        ),
     ]
 
 
@@ -81,7 +91,7 @@ async def remove_from_watchlist(ts_code: str):
     return {"success": True}
 
 
-@router.get("/history", response_model=List[InteractionHistory])
+@router.get("/history", response_model=list[InteractionHistory])
 async def get_history(limit: int = Query(default=20)):
     """Get interaction history."""
     return []
@@ -91,6 +101,5 @@ async def get_history(limit: int = Query(default=20)):
 async def get_profile():
     """Get user profile."""
     return UserProfile(
-        focus_industries=["科技", "消费"],
-        focus_stocks=["600519.SH", "000858.SZ"]
+        focus_industries=["科技", "消费"], focus_stocks=["600519.SH", "000858.SZ"]
     )

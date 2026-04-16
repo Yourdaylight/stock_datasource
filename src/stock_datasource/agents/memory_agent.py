@@ -5,10 +5,10 @@ preferences and watchlists are properly isolated by ``user_id``.
 The old module-level ``_memory_store`` is removed.
 """
 
-from typing import Any, Dict, List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,10 @@ _current_user_id: str = "default"
 
 
 def _svc():
-    from stock_datasource.services.session_memory_service import get_session_memory_service
+    from stock_datasource.services.session_memory_service import (
+        get_session_memory_service,
+    )
+
     return get_session_memory_service()
 
 
@@ -126,6 +129,7 @@ def get_memory_summary() -> str:
 # Agent class
 # ---------------------------------------------------------------------------
 
+
 class MemoryAgent(LangGraphAgent):
     """Memory Agent – manages user preferences and watchlists.
 
@@ -140,8 +144,13 @@ class MemoryAgent(LangGraphAgent):
         )
         super().__init__(config)
 
-    def get_tools(self) -> List[Callable]:
-        return [save_user_preference, get_user_preference, manage_watchlist, get_memory_summary]
+    def get_tools(self) -> list[Callable]:
+        return [
+            save_user_preference,
+            get_user_preference,
+            manage_watchlist,
+            get_memory_summary,
+        ]
 
     def get_system_prompt(self) -> str:
         return """你是用户记忆管理助手，帮助用户管理投资偏好和自选股。

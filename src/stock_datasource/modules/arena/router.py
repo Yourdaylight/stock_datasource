@@ -4,36 +4,31 @@ Arena API Router
 FastAPI routes for the Multi-Agent Strategy Arena system.
 """
 
-import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 # Use absolute imports to avoid circular import issues
 from stock_datasource.arena import (
     ArenaConfig,
-    ArenaAgentConfig,
-    DiscussionConfig,
     CompetitionConfig,
-    EvaluationConfig,
-    ArenaState,
+    DiscussionConfig,
     DiscussionMode,
     EvaluationPeriod,
 )
 from stock_datasource.arena.arena_manager import (
     create_arena,
+    delete_arena,
     get_arena,
     list_arenas,
-    delete_arena,
-    MultiAgentArena,
 )
-from stock_datasource.arena.stream_processor import generate_sse_stream
 from stock_datasource.arena.exceptions import ArenaNotFoundError, ArenaStateError
-from stock_datasource.modules.auth.dependencies import get_current_user, get_current_user_optional
+from stock_datasource.arena.stream_processor import generate_sse_stream
+from stock_datasource.modules.auth.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -45,23 +40,26 @@ router = APIRouter(tags=["arena"])
 # Request/Response Models
 # =============================================================================
 
+
 class CreateArenaRequest(BaseModel):
     """Request model for creating an arena."""
+
     name: str = Field(..., description="Arena name")
     description: str = Field(default="", description="Arena description")
     agent_count: int = Field(default=5, ge=3, le=10, description="Number of agents")
-    symbols: List[str] = Field(default_factory=list, description="Stock symbols")
-    
+    symbols: list[str] = Field(default_factory=list, description="Stock symbols")
+
     # Optional detailed configs
     discussion_max_rounds: int = Field(default=3, ge=1, le=10)
     initial_capital: float = Field(default=100000.0, ge=10000)
-    backtest_start_date: Optional[str] = Field(default=None)
-    backtest_end_date: Optional[str] = Field(default=None)
+    backtest_start_date: str | None = Field(default=None)
+    backtest_end_date: str | None = Field(default=None)
     simulated_duration_days: int = Field(default=30, ge=1, le=365)
 
 
 class ArenaResponse(BaseModel):
     """Response model for arena operations."""
+
     id: str
     name: str
     state: str
@@ -69,14 +67,15 @@ class ArenaResponse(BaseModel):
     total_strategies: int
     eliminated_strategies: int
     discussion_rounds: int
-    last_evaluation: Optional[str]
+    last_evaluation: str | None
     duration_seconds: float
     error_count: int
-    last_error: Optional[str]
+    last_error: str | None
 
 
 class StrategyResponse(BaseModel):
     """Response model for strategy."""
+
     id: str
     name: str
     description: str
@@ -90,6 +89,7 @@ class StrategyResponse(BaseModel):
 
 class LeaderboardEntry(BaseModel):
     """Response model for leaderboard entry."""
+
     rank: int
     strategy_id: str
     name: str
@@ -101,17 +101,20 @@ class LeaderboardEntry(BaseModel):
 
 class TriggerEvaluationRequest(BaseModel):
     """Request model for triggering evaluation."""
+
     period: str = Field(default="daily", description="daily/weekly/monthly")
 
 
 class TriggerDiscussionRequest(BaseModel):
     """Request model for triggering discussion."""
+
     mode: str = Field(default="debate", description="debate/collaboration/review")
 
 
 # =============================================================================
 # Arena Management Routes
 # =============================================================================
+
 
 @router.post("/create", response_model=ArenaResponse)
 async def create_arena_endpoint(
@@ -120,7 +123,7 @@ async def create_arena_endpoint(
     current_user: dict = Depends(get_current_user),
 ):
     """Create a new multi-agent arena.
-    
+
     Creates an arena with the specified configuration and initializes
     all agents. The arena will be ready to start after creation.
     Requires authentication - arena will be owned by the current user.
@@ -142,15 +145,15 @@ async def create_arena_endpoint(
                 simulated_duration_days=request.simulated_duration_days,
             ),
         )
-        
+
         # Create arena with user_id for data isolation
         arena = create_arena(config, user_id=current_user["id"])
-        
+
         # Initialize in background
         background_tasks.add_task(arena.initialize)
-        
+
         return ArenaResponse(**arena.get_status())
-        
+
     except Exception as e:
         logger.error(f"Failed to create arena: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -162,14 +165,18 @@ async def get_arena_status(
     current_user: dict = Depends(get_current_user),
 ):
     """Get arena status.
-    
+
     Returns current state, strategy counts, and evaluation info.
     Only returns arenas owned by the current user.
     """
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         return ArenaResponse(**arena.get_status())
     except ArenaNotFoundError:
@@ -186,7 +193,7 @@ async def start_arena(
     current_user: dict = Depends(get_current_user),
 ):
     """Start arena competition.
-    
+
     Begins the competition process in the background.
     Use the thinking-stream endpoint to monitor progress.
     Only arena owner can start it.
@@ -194,7 +201,11 @@ async def start_arena(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
         background_tasks.add_task(arena.start)
         return {"status": "started", "arena_id": arena_id}
@@ -218,7 +229,11 @@ async def pause_arena(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
         await arena.pause()
         return {"status": "paused", "arena_id": arena_id}
@@ -243,7 +258,11 @@ async def resume_arena(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
         background_tasks.add_task(arena.resume)
         return {"status": "resumed", "arena_id": arena_id}
@@ -267,7 +286,11 @@ async def delete_arena_endpoint(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权删除此竞技场")
         await arena.stop()
         delete_arena(arena_id)
@@ -281,7 +304,7 @@ async def delete_arena_endpoint(
 
 @router.get("/list")
 async def list_arenas_endpoint(
-    state: Optional[str] = Query(None, description="Filter by state"),
+    state: str | None = Query(None, description="Filter by state"),
     limit: int = Query(50, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
 ):
@@ -290,12 +313,14 @@ async def list_arenas_endpoint(
     """
     try:
         # Filter by user unless admin
-        user_id_filter = None if current_user.get("is_admin", False) else current_user["id"]
+        user_id_filter = (
+            None if current_user.get("is_admin", False) else current_user["id"]
+        )
         arenas = list_arenas(user_id=user_id_filter)
-        
+
         if state:
             arenas = [a for a in arenas if a["state"] == state]
-        
+
         return {
             "total": len(arenas),
             "arenas": arenas[:limit],
@@ -309,14 +334,15 @@ async def list_arenas_endpoint(
 # Thinking Stream Routes
 # =============================================================================
 
+
 @router.get("/{arena_id}/thinking-stream")
 async def thinking_stream(
     arena_id: str,
-    round_id: Optional[str] = Query(None, description="Filter by round"),
+    round_id: str | None = Query(None, description="Filter by round"),
     current_user: dict = Depends(get_current_user),
 ):
     """SSE endpoint for real-time thinking stream.
-    
+
     Returns a Server-Sent Events stream of agent thinking messages.
     Use this to display real-time progress in the UI.
     Only arena owner or admin can access.
@@ -324,9 +350,13 @@ async def thinking_stream(
     try:
         # Verify arena exists and user has access
         arena = get_arena(arena_id)
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
-        
+
         return StreamingResponse(
             generate_sse_stream(arena_id=arena_id, round_id=round_id),
             media_type="text/event-stream",
@@ -353,7 +383,11 @@ async def get_discussions(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         history = arena.get_discussion_history()
         return {
@@ -379,15 +413,21 @@ async def get_discussion_detail(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         history = arena.get_discussion_history()
-        
+
         for discussion in history:
             if discussion["id"] == round_id:
                 return discussion
-        
-        raise HTTPException(status_code=404, detail=f"Discussion round not found: {round_id}")
+
+        raise HTTPException(
+            status_code=404, detail=f"Discussion round not found: {round_id}"
+        )
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
     except Exception as e:
@@ -399,6 +439,7 @@ async def get_discussion_detail(
 # Strategy Routes
 # =============================================================================
 
+
 @router.get("/{arena_id}/strategies")
 async def get_strategies(
     arena_id: str,
@@ -409,7 +450,11 @@ async def get_strategies(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies(active_only=active_only)
         return {
@@ -435,15 +480,21 @@ async def get_strategy_detail(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies()
-        
+
         for strategy in strategies:
             if strategy["id"] == strategy_id:
                 return strategy
-        
-        raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_id}")
+
+        raise HTTPException(
+            status_code=404, detail=f"Strategy not found: {strategy_id}"
+        )
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
     except Exception as e:
@@ -463,7 +514,11 @@ async def get_leaderboard(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         leaderboard = arena.get_leaderboard()
         return {
@@ -481,6 +536,7 @@ async def get_leaderboard(
 # Evaluation Routes
 # =============================================================================
 
+
 @router.post("/{arena_id}/evaluate")
 async def trigger_evaluation(
     arena_id: str,
@@ -489,28 +545,34 @@ async def trigger_evaluation(
     current_user: dict = Depends(get_current_user),
 ):
     """Trigger manual evaluation.
-    
+
     Manually trigger a periodic evaluation (daily/weekly/monthly).
     Only arena owner or admin can trigger evaluation.
     """
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
-        
+
         period_map = {
             "daily": EvaluationPeriod.DAILY,
             "weekly": EvaluationPeriod.WEEKLY,
             "monthly": EvaluationPeriod.MONTHLY,
         }
-        
+
         period = period_map.get(request.period.lower())
         if not period:
-            raise HTTPException(status_code=400, detail=f"Invalid period: {request.period}")
-        
+            raise HTTPException(
+                status_code=400, detail=f"Invalid period: {request.period}"
+            )
+
         background_tasks.add_task(arena._perform_evaluation, period)
-        
+
         return {
             "status": "evaluation_triggered",
             "period": request.period,
@@ -535,10 +597,14 @@ async def get_competition_history(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         arena_dict = arena.to_dict()
-        
+
         return {
             "arena_id": arena_id,
             "state": arena_dict["state"],
@@ -558,6 +624,7 @@ async def get_competition_history(
 # Discussion Control Routes
 # =============================================================================
 
+
 @router.post("/{arena_id}/discussion/start")
 async def start_discussion(
     arena_id: str,
@@ -571,19 +638,23 @@ async def start_discussion(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
-        
+
         mode_map = {
             "debate": DiscussionMode.DEBATE,
             "collaboration": DiscussionMode.COLLABORATION,
             "review": DiscussionMode.REVIEW,
         }
-        
+
         mode = mode_map.get(request.mode.lower())
         if not mode:
             raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}")
-        
+
         # Run discussion in background
         async def run_discussion():
             market_context = await arena._get_market_context()
@@ -592,9 +663,9 @@ async def start_discussion(
                 mode=mode,
                 market_context=market_context,
             )
-        
+
         background_tasks.add_task(run_discussion)
-        
+
         return {
             "status": "discussion_started",
             "mode": request.mode,
@@ -618,21 +689,27 @@ async def get_current_discussion(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         current_round_id = arena.arena.current_round_id
-        
+
         if not current_round_id:
             return {"status": "no_active_discussion"}
-        
+
         history = arena.get_discussion_history()
         for discussion in history:
             if discussion["id"] == current_round_id:
                 return {
-                    "status": "active" if not discussion.get("completed_at") else "completed",
+                    "status": "active"
+                    if not discussion.get("completed_at")
+                    else "completed",
                     "round": discussion,
                 }
-        
+
         return {"status": "unknown", "round_id": current_round_id}
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
@@ -645,14 +722,28 @@ async def get_current_discussion(
 # Human Intervention Routes
 # =============================================================================
 
+
 class InterventionRequest(BaseModel):
     """Request model for human intervention."""
-    action: str = Field(..., description="intervention action: inject_message/adjust_score/eliminate_strategy/add_strategy")
-    target_strategy_id: Optional[str] = Field(default=None, description="Target strategy ID for score adjustment or elimination")
-    message: Optional[str] = Field(default=None, description="Message to inject into discussion")
-    score_adjustment: Optional[float] = Field(default=None, description="Score adjustment value (-50 to +50)")
-    reason: Optional[str] = Field(default=None, description="Reason for intervention")
-    new_strategy_config: Optional[Dict[str, Any]] = Field(default=None, description="Config for new strategy to add")
+
+    action: str = Field(
+        ...,
+        description="intervention action: inject_message/adjust_score/eliminate_strategy/add_strategy",
+    )
+    target_strategy_id: str | None = Field(
+        default=None,
+        description="Target strategy ID for score adjustment or elimination",
+    )
+    message: str | None = Field(
+        default=None, description="Message to inject into discussion"
+    )
+    score_adjustment: float | None = Field(
+        default=None, description="Score adjustment value (-50 to +50)"
+    )
+    reason: str | None = Field(default=None, description="Reason for intervention")
+    new_strategy_config: dict[str, Any] | None = Field(
+        default=None, description="Config for new strategy to add"
+    )
 
 
 @router.post("/{arena_id}/discussion/intervention")
@@ -663,35 +754,43 @@ async def intervention(
     current_user: dict = Depends(get_current_user),
 ):
     """Human intervention in arena discussion.
-    
+
     Allows manual intervention in the arena competition:
     - inject_message: Inject a message into current discussion
     - adjust_score: Manually adjust a strategy's score
     - eliminate_strategy: Force eliminate a strategy
     - add_strategy: Add a new strategy to the arena
-    
+
     Only arena owner or admin can intervene.
     """
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权操作此竞技场")
-        
+
         result = {
             "status": "intervention_applied",
             "action": request.action,
             "arena_id": arena_id,
             "timestamp": datetime.now().isoformat(),
         }
-        
+
         if request.action == "inject_message":
             if not request.message:
-                raise HTTPException(status_code=400, detail="Message is required for inject_message action")
-            
+                raise HTTPException(
+                    status_code=400,
+                    detail="Message is required for inject_message action",
+                )
+
             # Inject message into thinking stream
-            from stock_datasource.arena.stream_processor import ThinkingStreamProcessor
             from stock_datasource.arena.models import MessageType
+            from stock_datasource.arena.stream_processor import ThinkingStreamProcessor
+
             processor = ThinkingStreamProcessor(arena_id)
             await processor.publish(
                 agent_id="human_operator",
@@ -702,59 +801,89 @@ async def intervention(
                 metadata={"reason": request.reason or "Human intervention"},
             )
             result["message"] = "Message injected successfully"
-            
+
         elif request.action == "adjust_score":
             if not request.target_strategy_id:
-                raise HTTPException(status_code=400, detail="target_strategy_id is required for adjust_score action")
+                raise HTTPException(
+                    status_code=400,
+                    detail="target_strategy_id is required for adjust_score action",
+                )
             if request.score_adjustment is None:
-                raise HTTPException(status_code=400, detail="score_adjustment is required for adjust_score action")
+                raise HTTPException(
+                    status_code=400,
+                    detail="score_adjustment is required for adjust_score action",
+                )
             if not -50 <= request.score_adjustment <= 50:
-                raise HTTPException(status_code=400, detail="score_adjustment must be between -50 and +50")
-            
+                raise HTTPException(
+                    status_code=400,
+                    detail="score_adjustment must be between -50 and +50",
+                )
+
             # Find and adjust strategy score
             for strategy in arena.arena.strategies:
                 if strategy.id == request.target_strategy_id:
                     old_score = strategy.current_score
-                    strategy.current_score = max(0, min(100, strategy.current_score + request.score_adjustment))
+                    strategy.current_score = max(
+                        0, min(100, strategy.current_score + request.score_adjustment)
+                    )
                     result["old_score"] = old_score
                     result["new_score"] = strategy.current_score
                     result["strategy_id"] = request.target_strategy_id
                     break
             else:
-                raise HTTPException(status_code=404, detail=f"Strategy not found: {request.target_strategy_id}")
-                
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Strategy not found: {request.target_strategy_id}",
+                )
+
         elif request.action == "eliminate_strategy":
             if not request.target_strategy_id:
-                raise HTTPException(status_code=400, detail="target_strategy_id is required for eliminate_strategy action")
-            
+                raise HTTPException(
+                    status_code=400,
+                    detail="target_strategy_id is required for eliminate_strategy action",
+                )
+
             # Find and eliminate strategy
             for strategy in arena.arena.strategies:
                 if strategy.id == request.target_strategy_id:
                     strategy.is_active = False
-                    arena.arena.eliminated_strategies.append({
-                        "strategy_id": strategy.id,
-                        "strategy_name": strategy.name,
-                        "eliminated_at": datetime.now().isoformat(),
-                        "reason": request.reason or "Human intervention",
-                        "final_score": strategy.current_score,
-                    })
+                    arena.arena.eliminated_strategies.append(
+                        {
+                            "strategy_id": strategy.id,
+                            "strategy_name": strategy.name,
+                            "eliminated_at": datetime.now().isoformat(),
+                            "reason": request.reason or "Human intervention",
+                            "final_score": strategy.current_score,
+                        }
+                    )
                     result["strategy_id"] = request.target_strategy_id
                     result["message"] = f"Strategy {strategy.name} eliminated"
                     break
             else:
-                raise HTTPException(status_code=404, detail=f"Strategy not found: {request.target_strategy_id}")
-                
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Strategy not found: {request.target_strategy_id}",
+                )
+
         elif request.action == "add_strategy":
             if not request.new_strategy_config:
-                raise HTTPException(status_code=400, detail="new_strategy_config is required for add_strategy action")
-            
+                raise HTTPException(
+                    status_code=400,
+                    detail="new_strategy_config is required for add_strategy action",
+                )
+
             # Create new strategy from config
             import uuid
+
             new_strategy_id = f"manual_{uuid.uuid4().hex[:8]}"
             new_strategy = {
                 "id": new_strategy_id,
-                "name": request.new_strategy_config.get("name", f"Manual Strategy {new_strategy_id}"),
-                "description": request.new_strategy_config.get("description", "Manually added strategy"),
+                "name": request.new_strategy_config.get(
+                    "name", f"Manual Strategy {new_strategy_id}"
+                ),
+                "description": request.new_strategy_config.get(
+                    "description", "Manually added strategy"
+                ),
                 "agent_id": "human_operator",
                 "agent_role": "human",
                 "stage": "backtest",
@@ -767,12 +896,14 @@ async def intervention(
             # Note: In real implementation, this would create a proper Strategy object
             result["new_strategy_id"] = new_strategy_id
             result["message"] = f"New strategy {new_strategy_id} added"
-            
+
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
-        
+            raise HTTPException(
+                status_code=400, detail=f"Unknown action: {request.action}"
+            )
+
         return result
-        
+
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
     except HTTPException:
@@ -783,8 +914,9 @@ async def intervention(
 
 
 # =============================================================================
-# Elimination History Routes  
+# Elimination History Routes
 # =============================================================================
+
 
 @router.get("/{arena_id}/elimination-history")
 async def get_elimination_history(
@@ -798,44 +930,52 @@ async def get_elimination_history(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         arena_dict = arena.to_dict()
-        
+
         events = []
-        
+
         # Add elimination events
         for elim in arena_dict.get("eliminated_strategies", []):
-            events.append({
-                "id": f"elim_{elim.get('strategy_id', '')}",
-                "type": "elimination",
-                "timestamp": elim.get("eliminated_at", ""),
-                "period": elim.get("period", "manual"),
-                "strategy_name": elim.get("strategy_name", "Unknown"),
-                "strategy_id": elim.get("strategy_id"),
-                "score": elim.get("final_score"),
-                "reason": elim.get("reason", "Performance below threshold"),
-            })
-        
+            events.append(
+                {
+                    "id": f"elim_{elim.get('strategy_id', '')}",
+                    "type": "elimination",
+                    "timestamp": elim.get("eliminated_at", ""),
+                    "period": elim.get("period", "manual"),
+                    "strategy_name": elim.get("strategy_name", "Unknown"),
+                    "strategy_id": elim.get("strategy_id"),
+                    "score": elim.get("final_score"),
+                    "reason": elim.get("reason", "Performance below threshold"),
+                }
+            )
+
         # Add evaluation events
         for eval_record in arena_dict.get("evaluations", []):
-            events.append({
-                "id": f"eval_{eval_record.get('id', '')}",
-                "type": "evaluation",
-                "timestamp": eval_record.get("completed_at", ""),
-                "period": eval_record.get("period", "daily"),
-                "total_strategies": eval_record.get("total_strategies", 0),
-                "eliminated_count": eval_record.get("eliminated_count", 0),
-            })
-        
+            events.append(
+                {
+                    "id": f"eval_{eval_record.get('id', '')}",
+                    "type": "evaluation",
+                    "timestamp": eval_record.get("completed_at", ""),
+                    "period": eval_record.get("period", "daily"),
+                    "total_strategies": eval_record.get("total_strategies", 0),
+                    "eliminated_count": eval_record.get("eliminated_count", 0),
+                }
+            )
+
         # Sort by timestamp descending
         events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        
+
         return {
             "total": len(events),
             "events": events[:limit],
         }
-        
+
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
     except Exception as e:
@@ -855,10 +995,14 @@ async def get_strategy_score_breakdown(
     try:
         arena = get_arena(arena_id)
         # Check user ownership
-        if arena.user_id and arena.user_id != current_user["id"] and not current_user.get("is_admin", False):
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
             raise HTTPException(status_code=403, detail="无权访问此竞技场")
         strategies = arena.get_strategies()
-        
+
         for strategy in strategies:
             if strategy["id"] == strategy_id:
                 # Mock score breakdown - in real implementation, this would come from evaluation records
@@ -879,9 +1023,11 @@ async def get_strategy_score_breakdown(
                         "adaptability": 0.20,
                     },
                 }
-        
-        raise HTTPException(status_code=404, detail=f"Strategy not found: {strategy_id}")
-        
+
+        raise HTTPException(
+            status_code=404, detail=f"Strategy not found: {strategy_id}"
+        )
+
     except ArenaNotFoundError:
         raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
     except Exception as e:

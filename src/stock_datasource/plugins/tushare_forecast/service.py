@@ -1,7 +1,7 @@
 """Tushare 业绩预告查询服务"""
 
-from typing import Optional, List, Dict, Any
 from datetime import date
+from typing import Any
 
 from stock_datasource.core.base_service import BaseService
 
@@ -15,13 +15,13 @@ class TuShareForecastService(BaseService):
 
     def get_forecast(
         self,
-        ts_code: Optional[str] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-        period: Optional[str] = None,
-        type: Optional[str] = None,
+        ts_code: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        period: str | None = None,
+        type: str | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取业绩预告数据
 
@@ -87,7 +87,7 @@ class TuShareForecastService(BaseService):
     def get_latest_forecast(
         self,
         ts_code: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         获取股票最新业绩预告
 
@@ -124,10 +124,10 @@ class TuShareForecastService(BaseService):
     def get_forecast_by_type(
         self,
         type: str,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         按预告类型获取业绩预告
 
@@ -177,7 +177,7 @@ class TuShareForecastService(BaseService):
     def get_forecast_statistics(
         self,
         period: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         获取报告期业绩预告统计
 
@@ -188,7 +188,7 @@ class TuShareForecastService(BaseService):
             统计数据
         """
         period_date = f"{period[:4]}-{period[4:6]}-{period[6:]}"
-        
+
         query = f"""
             SELECT
                 type,
@@ -203,7 +203,7 @@ class TuShareForecastService(BaseService):
         params = {"period_date": period_date}
 
         results = self._execute_query(query, params)
-        
+
         return {
             "period": period,
             "statistics": results,

@@ -6,7 +6,6 @@ Core constraint: ONLY reads from ClickHouse local data. NEVER calls remote plugi
 import logging
 import time
 from datetime import datetime
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -14,7 +13,7 @@ import pandas as pd
 from stock_datasource.models.database import db_client
 
 from .data_readiness import get_data_readiness_checker
-from .schemas import DataReadinessResult, RPSRankItem, RPSResult
+from .schemas import RPSRankItem, RPSResult
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class RPSCalculator:
         self.readiness_checker = get_data_readiness_checker()
 
     async def calculate_rps(
-        self, calc_date: Optional[str] = None, periods: list[int] = None
+        self, calc_date: str | None = None, periods: list[int] = None
     ) -> RPSResult:
         """Calculate RPS for the full market.
 
@@ -64,10 +63,10 @@ class RPSCalculator:
                     continue
 
                 close_prices = pd.to_numeric(stock_data["close"], errors="coerce")
-                adj_factors = pd.to_numeric(
-                    stock_data["adj_factor"], errors="coerce"
-                ) if "adj_factor" in stock_data.columns else pd.Series(
-                    [1.0] * len(stock_data)
+                adj_factors = (
+                    pd.to_numeric(stock_data["adj_factor"], errors="coerce")
+                    if "adj_factor" in stock_data.columns
+                    else pd.Series([1.0] * len(stock_data))
                 )
 
                 # Adjusted close
@@ -79,7 +78,9 @@ class RPSCalculator:
                     if len(adj_close) >= period:
                         old_price = adj_close.iloc[-period]
                         if old_price > 0:
-                            changes[period] = ((latest_price - old_price) / old_price) * 100
+                            changes[period] = (
+                                (latest_price - old_price) / old_price
+                            ) * 100
                         else:
                             changes[period] = 0.0
                     else:
@@ -206,7 +207,7 @@ class RPSCalculator:
 
 
 # Singleton
-_rps_calculator: Optional[RPSCalculator] = None
+_rps_calculator: RPSCalculator | None = None
 
 
 def get_rps_calculator() -> RPSCalculator:

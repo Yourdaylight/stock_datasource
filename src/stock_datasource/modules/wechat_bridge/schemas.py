@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class PicoclawStatus(BaseModel):
     """Picoclaw process status."""
+
     installed: bool = False
     version: str | None = None
     running: bool = False
@@ -19,6 +20,7 @@ class PicoclawStatus(BaseModel):
 
 class WechatLoginStatus(BaseModel):
     """WeChat login status via picoclaw."""
+
     logged_in: bool = False
     nickname: str | None = None
     login_qr_code: str | None = None  # base64 encoded QR image or URL
@@ -26,6 +28,7 @@ class WechatLoginStatus(BaseModel):
 
 class PicoclawConfig(BaseModel):
     """Picoclaw configuration preview."""
+
     llm_model: str = ""
     llm_base_url: str = ""
     mcp_server_url: str = ""
@@ -37,6 +40,7 @@ class PicoclawConfig(BaseModel):
 
 class StartRequest(BaseModel):
     """Request to start picoclaw bridge."""
+
     mcp_token: str | None = None
     symbols: str | None = None  # comma-separated stock symbols
     no_rt: bool = False
@@ -45,6 +49,7 @@ class StartRequest(BaseModel):
 
 class ActionResponse(BaseModel):
     """Generic action response."""
+
     success: bool
     message: str
     pid: int | None = None

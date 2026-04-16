@@ -7,7 +7,7 @@ All ClickHouse queries use parameterized SQL.
 import logging
 import math
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import config as cfg
 from .cache_store import get_cache_store
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _get_db():
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
@@ -27,7 +28,9 @@ def _safe(v):
     return v
 
 
-def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _execute_query(
+    query: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     db = _get_db()
     try:
         df = db.execute_query(query, params or {})
@@ -68,10 +71,10 @@ class RealtimeMinuteService:
         self,
         ts_code: str,
         freq: str = "1min",
-        date: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        date: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
         """Get minute bars for a single code."""
         market = _detect_market(ts_code)
         bars = self._cache.get_bars(market, ts_code, freq, date, start_time, end_time)
@@ -89,12 +92,12 @@ class RealtimeMinuteService:
 
     def get_batch_minute_data(
         self,
-        ts_codes: List[str],
+        ts_codes: list[str],
         freq: str = "1min",
-        date: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        date: str | None = None,
+    ) -> dict[str, Any]:
         """Batch query minute data for multiple codes."""
-        result: Dict[str, List] = {}
+        result: dict[str, list] = {}
         total_bars = 0
         for code in ts_codes:
             resp = self.get_minute_data(code, freq, date)
@@ -111,12 +114,12 @@ class RealtimeMinuteService:
         self,
         ts_code: str,
         freq: str = "1min",
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get the latest minute bar for a code."""
         market = _detect_market(ts_code)
         return self._cache.get_latest(market, ts_code, freq)
 
-    def get_collect_status(self) -> Dict[str, Any]:
+    def get_collect_status(self) -> dict[str, Any]:
         """Get collection status from SQLite cache."""
         status = self._cache.get_status()
         key_count = self._cache.get_cached_key_count()
@@ -141,9 +144,9 @@ class RealtimeMinuteService:
         sort_key: str,
         ascending: bool = False,
         freq: str = "1min",
-        market: Optional[str] = None,
+        market: str | None = None,
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get ranked items by sort_key from latest snapshots."""
         items = self._cache.get_all_latest(market=market, freq=freq)
         # Compute pct_chg if needed
@@ -162,50 +165,70 @@ class RealtimeMinuteService:
         )
         return items[:limit]
 
-    def get_top_gainers(self, freq: str = "1min", market: Optional[str] = None, limit: int = 20):
+    def get_top_gainers(
+        self, freq: str = "1min", market: str | None = None, limit: int = 20
+    ):
         return {
             "rank_type": "gainers",
             "freq": freq,
             "count": 0,
-            "data": self._rank("pct_chg", ascending=False, freq=freq, market=market, limit=limit),
+            "data": self._rank(
+                "pct_chg", ascending=False, freq=freq, market=market, limit=limit
+            ),
         }
 
-    def get_top_losers(self, freq: str = "1min", market: Optional[str] = None, limit: int = 20):
+    def get_top_losers(
+        self, freq: str = "1min", market: str | None = None, limit: int = 20
+    ):
         return {
             "rank_type": "losers",
             "freq": freq,
             "count": 0,
-            "data": self._rank("pct_chg", ascending=True, freq=freq, market=market, limit=limit),
+            "data": self._rank(
+                "pct_chg", ascending=True, freq=freq, market=market, limit=limit
+            ),
         }
 
-    def get_top_volume(self, freq: str = "1min", market: Optional[str] = None, limit: int = 20):
+    def get_top_volume(
+        self, freq: str = "1min", market: str | None = None, limit: int = 20
+    ):
         return {
             "rank_type": "volume",
             "freq": freq,
             "count": 0,
-            "data": self._rank("vol", ascending=False, freq=freq, market=market, limit=limit),
+            "data": self._rank(
+                "vol", ascending=False, freq=freq, market=market, limit=limit
+            ),
         }
 
-    def get_top_amount(self, freq: str = "1min", market: Optional[str] = None, limit: int = 20):
+    def get_top_amount(
+        self, freq: str = "1min", market: str | None = None, limit: int = 20
+    ):
         return {
             "rank_type": "amount",
             "freq": freq,
             "count": 0,
-            "data": self._rank("amount", ascending=False, freq=freq, market=market, limit=limit),
+            "data": self._rank(
+                "amount", ascending=False, freq=freq, market=market, limit=limit
+            ),
         }
 
     # ------------------------------------------------------------------
     # Market overview
     # ------------------------------------------------------------------
 
-    def get_market_overview(self, freq: str = "1min") -> Dict[str, Any]:
+    def get_market_overview(self, freq: str = "1min") -> dict[str, Any]:
         """Compute overview stats from latest snapshots."""
         items = self._cache.get_all_latest(freq=freq)
         if not items:
             return {
-                "freq": freq, "total": 0, "up_count": 0,
-                "down_count": 0, "flat_count": 0,
-                "total_vol": None, "total_amount": None,
+                "freq": freq,
+                "total": 0,
+                "up_count": 0,
+                "down_count": 0,
+                "flat_count": 0,
+                "total_vol": None,
+                "total_amount": None,
                 "avg_pct_chg": None,
             }
 
@@ -243,11 +266,11 @@ class RealtimeMinuteService:
             "avg_pct_chg": round(pct_sum / total, 2) if total else None,
         }
 
-    def get_market_stats(self) -> Dict[str, Any]:
+    def get_market_stats(self) -> dict[str, Any]:
         """Extended market stats with limit-up / limit-down and per-market breakdown."""
         items = self._cache.get_all_latest(freq="1min")
         up = down = flat = limit_up = limit_down = 0
-        markets: Dict[str, Dict[str, int]] = {}
+        markets: dict[str, dict[str, int]] = {}
 
         for item in items:
             o = item.get("open")
@@ -296,22 +319,24 @@ class RealtimeMinuteService:
         self,
         ts_code: str,
         freq: str = "1min",
-        date: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        date: str | None = None,
+    ) -> dict[str, Any]:
         """Return K-line formatted data compatible with frontend charting."""
         resp = self.get_minute_data(ts_code, freq, date)
         bars = resp.get("data", [])
         klines = []
         for b in bars:
-            klines.append({
-                "time": b.get("trade_time"),
-                "open": b.get("open"),
-                "close": b.get("close"),
-                "high": b.get("high"),
-                "low": b.get("low"),
-                "volume": b.get("vol"),
-                "amount": b.get("amount"),
-            })
+            klines.append(
+                {
+                    "time": b.get("trade_time"),
+                    "open": b.get("open"),
+                    "close": b.get("close"),
+                    "high": b.get("high"),
+                    "low": b.get("low"),
+                    "volume": b.get("vol"),
+                    "amount": b.get("amount"),
+                }
+            )
         return {
             "ts_code": ts_code,
             "freq": freq,
@@ -327,16 +352,16 @@ class RealtimeMinuteService:
         self,
         ts_code: str,
         freq: str = "1min",
-        date: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        date: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Fallback query from ClickHouse using parameterized SQL."""
         market = _detect_market(ts_code)
         table = cfg.get_table_for_market(market)
 
         conditions = ["ts_code = %(ts_code)s", "freq = %(freq)s"]
-        params: Dict[str, Any] = {"ts_code": ts_code, "freq": freq}
+        params: dict[str, Any] = {"ts_code": ts_code, "freq": freq}
 
         if date:
             conditions.append("toDate(trade_time) = %(trade_date)s")
@@ -369,7 +394,7 @@ class RealtimeMinuteService:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_service: Optional[RealtimeMinuteService] = None
+_service: RealtimeMinuteService | None = None
 
 
 def get_realtime_minute_service() -> RealtimeMinuteService:

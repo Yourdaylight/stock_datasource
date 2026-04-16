@@ -1,20 +1,19 @@
 """Authentication API routes."""
 
-from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from .dependencies import get_current_user
 from .schemas import (
-    UserRegisterRequest,
-    UserLoginRequest,
-    TokenResponse,
-    UserResponse,
+    MessageResponse,
     RegisterResponse,
+    TokenResponse,
+    UserLoginRequest,
+    UserRegisterRequest,
+    UserResponse,
     WhitelistEmailRequest,
     WhitelistEmailResponse,
-    MessageResponse,
 )
 from .service import AuthService, get_auth_service
-from .dependencies import get_current_user
 
 router = APIRouter()
 
@@ -26,7 +25,7 @@ async def register(
 ):
     """
     用户注册接口。
-    
+
     - 默认不启用邮箱白名单校验；当开启开关时，邮箱必须在白名单中才能注册
     - 密码至少6位
     - 用户名可选，默认使用邮箱前缀
@@ -36,13 +35,13 @@ async def register(
         password=request.password,
         username=request.username,
     )
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         )
-    
+
     return RegisterResponse(
         success=True,
         message=message,
@@ -64,7 +63,7 @@ async def login(
 ):
     """
     用户登录接口。
-    
+
     - 使用邮箱和密码登录
     - 返回 JWT Token，有效期 7 天
     """
@@ -72,13 +71,13 @@ async def login(
         email=request.email,
         password=request.password,
     )
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=message,
         )
-    
+
     return TokenResponse(
         access_token=token_info["access_token"],
         token_type=token_info["token_type"],
@@ -92,7 +91,7 @@ async def get_me(
 ):
     """
     获取当前登录用户的信息。
-    
+
     需要在请求头中携带 Authorization: Bearer <token>
     """
     return UserResponse(
@@ -111,7 +110,7 @@ async def logout(
 ):
     """
     退出登录。
-    
+
     由于使用 JWT，服务端无需处理，前端清除本地 Token 即可。
     """
     return MessageResponse(
@@ -120,7 +119,9 @@ async def logout(
     )
 
 
-@router.get("/whitelist", response_model=List[WhitelistEmailResponse], summary="获取邮箱白名单")
+@router.get(
+    "/whitelist", response_model=list[WhitelistEmailResponse], summary="获取邮箱白名单"
+)
 async def get_whitelist(
     limit: int = 100,
     offset: int = 0,
@@ -129,11 +130,11 @@ async def get_whitelist(
 ):
     """
     获取邮箱白名单列表。
-    
+
     需要登录认证。
     """
     entries = auth_service.get_whitelist(limit=limit, offset=offset)
-    
+
     return [
         WhitelistEmailResponse(
             id=entry["id"],
@@ -146,7 +147,9 @@ async def get_whitelist(
     ]
 
 
-@router.post("/whitelist", response_model=WhitelistEmailResponse, summary="添加邮箱到白名单")
+@router.post(
+    "/whitelist", response_model=WhitelistEmailResponse, summary="添加邮箱到白名单"
+)
 async def add_to_whitelist(
     request: WhitelistEmailRequest,
     current_user: dict = Depends(get_current_user),
@@ -154,20 +157,20 @@ async def add_to_whitelist(
 ):
     """
     添加邮箱到白名单。
-    
+
     需要登录认证。
     """
     success, message, entry = auth_service.add_email_to_whitelist(
         email=request.email,
         added_by=current_user["email"],
     )
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         )
-    
+
     return WhitelistEmailResponse(
         id=entry["id"],
         email=entry["email"],

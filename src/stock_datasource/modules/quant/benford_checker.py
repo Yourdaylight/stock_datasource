@@ -6,21 +6,26 @@ Used as a soft screening condition (flag, not hard reject).
 
 import logging
 import math
-from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 # Benford's expected distribution for digits 1-9
 BENFORD_EXPECTED = {
-    1: 0.301, 2: 0.176, 3: 0.125, 4: 0.097,
-    5: 0.079, 6: 0.067, 7: 0.058, 8: 0.051, 9: 0.046,
+    1: 0.301,
+    2: 0.176,
+    3: 0.125,
+    4: 0.097,
+    5: 0.079,
+    6: 0.067,
+    7: 0.058,
+    8: 0.051,
+    9: 0.046,
 }
 
 
-def extract_first_digit(value: float) -> Optional[int]:
+def extract_first_digit(value: float) -> int | None:
     """Extract the first significant digit from a number."""
     if value == 0 or math.isnan(value) or math.isinf(value):
         return None
@@ -60,6 +65,7 @@ def benford_chi_square(values: pd.Series) -> tuple[float, float, dict]:
 
     # p-value from chi-square distribution (df=8)
     from scipy import stats as scipy_stats
+
     p_value = 1 - scipy_stats.chi2.cdf(chi2, df=8)
 
     distribution = {
@@ -104,5 +110,7 @@ def check_benford_for_stock(
         "p_value": round(p_value, 4),
         "distribution": distribution,
         "sample_size": len(combined),
-        "reason": "" if p_value >= threshold_p else f"首位数字分布异常(p={p_value:.4f}<{threshold_p})",
+        "reason": ""
+        if p_value >= threshold_p
+        else f"首位数字分布异常(p={p_value:.4f}<{threshold_p})",
     }

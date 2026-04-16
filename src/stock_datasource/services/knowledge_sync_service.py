@@ -7,10 +7,9 @@ then pushes them to WeKnora via the REST API.
 
 import asyncio
 import logging
-import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -23,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Sync task status tracking (in-memory, lightweight)
 # ---------------------------------------------------------------------------
 
+
 class SyncTaskStatus:
     """Track the progress of a single sync task."""
 
@@ -34,11 +34,11 @@ class SyncTaskStatus:
         self.total = total
         self.completed = 0
         self.failed = 0
-        self.error: Optional[str] = None
+        self.error: str | None = None
         self.created_at = datetime.now().isoformat()
-        self.started_at: Optional[str] = None
-        self.finished_at: Optional[str] = None
-        self.documents: List[Dict[str, Any]] = []  # created doc summaries
+        self.started_at: str | None = None
+        self.finished_at: str | None = None
+        self.documents: list[dict[str, Any]] = []  # created doc summaries
 
     def to_dict(self) -> dict:
         return {
@@ -58,7 +58,7 @@ class SyncTaskStatus:
 
 
 # Keep recent task history (max 100 entries)
-_sync_tasks: Dict[str, SyncTaskStatus] = {}
+_sync_tasks: dict[str, SyncTaskStatus] = {}
 _MAX_TASKS = 100
 
 
@@ -74,6 +74,7 @@ def _trim_tasks() -> None:
 # Markdown rendering
 # ---------------------------------------------------------------------------
 
+
 def _dataframe_to_markdown(df: pd.DataFrame, title: str, table_name: str) -> str:
     """Render a DataFrame as a readable Markdown document."""
     # Replace NaN/Inf with empty string for safe serialisation
@@ -82,7 +83,7 @@ def _dataframe_to_markdown(df: pd.DataFrame, title: str, table_name: str) -> str
     for col in df.select_dtypes(include=["float", "number"]).columns:
         df[col] = df[col].replace([float("inf"), float("-inf")], "")
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"# {title}\n")
     lines.append(f"- **数据表**: `{table_name}`")
     lines.append(f"- **记录数**: {len(df)}")
@@ -118,6 +119,7 @@ def _dataframe_to_markdown(df: pd.DataFrame, title: str, table_name: str) -> str
 # Core sync logic
 # ---------------------------------------------------------------------------
 
+
 class KnowledgeSyncService:
     """Sync ClickHouse query results to WeKnora knowledge base."""
 
@@ -126,7 +128,7 @@ class KnowledgeSyncService:
 
     # -- helpers -----------------------------------------------------------
 
-    def list_tables(self) -> List[Dict[str, str]]:
+    def list_tables(self) -> list[dict[str, str]]:
         """List all user tables in the current ClickHouse database."""
         try:
             sql = (
@@ -148,7 +150,7 @@ class KnowledgeSyncService:
             self.logger.warning(f"list_tables failed: {e}")
             return []
 
-    def get_table_columns(self, table_name: str) -> List[Dict[str, str]]:
+    def get_table_columns(self, table_name: str) -> list[dict[str, str]]:
         """Get column info for a table."""
         try:
             sql = (
@@ -160,14 +162,18 @@ class KnowledgeSyncService:
             if df is None or df.empty:
                 return []
             return [
-                {"name": row["name"], "type": row["type"], "comment": row.get("comment", "")}
+                {
+                    "name": row["name"],
+                    "type": row["type"],
+                    "comment": row.get("comment", ""),
+                }
                 for _, row in df.iterrows()
             ]
         except Exception as e:
             self.logger.warning(f"get_table_columns({table_name}) failed: {e}")
             return []
 
-    def _query_data(self, sql: str, max_rows: int = 5000) -> Optional[pd.DataFrame]:
+    def _query_data(self, sql: str, max_rows: int = 5000) -> pd.DataFrame | None:
         """Execute a read-only query and return a DataFrame."""
         # Basic safety: only allow SELECT
         stripped = sql.strip().upper()
@@ -186,13 +192,13 @@ class KnowledgeSyncService:
     def _build_query(
         self,
         table_name: str,
-        ts_codes: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        ts_codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 5000,
     ) -> str:
         """Build a simple SELECT query from filters."""
-        conditions: List[str] = []
+        conditions: list[str] = []
 
         if ts_codes:
             escaped = ", ".join(f"'{c.replace(chr(39), '')}'" for c in ts_codes)
@@ -209,9 +215,9 @@ class KnowledgeSyncService:
     def _generate_title(
         self,
         table_name: str,
-        ts_codes: Optional[List[str]] = None,
-        date_range: Optional[str] = None,
-        custom_title: Optional[str] = None,
+        ts_codes: list[str] | None = None,
+        date_range: str | None = None,
+        custom_title: str | None = None,
     ) -> str:
         if custom_title:
             return custom_title
@@ -232,11 +238,11 @@ class KnowledgeSyncService:
         kb_id: str,
         table_name: str,
         task: "SyncTaskStatus",
-        ts_codes: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        custom_sql: Optional[str] = None,
-        custom_title: Optional[str] = None,
+        ts_codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        custom_sql: str | None = None,
+        custom_title: str | None = None,
         max_rows: int = 5000,
     ) -> None:
         """Synchronous implementation — runs in a thread."""
@@ -255,7 +261,9 @@ class KnowledgeSyncService:
             if custom_sql:
                 sql = custom_sql
             else:
-                sql = self._build_query(table_name, ts_codes, start_date, end_date, limit=max_rows)
+                sql = self._build_query(
+                    table_name, ts_codes, start_date, end_date, limit=max_rows
+                )
 
             self.logger.info(f"[KnowledgeSync] task={task.task_id} sql={sql[:200]}")
             df = self._query_data(sql, max_rows)
@@ -273,7 +281,9 @@ class KnowledgeSyncService:
                 date_range = ""
                 if start_date or end_date:
                     date_range = f"{start_date or ''}~{end_date or ''}"
-                title = self._generate_title(table_name, ts_codes, date_range, custom_title)
+                title = self._generate_title(
+                    table_name, ts_codes, date_range, custom_title
+                )
                 groups = [(title, df)]
 
             task.total = len(groups)
@@ -286,7 +296,9 @@ class KnowledgeSyncService:
                     date_range = ""
                     if start_date or end_date:
                         date_range = f"{start_date or ''}~{end_date or ''}"
-                    title = self._generate_title(table_name, [str(group_key)], date_range, custom_title)
+                    title = self._generate_title(
+                        table_name, [str(group_key)], date_range, custom_title
+                    )
 
                 content = _dataframe_to_markdown(group_df, title, table_name)
 
@@ -312,12 +324,14 @@ class KnowledgeSyncService:
 
                 if result:
                     task.completed += 1
-                    task.documents.append({
-                        "title": title,
-                        "knowledge_id": result.get("id", ""),
-                        "action": action,
-                        "rows": len(group_df),
-                    })
+                    task.documents.append(
+                        {
+                            "title": title,
+                            "knowledge_id": result.get("id", ""),
+                            "action": action,
+                            "rows": len(group_df),
+                        }
+                    )
                 else:
                     task.failed += 1
 
@@ -338,11 +352,11 @@ class KnowledgeSyncService:
         self,
         kb_id: str,
         table_name: str,
-        ts_codes: Optional[List[str]] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        custom_sql: Optional[str] = None,
-        custom_title: Optional[str] = None,
+        ts_codes: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        custom_sql: str | None = None,
+        custom_title: str | None = None,
         max_rows: int = 5000,
     ) -> SyncTaskStatus:
         """Sync data from a ClickHouse table (or custom SQL) to WeKnora.
@@ -357,16 +371,20 @@ class KnowledgeSyncService:
 
         await asyncio.to_thread(
             self._sync_table_impl,
-            kb_id, table_name, task,
-            ts_codes, start_date, end_date,
-            custom_sql, custom_title, max_rows,
+            kb_id,
+            table_name,
+            task,
+            ts_codes,
+            start_date,
+            end_date,
+            custom_sql,
+            custom_title,
+            max_rows,
         )
 
         return task
 
-    def _find_existing_doc(
-        self, client: Any, kb_id: str, title: str
-    ) -> Optional[dict]:
+    def _find_existing_doc(self, client: Any, kb_id: str, title: str) -> dict | None:
         """Search for an existing knowledge document by title (exact match)."""
         try:
             result = client.list_knowledges(kb_id, page=1, page_size=50, keyword=title)
@@ -374,22 +392,24 @@ class KnowledgeSyncService:
                 if doc.get("title") == title:
                     return doc
         except Exception as e:
-            self.logger.debug(f"_find_existing_doc({title}) failed: {type(e).__name__}: {e}")
+            self.logger.debug(
+                f"_find_existing_doc({title}) failed: {type(e).__name__}: {e}"
+            )
         return None
 
     # -- status / history --------------------------------------------------
 
-    def get_task(self, task_id: str) -> Optional[SyncTaskStatus]:
+    def get_task(self, task_id: str) -> SyncTaskStatus | None:
         return _sync_tasks.get(task_id)
 
-    def get_current_task(self) -> Optional[SyncTaskStatus]:
+    def get_current_task(self) -> SyncTaskStatus | None:
         """Get the currently running task, if any."""
         for t in _sync_tasks.values():
             if t.status == "running":
                 return t
         return None
 
-    def get_history(self, limit: int = 20) -> List[dict]:
+    def get_history(self, limit: int = 20) -> list[dict]:
         """Return recent sync tasks ordered by created_at desc."""
         tasks = sorted(_sync_tasks.values(), key=lambda t: t.created_at, reverse=True)
         return [t.to_dict() for t in tasks[:limit]]

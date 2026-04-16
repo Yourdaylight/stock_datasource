@@ -1,21 +1,22 @@
 """Report Agent for financial report analysis using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Callable, Optional, Tuple
 import logging
-import json
-import re
+from collections.abc import Callable
+from typing import Any
 
-from .base_agent import LangGraphAgent, AgentConfig
-from .tools import get_stock_info, get_stock_valuation
 from ..services.financial_report_service import FinancialReportService
-from ..utils.stock_code import validate_cn_stock_code as _validate_and_normalize_stock_code
+from ..utils.stock_code import (
+    validate_cn_stock_code as _validate_and_normalize_stock_code,
+)
+from .base_agent import AgentConfig, LangGraphAgent
+from .tools import get_stock_info, get_stock_valuation
 
 logger = logging.getLogger(__name__)
 
 
-def _fmt_pct(val, fallback='N/A') -> str:
+def _fmt_pct(val, fallback="N/A") -> str:
     """Format a percentage value, handling \\N and None."""
-    if val is None or val == '\\N' or val == 'None' or val == '':
+    if val is None or val == "\\N" or val == "None" or val == "":
         return fallback
     try:
         return f"{float(val):.2f}%"
@@ -23,9 +24,9 @@ def _fmt_pct(val, fallback='N/A') -> str:
         return fallback
 
 
-def _fmt_num(val, fallback='N/A') -> str:
+def _fmt_num(val, fallback="N/A") -> str:
     """Format a numeric value, handling \\N and None."""
-    if val is None or val == '\\N' or val == 'None' or val == '':
+    if val is None or val == "\\N" or val == "None" or val == "":
         return fallback
     try:
         return f"{float(val):.2f}"
@@ -33,13 +34,15 @@ def _fmt_num(val, fallback='N/A') -> str:
         return fallback
 
 
-def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> Dict[str, Any]:
+def get_comprehensive_financial_analysis(
+    ts_code: str, periods: int = 4
+) -> dict[str, Any]:
     """获取全面的财务分析报告。
-    
+
     Args:
         ts_code: 股票代码，如 600519 或 600519.SH
         periods: 分析时间范围，4期=近1年，8期=近2年，默认4期
-        
+
     Returns:
         全面的财务分析报告，包括财务健康度、同业对比、增长分析等。
     """
@@ -47,31 +50,33 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> Dict
     is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
     if not is_valid:
         return {"report": f"❌ {error_msg}"}
-    
+
     try:
         service = FinancialReportService()
         analysis = service.get_comprehensive_analysis(ts_code, periods)
-        
+
         if analysis.get("status") == "error":
-            return {"report": f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"}
-        
+            return {
+                "report": f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"
+            }
+
         summary = analysis.get("summary", {})
         health = analysis.get("health_analysis", {})
         growth = analysis.get("growth_analysis", {})
-        
+
         # Format the analysis report (remove main title, will be shown in UI)
-        report = f"""### 📊 财务健康度评分: {health.get('health_score', 0)}/100
+        report = f"""### 📊 财务健康度评分: {health.get("health_score", 0)}/100
 
 ### 💪 主要优势
 """
-        
+
         strengths = health.get("strengths", [])
         if strengths:
             for strength in strengths:
                 report += f"- {strength}\n"
         else:
             report += "- 暂无明显优势\n"
-        
+
         report += "\n### ⚠️ 关注点\n"
         weaknesses = health.get("weaknesses", [])
         if weaknesses:
@@ -79,98 +84,108 @@ def get_comprehensive_financial_analysis(ts_code: str, periods: int = 4) -> Dict
                 report += f"- {weakness}\n"
         else:
             report += "- 财务状况良好，无明显风险点\n"
-        
+
         # Profitability metrics
         prof = summary.get("profitability", {})
         report += f"""
 ### 📈 盈利能力指标
-- ROE (净资产收益率): {_fmt_pct(prof.get('roe'))}
-- ROA (总资产收益率): {_fmt_pct(prof.get('roa'))}
-- 毛利率: {_fmt_pct(prof.get('gross_profit_margin'))}
-- 净利率: {_fmt_pct(prof.get('net_profit_margin'))}
+- ROE (净资产收益率): {_fmt_pct(prof.get("roe"))}
+- ROA (总资产收益率): {_fmt_pct(prof.get("roa"))}
+- 毛利率: {_fmt_pct(prof.get("gross_profit_margin"))}
+- 净利率: {_fmt_pct(prof.get("net_profit_margin"))}
 """
-        
+
         # Solvency metrics
         solv = summary.get("solvency", {})
         report += f"""
 ### 🛡️ 偿债能力指标
-- 资产负债率: {_fmt_pct(solv.get('debt_to_assets'))}
-- 流动比率: {_fmt_num(solv.get('current_ratio'))}
-- 速动比率: {_fmt_num(solv.get('quick_ratio'))}
+- 资产负债率: {_fmt_pct(solv.get("debt_to_assets"))}
+- 流动比率: {_fmt_num(solv.get("current_ratio"))}
+- 速动比率: {_fmt_num(solv.get("quick_ratio"))}
 """
-        
+
         # Growth analysis
         growth_data = summary.get("growth", {})
         if growth_data:
             report += f"""
 ### 🚀 成长性分析
-- 营收增长率: {_fmt_pct(growth_data.get('revenue_growth'))}
-- 净利润增长率: {_fmt_pct(growth_data.get('profit_growth'))}
+- 营收增长率: {_fmt_pct(growth_data.get("revenue_growth"))}
+- 净利润增长率: {_fmt_pct(growth_data.get("profit_growth"))}
 """
-        
+
         # Recommendations
         recommendations = health.get("recommendations", [])
         if recommendations:
             report += "\n### 💡 投资建议\n"
             for rec in recommendations:
                 report += f"- {rec}\n"
-        
+
         # Format latest period
-        latest_period = summary.get('latest_period', 'N/A')
-        if hasattr(latest_period, 'strftime'):
-            latest_period = latest_period.strftime('%Y-%m-%d')
-        elif latest_period and latest_period != 'N/A' and not isinstance(latest_period, str):
+        latest_period = summary.get("latest_period", "N/A")
+        if hasattr(latest_period, "strftime"):
+            latest_period = latest_period.strftime("%Y-%m-%d")
+        elif (
+            latest_period
+            and latest_period != "N/A"
+            and not isinstance(latest_period, str)
+        ):
             latest_period = str(latest_period)
-        
-        report += f"\n### 📅 数据说明\n- 分析时间范围: 近{summary.get('periods', 0)//4}年({summary.get('periods', 0)}个季度)\n- 最新财报: {latest_period}"
-        
+
+        report += f"\n### 📅 数据说明\n- 分析时间范围: 近{summary.get('periods', 0) // 4}年({summary.get('periods', 0)}个季度)\n- 最新财报: {latest_period}"
+
         # Build visualization data for TrendChart component
         financial_periods = analysis.get("financial_data", [])
         viz = None
-        if financial_periods and isinstance(financial_periods, list) and len(financial_periods) > 0:
+        if (
+            financial_periods
+            and isinstance(financial_periods, list)
+            and len(financial_periods) > 0
+        ):
             viz_data = []
             for fp in financial_periods:
                 period_str = fp.get("end_date") or fp.get("period", "")
-                if hasattr(period_str, 'strftime'):
-                    period_str = period_str.strftime('%Y-%m-%d')
-                viz_data.append({
-                    "period": str(period_str),
-                    "revenue": fp.get("revenue"),
-                    "net_profit": fp.get("n_income") or fp.get("net_profit"),
-                    "net_profit_attr_p": fp.get("n_income_attr_p"),
-                    "total_assets": fp.get("total_assets"),
-                    "total_liab": fp.get("total_liab"),
-                    "roe": fp.get("roe"),
-                    "roa": fp.get("roa"),
-                    "gross_margin": fp.get("grossprofit_margin"),
-                    "net_margin": fp.get("netprofit_margin"),
-                })
+                if hasattr(period_str, "strftime"):
+                    period_str = period_str.strftime("%Y-%m-%d")
+                viz_data.append(
+                    {
+                        "period": str(period_str),
+                        "revenue": fp.get("revenue"),
+                        "net_profit": fp.get("n_income") or fp.get("net_profit"),
+                        "net_profit_attr_p": fp.get("n_income_attr_p"),
+                        "total_assets": fp.get("total_assets"),
+                        "total_liab": fp.get("total_liab"),
+                        "roe": fp.get("roe"),
+                        "roa": fp.get("roa"),
+                        "gross_margin": fp.get("grossprofit_margin"),
+                        "net_margin": fp.get("netprofit_margin"),
+                    }
+                )
             if viz_data:
                 viz = {
                     "type": "financial_trend",
                     "title": f"{ts_code} 财务趋势分析",
                     "props": {
                         "data": viz_data,
-                    }
+                    },
                 }
-        
+
         result = {"report": report}
         if viz:
             result["_visualization"] = viz
         return result
-        
+
     except Exception as e:
         logger.error(f"Error in comprehensive financial analysis for {ts_code}: {e}")
-        return {"report": f"❌ 分析 {ts_code} 时发生错误: {str(e)}"}
+        return {"report": f"❌ 分析 {ts_code} 时发生错误: {e!s}"}
 
 
 def get_peer_comparison_analysis(ts_code: str, end_date: str = None) -> str:
     """获取同业对比分析。
-    
+
     Args:
         ts_code: 股票代码
         end_date: 报告期，格式YYYYMMDD，不提供则使用最新季度
-        
+
     Returns:
         同业对比分析报告。
     """
@@ -178,73 +193,73 @@ def get_peer_comparison_analysis(ts_code: str, end_date: str = None) -> str:
     is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
     if not is_valid:
         return f"❌ {error_msg}"
-    
+
     try:
         service = FinancialReportService()
         analysis = service.get_peer_comparison_analysis(ts_code, end_date)
-        
+
         if analysis.get("status") == "error":
             return f"❌ 获取 {ts_code} 同业对比数据失败: {analysis.get('error', '未知错误')}"
-        
+
         comparison = analysis.get("comparison", {})
         interpretation = analysis.get("interpretation", {})
-        
+
         if not comparison.get("comparison"):
             return f"📊 {ts_code} 暂无同业对比数据"
-        
+
         report = f"""## {ts_code} 同业对比分析
 
-### 📊 行业地位 (报告期: {analysis.get('end_date', 'N/A')})
-对比样本: {comparison.get('peer_count', 0)}家公司
+### 📊 行业地位 (报告期: {analysis.get("end_date", "N/A")})
+对比样本: {comparison.get("peer_count", 0)}家公司
 
 """
-        
+
         # Key metrics comparison
         metrics_map = {
             "roe": "ROE (净资产收益率)",
-            "roa": "ROA (总资产收益率)", 
+            "roa": "ROA (总资产收益率)",
             "gross_profit_margin": "毛利率",
             "net_profit_margin": "净利率",
             "debt_to_assets": "资产负债率",
-            "current_ratio": "流动比率"
+            "current_ratio": "流动比率",
         }
-        
+
         for metric, data in comparison.get("comparison", {}).items():
             metric_name = metrics_map.get(metric, metric)
             target_value = data.get("target_value")
             percentile = data.get("percentile_rank", 0)
             industry_median = data.get("industry_median")
-            
+
             interp = interpretation.get(metric, {})
             level = interp.get("level", "未知")
-            
+
             report += f"""### {metric_name}
 - 公司数值: {target_value}
 - 行业中位数: {industry_median}
-- 行业排名: 前{100-percentile:.0f}% ({level})
+- 行业排名: 前{100 - percentile:.0f}% ({level})
 
 """
-        
+
         # Top peers
         peers = comparison.get("peer_companies", [])[:5]
         if peers:
             report += "### 🏆 行业标杆 (ROE排名前5)\n"
             for i, peer in enumerate(peers, 1):
                 report += f"{i}. {peer.get('ts_code', 'N/A')} - ROE: {peer.get('roe', 'N/A')}%\n"
-        
+
         return report
-        
+
     except Exception as e:
         logger.error(f"Error in peer comparison for {ts_code}: {e}")
-        return f"❌ 同业对比分析 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 同业对比分析 {ts_code} 时发生错误: {e!s}"
 
 
 def get_investment_insights(ts_code: str) -> str:
     """获取AI投资洞察和建议。
-    
+
     Args:
         ts_code: 股票代码
-        
+
     Returns:
         结构化的投资洞察报告。
     """
@@ -252,25 +267,27 @@ def get_investment_insights(ts_code: str) -> str:
     is_valid, ts_code, error_msg = _validate_and_normalize_stock_code(ts_code)
     if not is_valid:
         return f"❌ {error_msg}"
-    
+
     try:
         service = FinancialReportService()
         insights = service.get_investment_insights(ts_code)
-        
+
         if insights.get("status") == "error":
-            return f"❌ 获取 {ts_code} 投资洞察失败: {insights.get('error', '未知错误')}"
-        
+            return (
+                f"❌ 获取 {ts_code} 投资洞察失败: {insights.get('error', '未知错误')}"
+            )
+
         insight_data = insights.get("insights", {})
-        
+
         report = f"""## {ts_code} 投资洞察报告
 
 ### 🎯 投资要点
 """
-        
+
         thesis = insight_data.get("investment_thesis", [])
         for point in thesis:
             report += f"- {point}\n"
-        
+
         report += "\n### ⚠️ 风险因素\n"
         risks = insight_data.get("risk_factors", [])
         if risks:
@@ -278,43 +295,43 @@ def get_investment_insights(ts_code: str) -> str:
                 report += f"- {risk}\n"
         else:
             report += "- 暂无明显风险因素\n"
-        
+
         # Competitive position
         competitive = insight_data.get("competitive_position", {})
         report += f"""
 ### 🏆 竞争地位
-- 行业地位: {competitive.get('position', '未知')}
-- 优秀指标数: {competitive.get('excellent_metrics', 0)}/{competitive.get('total_metrics', 0)}
+- 行业地位: {competitive.get("position", "未知")}
+- 优秀指标数: {competitive.get("excellent_metrics", 0)}/{competitive.get("total_metrics", 0)}
 """
-        
+
         # Financial strength
         strength = insight_data.get("financial_strength", {})
         report += f"""
 ### 💪 财务实力
-- 财务实力等级: {strength.get('level', '未知')}
-- 健康度评分: {strength.get('score', 0)}/100
+- 财务实力等级: {strength.get("level", "未知")}
+- 健康度评分: {strength.get("score", 0)}/100
 """
-        
+
         key_strengths = strength.get("key_strengths", [])
         if key_strengths:
             report += "- 核心优势: " + "、".join(key_strengths) + "\n"
-        
+
         # Growth prospects
         growth = insight_data.get("growth_prospects", {})
         report += f"""
 ### 🚀 成长前景
-- 成长性评级: {growth.get('prospects', '未知')}
-- 营收增长率: {growth.get('revenue_growth', 'N/A')}%
-- 利润增长率: {growth.get('profit_growth', 'N/A')}%
+- 成长性评级: {growth.get("prospects", "未知")}
+- 营收增长率: {growth.get("revenue_growth", "N/A")}%
+- 利润增长率: {growth.get("profit_growth", "N/A")}%
 """
-        
+
         report += "\n### 📋 免责声明\n以上分析基于历史财务数据，仅供参考，不构成投资建议。投资有风险，决策需谨慎。"
-        
+
         return report
-        
+
     except Exception as e:
         logger.error(f"Error generating insights for {ts_code}: {e}")
-        return f"❌ 生成投资洞察 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 生成投资洞察 {ts_code} 时发生错误: {e!s}"
 
 
 def get_income_statement(ts_code: str, periods: int = 4) -> str:
@@ -352,7 +369,7 @@ def get_income_statement(ts_code: str, periods: int = 4) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting income statement for {ts_code}: {e}")
-        return f"❌ 获取利润表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取利润表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_balance_sheet(ts_code: str, periods: int = 4) -> str:
@@ -385,9 +402,9 @@ def get_balance_sheet(ts_code: str, periods: int = 4) -> str:
         report += "|---------|--------|--------|----------|------------|\n"
 
         for row in data[:periods]:
-            total_assets = row.get('total_assets', 0)
-            total_liab = row.get('total_liab', 0)
-            equity = row.get('equity', 0)
+            total_assets = row.get("total_assets", 0)
+            total_liab = row.get("total_liab", 0)
+            equity = row.get("equity", 0)
             debt_ratio = (total_liab / total_assets * 100) if total_assets else 0
 
             report += f"| {row.get('end_date', '')} | {total_assets:.2f} | {total_liab:.2f} | {equity:.2f} | {debt_ratio:.2f}% |\n"
@@ -395,7 +412,7 @@ def get_balance_sheet(ts_code: str, periods: int = 4) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting balance sheet for {ts_code}: {e}")
-        return f"❌ 获取资产负债表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取资产负债表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_cash_flow(ts_code: str, periods: int = 4) -> str:
@@ -433,7 +450,7 @@ def get_cash_flow(ts_code: str, periods: int = 4) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting cash flow for {ts_code}: {e}")
-        return f"❌ 获取现金流量表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取现金流量表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_forecast(ts_code: str, limit: int = 10) -> str:
@@ -466,16 +483,20 @@ def get_forecast(ts_code: str, limit: int = 10) -> str:
         report += "|---------|---------|-----------|---------|---------|\n"
 
         for row in data[:limit]:
-            p_change_min = row.get('p_change_min', 0)
-            p_change_max = row.get('p_change_max', 0)
-            change_range = f"{p_change_min:.1f}% ~ {p_change_max:.1f}%" if p_change_min != p_change_max else f"{p_change_min:.1f}%"
+            p_change_min = row.get("p_change_min", 0)
+            p_change_max = row.get("p_change_max", 0)
+            change_range = (
+                f"{p_change_min:.1f}% ~ {p_change_max:.1f}%"
+                if p_change_min != p_change_max
+                else f"{p_change_min:.1f}%"
+            )
 
             report += f"| {row.get('end_date', '')} | {row.get('type', '')} | {row.get('p_profit_min', 0):.2f} ~ {row.get('p_profit_max', 0):.2f} | {change_range} | {row.get('ann_date', '')} |\n"
 
         return report
     except Exception as e:
         logger.error(f"Error getting forecast for {ts_code}: {e}")
-        return f"❌ 获取业绩预告 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取业绩预告 {ts_code} 时发生错误: {e!s}"
 
 
 def get_express(ts_code: str, limit: int = 10) -> str:
@@ -513,7 +534,7 @@ def get_express(ts_code: str, limit: int = 10) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting express for {ts_code}: {e}")
-        return f"❌ 获取业绩快报 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取业绩快报 {ts_code} 时发生错误: {e!s}"
 
 
 def get_full_financial_statements(ts_code: str, periods: int = 4) -> str:
@@ -556,8 +577,8 @@ def get_full_financial_statements(ts_code: str, periods: int = 4) -> str:
             report += "| 报告期 | 总资产 | 股东权益 | 资产负债率 |\n"
             report += "|---------|--------|----------|------------|\n"
             for row in balance_data:
-                total_assets = row.get('total_assets', 0)
-                total_liab = row.get('total_liab', 0)
+                total_assets = row.get("total_assets", 0)
+                total_liab = row.get("total_liab", 0)
                 debt_ratio = (total_liab / total_assets * 100) if total_assets else 0
                 report += f"| {row.get('end_date', '')} | {total_assets:.2f} | {row.get('equity', 0):.2f} | {debt_ratio:.2f}% |\n"
             report += "\n"
@@ -572,7 +593,7 @@ def get_full_financial_statements(ts_code: str, periods: int = 4) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting full statements for {ts_code}: {e}")
-        return f"❌ 获取财务报表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取财务报表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_audit_opinion(ts_code: str, periods: int = 5) -> str:
@@ -591,6 +612,7 @@ def get_audit_opinion(ts_code: str, periods: int = 5) -> str:
 
     try:
         from ..plugins.tushare_fina_audit.service import TuShareFinaAuditService
+
         service = TuShareFinaAuditService()
         data = service.get_audit_opinion(ts_code, periods)
 
@@ -602,25 +624,33 @@ def get_audit_opinion(ts_code: str, periods: int = 5) -> str:
         report += "|---------|----------|--------------|-------------|------------|\n"
 
         for row in data[:periods]:
-            audit_fees = row.get('audit_fees', 0)
+            audit_fees = row.get("audit_fees", 0)
             audit_fees_wan = audit_fees / 10000 if audit_fees else 0
             report += f"| {row.get('end_date', '')} | {row.get('audit_result', 'N/A')} | {audit_fees_wan:.2f} | {row.get('audit_agency', 'N/A')} | {row.get('audit_sign', 'N/A')} |\n"
 
         # 审计风险提示
-        non_standard = [r for r in data if r.get('audit_result') and r.get('audit_result') != '标准无保留意见']
+        non_standard = [
+            r
+            for r in data
+            if r.get("audit_result") and r.get("audit_result") != "标准无保留意见"
+        ]
         if non_standard:
             report += "\n### ⚠️ 审计风险提示\n"
             report += f"发现 {len(non_standard)} 期非标准审计意见:\n"
             for row in non_standard:
-                report += f"- {row.get('end_date', '')}: {row.get('audit_result', '')}\n"
+                report += (
+                    f"- {row.get('end_date', '')}: {row.get('audit_result', '')}\n"
+                )
 
         return report
     except Exception as e:
         logger.error(f"Error getting audit opinion for {ts_code}: {e}")
-        return f"❌ 获取审计意见 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取审计意见 {ts_code} 时发生错误: {e!s}"
 
 
-def get_non_standard_opinions(start_date: str = None, end_date: str = None, limit: int = 50) -> str:
+def get_non_standard_opinions(
+    start_date: str = None, end_date: str = None, limit: int = 50
+) -> str:
     """获取非标准审计意见列表。
 
     Args:
@@ -633,14 +663,15 @@ def get_non_standard_opinions(start_date: str = None, end_date: str = None, limi
     """
     try:
         from datetime import datetime, timedelta
+
         from ..plugins.tushare_fina_audit.service import TuShareFinaAuditService
-        
+
         # 默认查询最近一年
         if not end_date:
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime("%Y-%m-%d")
         if not start_date:
-            start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-        
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
         service = TuShareFinaAuditService()
         data = service.get_non_standard_opinions(start_date, end_date, limit)
 
@@ -662,27 +693,27 @@ def get_non_standard_opinions(start_date: str = None, end_date: str = None, limi
         return report
     except Exception as e:
         logger.error(f"Error getting non-standard opinions: {e}")
-        return f"❌ 获取非标准审计意见时发生错误: {str(e)}"
+        return f"❌ 获取非标准审计意见时发生错误: {e!s}"
 
 
 class ReportAgent(LangGraphAgent):
     """Report Agent for financial report analysis using DeepAgents.
-    
+
     Handles:
     - Comprehensive financial analysis
     - Peer comparison and industry benchmarking
     - AI-powered investment insights
     - Financial health assessment
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="ReportAgent",
-            description="专业财报分析师，提供全面的财务分析、同业对比、投资洞察等服务"
+            description="专业财报分析师，提供全面的财务分析、同业对比、投资洞察等服务",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return enhanced report analysis tools."""
         return [
             get_stock_info,
@@ -699,7 +730,7 @@ class ReportAgent(LangGraphAgent):
             get_audit_opinion,
             get_non_standard_opinions,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return enhanced system prompt for comprehensive financial analysis."""
         return """你是一个专业的财务分析师和投资顾问，专注于A股上市公司的深度财报分析。

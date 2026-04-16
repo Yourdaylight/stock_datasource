@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from stock_datasource.core.base_plugin import BasePlugin, PluginCategory, PluginRole
+from stock_datasource.core.base_plugin import BasePlugin
 
 
 class GgtDailyPlugin(BasePlugin):
@@ -11,7 +11,7 @@ class GgtDailyPlugin(BasePlugin):
 
     def __init__(self, **kwargs):
         config_path = Path(__file__).parent / "config.json"
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             self._plugin_config = json.load(f)
 
         super().__init__(**kwargs)
@@ -57,18 +57,14 @@ class GgtDailyPlugin(BasePlugin):
         self._ensure_table_exists(schema)
 
         # Insert data using ClickHouse client
-        table_name = schema.get('table_name')
+        table_name = schema.get("table_name")
         if not table_name:
             raise ValueError("Table name not found in schema")
 
         # Convert DataFrame to ClickHouse format
         self.db.insert_dataframe(table_name, df)
 
-        return {
-            "status": "success",
-            "count": len(df),
-            "table": table_name
-        }
+        return {"status": "success", "count": len(df), "table": table_name}
 
     def run(self, **kwargs) -> dict:
         """运行插件获取港股通每日成交统计数据"""

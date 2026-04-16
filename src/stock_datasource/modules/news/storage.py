@@ -6,17 +6,17 @@
 
 import json
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from pathlib import Path
 from threading import Lock
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class NewsFileStorage:
     """轻量级 JSON 文件存储
-    
+
     文件结构：
     data/news/
     ├── sina/
@@ -27,11 +27,11 @@ class NewsFileStorage:
     └── cache/
         └── latest.json          # 最新缓存（快速读取）
     """
-    
-    _instance: Optional['NewsFileStorage'] = None
+
+    _instance: Optional["NewsFileStorage"] = None
     _lock = Lock()
-    
-    def __new__(cls, base_dir: Optional[str] = None):
+
+    def __new__(cls, base_dir: str | None = None):
         """单例模式"""
         if cls._instance is None:
             with cls._lock:
@@ -39,59 +39,59 @@ class NewsFileStorage:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
-    def __init__(self, base_dir: Optional[str] = None):
+
+    def __init__(self, base_dir: str | None = None):
         """初始化存储
-        
+
         Args:
             base_dir: 基础目录，默认为项目根目录下的 data/news
         """
         if self._initialized:
             return
-            
+
         if base_dir is None:
             # 默认使用项目根目录下的 data/news
             project_root = Path(__file__).parent.parent.parent.parent.parent
             base_dir = str(project_root / "data" / "news")
-        
+
         self.base_dir = Path(base_dir)
         self.cache_dir = self.base_dir / "cache"
         self.cache_file = self.cache_dir / "latest.json"
-        
+
         # 确保目录存在
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 内存缓存（避免频繁读取文件）
-        self._memory_cache: Optional[Dict[str, Any]] = None
-        self._memory_cache_time: Optional[datetime] = None
+        self._memory_cache: dict[str, Any] | None = None
+        self._memory_cache_time: datetime | None = None
         self._memory_cache_ttl = 60  # 内存缓存有效期（秒）
-        
+
         self._initialized = True
         logger.info(f"NewsFileStorage initialized at: {self.base_dir}")
-    
-    def save_news(self, news_list: List[Dict[str, Any]], source: str) -> int:
+
+    def save_news(self, news_list: list[dict[str, Any]], source: str) -> int:
         """保存新闻到按日期分片的文件
-        
+
         Args:
             news_list: 新闻列表（字典格式）
             source: 新闻来源 (sina/tushare)
-            
+
         Returns:
             新增条目数
         """
         if not news_list:
             return 0
-        
+
         today = datetime.now().strftime("%Y-%m-%d")
         source_dir = self.base_dir / source
         source_dir.mkdir(parents=True, exist_ok=True)
         file_path = source_dir / f"{today}.json"
-        
+
         # 加载已有数据
         existing = self._load_json(file_path) or []
         existing_by_id = {n.get("id"): n for n in existing if n.get("id")}
-        
+
         # 去重合并（支持情绪字段更新）
         new_items = []
         updated_items = 0
@@ -108,7 +108,7 @@ class NewsFileStorage:
                 continue
             new_items.append(item)
             existing_by_id[news_id] = item
-        
+
         if new_items or updated_items:
             merged = existing + new_items
             self._save_json(file_path, merged)
@@ -116,28 +116,28 @@ class NewsFileStorage:
                 f"Saved {len(new_items)} new {source} news to {file_path}; "
                 f"updated {updated_items} items"
             )
-            
+
             # 更新缓存
             self._update_cache()
-            
+
             # 清除内存缓存
             self._memory_cache = None
-        
+
         return len(new_items)
-    
+
     def get_latest_news(
         self,
         limit: int = 50,
-        source: Optional[str] = None,
-        category: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        source: str | None = None,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
         """从缓存快速获取最新新闻
-        
+
         Args:
             limit: 返回数量
             source: 按来源筛选（可选）
             category: 按分类筛选（可选）
-            
+
         Returns:
             新闻列表
         """
@@ -149,45 +149,42 @@ class NewsFileStorage:
             if cache:
                 self._memory_cache = cache
                 self._memory_cache_time = datetime.now()
-        
+
         if not cache:
             return []
-        
+
         # 合并所有新闻
         all_news = []
         for key, items in cache.items():
             if key.endswith("_news") and isinstance(items, list):
                 all_news.extend(items)
-        
+
         # 按来源筛选
         if source and source != "all":
             all_news = [n for n in all_news if n.get("source") == source]
-        
+
         # 按分类筛选
         if category and category != "all":
             all_news = [n for n in all_news if n.get("category") == category]
-        
+
         # 按时间排序
-        all_news.sort(
-            key=lambda x: x.get("publish_time") or "",
-            reverse=True
-        )
-        
+        all_news.sort(key=lambda x: x.get("publish_time") or "", reverse=True)
+
         return all_news[:limit]
-    
+
     def get_news_count(self) -> int:
         """获取缓存的新闻总数"""
         cache = self._load_json(self.cache_file)
         if not cache:
             return 0
-        
+
         count = 0
         for key, items in cache.items():
             if key.endswith("_news") and isinstance(items, list):
                 count += len(items)
         return count
-    
-    def get_cache_info(self) -> Dict[str, Any]:
+
+    def get_cache_info(self) -> dict[str, Any]:
         """获取缓存信息"""
         cache = self._load_json(self.cache_file)
         if not cache:
@@ -196,7 +193,7 @@ class NewsFileStorage:
                 "updated_at": None,
                 "news_count": 0,
             }
-        
+
         news_count = 0
         sources = {}
         for key, items in cache.items():
@@ -204,7 +201,7 @@ class NewsFileStorage:
                 source_name = key.replace("_news", "")
                 sources[source_name] = len(items)
                 news_count += len(items)
-        
+
         return {
             "exists": True,
             "updated_at": cache.get("updated_at"),
@@ -215,15 +212,15 @@ class NewsFileStorage:
 
     def list_news_files(
         self,
-        days: Optional[int] = None,
-        sources: Optional[List[str]] = None,
-    ) -> List[Path]:
+        days: int | None = None,
+        sources: list[str] | None = None,
+    ) -> list[Path]:
         """列出新闻数据文件
-        
+
         Args:
             days: 仅返回最近 N 天的文件（可选）
             sources: 指定来源列表（可选）
-        
+
         Returns:
             文件路径列表
         """
@@ -231,14 +228,14 @@ class NewsFileStorage:
         for source_dir in self.base_dir.iterdir():
             if source_dir.is_dir() and source_dir.name != "cache":
                 available_sources.append(source_dir.name)
-        
+
         target_sources = sources or available_sources
-        files: List[Path] = []
-        
+        files: list[Path] = []
+
         cutoff_date = None
         if days is not None and days > 0:
             cutoff_date = (datetime.now() - timedelta(days=days - 1)).date()
-        
+
         for source in target_sources:
             source_dir = self.base_dir / source
             if not source_dir.exists():
@@ -252,86 +249,82 @@ class NewsFileStorage:
                     except ValueError:
                         pass
                 files.append(file_path)
-        
+
         return sorted(files, key=lambda p: p.name, reverse=True)
 
-    def load_news_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def load_news_file(self, file_path: Path) -> list[dict[str, Any]]:
         """加载指定新闻文件"""
         return self._load_json(file_path) or []
 
-    def save_news_file(self, file_path: Path, news_list: List[Dict[str, Any]]):
+    def save_news_file(self, file_path: Path, news_list: list[dict[str, Any]]):
         """保存指定新闻文件"""
         self._save_json(file_path, news_list)
-    
+
     def _update_cache(self, days: int = 3):
         """聚合最近 N 天的新闻到缓存文件
-        
+
         Args:
             days: 聚合天数
         """
         cache = {
             "updated_at": datetime.now().isoformat(),
         }
-        
+
         dynamic_sources = [
-            p.name for p in self.base_dir.iterdir()
-            if p.is_dir() and p.name != "cache"
+            p.name for p in self.base_dir.iterdir() if p.is_dir() and p.name != "cache"
         ]
         for source in dynamic_sources:
             source_news = self._load_recent_days(source, days)
             cache[f"{source}_news"] = source_news
-        
+
         self._save_json(self.cache_file, cache)
-        
+
         # 清除内存缓存
         self._memory_cache = None
-        
+
         total = sum(len(v) for k, v in cache.items() if k.endswith("_news"))
         logger.info(f"Updated cache with {total} news items")
-    
-    def _load_recent_days(self, source: str, days: int = 3) -> List[Dict[str, Any]]:
+
+    def _load_recent_days(self, source: str, days: int = 3) -> list[dict[str, Any]]:
         """加载最近 N 天的新闻
-        
+
         Args:
             source: 新闻来源
             days: 天数
-            
+
         Returns:
             新闻列表
         """
         all_news = []
         source_dir = self.base_dir / source
-        
+
         if not source_dir.exists():
             return []
-        
+
         # 生成日期列表
         today = datetime.now()
         dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
-        
+
         for date_str in dates:
             file_path = source_dir / f"{date_str}.json"
             if file_path.exists():
                 news = self._load_json(file_path) or []
                 all_news.extend(news)
-        
+
         # 按时间排序
-        all_news.sort(
-            key=lambda x: x.get("publish_time") or "",
-            reverse=True
-        )
-        
+        all_news.sort(key=lambda x: x.get("publish_time") or "", reverse=True)
+
         return all_news
-    
+
     def cleanup_old_files(self, days: int = 7):
         """清理 N 天前的文件
-        
+
         Args:
             days: 保留天数
         """
         cutoff = datetime.now() - timedelta(days=days)
         cleaned_count = 0
-        
+
         for source_dir in self.base_dir.iterdir():
             if source_dir.is_dir() and source_dir.name not in ["cache"]:
                 for file_path in source_dir.glob("*.json"):
@@ -345,27 +338,27 @@ class NewsFileStorage:
                     except ValueError:
                         # 文件名不是日期格式，跳过
                         pass
-        
+
         if cleaned_count > 0:
             logger.info(f"Cleaned {cleaned_count} old news files")
-        
+
         return cleaned_count
-    
+
     def force_refresh_cache(self):
         """强制刷新缓存（手动触发）"""
         self._update_cache()
         self._memory_cache = None
         logger.info("Force refreshed news cache")
-    
+
     def _is_memory_cache_valid(self) -> bool:
         """检查内存缓存是否有效"""
         if self._memory_cache is None or self._memory_cache_time is None:
             return False
-        
+
         elapsed = (datetime.now() - self._memory_cache_time).total_seconds()
         return elapsed < self._memory_cache_ttl
-    
-    def _normalize_news_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _normalize_news_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """标准化新闻数据格式"""
         # 确保 publish_time 是字符串格式
         publish_time = item.get("publish_time")
@@ -374,7 +367,7 @@ class NewsFileStorage:
                 item["publish_time"] = publish_time.isoformat()
             elif not isinstance(publish_time, str):
                 item["publish_time"] = str(publish_time)
-        
+
         # 确保必要字段存在
         item.setdefault("id", "")
         item.setdefault("title", "")
@@ -383,13 +376,13 @@ class NewsFileStorage:
         item.setdefault("category", "flash")
         item.setdefault("stock_codes", [])
         item.setdefault("url", None)
-        
+
         return item
 
     def _merge_sentiment_fields(
         self,
-        target: Dict[str, Any],
-        source: Dict[str, Any],
+        target: dict[str, Any],
+        source: dict[str, Any],
     ) -> bool:
         """将来源数据中的情绪字段合并到目标数据"""
         updated = False
@@ -401,19 +394,19 @@ class NewsFileStorage:
                 target[field] = source.get(field)
                 updated = True
         return updated
-    
-    def _load_json(self, file_path: Path) -> Optional[Any]:
+
+    def _load_json(self, file_path: Path) -> Any | None:
         """加载 JSON 文件"""
         if not file_path.exists():
             return None
-        
+
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load JSON from {file_path}: {e}")
             return None
-    
+
     def _save_json(self, file_path: Path, data: Any):
         """保存 JSON 文件"""
         try:
@@ -426,7 +419,7 @@ class NewsFileStorage:
 
 
 # 全局实例
-_storage_instance: Optional[NewsFileStorage] = None
+_storage_instance: NewsFileStorage | None = None
 
 
 def get_news_storage() -> NewsFileStorage:

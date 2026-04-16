@@ -4,8 +4,15 @@ from pathlib import Path
 
 
 def load_receive_push_module():
-    module_path = Path(__file__).resolve().parents[1] / "scripts" / "collection_and_push" / "receive_push_data.py"
-    spec = importlib.util.spec_from_file_location("receive_push_data_test_module", module_path)
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "collection_and_push"
+        / "receive_push_data.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "receive_push_data_test_module", module_path
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     assert spec.loader is not None
@@ -85,8 +92,20 @@ def test_subscription_snapshot_reads_from_sqlite_snapshot(tmp_path: Path):
             "first_stream_id": "1-0",
             "last_stream_id": "1-1",
             "items": [
-                {"stream_id": "1-0", "ts_code": "000001.SZ", "version": "1", "shard_id": 0, "tick": {"ts_code": "000001.SZ", "close": 10.5}},
-                {"stream_id": "1-1", "ts_code": "600519.SH", "version": "1", "shard_id": 1, "tick": {"ts_code": "600519.SH", "close": 1690.0}},
+                {
+                    "stream_id": "1-0",
+                    "ts_code": "000001.SZ",
+                    "version": "1",
+                    "shard_id": 0,
+                    "tick": {"ts_code": "000001.SZ", "close": 10.5},
+                },
+                {
+                    "stream_id": "1-1",
+                    "ts_code": "600519.SH",
+                    "version": "1",
+                    "shard_id": 1,
+                    "tick": {"ts_code": "600519.SH", "close": 1690.0},
+                },
             ],
         }
     )
@@ -104,7 +123,13 @@ def test_subscription_snapshot_reads_from_sqlite_snapshot(tmp_path: Path):
             "first_stream_id": "2-0",
             "last_stream_id": "2-0",
             "items": [
-                {"stream_id": "2-0", "ts_code": "00700.HK", "version": "1", "shard_id": 0, "tick": {"ts_code": "00700.HK", "close": 380.0}},
+                {
+                    "stream_id": "2-0",
+                    "ts_code": "00700.HK",
+                    "version": "1",
+                    "shard_id": 0,
+                    "tick": {"ts_code": "00700.HK", "close": 380.0},
+                },
             ],
         }
     )
@@ -114,12 +139,18 @@ def test_subscription_snapshot_reads_from_sqlite_snapshot(tmp_path: Path):
     assert flush_result["processed"] == 3
     assert flush_result["upserts"] == 3
 
-    snapshot = store.get_subscription_snapshot(["000001.SZ", "00700.HK", "600519.SH"], 5)
+    snapshot = store.get_subscription_snapshot(
+        ["000001.SZ", "00700.HK", "600519.SH"], 5
+    )
 
     assert snapshot["count"] == 3
     assert snapshot["step_seconds"] == 5
     assert snapshot["missing"] == []
-    assert {item["ts_code"] for item in snapshot["data"]} == {"000001.SZ", "00700.HK", "600519.SH"}
+    assert {item["ts_code"] for item in snapshot["data"]} == {
+        "000001.SZ",
+        "00700.HK",
+        "600519.SH",
+    }
 
 
 def test_apply_policies_persists_to_sqlite(tmp_path: Path):
@@ -171,7 +202,9 @@ def test_sync_user_subscriptions_persists_manifest(tmp_path: Path):
     )
 
     assert result["accepted_symbols"] == ["000001.SZ", "600519.SH"]
-    assert result["rejected_symbols"] == [{"symbol": "00700.HK", "reason": "market_not_allowed"}]
+    assert result["rejected_symbols"] == [
+        {"symbol": "00700.HK", "reason": "market_not_allowed"}
+    ]
     assert store.get_user_subscriptions("alice") == ["000001.SZ", "600519.SH"]
 
 
@@ -179,19 +212,27 @@ def test_subscription_endpoints_use_registered_symbols(tmp_path: Path):
     module = load_receive_push_module()
 
     def fake_verify(_token: str, _path: str):
-        return True, {
-            "sub": "alice",
-            "rev": 3,
-            "scope": {
-                "markets": ["CN"],
-                "levels": ["L1"],
-                "symbols": {"mode": "all", "list": []},
-                "quota": {"max_subs": 2},
+        return (
+            True,
+            {
+                "sub": "alice",
+                "rev": 3,
+                "scope": {
+                    "markets": ["CN"],
+                    "levels": ["L1"],
+                    "symbols": {"mode": "all", "list": []},
+                    "quota": {"max_subs": 2},
+                },
             },
-        }, ""
+            "",
+        )
 
     module.verify_subscription_token = fake_verify
-    cfg = module.ReceiverConfig(data_dir=str(tmp_path), jwt_public_key_path="/tmp/dummy.pem", flush_interval_seconds=30)
+    cfg = module.ReceiverConfig(
+        data_dir=str(tmp_path),
+        jwt_public_key_path="/tmp/dummy.pem",
+        flush_interval_seconds=30,
+    )
     app = module.create_app(cfg)
     client = app.test_client()
     store = app.config["push_data_store"]
@@ -235,8 +276,20 @@ def test_subscription_endpoints_use_registered_symbols(tmp_path: Path):
                 "first_stream_id": "1-0",
                 "last_stream_id": "1-1",
                 "items": [
-                    {"stream_id": "1-0", "ts_code": "000001.SZ", "version": "1", "shard_id": 0, "tick": {"ts_code": "000001.SZ", "close": 10.5}},
-                    {"stream_id": "1-1", "ts_code": "600519.SH", "version": "1", "shard_id": 1, "tick": {"ts_code": "600519.SH", "close": 1690.0}},
+                    {
+                        "stream_id": "1-0",
+                        "ts_code": "000001.SZ",
+                        "version": "1",
+                        "shard_id": 0,
+                        "tick": {"ts_code": "000001.SZ", "close": 10.5},
+                    },
+                    {
+                        "stream_id": "1-1",
+                        "ts_code": "600519.SH",
+                        "version": "1",
+                        "shard_id": 1,
+                        "tick": {"ts_code": "600519.SH", "close": 1690.0},
+                    },
                 ],
             },
         )
@@ -265,6 +318,8 @@ def test_subscription_endpoints_use_registered_symbols(tmp_path: Path):
         assert subset_resp.status_code == 200
         subset_json = subset_resp.get_json()
         assert subset_json["accepted_symbols"] == ["000001.SZ"]
-        assert subset_json["rejected_symbols"] == [{"symbol": "00700.HK", "reason": "not_subscribed"}]
+        assert subset_json["rejected_symbols"] == [
+            {"symbol": "00700.HK", "reason": "not_subscribed"}
+        ]
     finally:
         store.stop_builder()

@@ -1,33 +1,33 @@
 """Index Agent for intelligent index quantitative analysis using LangGraph/DeepAgents."""
 
-from typing import List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 from .index_tools import (
-    get_index_info,
-    get_index_constituents,
-    get_index_factors,
-    analyze_trend,
+    analyze_concentration,
     analyze_momentum,
+    analyze_sentiment,
+    analyze_trend,
     analyze_volatility,
     analyze_volume,
-    analyze_sentiment,
-    analyze_concentration,
+    compare_index_performance,
+    get_ci_industry_daily,
     get_comprehensive_analysis,
+    get_global_index,
+    get_index_constituents,
+    get_index_factors,
+    get_index_info,
+    get_index_monthly_data,
     # 新增工具
     get_index_weekly_data,
-    get_index_monthly_data,
+    get_industry_classification,
+    get_industry_ranking,
+    get_market_daily_stats,
     get_sw_industry_daily,
-    get_ci_industry_daily,
-    search_ths_index,
     get_ths_daily,
     get_ths_members,
-    get_global_index,
-    get_market_daily_stats,
-    get_industry_classification,
-    compare_index_performance,
-    get_industry_ranking,
+    search_ths_index,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 class IndexAgent(LangGraphAgent):
     """Index Agent for intelligent index quantitative analysis using DeepAgents.
-    
+
     Handles:
     - Index basic information query
     - Constituent stock and weight analysis
@@ -47,15 +47,15 @@ class IndexAgent(LangGraphAgent):
     - Global index tracking
     - Market overview statistics
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="IndexAgent",
-            description="负责指数量化分析，提供趋势、动量、波动、量能、情绪、集中度等多维度分析，支持周线月线、行业指数、概念板块、国际指数等"
+            description="负责指数量化分析，提供趋势、动量、波动、量能、情绪、集中度等多维度分析，支持周线月线、行业指数、概念板块、国际指数等",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return index analysis tools."""
         return [
             # 基础指数分析工具
@@ -88,7 +88,7 @@ class IndexAgent(LangGraphAgent):
             # 对比分析
             compare_index_performance,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for index quantitative analysis."""
         return """你是一个专业的指数量化分析师，专注于A股指数、行业指数、概念板块及国际指数的分析。

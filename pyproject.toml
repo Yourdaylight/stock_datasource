@@ -81,6 +81,14 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
     "SIM108", # ternary operator (readability preference)
+    "RUF001", # ambiguous unicode char in string (Chinese project)
+    "RUF002", # ambiguous unicode char in docstring (Chinese project)
+    "RUF003", # ambiguous unicode char in comment (Chinese project)
+    "RUF013", # implicit optional (pervasive in existing code)
+    "B904",   # raise-without-from-inside-except (pervasive in existing code)
+    "B905",   # zip-without-explicit-strict (pervasive in existing code)
+    "W291",   # trailing whitespace (handled by formatter)
+    "W293",   # blank line with whitespace (handled by formatter)
 ]
 
 [tool.ruff.lint.isort]

@@ -2,35 +2,33 @@
 
 import os
 from pathlib import Path
-from pydantic import Field, ConfigDict, field_validator
+
+from pydantic import ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 
 class Settings(BaseSettings):
     """Application settings."""
-    
+
     model_config = ConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
-    
+
     # Project settings
     PROJECT_NAME: str = "stock-datasource"
     VERSION: str = "0.1.0"
     DEBUG: bool = Field(default=False)
-    
-    @field_validator('DEBUG', mode='before')
+
+    @field_validator("DEBUG", mode="before")
     @classmethod
     def parse_debug(cls, v):
         """Parse DEBUG value, handle non-boolean values gracefully."""
         if isinstance(v, bool):
             return v
         if isinstance(v, str):
-            return v.lower() in ('true', '1', 'yes', 'on')
+            return v.lower() in ("true", "1", "yes", "on")
         return False
-    
+
     # ClickHouse settings (Primary)
     CLICKHOUSE_HOST: str = Field(default="localhost")
     CLICKHOUSE_PORT: int = Field(default=9000)
@@ -38,136 +36,166 @@ class Settings(BaseSettings):
     CLICKHOUSE_USER: str = Field(default="default")
     CLICKHOUSE_PASSWORD: str = Field(default="")
     CLICKHOUSE_DATABASE: str = Field(default="stock_data")
-    
+
     # Backup ClickHouse settings (Optional - for dual write)
-    BACKUP_CLICKHOUSE_HOST: Optional[str] = Field(default=None)
+    BACKUP_CLICKHOUSE_HOST: str | None = Field(default=None)
     BACKUP_CLICKHOUSE_PORT: int = Field(default=9000)
     BACKUP_CLICKHOUSE_USER: str = Field(default="default")
     BACKUP_CLICKHOUSE_PASSWORD: str = Field(default="")
     BACKUP_CLICKHOUSE_DATABASE: str = Field(default="stock_datasource")
-    
+
     # TuShare settings
     TUSHARE_TOKEN: str = Field(default="")
     TUSHARE_RATE_LIMIT: int = Field(default=120)  # calls per minute
     TUSHARE_MAX_RETRIES: int = Field(default=3)
-    
+
     # HTTP Proxy settings
     HTTP_PROXY_ENABLED: bool = Field(default=False)
     HTTP_PROXY_HOST: str = Field(default="")
     HTTP_PROXY_PORT: int = Field(default=0)
-    HTTP_PROXY_USERNAME: Optional[str] = Field(default=None)
-    HTTP_PROXY_PASSWORD: Optional[str] = Field(default=None)
+    HTTP_PROXY_USERNAME: str | None = Field(default=None)
+    HTTP_PROXY_PASSWORD: str | None = Field(default=None)
 
-    @field_validator('HTTP_PROXY_PORT', mode='before')
+    @field_validator("HTTP_PROXY_PORT", mode="before")
     @classmethod
     def parse_proxy_port(cls, v):
         """Parse HTTP_PROXY_PORT value, handle empty strings gracefully."""
         if isinstance(v, int):
             return v
         if isinstance(v, str):
-            if v.strip() == '':
+            if v.strip() == "":
                 return 0
             try:
                 return int(v)
             except ValueError:
                 return 0
         return 0
-    
+
     @property
-    def http_proxy_url(self) -> Optional[str]:
+    def http_proxy_url(self) -> str | None:
         """Get formatted HTTP proxy URL."""
-        if not self.HTTP_PROXY_ENABLED or not self.HTTP_PROXY_HOST or not self.HTTP_PROXY_PORT:
+        if (
+            not self.HTTP_PROXY_ENABLED
+            or not self.HTTP_PROXY_HOST
+            or not self.HTTP_PROXY_PORT
+        ):
             return None
-        
+
         if self.HTTP_PROXY_USERNAME and self.HTTP_PROXY_PASSWORD:
             # URL encode the password to handle special characters
             from urllib.parse import quote
-            encoded_password = quote(self.HTTP_PROXY_PASSWORD, safe='')
+
+            encoded_password = quote(self.HTTP_PROXY_PASSWORD, safe="")
             return f"http://{self.HTTP_PROXY_USERNAME}:{encoded_password}@{self.HTTP_PROXY_HOST}:{self.HTTP_PROXY_PORT}"
         else:
             return f"http://{self.HTTP_PROXY_HOST}:{self.HTTP_PROXY_PORT}"
-    
+
     @property
-    def proxy_dict(self) -> Optional[dict]:
+    def proxy_dict(self) -> dict | None:
         """Get proxy dict for requests library."""
         proxy_url = self.http_proxy_url
         if proxy_url:
-            return {
-                "http": proxy_url,
-                "https": proxy_url
-            }
+            return {"http": proxy_url, "https": proxy_url}
         return None
-    
+
     # Airflow settings
     AIRFLOW_HOME: str = Field(default="/opt/airflow")
-    
+
     # Data settings
     DATA_START_DATE: str = Field(default="2020-01-01")
     DAILY_UPDATE_TIME: str = Field(default="18:00")
     TIMEZONE: str = Field(default="Asia/Shanghai")
-    
+
     # File paths
     BASE_DIR: Path = Path(__file__).parent.parent
     DATA_DIR: Path = BASE_DIR / "data"
     LOGS_DIR: Path = BASE_DIR / "logs"
     SQL_DIR: Path = BASE_DIR / "src" / "stock_datasource" / "sql"
-    
+
     # Logging
     LOG_LEVEL: str = Field(default="INFO")
-    LOG_ROTATION_SIZE: str = Field(default="100 MB", description="Log file rotation size")
-    LOG_CH_SINK_ENABLED: bool = Field(default=True, description="Enable ClickHouse structured log sink")
-    LOG_CH_SINK_BATCH_SIZE: int = Field(default=5000, description="Batch size for CH log import")
-    LOG_RETENTION_DAYS: str = Field(default="90 days", description="Log retention period")
-    
+    LOG_ROTATION_SIZE: str = Field(
+        default="100 MB", description="Log file rotation size"
+    )
+    LOG_CH_SINK_ENABLED: bool = Field(
+        default=True, description="Enable ClickHouse structured log sink"
+    )
+    LOG_CH_SINK_BATCH_SIZE: int = Field(
+        default=5000, description="Batch size for CH log import"
+    )
+    LOG_RETENTION_DAYS: str = Field(
+        default="90 days", description="Log retention period"
+    )
+
     # Database settings
-    DATABASE_URL: Optional[str] = Field(default=None)
-    
+    DATABASE_URL: str | None = Field(default=None)
+
     # LLM / AI settings
-    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    OPENAI_API_KEY: str | None = Field(default=None)
     OPENAI_BASE_URL: str = Field(default="https://api.openai.com/v1")
     OPENAI_MODEL: str = Field(default="gpt-4")
-    
+
     # Langfuse settings (AI Observability)
-    LANGFUSE_PUBLIC_KEY: Optional[str] = Field(default=None)
-    LANGFUSE_SECRET_KEY: Optional[str] = Field(default=None)
+    LANGFUSE_PUBLIC_KEY: str | None = Field(default=None)
+    LANGFUSE_SECRET_KEY: str | None = Field(default=None)
     LANGFUSE_HOST: str = Field(default="https://cloud.langfuse.com")
     LANGFUSE_ENABLED: bool = Field(default=True)
-    
+
     # Redis settings (for caching)
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
-    REDIS_PASSWORD: Optional[str] = Field(default=None)
+    REDIS_PASSWORD: str | None = Field(default=None)
     REDIS_DB: int = Field(default=1)  # Use DB 1 to isolate from Langfuse (DB 0)
     REDIS_ENABLED: bool = Field(default=True)
-    
+
     # Cache TTL settings (seconds)
-    CACHE_TTL_QUOTE: int = Field(default=60)       # Real-time quotes
-    CACHE_TTL_DAILY: int = Field(default=86400)    # Daily K-line data
-    CACHE_TTL_BASIC: int = Field(default=3600)     # Stock basic info
-    CACHE_TTL_OVERVIEW: int = Field(default=300)   # Market overview
+    CACHE_TTL_QUOTE: int = Field(default=60)  # Real-time quotes
+    CACHE_TTL_DAILY: int = Field(default=86400)  # Daily K-line data
+    CACHE_TTL_BASIC: int = Field(default=3600)  # Stock basic info
+    CACHE_TTL_OVERVIEW: int = Field(default=300)  # Market overview
 
     # --- Realtime Kline (RT_KLINE_*) ---
     RT_KLINE_COLLECT_INTERVAL: float = Field(default=1.5, description="采集周期(秒)")
-    RT_KLINE_MARKET_INNER_CONCURRENCY: int = Field(default=3, description="单市场内采集并发上限")
-    RT_KLINE_STREAM_TTL_HOURS: int = Field(default=72, description="Redis stream 保留小时数")
-    RT_KLINE_LATEST_TTL_SECONDS: int = Field(default=86400, description="Redis latest key TTL")
+    RT_KLINE_MARKET_INNER_CONCURRENCY: int = Field(
+        default=3, description="单市场内采集并发上限"
+    )
+    RT_KLINE_STREAM_TTL_HOURS: int = Field(
+        default=72, description="Redis stream 保留小时数"
+    )
+    RT_KLINE_LATEST_TTL_SECONDS: int = Field(
+        default=86400, description="Redis latest key TTL"
+    )
     RT_KLINE_SINK_INTERVAL: int = Field(default=60, description="分钟落库周期(秒)")
     RT_KLINE_SINK_BATCH_SIZE: int = Field(default=10000, description="单次XREAD批大小")
-    RT_KLINE_SINK_MAX_BATCHES_PER_TICK: int = Field(default=6, description="每次tick每市场最大批次数")
-    RT_KLINE_CLOUD_PUSH_ENABLED: bool = Field(default=False, description="云端推送开关(隐藏功能)")
+    RT_KLINE_SINK_MAX_BATCHES_PER_TICK: int = Field(
+        default=6, description="每次tick每市场最大批次数"
+    )
+    RT_KLINE_CLOUD_PUSH_ENABLED: bool = Field(
+        default=False, description="云端推送开关(隐藏功能)"
+    )
     RT_KLINE_CLOUD_PUSH_URL: str = Field(default="", description="云端推送目标URL")
     RT_KLINE_CLOUD_PUSH_TOKEN: str = Field(default="", description="云端推送鉴权Token")
-    RT_KLINE_CLOUD_PUSH_INTERVAL: float = Field(default=2.0, description="推送触发间隔(秒)")
-    RT_KLINE_CLOUD_PUSH_WINDOW: float = Field(default=10.0, description="滑动窗口大小(秒)")
-    RT_KLINE_PUSH_CIRCUIT_BREAKER_MINUTES: int = Field(default=30, description="推送熔断阈值(分钟)")
-    RT_KLINE_PUSH_MAX_BACKLOG: int = Field(default=10000, description="推送熔断内存队列上限")
+    RT_KLINE_CLOUD_PUSH_INTERVAL: float = Field(
+        default=2.0, description="推送触发间隔(秒)"
+    )
+    RT_KLINE_CLOUD_PUSH_WINDOW: float = Field(
+        default=10.0, description="滑动窗口大小(秒)"
+    )
+    RT_KLINE_PUSH_CIRCUIT_BREAKER_MINUTES: int = Field(
+        default=30, description="推送熔断阈值(分钟)"
+    )
+    RT_KLINE_PUSH_MAX_BACKLOG: int = Field(
+        default=10000, description="推送熔断内存队列上限"
+    )
     RT_KLINE_PUSH_DLQ_TTL_DAYS: int = Field(default=7, description="推送死信保留天数")
-    RT_KLINE_SINK_MARKET_RETRY_LIMIT: int = Field(default=3, description="落库单市场重试上限")
+    RT_KLINE_SINK_MARKET_RETRY_LIMIT: int = Field(
+        default=3, description="落库单市场重试上限"
+    )
 
     # WeKnora Knowledge Base (Optional)
     WEKNORA_ENABLED: bool = Field(default=False)
     WEKNORA_BASE_URL: str = Field(default="http://weknora-backend:8080/api/v1")
-    WEKNORA_API_KEY: Optional[str] = Field(default=None)
+    WEKNORA_API_KEY: str | None = Field(default=None)
     WEKNORA_KB_IDS: str = Field(default="")  # Comma-separated knowledge base IDs
     WEKNORA_TIMEOUT: int = Field(default=10)
 
@@ -180,13 +208,12 @@ class Settings(BaseSettings):
     AUTH_ADMIN_EMAILS: str = Field(default="")
 
     # MCP JWT verification (for tokens issued by nps_enhanced management platform)
-    MCP_JWT_PUBLIC_KEY_PATH: Optional[str] = Field(
+    MCP_JWT_PUBLIC_KEY_PATH: str | None = Field(
         default=None,
-        description="Path to RSA public key PEM for verifying nps_enhanced JWT tokens"
+        description="Path to RSA public key PEM for verifying nps_enhanced JWT tokens",
     )
-    MCP_USAGE_REPORT_KEY: Optional[str] = Field(
-        default=None,
-        description="Shared secret for nps_enhanced to pull usage reports"
+    MCP_USAGE_REPORT_KEY: str | None = Field(
+        default=None, description="Shared secret for nps_enhanced to pull usage reports"
     )
 
 
@@ -202,8 +229,12 @@ try:
     settings.HTTP_PROXY_ENABLED = _proxy_cfg.get("enabled", settings.HTTP_PROXY_ENABLED)
     settings.HTTP_PROXY_HOST = _proxy_cfg.get("host", settings.HTTP_PROXY_HOST)
     settings.HTTP_PROXY_PORT = _proxy_cfg.get("port", settings.HTTP_PROXY_PORT)
-    settings.HTTP_PROXY_USERNAME = _proxy_cfg.get("username", settings.HTTP_PROXY_USERNAME)
-    settings.HTTP_PROXY_PASSWORD = _proxy_cfg.get("password", settings.HTTP_PROXY_PASSWORD)
+    settings.HTTP_PROXY_USERNAME = _proxy_cfg.get(
+        "username", settings.HTTP_PROXY_USERNAME
+    )
+    settings.HTTP_PROXY_PASSWORD = _proxy_cfg.get(
+        "password", settings.HTTP_PROXY_PASSWORD
+    )
 
     _weknora_cfg = _runtime_cfg.get("weknora", {})
     if _weknora_cfg.get("enabled") or _weknora_cfg.get("api_key"):
@@ -224,16 +255,17 @@ except Exception:
 settings.DATA_DIR.mkdir(exist_ok=True)
 settings.LOGS_DIR.mkdir(exist_ok=True)
 
+
 # Local dev auto-fix: override Docker-internal hostnames with localhost equivalents.
 # The .env sets REDIS_HOST=stock-redis for Docker, but local dev can't resolve that.
 def _apply_local_dev_overrides():
     """When running outside Docker, remap container-internal hostnames to localhost."""
-    if os.path.exists('/.dockerenv'):
+    if os.path.exists("/.dockerenv"):
         return
-    if os.path.exists('/proc/1/cgroup'):
-        with open('/proc/1/cgroup', 'r') as f:
+    if os.path.exists("/proc/1/cgroup"):
+        with open("/proc/1/cgroup") as f:
             content = f.read()
-            if 'docker' in content or 'kubepods' in content:
+            if "docker" in content or "kubepods" in content:
                 return
 
     import socket
@@ -255,9 +287,12 @@ def _apply_local_dev_overrides():
         # Docker exposes HTTP port on 8124 (mapped from container 8123)
         ch_http_port = os.environ.get("CLICKHOUSE_HTTP_EXPOSE_PORT")
         if ch_http_port:
-            if hasattr(settings, 'CLICKHOUSE_HTTP_PORT'):
+            if hasattr(settings, "CLICKHOUSE_HTTP_PORT"):
                 settings.CLICKHOUSE_HTTP_PORT = int(ch_http_port)
-        elif hasattr(settings, 'CLICKHOUSE_HTTP_PORT') and settings.CLICKHOUSE_HTTP_PORT == 8123:
+        elif (
+            hasattr(settings, "CLICKHOUSE_HTTP_PORT")
+            and settings.CLICKHOUSE_HTTP_PORT == 8123
+        ):
             try:
                 with socket.create_connection(("localhost", 8124), timeout=1):
                     settings.CLICKHOUSE_HTTP_PORT = 8124
@@ -280,7 +315,9 @@ def _apply_local_dev_overrides():
                 pass  # Keep 6379
         settings.REDIS_HOST = "localhost"
 
+
 _apply_local_dev_overrides()
+
 
 # Patch TuShare to use HTTPS instead of HTTP
 # This is necessary because some proxies block HTTP POST requests but allow HTTPS
@@ -288,12 +325,16 @@ def _patch_tushare_https():
     """Patch TuShare client to use HTTPS URL."""
     try:
         import tushare.pro.client as tushare_client
-        if hasattr(tushare_client, 'DataApi'):
+
+        if hasattr(tushare_client, "DataApi"):
             # Change from http:// to https://
-            original_url = getattr(tushare_client.DataApi, '_DataApi__http_url', None)
-            if original_url and original_url.startswith('http://'):
-                tushare_client.DataApi._DataApi__http_url = original_url.replace('http://', 'https://', 1)
+            original_url = getattr(tushare_client.DataApi, "_DataApi__http_url", None)
+            if original_url and original_url.startswith("http://"):
+                tushare_client.DataApi._DataApi__http_url = original_url.replace(
+                    "http://", "https://", 1
+                )
     except Exception:
         pass
+
 
 _patch_tushare_https()

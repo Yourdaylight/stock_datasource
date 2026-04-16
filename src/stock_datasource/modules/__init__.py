@@ -9,138 +9,161 @@ def get_all_routers() -> list:
 
     try:
         from .auth.router import router as auth_router
+
         routers.append(("/auth", auth_router, ["用户认证"]))
     except ImportError:
         pass
 
     try:
         from .chat.router import router as chat_router
+
         routers.append(("/chat", chat_router, ["对话交互"]))
     except ImportError:
         pass
 
     try:
         from .market.router import router as market_router
+
         routers.append(("/market", market_router, ["行情分析"]))
     except ImportError:
         pass
 
     try:
         from .screener.router import router as screener_router
+
         routers.append(("/screener", screener_router, ["智能选股"]))
     except ImportError:
         pass
 
     try:
         from .report.router import router as report_router
+
         routers.append(("/report", report_router, ["财报研读"]))
     except ImportError:
         pass
 
     try:
         from .memory.router import router as memory_router
+
         routers.append(("/memory", memory_router, ["用户记忆"]))
     except ImportError:
         pass
 
     try:
         from .datamanage.router import router as datamanage_router
+
         routers.append(("/datamanage", datamanage_router, ["数据管理"]))
     except ImportError:
         pass
 
     try:
         from .portfolio.router import router as portfolio_router
+
         routers.append(("/portfolio", portfolio_router, ["持仓管理"]))
     except ImportError:
         pass
 
     try:
         from .profile.router import router as profile_router
+
         routers.append(("/portfolio", profile_router, ["账户配置"]))
     except ImportError:
         pass
 
     try:
         from .backtest.router import router as backtest_router
+
         routers.append(("/backtest", backtest_router, ["策略回测"]))
     except ImportError:
         pass
 
     try:
         from .index.router import router as index_router
+
         routers.append(("/index", index_router, ["指数选股"]))
     except ImportError:
         pass
 
     try:
         from .etf.router import router as etf_router
+
         routers.append(("/etf", etf_router, ["ETF基金"]))
     except ImportError:
         pass
 
     try:
         from .overview.router import router as overview_router
+
         routers.append(("/overview", overview_router, ["市场概览"]))
     except ImportError:
         pass
 
     try:
         from .ths_index.router import router as ths_index_router
+
         routers.append(("/ths-index", ths_index_router, ["板块指数"]))
     except ImportError:
         pass
 
     try:
         from .news.router import router as news_router
+
         routers.append(("/news", news_router, ["新闻资讯"]))
     except ImportError:
         pass
 
     try:
         from .arena.router import router as arena_router
+
         routers.append(("/arena", arena_router, ["多Agent竞技场"]))
     except ImportError:
         pass
 
     try:
         from .hk_report.router import router as hk_report_router
+
         routers.append(("/hk-report", hk_report_router, ["港股财报"]))
     except ImportError:
         pass
 
     try:
         from .quant.router import router as quant_router
+
         routers.append(("/quant", quant_router, ["量化选股"]))
     except ImportError:
         pass
 
     try:
         from .realtime_minute.router import router as realtime_minute_router
+
         routers.append(("/realtime", realtime_minute_router, ["实时分钟"]))
     except ImportError:
         pass
 
     try:
         from .token_usage.router import router as token_usage_router
+
         routers.append(("/token", token_usage_router, ["Token用量"]))
     except ImportError:
         pass
 
     try:
         from .mcp_usage.router import router as mcp_usage_router
+
         routers.append(("/mcp-usage", mcp_usage_router, ["MCP调用统计"]))
     except ImportError:
         pass
 
     try:
         from .financial_analysis.router import router as financial_analysis_router
+
         routers.append(("/financial-analysis", financial_analysis_router, ["财务分析"]))
     except ImportError:
         pass
 
     try:
         from .wechat_bridge.router import router as wechat_bridge_router
+
         routers.append(("/wechat-bridge", wechat_bridge_router, ["微信联动"]))
     except ImportError:
         pass

@@ -4,20 +4,24 @@ TC-PY-07 through TC-PY-20.
 """
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-import pandas as pd
+from unittest.mock import MagicMock, patch
 
+import pandas as pd
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helper: build the FastAPI app with full mocking
 # ---------------------------------------------------------------------------
 
+
 def _create_test_app():
     """Create the MCP FastAPI app for testing with mocked dependencies."""
     # Mock all heavy imports before creating app
-    with patch("stock_datasource.services.mcp_server._discover_services", return_value=[]):
+    with patch(
+        "stock_datasource.services.mcp_server._discover_services", return_value=[]
+    ):
         from stock_datasource.services.mcp_server import create_app
+
         app = create_app()
     return app
 
@@ -25,6 +29,7 @@ def _create_test_app():
 # ---------------------------------------------------------------------------
 # TC-PY-11 ~ TC-PY-13: _count_records_in_result
 # ---------------------------------------------------------------------------
+
 
 class TestCountRecords:
     """Tests for the record counting heuristic."""
@@ -36,6 +41,7 @@ class TestCountRecords:
         it directly. For simplicity, we replicate the logic here and test
         against known inputs.
         """
+
         # The function is embedded in create_app, so we re-implement the
         # same logic here for unit testing purposes.
         def _count_records_in_result(result_text: str) -> int:
@@ -102,43 +108,53 @@ class TestCountRecords:
 # TC-PY-07 ~ TC-PY-10, TC-PY-14 ~ TC-PY-20: Endpoint integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestMcpEndpoints:
     """Integration tests for MCP server endpoints via TestClient."""
 
     @pytest.fixture(autouse=True)
     def setup_app(self):
         """Create test app with all services mocked."""
-        from httpx import ASGITransport, AsyncClient
 
-        with patch("stock_datasource.services.mcp_server._discover_services", return_value=[]):
+        with patch(
+            "stock_datasource.services.mcp_server._discover_services", return_value=[]
+        ):
             from stock_datasource.services.mcp_server import create_app
+
             self.app = create_app()
 
         from fastapi.testclient import TestClient
+
         self.client = TestClient(self.app)
 
     # --- Authentication tests ---
 
     def test_initialize_no_auth_required(self):
         """TC-PY-14: initialize method doesn't require authentication."""
-        resp = self.client.post("/messages", json={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {},
-        })
+        resp = self.client.post(
+            "/messages",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["result"]["serverInfo"]["name"] == "stock-data-service"
 
     def test_tools_call_requires_auth(self):
         """TC-PY-15: tools/call without token returns 401."""
-        resp = self.client.post("/messages", json={
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "some_tool", "arguments": {}},
-        })
+        resp = self.client.post(
+            "/messages",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "some_tool", "arguments": {}},
+            },
+        )
         assert resp.status_code == 401
         data = resp.json()
         assert "error" in data
@@ -161,12 +177,15 @@ class TestMcpEndpoints:
 
     def test_tools_list_no_auth_still_works(self):
         """TC-PY-07 bonus: tools/list without auth should work (no token = auth_type none)."""
-        resp = self.client.post("/messages", json={
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = self.client.post(
+            "/messages",
+            json={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
         # tools/list does not require auth explicitly
         assert resp.status_code == 200
 
@@ -176,28 +195,39 @@ class TestMcpEndpoints:
     def test_quota_exhausted_returns_403(self, mock_verify):
         """TC-PY-17: When quota is exhausted, tools/call returns 403."""
         # Mock JWT verification to return valid user with limited quota
-        mock_verify.return_value = (True, {
-            "sub": "quotauser",
-            "scope": {
-                "type": "mcp_query",
-                "quota": {"total": 100, "used": 0, "remaining": 100},
-                "node_id": 1,
+        mock_verify.return_value = (
+            True,
+            {
+                "sub": "quotauser",
+                "scope": {
+                    "type": "mcp_query",
+                    "quota": {"total": 100, "used": 0, "remaining": 100},
+                    "node_id": 1,
+                },
+                "rev": 1,
             },
-            "rev": 1,
-        }, "")
+            "",
+        )
 
         # Mock the local usage query to show quota is exhausted
         mock_df = pd.DataFrame([{"total_used": 100}])
 
-        with patch("stock_datasource.services.mcp_server.db_client", create=True) as mock_db:
+        with patch(
+            "stock_datasource.services.mcp_server.db_client", create=True
+        ) as mock_db:
             # The quota check imports db_client inside the function
             mock_query_db = MagicMock()
             mock_query_db.query.return_value = mock_df
 
             # We need to patch at the point where it's imported inside the handler
-            with patch.dict("sys.modules", {
-                "stock_datasource.models.database": MagicMock(db_client=mock_query_db)
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "stock_datasource.models.database": MagicMock(
+                        db_client=mock_query_db
+                    )
+                },
+            ):
                 resp = self.client.post(
                     "/messages",
                     json={
@@ -217,15 +247,19 @@ class TestMcpEndpoints:
     @patch("stock_datasource.modules.mcp_api_key.jwt_verifier.verify_nps_jwt")
     def test_quota_available_allows_request(self, mock_verify):
         """TC-PY-18: When quota is available, request proceeds."""
-        mock_verify.return_value = (True, {
-            "sub": "activeuser",
-            "scope": {
-                "type": "mcp_query",
-                "quota": {"total": 100, "used": 0, "remaining": 100},
-                "node_id": 1,
+        mock_verify.return_value = (
+            True,
+            {
+                "sub": "activeuser",
+                "scope": {
+                    "type": "mcp_query",
+                    "quota": {"total": 100, "used": 0, "remaining": 100},
+                    "node_id": 1,
+                },
+                "rev": 1,
             },
-            "rev": 1,
-        }, "")
+            "",
+        )
 
         # Mock local usage: only 50 used, so 50 remaining
         mock_df = pd.DataFrame([{"total_used": 50}])
@@ -233,9 +267,10 @@ class TestMcpEndpoints:
         mock_query_db.query.return_value = mock_df
         mock_query_db.execute = MagicMock()  # for usage logging
 
-        with patch.dict("sys.modules", {
-            "stock_datasource.models.database": MagicMock(db_client=mock_query_db)
-        }):
+        with patch.dict(
+            "sys.modules",
+            {"stock_datasource.models.database": MagicMock(db_client=mock_query_db)},
+        ):
             # The tool call will fail (no actual tool registered), but it should
             # get past the quota check — we expect a tool error, not 403
             resp = self.client.post(
@@ -268,18 +303,23 @@ class TestMcpEndpoints:
         mock_settings.MCP_USAGE_REPORT_KEY = ""  # no auth required
 
         summary_df = pd.DataFrame([{"total_calls": 15, "total_records": 1500}])
-        detail_df = pd.DataFrame([
-            {"tool_name": "tushare_daily", "calls": 10, "records": 1000},
-            {"tool_name": "tushare_minute", "calls": 5, "records": 500},
-        ])
+        detail_df = pd.DataFrame(
+            [
+                {"tool_name": "tushare_daily", "calls": 10, "records": 1000},
+                {"tool_name": "tushare_minute", "calls": 5, "records": 500},
+            ]
+        )
 
         mock_db = MagicMock()
         mock_db.query.side_effect = [summary_df, detail_df]
 
-        with patch.dict("sys.modules", {
-            "stock_datasource.models.database": MagicMock(db_client=mock_db),
-            "stock_datasource.config.settings": MagicMock(settings=mock_settings),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "stock_datasource.models.database": MagicMock(db_client=mock_db),
+                "stock_datasource.config.settings": MagicMock(settings=mock_settings),
+            },
+        ):
             resp = self.client.get("/usage/summary?username=testuser&since=2025-01-01")
 
         assert resp.status_code == 200
@@ -305,12 +345,15 @@ class TestMcpEndpoints:
 
     def test_unknown_method(self):
         """Bonus: unknown method returns error."""
-        resp = self.client.post("/messages", json={
-            "jsonrpc": "2.0",
-            "id": 99,
-            "method": "unknown/method",
-            "params": {},
-        })
+        resp = self.client.post(
+            "/messages",
+            json={
+                "jsonrpc": "2.0",
+                "id": 99,
+                "method": "unknown/method",
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "error" in data

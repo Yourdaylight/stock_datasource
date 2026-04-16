@@ -1,18 +1,18 @@
 """FastAPI router for THS Index module."""
 
-from typing import Optional
-from fastapi import APIRouter, Query, HTTPException, Path
 import logging
 
-from .service import get_ths_index_service
+from fastapi import APIRouter, HTTPException, Path, Query
+
 from .schemas import (
-    THSIndexListResponse,
     THSDailyResponse,
+    THSIndexItem,
+    THSIndexListResponse,
     THSRankingResponse,
     THSSearchResponse,
     THSStatsResponse,
-    THSIndexItem,
 )
+from .service import get_ths_index_service
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,11 @@ router = APIRouter()
 
 @router.get("/list", response_model=THSIndexListResponse, summary="获取板块指数列表")
 async def get_index_list(
-    exchange: Optional[str] = Query(None, description="市场类型: A-A股, HK-港股, US-美股"),
-    type: Optional[str] = Query(None, description="指数类型: N-概念, I-行业, R-地域, S-特色, ST-风格, TH-主题, BB-宽基"),
+    exchange: str | None = Query(None, description="市场类型: A-A股, HK-港股, US-美股"),
+    type: str | None = Query(
+        None,
+        description="指数类型: N-概念, I-行业, R-地域, S-特色, ST-风格, TH-主题, BB-宽基",
+    ),
     limit: int = Query(100, ge=1, le=1000, description="返回数量"),
     offset: int = Query(0, ge=0, description="分页偏移"),
 ):
@@ -50,9 +53,14 @@ async def search_index(
 
 @router.get("/ranking", response_model=THSRankingResponse, summary="获取板块涨跌排行")
 async def get_ranking(
-    date: Optional[str] = Query(None, description="交易日期 (YYYYMMDD)，默认最新"),
-    type: Optional[str] = Query(None, description="指数类型筛选: N-概念, I-行业, R-地域等"),
-    sort_by: str = Query("pct_change", description="排序字段: pct_change-涨跌幅, vol-成交量, turnover_rate-换手率"),
+    date: str | None = Query(None, description="交易日期 (YYYYMMDD)，默认最新"),
+    type: str | None = Query(
+        None, description="指数类型筛选: N-概念, I-行业, R-地域等"
+    ),
+    sort_by: str = Query(
+        "pct_change",
+        description="排序字段: pct_change-涨跌幅, vol-成交量, turnover_rate-换手率",
+    ),
     order: str = Query("desc", description="排序方向: desc-降序, asc-升序"),
     limit: int = Query(20, ge=1, le=100, description="返回数量"),
 ):
@@ -61,14 +69,16 @@ async def get_ranking(
     valid_sort_fields = {"pct_change", "vol", "turnover_rate", "close"}
     if sort_by not in valid_sort_fields:
         raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid sort_by value. Must be one of: {', '.join(valid_sort_fields)}"
+            status_code=400,
+            detail=f"Invalid sort_by value. Must be one of: {', '.join(valid_sort_fields)}",
         )
-    
+
     # Validate order
     if order.lower() not in {"desc", "asc"}:
-        raise HTTPException(status_code=400, detail="Invalid order value. Must be 'desc' or 'asc'")
-    
+        raise HTTPException(
+            status_code=400, detail="Invalid order value. Must be 'desc' or 'asc'"
+        )
+
     service = get_ths_index_service()
     result = service.get_ranking(
         date=date,
@@ -77,10 +87,10 @@ async def get_ranking(
         order=order.lower(),
         limit=limit,
     )
-    
+
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
-    
+
     return result
 
 
@@ -99,18 +109,20 @@ async def get_index_detail(
     """获取单个板块指数的详细信息。"""
     service = get_ths_index_service()
     result = service.get_index_by_code(ts_code)
-    
+
     if not result:
         raise HTTPException(status_code=404, detail=f"Index {ts_code} not found")
-    
+
     return result
 
 
-@router.get("/{ts_code}/daily", response_model=THSDailyResponse, summary="获取板块指数日线数据")
+@router.get(
+    "/{ts_code}/daily", response_model=THSDailyResponse, summary="获取板块指数日线数据"
+)
 async def get_daily_data(
     ts_code: str = Path(..., description="板块指数代码，如 885001.TI"),
-    start_date: Optional[str] = Query(None, description="开始日期 (YYYYMMDD)"),
-    end_date: Optional[str] = Query(None, description="结束日期 (YYYYMMDD)"),
+    start_date: str | None = Query(None, description="开始日期 (YYYYMMDD)"),
+    end_date: str | None = Query(None, description="结束日期 (YYYYMMDD)"),
     limit: int = Query(30, ge=1, le=365, description="默认返回最近N条记录"),
 ):
     """获取板块指数的日线行情数据。"""

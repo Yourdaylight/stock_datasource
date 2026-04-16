@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class SuspendDService:
@@ -18,7 +18,7 @@ class SuspendDService:
                 user=settings.BACKUP_CLICKHOUSE_USER,
                 password=settings.BACKUP_CLICKHOUSE_PASSWORD,
                 database=settings.BACKUP_CLICKHOUSE_DATABASE,
-                name="backup"
+                name="backup",
             )
         else:
             self.client = db_client.primary
@@ -102,7 +102,7 @@ class SuspendDService:
         query = f"""
             SELECT *
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY trade_date DESC
         """
 
@@ -132,7 +132,9 @@ class SuspendDService:
               AND suspend_type = 'S'
         """
 
-        df = self.client.execute_query(query, {"ts_code": ts_code, "trade_date": trade_date})
+        df = self.client.execute_query(
+            query, {"ts_code": ts_code, "trade_date": trade_date}
+        )
         return df.iloc[0]["cnt"] > 0 if not df.empty else False
 
     def get_suspend_statistics(
@@ -162,5 +164,7 @@ class SuspendDService:
             ORDER BY trade_date DESC
         """
 
-        df = self.client.execute_query(query, {"start_date": start_date, "end_date": end_date})
+        df = self.client.execute_query(
+            query, {"start_date": start_date, "end_date": end_date}
+        )
         return df.to_dict(orient="records")

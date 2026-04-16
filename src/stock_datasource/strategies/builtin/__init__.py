@@ -4,7 +4,7 @@
 包含经典的技术分析策略实现：
 - 移动平均策略 (MA)
 - MACD策略
-- RSI策略  
+- RSI策略
 - KDJ策略
 - 布林带策略 (Bollinger Bands)
 - 双均线策略 (Dual MA)
@@ -13,15 +13,15 @@
 - 自适应突破跟踪策略 (Adaptive Breakout Follow)
 """
 
+from .adaptive_breakout_follow_strategy import AdaptiveBreakoutFollowStrategy
+from .bollinger_strategy import BollingerBandsStrategy
+from .dual_ma_strategy import DualMAStrategy
+from .kdj_strategy import KDJStrategy
 from .ma_strategy import MAStrategy
 from .macd_strategy import MACDStrategy
 from .rsi_strategy import RSIStrategy
-from .kdj_strategy import KDJStrategy
-from .bollinger_strategy import BollingerBandsStrategy
-from .dual_ma_strategy import DualMAStrategy
 from .turtle_strategy import TurtleStrategy
 from .zscore_ma_stationary_strategy import ZScoreMAStationaryStrategy
-from .adaptive_breakout_follow_strategy import AdaptiveBreakoutFollowStrategy
 
 # 所有内置策略类
 BUILTIN_STRATEGIES = [
@@ -37,14 +37,14 @@ BUILTIN_STRATEGIES = [
 ]
 
 __all__ = [
-    "MAStrategy",
-    "MACDStrategy", 
-    "RSIStrategy",
-    "KDJStrategy",
+    "BUILTIN_STRATEGIES",
+    "AdaptiveBreakoutFollowStrategy",
     "BollingerBandsStrategy",
     "DualMAStrategy",
+    "KDJStrategy",
+    "MACDStrategy",
+    "MAStrategy",
+    "RSIStrategy",
     "TurtleStrategy",
     "ZScoreMAStationaryStrategy",
-    "AdaptiveBreakoutFollowStrategy",
-    "BUILTIN_STRATEGIES",
 ]

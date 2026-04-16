@@ -1,25 +1,37 @@
 """Query service for research report earnings forecast data."""
 
-from typing import List, Dict, Any, Optional
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+from typing import Any
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 class ReportRcService(BaseService):
     """Service for querying research report earnings forecast (研报盈利预测) data."""
-    
+
     def __init__(self):
         super().__init__("tushare_report_rc")
-    
+
     @query_method(
         description="查询指定日期的研报数据",
         params=[
-            QueryParam(name="report_date", type="str", required=True,
-                      description="研报日期，格式 YYYY-MM-DD"),
-            QueryParam(name="limit", type="int", required=False, default=100,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="report_date",
+                type="str",
+                required=True,
+                description="研报日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=100,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_reports_by_date(self, report_date: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_reports_by_date(
+        self, report_date: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """Get research reports for a specific date."""
         query = f"""
             SELECT 
@@ -43,33 +55,55 @@ class ReportRcService(BaseService):
             ORDER BY ts_code, org_name
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="查询指定股票的研报历史",
         params=[
-            QueryParam(name="ts_code", type="str", required=True,
-                      description="股票代码，如 000001.SZ"),
-            QueryParam(name="start_date", type="str", required=False,
-                      description="开始日期，格式 YYYY-MM-DD"),
-            QueryParam(name="end_date", type="str", required=False,
-                      description="结束日期，格式 YYYY-MM-DD"),
-            QueryParam(name="limit", type="int", required=False, default=100,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="ts_code",
+                type="str",
+                required=True,
+                description="股票代码，如 000001.SZ",
+            ),
+            QueryParam(
+                name="start_date",
+                type="str",
+                required=False,
+                description="开始日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="end_date",
+                type="str",
+                required=False,
+                description="结束日期，格式 YYYY-MM-DD",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=100,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_reports_by_stock(self, ts_code: str, start_date: Optional[str] = None,
-                             end_date: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_reports_by_stock(
+        self,
+        ts_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
         """Get research report history for a specific stock."""
         conditions = [f"ts_code = '{ts_code}'"]
-        
+
         if start_date:
             conditions.append(f"report_date >= '{start_date}'")
         if end_date:
             conditions.append(f"report_date <= '{end_date}'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         query = f"""
             SELECT 
                 ts_code,
@@ -92,18 +126,30 @@ class ReportRcService(BaseService):
             ORDER BY report_date DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取近期被研报覆盖次数最多的股票排名",
         params=[
-            QueryParam(name="days", type="int", required=False, default=30,
-                      description="统计天数"),
-            QueryParam(name="limit", type="int", required=False, default=20,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=30,
+                description="统计天数",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=20,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_hot_covered_stocks(self, days: int = 30, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_hot_covered_stocks(
+        self, days: int = 30, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """Get stocks with most research report coverage in recent days."""
         query = f"""
             SELECT 
@@ -122,18 +168,28 @@ class ReportRcService(BaseService):
             ORDER BY report_count DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取券商机构研报统计",
         params=[
-            QueryParam(name="days", type="int", required=False, default=30,
-                      description="统计天数"),
-            QueryParam(name="limit", type="int", required=False, default=20,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=30,
+                description="统计天数",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=20,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def get_org_stats(self, days: int = 30, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_org_stats(self, days: int = 30, limit: int = 20) -> list[dict[str, Any]]:
         """Get statistics by research organization."""
         query = f"""
             SELECT 
@@ -147,26 +203,35 @@ class ReportRcService(BaseService):
             ORDER BY report_count DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取股票的盈利预测一致性预期",
         params=[
-            QueryParam(name="ts_code", type="str", required=True,
-                      description="股票代码，如 000001.SZ"),
-            QueryParam(name="quarter", type="str", required=False,
-                      description="预测报告期，如 2024Q4")
-        ]
+            QueryParam(
+                name="ts_code",
+                type="str",
+                required=True,
+                description="股票代码，如 000001.SZ",
+            ),
+            QueryParam(
+                name="quarter",
+                type="str",
+                required=False,
+                description="预测报告期，如 2024Q4",
+            ),
+        ],
     )
-    def get_consensus_forecast(self, ts_code: str, 
-                               quarter: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_consensus_forecast(
+        self, ts_code: str, quarter: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get consensus earnings forecast for a stock."""
         conditions = [f"ts_code = '{ts_code}'"]
         if quarter:
             conditions.append(f"quarter = '{quarter}'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         query = f"""
             SELECT 
                 ts_code,
@@ -186,26 +251,36 @@ class ReportRcService(BaseService):
             GROUP BY ts_code, quarter
             ORDER BY quarter DESC
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="获取投资评级分布",
         params=[
-            QueryParam(name="ts_code", type="str", required=False,
-                      description="股票代码，不填则统计全部"),
-            QueryParam(name="days", type="int", required=False, default=30,
-                      description="统计天数")
-        ]
+            QueryParam(
+                name="ts_code",
+                type="str",
+                required=False,
+                description="股票代码，不填则统计全部",
+            ),
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=30,
+                description="统计天数",
+            ),
+        ],
     )
-    def get_rating_distribution(self, ts_code: Optional[str] = None,
-                                days: int = 30) -> List[Dict[str, Any]]:
+    def get_rating_distribution(
+        self, ts_code: str | None = None, days: int = 30
+    ) -> list[dict[str, Any]]:
         """Get rating distribution for a stock or all stocks."""
         conditions = [f"report_date >= today() - {days}", "rating != ''"]
         if ts_code:
             conditions.append(f"ts_code = '{ts_code}'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         query = f"""
             SELECT 
                 rating,
@@ -217,21 +292,33 @@ class ReportRcService(BaseService):
             GROUP BY rating
             ORDER BY count DESC
         """
-        return self.db.execute_query(query).to_dict('records')
-    
+        return self.db.execute_query(query).to_dict("records")
+
     @query_method(
         description="搜索研报标题关键词",
         params=[
-            QueryParam(name="keyword", type="str", required=True,
-                      description="搜索关键词"),
-            QueryParam(name="days", type="int", required=False, default=90,
-                      description="搜索天数范围"),
-            QueryParam(name="limit", type="int", required=False, default=50,
-                      description="返回记录数限制")
-        ]
+            QueryParam(
+                name="keyword", type="str", required=True, description="搜索关键词"
+            ),
+            QueryParam(
+                name="days",
+                type="int",
+                required=False,
+                default=90,
+                description="搜索天数范围",
+            ),
+            QueryParam(
+                name="limit",
+                type="int",
+                required=False,
+                default=50,
+                description="返回记录数限制",
+            ),
+        ],
     )
-    def search_report_title(self, keyword: str, days: int = 90,
-                            limit: int = 50) -> List[Dict[str, Any]]:
+    def search_report_title(
+        self, keyword: str, days: int = 90, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """Search research reports by title keyword."""
         query = f"""
             SELECT 
@@ -251,7 +338,7 @@ class ReportRcService(BaseService):
             ORDER BY report_date DESC
             LIMIT {limit}
         """
-        return self.db.execute_query(query).to_dict('records')
+        return self.db.execute_query(query).to_dict("records")
 
 
 # Service instance

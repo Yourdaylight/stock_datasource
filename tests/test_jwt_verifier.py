@@ -1,20 +1,18 @@
 """Tests for JWT verification of nps_enhanced tokens (TC-PY-01 through TC-PY-06)."""
 
+import base64
 import json
 import time
-import base64
-import tempfile
-import os
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def rsa_keypair():
@@ -99,6 +97,7 @@ def _make_claims(scope_type="mcp_query", exp_offset=3600):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestJwtVerifier:
     """TC-PY-01 through TC-PY-06: JWT verifier tests."""
 
@@ -106,6 +105,7 @@ class TestJwtVerifier:
         """TC-PY-01: verify_nps_jwt returns failure when no public key is configured."""
         # Reset module cache
         import stock_datasource.modules.mcp_api_key.jwt_verifier as mod
+
         mod._public_key = None
         mod._public_key_path = None
 
@@ -117,6 +117,7 @@ class TestJwtVerifier:
     def test_public_key_file_not_found(self, tmp_path):
         """TC-PY-02: verify_nps_jwt fails when public key file doesn't exist."""
         import stock_datasource.modules.mcp_api_key.jwt_verifier as mod
+
         mod._public_key = None
         mod._public_key_path = None
 
@@ -124,7 +125,11 @@ class TestJwtVerifier:
         fake_settings.MCP_JWT_PUBLIC_KEY_PATH = str(tmp_path / "nonexistent.pem")
         fake_settings.BASE_DIR = str(tmp_path)
 
-        with patch("stock_datasource.modules.mcp_api_key.jwt_verifier.settings", fake_settings, create=True):
+        with patch(
+            "stock_datasource.modules.mcp_api_key.jwt_verifier.settings",
+            fake_settings,
+            create=True,
+        ):
             # Reset cache to force re-load
             mod._public_key = None
             mod._public_key_path = None
@@ -139,6 +144,7 @@ class TestJwtVerifier:
         token = _sign_jwt(private_key, claims)
 
         import stock_datasource.modules.mcp_api_key.jwt_verifier as mod
+
         # Inject the public key directly into cache
         mod._public_key = pub_pem
         mod._public_key_path = pub_key_file

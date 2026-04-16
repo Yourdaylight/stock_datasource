@@ -8,7 +8,6 @@ Reuses MCP API Key (sk-xxx) validation. Supports:
 import logging
 import time
 from collections import defaultdict
-from typing import Optional, Tuple
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -21,14 +20,14 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 async def _extract_api_key(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
-    api_key: Optional[str] = Query(None, alias="api_key", include_in_schema=False),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    api_key: str | None = Query(None, alias="api_key", include_in_schema=False),
 ) -> str:
     """Extract API key from header or query parameter.
 
     Priority: Authorization header > query param.
     """
-    raw_key: Optional[str] = None
+    raw_key: str | None = None
 
     if credentials and credentials.credentials:
         raw_key = credentials.credentials
@@ -46,7 +45,7 @@ async def _extract_api_key(
 
 async def require_api_key(
     raw_key: str = Depends(_extract_api_key),
-) -> Tuple[dict, str]:
+) -> tuple[dict, str]:
     """Validate API key and return (user_dict, api_key_id).
 
     Reuses McpApiKeyService.validate_api_key().
@@ -70,6 +69,7 @@ async def require_api_key(
 # In-process sliding-window rate limiter
 # ---------------------------------------------------------------------------
 
+
 class _SlidingWindowRateLimiter:
     """Simple in-process sliding-window rate limiter.
 
@@ -88,7 +88,7 @@ class _SlidingWindowRateLimiter:
         api_path: str,
         limit_per_min: int,
         limit_per_day: int,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Check rate limit. Returns (allowed, error_message)."""
         now = time.time()
         key = f"{api_key_id}:{api_path}"
@@ -123,9 +123,7 @@ class _SlidingWindowRateLimiter:
             if not self._minute_windows[key]:
                 del self._minute_windows[key]
         for key in list(self._day_windows.keys()):
-            self._day_windows[key] = [
-                t for t in self._day_windows[key] if t > day_ago
-            ]
+            self._day_windows[key] = [t for t in self._day_windows[key] if t > day_ago]
             if not self._day_windows[key]:
                 del self._day_windows[key]
 

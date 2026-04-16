@@ -7,4 +7,4 @@ try:
 except Exception:
     RtEtfMinService = None
 
-__all__ = ["TuShareRtEtfMinPlugin", "RtEtfMinService"]
+__all__ = ["RtEtfMinService", "TuShareRtEtfMinPlugin"]

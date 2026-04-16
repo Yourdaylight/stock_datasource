@@ -8,23 +8,28 @@
 - 交易模拟器
 """
 
+from .analyzer import PerformanceAnalyzer
 from .engine import IntelligentBacktestEngine
 from .models import (
-    BacktestConfig, BacktestResult, PerformanceMetrics, 
-    RiskMetrics, Trade, TradeType, TradeStatus
+    BacktestConfig,
+    BacktestResult,
+    PerformanceMetrics,
+    RiskMetrics,
+    Trade,
+    TradeStatus,
+    TradeType,
 )
-from .analyzer import PerformanceAnalyzer
 from .simulator import TradingSimulator
 
 __all__ = [
-    "IntelligentBacktestEngine",
     "BacktestConfig",
-    "BacktestResult", 
+    "BacktestResult",
+    "IntelligentBacktestEngine",
+    "PerformanceAnalyzer",
     "PerformanceMetrics",
     "RiskMetrics",
     "Trade",
-    "TradeType",
     "TradeStatus",
-    "PerformanceAnalyzer",
+    "TradeType",
     "TradingSimulator",
 ]

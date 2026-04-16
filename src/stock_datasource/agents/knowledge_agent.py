@@ -8,12 +8,12 @@ service is reachable. It provides two tools:
 The agent generates answers with source citations based on retrieved chunks.
 """
 
-import json
 import logging
-from typing import List, Callable, Optional
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
 from stock_datasource.services.weknora_client import get_weknora_client
+
+from .base_agent import AgentConfig, LangGraphAgent
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +89,16 @@ def search_knowledge(query: str) -> dict:
 
     formatted = []
     for item in results:
-        formatted.append({
-            "content": item.get("content", ""),
-            "source": item.get("knowledge_filename") or item.get("knowledge_title") or "未知来源",
-            "score": item.get("score", 0),
-            "chunk_type": item.get("chunk_type", "text"),
-        })
+        formatted.append(
+            {
+                "content": item.get("content", ""),
+                "source": item.get("knowledge_filename")
+                or item.get("knowledge_title")
+                or "未知来源",
+                "score": item.get("score", 0),
+                "chunk_type": item.get("chunk_type", "text"),
+            }
+        )
 
     return {
         "results": formatted,
@@ -127,6 +131,7 @@ def list_knowledge_bases() -> dict:
 
     if loop and loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             kbs = pool.submit(asyncio.run, client.list_knowledge_bases()).result()
     else:
@@ -134,11 +139,13 @@ def list_knowledge_bases() -> dict:
 
     formatted = []
     for kb in kbs:
-        formatted.append({
-            "id": kb.get("id", ""),
-            "name": kb.get("name", ""),
-            "description": kb.get("description", ""),
-        })
+        formatted.append(
+            {
+                "id": kb.get("id", ""),
+                "name": kb.get("name", ""),
+                "description": kb.get("description", ""),
+            }
+        )
 
     return {
         "knowledge_bases": formatted,
@@ -161,7 +168,7 @@ class KnowledgeAgent(LangGraphAgent):
         )
         super().__init__(config)
 
-    def get_tools(self) -> List[Callable]:
+    def get_tools(self) -> list[Callable]:
         return [search_knowledge, list_knowledge_bases]
 
     def get_system_prompt(self) -> str:
@@ -171,10 +178,10 @@ class KnowledgeAgent(LangGraphAgent):
 # ---------------------------------------------------------------------------
 # Singleton factory (conditional)
 # ---------------------------------------------------------------------------
-_knowledge_agent: Optional[KnowledgeAgent] = None
+_knowledge_agent: KnowledgeAgent | None = None
 
 
-def get_knowledge_agent() -> Optional[KnowledgeAgent]:
+def get_knowledge_agent() -> KnowledgeAgent | None:
     """Get the KnowledgeAgent singleton.
 
     Returns None if WeKnora is not configured.

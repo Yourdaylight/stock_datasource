@@ -9,15 +9,15 @@ Execution order:
 5. CrossValidationMiddleware - cross-validate agent conclusions
 """
 
-from .base import AgentContext, AgentResponse, BaseMiddleware
-from .loop_detection import LoopDetectionMiddleware
-from .summarization import SummarizationMiddleware
-from .memory_injection import MemoryInjectionMiddleware
-from .guardrail import GuardrailMiddleware
-from .cross_validation import CrossValidationMiddleware
-
 from stock_datasource.modules.memory.models import ContextSize
 from stock_datasource.modules.memory.store import MemoryStore, get_memory_store
+
+from .base import AgentContext, AgentResponse, BaseMiddleware
+from .cross_validation import CrossValidationMiddleware
+from .guardrail import GuardrailMiddleware
+from .loop_detection import LoopDetectionMiddleware
+from .memory_injection import MemoryInjectionMiddleware
+from .summarization import SummarizationMiddleware
 
 __all__ = [
     # Base

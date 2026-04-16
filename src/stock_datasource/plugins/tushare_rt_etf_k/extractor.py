@@ -2,8 +2,8 @@
 
 import json
 import logging
-import time
 import threading
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -24,7 +24,7 @@ class RtEtfKExtractor:
         if not token:
             raise ValueError("TUSHARE_TOKEN not configured")
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         self.rate_limit = min(config.get("rate_limit", 120), 48)
         self._min_interval = 60.0 / self.rate_limit
@@ -41,7 +41,9 @@ class RtEtfKExtractor:
                 time.sleep(self._min_interval - elapsed)
             self._last_call_time = time.time()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
     def extract(self, ts_code: str, topic: str | None = None) -> pd.DataFrame:
         self._rate_limit()
         try:
@@ -55,7 +57,9 @@ class RtEtfKExtractor:
                 return pd.DataFrame()
             return result
         except Exception as e:
-            logger.error("%s failed for %s (topic=%s): %s", self.API_NAME, ts_code, topic, e)
+            logger.error(
+                "%s failed for %s (topic=%s): %s", self.API_NAME, ts_code, topic, e
+            )
             raise
 
 
