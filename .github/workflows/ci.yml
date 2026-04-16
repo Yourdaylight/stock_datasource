@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/*, fix/*, refactor/*]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Backend Lint & Type Check ──────────────────────────────
+  backend-lint:
+    name: Backend Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Ruff check
+        run: uv run ruff check src/ tests/
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
+
+      - name: Mypy type check
+        run: uv run mypy src/ --ignore-missing-imports --no-error-summary || true
+        # 渐进式：初期不阻断，后续收紧
+
+  # ── Backend Unit Tests ─────────────────────────────────────
+  backend-test:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run unit tests
+        run: uv run pytest tests/ -x -q --tb=short --ignore=tests/test_realtime_kline.py --ignore=tests/test_realtime_minute.py --ignore=tests/test_realtime_minute_integration.py
+
+  # ── Frontend Build Check ───────────────────────────────────
+  frontend-check:
+    name: Frontend Build Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx vue-tsc --noEmit || true
+        # 渐进式：初期不阻断
+
+      - name: Vite build
+        run: npx vite build
+
+  # ── Security Scan ──────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: pip-audit
+        run: |
+          uv pip install pip-audit
+          pip-audit --desc || true
+        # --desc 显示漏洞描述，不阻断流水线
+
+      - name: npm audit
+        run: |
+          cd frontend
+          npm audit --audit-level=high || true
+        # 不阻断，仅报警
+
+  # ── Docker Build Verify ────────────────────────────────────
+  docker-verify:
+    name: Docker Build Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image (production)
+        run: docker build -f docker/Dockerfile.backend --target production -t stock-backend:verify .
+
+      - name: Build frontend image (production)
+        run: docker build -f docker/Dockerfile.frontend --target production -t stock-frontend:verify frontend/

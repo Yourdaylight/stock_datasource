@@ -1,0 +1,94 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # 每天 UTC 2:00 (北京时间 10:00)
+  workflow_dispatch: # 手动触发
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+
+jobs:
+  gitleaks:
+    name: Gitleaks - Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  pip-audit:
+    name: pip-audit - Python Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run pip-audit
+        run: |
+          uv pip install pip-audit
+          pip-audit --desc
+        # 有漏洞时 CI 失败
+
+  npm-audit:
+    name: npm audit - Frontend Dependency Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+        # high/critical 漏洞时 CI 失败
+
+  trivy:
+    name: Trivy - Docker Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image for scan
+        run: docker build -f docker/Dockerfile.backend --target production -t stock-backend:scan .
+
+      - name: Trivy scan backend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: stock-backend:scan
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+        # 高危/严重漏洞时 CI 失败
+
+      - name: Build frontend image for scan
+        run: docker build -f docker/Dockerfile.frontend --target production -t stock-frontend:scan frontend/
+
+      - name: Trivy scan frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: stock-frontend:scan
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
