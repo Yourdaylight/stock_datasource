@@ -2,7 +2,7 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/*, feature/*]
   workflow_dispatch:
     inputs:
       tag:
