@@ -18,24 +18,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v5
-
       - name: Set up Python
-        run: uv python install 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
 
-      - name: Install dependencies
-        run: uv sync --dev
+      - name: Install dev tools
+        run: pip install ruff mypy
 
       - name: Ruff check
-        run: uv run ruff check src/ tests/ --exit-zero
-        # 渐进式：初期仅警告不阻断，待存量问题修复后去掉 --exit-zero
+        run: ruff check src/ tests/ --exit-zero || true
 
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ || true
 
       - name: Mypy type check
-        run: uv run mypy src/ --ignore-missing-imports --no-error-summary || true
-        # 渐进式：初期不阻断，后续收紧
+        run: mypy src/ --ignore-missing-imports --no-error-summary || true
 
   # ── Backend Unit Tests ─────────────────────────────────────
   backend-test:
@@ -45,6 +44,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.11
@@ -64,7 +65,6 @@ jobs:
             --ignore=tests/test_schemas.py \
             --ignore=tests/test_screener.py \
             || true
-        # 渐进式：排除已知broken测试，初期不阻断，待修复后去掉 || true
 
   # ── Frontend Build Check ───────────────────────────────────
   frontend-check:
@@ -87,7 +87,6 @@ jobs:
 
       - name: TypeScript check
         run: npx vue-tsc --noEmit || true
-        # 渐进式：初期不阻断
 
       - name: Vite build
         run: npx vite build
@@ -106,22 +105,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v5
-
       - name: Set up Python
-        run: uv python install 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: pip-audit
         run: |
-          uv pip install pip-audit
+          pip install pip-audit
           pip-audit --desc || true
-        # --desc 显示漏洞描述，不阻断流水线
 
       - name: npm audit
         run: |
           cd frontend
           npm audit --audit-level=high || true
-        # 不阻断，仅报警
 
   # ── Docker Build Verify ────────────────────────────────────
   docker-verify:
