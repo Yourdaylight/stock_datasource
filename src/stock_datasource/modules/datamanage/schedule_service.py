@@ -315,6 +315,13 @@ class ScheduleService:
             except Exception:
                 plugin_role = "primary"
 
+            # Get plugin schedule frequency from config.json
+            try:
+                plugin_schedule = plugin.get_schedule()
+                plugin_frequency = plugin_schedule.get("frequency", "daily")
+            except Exception:
+                plugin_frequency = "daily"
+
             # Get dependencies
             try:
                 deps = plugin.get_dependencies()
@@ -356,6 +363,7 @@ class ScheduleService:
                         plugin_category, plugin_category
                     ),
                     "role": plugin_role,
+                    "schedule_frequency": plugin_frequency,
                     "dependencies": deps,
                     "optional_dependencies": opt_deps,
                 }
@@ -395,6 +403,7 @@ class ScheduleService:
         is_manual: bool = True,
         smart_backfill: bool = False,
         auto_backfill_max_days: int = 3,
+        frequency_filter: str | None = None,
     ) -> dict[str, Any]:
         """Trigger schedule execution immediately.
 
@@ -404,6 +413,8 @@ class ScheduleService:
                            targeted backfill tasks instead of plain incremental.
             auto_backfill_max_days: Max missing days for automatic backfill.
                                    Plugins exceeding this are skipped with a warning.
+            frequency_filter: When set, only trigger plugins matching this frequency
+                            ('daily', 'weekly', 'monthly'). None = all enabled plugins.
 
         Returns:
             ScheduleExecutionRecord dict
@@ -525,6 +536,32 @@ class ScheduleService:
         except Exception as e:
             logger.error(f"Failed to sort plugins: {e}")
             execution_order = plugin_names
+
+        # Filter plugins by schedule frequency
+        # - frequency_filter set: only include plugins matching that frequency
+        # - manual trigger (no filter): include all enabled plugins
+        # - scheduled daily trigger (filter=daily): only daily plugins
+        if frequency_filter:
+            filtered_order = []
+            for pname in execution_order:
+                plugin = plugin_manager.get_plugin(pname)
+                if plugin:
+                    plugin_freq = plugin.get_schedule().get("frequency", "daily")
+                    if plugin_freq == frequency_filter:
+                        filtered_order.append(pname)
+                    else:
+                        logger.debug(
+                            f"Skipping {pname}: frequency={plugin_freq} != filter={frequency_filter}"
+                        )
+                else:
+                    filtered_order.append(pname)
+            if filtered_order != execution_order:
+                skipped_freq = set(execution_order) - set(filtered_order)
+                logger.info(
+                    f"Frequency filter ({frequency_filter}): skipped {len(skipped_freq)} plugins "
+                    f"not matching: {skipped_freq}"
+                )
+            execution_order = filtered_order
 
         record["total_plugins"] = len(execution_order)
         update_schedule_execution(execution_id, {"total_plugins": len(execution_order)})

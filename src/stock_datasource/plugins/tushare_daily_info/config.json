@@ -3,5 +3,9 @@
   "timeout": 30,
   "api_name": "daily_info",
   "description": "每日全市场交易统计",
-  "min_points": 2000
+  "min_points": 2000,
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

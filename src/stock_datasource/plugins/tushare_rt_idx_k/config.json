@@ -9,7 +9,16 @@
   "update_time": "交易时段",
   "category": "INDEX",
   "role": "PRIMARY",
-  "tags": ["realtime", "kline", "daily", "index"],
+  "tags": [
+    "realtime",
+    "kline",
+    "daily",
+    "index"
+  ],
   "dependencies": [],
-  "schedule_enabled": false
+  "schedule_enabled": false,
+  "schedule": {
+    "frequency": "realtime",
+    "time": "18:00"
+  }
 }

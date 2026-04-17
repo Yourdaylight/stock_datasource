@@ -433,6 +433,7 @@ export interface PluginScheduleConfig {
   category: string
   category_label: string
   role: string
+  schedule_frequency: string  // daily/weekly/monthly
   dependencies: string[]
   optional_dependencies: string[]
 }

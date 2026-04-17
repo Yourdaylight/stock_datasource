@@ -5,7 +5,7 @@
   "retry_attempts": 3,
   "description": "TuShare HK cash flow statement data plugin (EAV model)",
   "schedule": {
-    "frequency": "quarterly",
+    "frequency": "monthly",
     "time": "22:00"
   },
   "parameters_schema": {

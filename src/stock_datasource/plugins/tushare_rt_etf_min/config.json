@@ -10,8 +10,17 @@
   "update_time": "交易时段",
   "category": "ETF",
   "role": "PRIMARY",
-  "tags": ["realtime", "kline", "minute", "etf"],
+  "tags": [
+    "realtime",
+    "kline",
+    "minute",
+    "etf"
+  ],
   "dependencies": [],
   "schedule_enabled": false,
-  "schedule_note": "ETF实时分钟数据插件，仅在交易时段有数据，不适合定时调度"
+  "schedule_note": "ETF实时分钟数据插件，仅在交易时段有数据，不适合定时调度",
+  "schedule": {
+    "frequency": "realtime",
+    "time": "18:00"
+  }
 }

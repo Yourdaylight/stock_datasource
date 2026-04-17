@@ -16,5 +16,9 @@
       "required": false,
       "description": "结束日期 YYYYMMDD"
     }
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
   }
 }

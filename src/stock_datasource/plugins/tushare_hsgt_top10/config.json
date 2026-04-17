@@ -19,5 +19,9 @@
     "net_amount",
     "buy",
     "sell"
-  ]
+  ],
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

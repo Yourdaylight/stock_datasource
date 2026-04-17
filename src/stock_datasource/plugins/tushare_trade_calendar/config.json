@@ -9,9 +9,16 @@
   "parameters_schema": {
     "exchange": {
       "type": "string",
-      "enum": ["SSE", "SZSE"],
+      "enum": [
+        "SSE",
+        "SZSE"
+      ],
       "default": "SSE",
       "description": "Exchange code"
     }
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
   }
 }

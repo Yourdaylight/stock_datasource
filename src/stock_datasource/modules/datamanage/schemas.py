@@ -30,6 +30,7 @@ class ScheduleFrequency(str, Enum):
 
     DAILY = "daily"
     WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 class PluginCategoryEnum(str, Enum):
@@ -504,6 +505,7 @@ class PluginScheduleConfig(BaseModel):
     category: str = "cn_stock"  # 分类
     category_label: str = "A股"  # 分类显示标签
     role: str = "primary"  # 角色
+    schedule_frequency: str = "daily"  # 插件调度频率: daily/weekly/monthly
     dependencies: list[str] = []  # 依赖列表
     optional_dependencies: list[str] = []  # 可选依赖
 

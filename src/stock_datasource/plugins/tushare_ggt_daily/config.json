@@ -9,5 +9,9 @@
   "min_points": 2000,
   "max_rows_per_call": 1000,
   "dependencies": [],
-  "enabled": true
+  "enabled": true,
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 # Job IDs (constants for reschedule / remove)
 JOB_DAILY_SYNC = "unified_daily_sync"
+JOB_WEEKLY_SYNC = "unified_weekly_sync"
+JOB_MONTHLY_SYNC = "unified_monthly_sync"
 JOB_MISSING_CHECK = "unified_missing_check"
 
 # Default configuration values
@@ -129,7 +131,7 @@ class UnifiedScheduler:
         self._load_config()
 
         # Remove existing jobs then re-register
-        for job_id in (JOB_DAILY_SYNC, JOB_MISSING_CHECK):
+        for job_id in (JOB_DAILY_SYNC, JOB_WEEKLY_SYNC, JOB_MONTHLY_SYNC, JOB_MISSING_CHECK):
             try:
                 self._scheduler.remove_job(job_id)
             except Exception:
@@ -164,6 +166,12 @@ class UnifiedScheduler:
             "smart_backfill_enabled": self._config.get("smart_backfill_enabled", True),
             "auto_backfill_max_days": self._config.get("auto_backfill_max_days", 3),
             "next_sync_at": next_sync_at,
+            "next_weekly_sync_at": next(
+                (j["next_run_at"] for j in jobs_info if j["job_id"] == JOB_WEEKLY_SYNC), None
+            ),
+            "next_monthly_sync_at": next(
+                (j["next_run_at"] for j in jobs_info if j["job_id"] == JOB_MONTHLY_SYNC), None
+            ),
             "next_check_at": next_check_at,
             "jobs": jobs_info,
             "last_sync_report": self._last_sync_report,
@@ -219,6 +227,28 @@ class UnifiedScheduler:
             minute,
             day_of_week,
         )
+
+        # --- Weekly sync job (Saturday 10:00) ---
+        # Runs weekly plugins (basic info, index metadata, etc.)
+        self._scheduler.add_job(
+            self._weekly_sync_job,
+            CronTrigger(day_of_week="sat", hour=10, minute=0),
+            id=JOB_WEEKLY_SYNC,
+            name="Weekly data sync",
+            replace_existing=True,
+        )
+        logger.info("Registered weekly sync job: %s sat 10:00", JOB_WEEKLY_SYNC)
+
+        # --- Monthly sync job (1st of month 10:00) ---
+        # Runs monthly plugins (financial reports, index weights, etc.)
+        self._scheduler.add_job(
+            self._monthly_sync_job,
+            CronTrigger(day=1, hour=10, minute=0),
+            id=JOB_MONTHLY_SYNC,
+            name="Monthly data sync",
+            replace_existing=True,
+        )
+        logger.info("Registered monthly sync job: %s 1st 10:00", JOB_MONTHLY_SYNC)
 
         # --- Missing data check job ---
         # Missing check runs every day (mon-sun), including non-trading days,
@@ -286,6 +316,7 @@ class UnifiedScheduler:
                 is_manual=False,
                 smart_backfill=smart_backfill,
                 auto_backfill_max_days=auto_backfill_max_days,
+                frequency_filter="daily",
             )
 
             # If trigger returned a skipped status (e.g. non-trading day at service level)
@@ -357,6 +388,58 @@ class UnifiedScheduler:
             self._last_sync_report = report
             logger.error("Daily sync job failed: %s", exc, exc_info=True)
             self._log_sync_report(report)
+
+    def _weekly_sync_job(self) -> None:
+        """Weekly sync (Saturday 10:00) — delegates to trigger_now(frequency_filter="weekly")."""
+        logger.info("=" * 60)
+        logger.info("Weekly sync job triggered at %s", datetime.now().isoformat())
+        logger.info("=" * 60)
+        try:
+            from ..modules.datamanage.schedule_service import schedule_service
+
+            record = schedule_service.trigger_now(
+                is_manual=False, smart_backfill=False, frequency_filter="weekly",
+            )
+            status = record.get("status", "unknown")
+            if status == "skipped":
+                logger.info("[Weekly] Skipped: %s", record.get("skip_reason", "unknown"))
+            else:
+                task_ids = record.get("task_ids", [])
+                logger.info("[Weekly] Triggered %d plugins, %d tasks",
+                            record.get("total_plugins", 0), len(task_ids))
+                if task_ids:
+                    results = self._wait_for_tasks(task_ids)
+                    ok = sum(1 for t in results if t["status"] == "completed")
+                    fail = sum(1 for t in results if t["status"] in ("failed", "cancelled"))
+                    logger.info("[Weekly] Done: %d ok, %d failed", ok, fail)
+        except Exception as exc:
+            logger.error("Weekly sync job failed: %s", exc, exc_info=True)
+
+    def _monthly_sync_job(self) -> None:
+        """Monthly sync (1st of month 10:00) — delegates to trigger_now(frequency_filter="monthly")."""
+        logger.info("=" * 60)
+        logger.info("Monthly sync job triggered at %s", datetime.now().isoformat())
+        logger.info("=" * 60)
+        try:
+            from ..modules.datamanage.schedule_service import schedule_service
+
+            record = schedule_service.trigger_now(
+                is_manual=False, smart_backfill=False, frequency_filter="monthly",
+            )
+            status = record.get("status", "unknown")
+            if status == "skipped":
+                logger.info("[Monthly] Skipped: %s", record.get("skip_reason", "unknown"))
+            else:
+                task_ids = record.get("task_ids", [])
+                logger.info("[Monthly] Triggered %d plugins, %d tasks",
+                            record.get("total_plugins", 0), len(task_ids))
+                if task_ids:
+                    results = self._wait_for_tasks(task_ids)
+                    ok = sum(1 for t in results if t["status"] == "completed")
+                    fail = sum(1 for t in results if t["status"] in ("failed", "cancelled"))
+                    logger.info("[Monthly] Done: %d ok, %d failed", ok, fail)
+        except Exception as exc:
+            logger.error("Monthly sync job failed: %s", exc, exc_info=True)
 
     def _missing_check_job(self) -> None:
         """Execute the daily missing-data check and generate a report.

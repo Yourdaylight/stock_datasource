@@ -287,23 +287,37 @@ class BasePlugin(ABC):
     def get_schedule(self) -> dict[str, Any]:
         """Get plugin schedule configuration.
 
+        Supports multiple config formats for backward compatibility:
+        - New format: ``schedule: {frequency: "daily", time: "18:00"}``
+        - Old format: ``update_frequency: "weekly"`` or ``update_schedule: "realtime"``
+
         Returns:
             Dict with schedule info:
-            - frequency: 'daily' or 'weekly'
+            - frequency: 'daily', 'weekly', 'monthly', or 'realtime'
             - time: execution time in HH:MM format (default: '18:00')
-            - day_of_week: for weekly frequency (default: 'monday')
+            - day_of_week: for weekly frequency (default: 'saturday')
         """
         config = self.get_config()
         schedule = config.get("schedule", {})
 
-        # Set defaults
-        if not schedule:
-            schedule = {"frequency": "daily", "time": "18:00"}
-        else:
+        if schedule:
+            # New format: schedule field exists
             schedule.setdefault("frequency", "daily")
             schedule.setdefault("time", "18:00")
-            if schedule.get("frequency") == "weekly":
-                schedule.setdefault("day_of_week", "monday")
+        else:
+            # Fallback: read old format fields
+            update_freq = config.get("update_frequency", "")
+            update_sched = config.get("update_schedule", "")
+
+            if update_sched == "realtime":
+                schedule = {"frequency": "realtime", "time": "09:30"}
+            elif update_freq in ("daily", "weekly", "monthly"):
+                schedule = {"frequency": update_freq, "time": "18:00"}
+            else:
+                schedule = {"frequency": "daily", "time": "18:00"}
+
+        if schedule.get("frequency") == "weekly":
+            schedule.setdefault("day_of_week", "saturday")
 
         return schedule
 
@@ -354,6 +368,11 @@ class BasePlugin(ABC):
 
         Returns:
             True if plugin should run, False otherwise
+
+        Frequency rules:
+            - daily: run every day
+            - weekly: run on the specified day_of_week (default: saturday)
+            - monthly: run on the 1st of each month
         """
         from datetime import date
 
@@ -366,7 +385,7 @@ class BasePlugin(ABC):
         if frequency == "daily":
             return True
         elif frequency == "weekly":
-            day_of_week = schedule.get("day_of_week", "monday").lower()
+            day_of_week = schedule.get("day_of_week", "saturday").lower()
             weekday_map = {
                 "monday": 0,
                 "tuesday": 1,
@@ -376,8 +395,11 @@ class BasePlugin(ABC):
                 "saturday": 5,
                 "sunday": 6,
             }
-            target_weekday = weekday_map.get(day_of_week, 0)
+            target_weekday = weekday_map.get(day_of_week, 5)
             return current_date.weekday() == target_weekday
+        elif frequency == "monthly":
+            # Run on the 1st of each month
+            return current_date.day == 1
 
         return False
 

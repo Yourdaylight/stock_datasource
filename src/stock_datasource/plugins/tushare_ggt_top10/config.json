@@ -8,5 +8,9 @@
   "update_frequency": "daily",
   "update_time": "18:00-20:00",
   "dependencies": [],
-  "enabled": true
+  "enabled": true,
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

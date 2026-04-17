@@ -5,7 +5,7 @@
   "retry_attempts": 3,
   "description": "TuShare cash flow VIP data plugin (batch mode, requires 5000 points)",
   "schedule": {
-    "frequency": "quarterly",
+    "frequency": "monthly",
     "time": "19:00"
   },
   "parameters_schema": {

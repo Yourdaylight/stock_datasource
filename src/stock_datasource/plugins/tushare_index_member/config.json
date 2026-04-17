@@ -15,5 +15,9 @@
       "required": false,
       "description": "Y for current members only, N for historical"
     }
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
   }
 }
