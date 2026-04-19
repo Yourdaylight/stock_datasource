@@ -168,4 +168,11 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .signal_aggregator.router import router as signal_aggregator_router
+
+        routers.append(("/signal-aggregator", signal_aggregator_router, ["信号聚合"]))
+    except ImportError:
+        pass
+
     return routers

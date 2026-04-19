@@ -107,9 +107,8 @@ def pytest_configure(config):
     # modules.mcp_api_key (real package for jwt_verifier)
     mcp_api_key = _make_module("stock_datasource.modules.mcp_api_key", is_pkg=True)
 
-    # modules.auth (mock)
+    # modules.auth — do NOT mock auth.service (tests need AuthService)
     _make_module("stock_datasource.modules.auth", is_pkg=True)
-    _make_module("stock_datasource.modules.auth.service")
 
     # plugins (mock)
     _make_module("stock_datasource.plugins", is_pkg=True)

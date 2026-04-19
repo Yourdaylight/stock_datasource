@@ -113,6 +113,16 @@ class TopListAgent(LangGraphAgent):
                     }
                 },
             ),
+            ToolDefinition(
+                name="get_capital_flow_signal",
+                description="获取股票的资金面信号评分（机构/游资/北向资金流向综合评分）",
+                parameters={
+                    "ts_code": {
+                        "type": "string",
+                        "description": "股票代码，如600519.SH",
+                    },
+                },
+            ),
         ]
 
         super().__init__(config, tools)
@@ -334,6 +344,32 @@ class TopListAgent(LangGraphAgent):
             }
         except Exception as e:
             logger.error(f"Failed to generate report: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def get_capital_flow_signal(self, ts_code: str) -> dict[str, Any]:
+        """获取股票的资金面信号评分"""
+        try:
+            from stock_datasource.modules.signal_aggregator.service import get_signal_aggregator
+
+            aggregator = get_signal_aggregator()
+            result = await aggregator.aggregate_for_stock(ts_code)
+
+            if result is None:
+                return {"success": False, "error": f"无法为 {ts_code} 生成资金面信号"}
+
+            return {
+                "success": True,
+                "data": {
+                    "ts_code": ts_code,
+                    "capital_score": result.capital_score.score,
+                    "capital_detail": result.capital_score.detail,
+                    "composite_score": result.composite_score,
+                    "composite_direction": result.composite_direction,
+                },
+                "message": f"{ts_code} 资金面评分: {result.capital_score.score}",
+            }
+        except Exception as e:
+            logger.error(f"Failed to get capital flow signal for {ts_code}: {e}")
             return {"success": False, "error": str(e)}
 
     def _generate_key_insights(

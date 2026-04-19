@@ -3,9 +3,12 @@ import { computed } from 'vue'
 import { FileSearchIcon, FileIcon, TimeIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import type { NewsItem } from '@/types/news'
 import SentimentTag from './SentimentTag.vue'
+import SignalBadge from './SignalBadge.vue'
 
 interface Props {
   newsItem: NewsItem
+  signalScore?: number | null
+  signalDirection?: 'bullish' | 'bearish' | 'neutral' | null
 }
 
 interface Emits {
@@ -105,6 +108,15 @@ const handleFavorite = (event: Event) => {
           <h3 class="news-title">
             {{ newsItem.title }}
           </h3>
+
+          <!-- 信号徽章 -->
+          <SignalBadge
+            v-if="signalScore != null"
+            :score="signalScore"
+            :direction="signalDirection || 'neutral'"
+            size="small"
+            class="signal-badge-wrap"
+          />
         </div>
         
         <!-- 新闻元信息 -->
@@ -223,6 +235,11 @@ const handleFavorite = (event: Event) => {
 }
 
 .sentiment-tag {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.signal-badge-wrap {
   flex-shrink: 0;
   margin-top: 2px;
 }

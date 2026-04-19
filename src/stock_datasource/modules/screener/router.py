@@ -548,13 +548,75 @@ async def get_recommendations(
 
 
 @router.get("/signals", response_model=TechnicalSignalResponse)
-async def get_technical_signals():
-    """获取技术信号股票"""
-    # 暂时返回空结果，需要后续实现技术指标计算
-    service = get_screener_service()
-    latest_date = service.get_latest_trade_date() or ""
+async def get_technical_signals(
+    ts_codes: str | None = Query(None, description="逗号分隔的股票代码，不传则使用量化池股票"),
+    signal_date: str | None = Query(None, description="信号日期 YYYYMMDD，默认今天"),
+):
+    """获取技术信号股票（接入SignalGenerator）"""
+    try:
+        from stock_datasource.modules.quant.signal_generator import get_signal_generator
 
-    return TechnicalSignalResponse(trade_date=latest_date, signals={})
+        generator = get_signal_generator()
+
+        # 确定股票池
+        if ts_codes:
+            pool = [c.strip().upper() for c in ts_codes.split(",") if c.strip()]
+        else:
+            # 默认使用量化池股票
+            pool = _get_default_signal_pool()
+
+        if not pool:
+            service = get_screener_service()
+            latest_date = service.get_latest_trade_date() or ""
+            return TechnicalSignalResponse(trade_date=latest_date, signals={})
+
+        result = await generator.generate_signals(pool, signal_date)
+
+        # 转换为前端格式: dict[str, list[TechnicalSignal]]
+        from .schemas import TechnicalSignal
+        signals_dict = {}
+        for signal in result.signals:
+            ts_code = signal.ts_code
+            if ts_code not in signals_dict:
+                signals_dict[ts_code] = []
+            signals_dict[ts_code].append(
+                TechnicalSignal(
+                    ts_code=signal.ts_code,
+                    stock_name=signal.stock_name,
+                    signal_type=signal.signal_source,
+                    signal_name=signal.signal_type,
+                    strength=round(signal.confidence * 100, 1),
+                    description=signal.reason,
+                )
+            )
+
+        trade_date = signal_date or result.signal_date
+        return TechnicalSignalResponse(trade_date=trade_date, signals=signals_dict)
+    except Exception as e:
+        logger.error(f"Failed to get technical signals: {e}")
+        service = get_screener_service()
+        latest_date = service.get_latest_trade_date() or ""
+        return TechnicalSignalResponse(trade_date=latest_date, signals={})
+
+
+def _get_default_signal_pool() -> list[str]:
+    """获取默认信号池股票（从quant_trading_pool表或使用热门股票）."""
+    try:
+        from stock_datasource.models.database import db_client
+
+        df = db_client.execute_query(
+            "SELECT ts_code FROM quant_trading_pool LIMIT 30"
+        )
+        if not df.empty:
+            return df["ts_code"].tolist()
+    except Exception:
+        pass
+
+    # Fallback: 返回热门股票代码
+    return [
+        "600519.SH", "000858.SZ", "601318.SH", "000001.SZ",
+        "600036.SH", "000333.SZ", "002714.SZ", "600276.SH",
+    ]
 
 
 # =============================================================================

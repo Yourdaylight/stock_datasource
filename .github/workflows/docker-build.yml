@@ -2,7 +2,7 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [main, fix/*, feature/*]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -43,7 +43,6 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
           else
-            # auto tag: short sha
             echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
