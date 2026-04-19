@@ -2,8 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from ..auth.dependencies import get_current_user
 
 from stock_datasource.utils.stock_code import validate_and_normalize_stock_code
 
@@ -49,6 +51,7 @@ async def get_companies(
     industry: str = Query(default="", description="Filter by industry"),
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Page size"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取上市公司列表，支持分页、搜索、行业筛选。"""
     try:
@@ -72,6 +75,7 @@ async def get_companies(
 @router.get("/industries")
 async def get_industries(
     market: str = Query(default="A", description="Market: 'A' or 'HK'"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取行业列表，用于筛选下拉。"""
     try:
@@ -90,6 +94,7 @@ async def get_industries(
 async def get_report_periods(
     code: str,
     market: str = Query(default="A", description="Market: 'A' or 'HK'"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定公司的所有财报期列表，含核心指标摘要和AI分析状态。"""
     try:
@@ -111,6 +116,7 @@ async def get_report_detail(
     code: str,
     period: str,
     market: str = Query(default="A", description="Market: 'A' or 'HK'"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定公司指定报告期的财报详情。"""
     try:
@@ -128,7 +134,7 @@ async def get_report_detail(
 
 
 @router.post("/analyze")
-async def run_analysis(request: AnalyzeRequest):
+async def run_analysis(request: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """触发专业AI财报分析（规则引擎），分析结果自动固化存储。"""
     try:
         market_hint = "hk" if request.market == "HK" else "cn"
@@ -152,7 +158,7 @@ async def run_analysis(request: AnalyzeRequest):
 
 
 @router.post("/analyze/ai-deep")
-async def run_llm_analysis(request: AnalyzeRequest):
+async def run_llm_analysis(request: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """触发LLM大模型深度财报分析（需人工触发，耗时较长）。
 
     调用配置的LLM（如GPT-4/Kimi）对财务数据进行深度分析，
@@ -184,6 +190,7 @@ async def get_analysis_history(
     end_date: str | None = Query(default=None, description="Filter by report period"),
     market: str = Query(default="A", description="Market: 'A' or 'HK'"),
     limit: int = Query(default=20, ge=1, le=100, description="Max records"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定公司的历史分析记录列表。"""
     try:
@@ -203,7 +210,7 @@ async def get_analysis_history(
 
 
 @router.get("/analyses/{record_id}")
-async def get_analysis_record(record_id: str):
+async def get_analysis_record(record_id: str, current_user: dict = Depends(get_current_user)):
     """获取单条分析记录详情。"""
     try:
         result = service.get_analysis_record(record_id)
@@ -218,6 +225,6 @@ async def get_analysis_record(record_id: str):
 
 
 @router.get("/health")
-async def health_check():
+async def health_check(current_user: dict = Depends(get_current_user)):
     """Health check endpoint."""
     return {"status": "healthy", "service": "financial_analysis"}

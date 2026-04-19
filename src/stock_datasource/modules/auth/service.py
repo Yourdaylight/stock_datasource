@@ -28,6 +28,25 @@ DEFAULT_ADMIN_EMAIL = "admin@localhost"
 DEFAULT_ADMIN_PASSWORD = "Admin1234"
 DEFAULT_ADMIN_USERNAME = "admin"
 
+# Subscription tier configuration
+TIER_QUOTAS = {
+    "free": 100_000,
+    "pro": 1_000_000,
+    "admin": 999_999_999,
+}
+
+TIER_RATE_LIMITS = {
+    # (max_requests, window_seconds)
+    "free": (10, 60),
+    "pro": (60, 60),
+    "admin": (9999, 60),
+}
+
+
+def get_tier_quota(tier: str) -> int:
+    """Get token quota for a subscription tier."""
+    return TIER_QUOTAS.get(tier, TIER_QUOTAS["free"])
+
 
 class AuthService:
     """Authentication service for user management."""
@@ -127,7 +146,7 @@ class AuthService:
         """Verify a password against its hash."""
         return pwd_context.verify(plain_password, hashed_password)
 
-    def create_access_token(self, user_id: str, email: str) -> tuple[str, int]:
+    def create_access_token(self, user_id: str, email: str, tier: str = "free") -> tuple[str, int]:
         """Create a JWT access token.
 
         Returns:
@@ -139,6 +158,7 @@ class AuthService:
         payload = {
             "sub": user_id,
             "email": email,
+            "tier": tier,
             "exp": expire,
             "iat": datetime.now(UTC),
         }
@@ -189,7 +209,7 @@ class AuthService:
         """Get user by email."""
         self._ensure_tables()
         query = """
-            SELECT id, email, username, password_hash, is_active, is_admin, created_at, updated_at
+            SELECT id, email, username, password_hash, is_active, is_admin, subscription_tier, created_at, updated_at
             FROM users FINAL
             WHERE email = %(email)s AND is_active = 1
             LIMIT 1
@@ -198,8 +218,10 @@ class AuthService:
         if result:
             row = result[0]
             is_admin_db = bool(row[5]) if len(row) > 5 else False
-            # Also check config for admin emails
             is_admin = is_admin_db or self._is_admin_email(email)
+            tier = row[6] if len(row) > 6 else "free"
+            if is_admin:
+                tier = "admin"
             return {
                 "id": row[0],
                 "email": row[1],
@@ -207,8 +229,9 @@ class AuthService:
                 "password_hash": row[3],
                 "is_active": bool(row[4]),
                 "is_admin": is_admin,
-                "created_at": row[6] if len(row) > 6 else row[5],
-                "updated_at": row[7] if len(row) > 7 else row[6],
+                "subscription_tier": tier,
+                "created_at": row[7] if len(row) > 7 else None,
+                "updated_at": row[8] if len(row) > 8 else None,
             }
         return None
 
@@ -216,7 +239,7 @@ class AuthService:
         """Get user by ID."""
         self._ensure_tables()
         query = """
-            SELECT id, email, username, password_hash, is_active, is_admin, created_at, updated_at
+            SELECT id, email, username, password_hash, is_active, is_admin, subscription_tier, created_at, updated_at
             FROM users FINAL
             WHERE id = %(user_id)s AND is_active = 1
             LIMIT 1
@@ -226,8 +249,10 @@ class AuthService:
             row = result[0]
             is_admin_db = bool(row[5]) if len(row) > 5 else False
             email = row[1]
-            # Also check config for admin emails
             is_admin = is_admin_db or self._is_admin_email(email)
+            tier = row[6] if len(row) > 6 else "free"
+            if is_admin:
+                tier = "admin"
             return {
                 "id": row[0],
                 "email": email,
@@ -235,8 +260,9 @@ class AuthService:
                 "password_hash": row[3],
                 "is_active": bool(row[4]),
                 "is_admin": is_admin,
-                "created_at": row[6] if len(row) > 6 else row[5],
-                "updated_at": row[7] if len(row) > 7 else row[6],
+                "subscription_tier": tier,
+                "created_at": row[7] if len(row) > 7 else None,
+                "updated_at": row[8] if len(row) > 8 else None,
             }
         return None
 
@@ -360,10 +386,11 @@ class AuthService:
 
         # Check if user should be admin
         is_admin = 1 if self._is_admin_email(email) else 0
+        tier = "admin" if is_admin else "free"
 
         insert_query = """
-            INSERT INTO users (id, email, username, password_hash, is_active, is_admin, created_at, updated_at)
-            VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, %(is_admin)s, %(created_at)s, %(updated_at)s)
+            INSERT INTO users (id, email, username, password_hash, is_active, is_admin, subscription_tier, created_at, updated_at)
+            VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, 1, %(is_admin)s, %(tier)s, %(created_at)s, %(updated_at)s)
         """
 
         try:
@@ -375,10 +402,29 @@ class AuthService:
                     "username": username,
                     "password_hash": password_hash,
                     "is_admin": is_admin,
+                    "tier": tier,
                     "created_at": now,
                     "updated_at": now,
                 },
             )
+
+            # Initialize token quota based on tier
+            try:
+                from stock_datasource.modules.token_usage.service import TokenUsageService
+                import asyncio
+                quota = get_tier_quota(tier)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    # Already in async context — schedule as task
+                    loop.create_task(TokenUsageService.initialize_quota(user_id, quota))
+                else:
+                    asyncio.run(TokenUsageService.initialize_quota(user_id, quota))
+                logger.info(f"Initialized token quota for {email}: {quota} (tier={tier})")
+            except Exception as e:
+                logger.warning(f"Failed to initialize token quota for {email}: {e}")
 
             user = {
                 "id": user_id,
@@ -386,6 +432,7 @@ class AuthService:
                 "username": username,
                 "is_active": True,
                 "is_admin": bool(is_admin),
+                "subscription_tier": tier,
                 "created_at": now,
             }
 
@@ -409,7 +456,7 @@ class AuthService:
         if not self.verify_password(password, user["password_hash"]):
             return False, "邮箱或密码错误", None
 
-        token, expires_in = self.create_access_token(user["id"], user["email"])
+        token, expires_in = self.create_access_token(user["id"], user["email"], user.get("subscription_tier", "free"))
 
         return (
             True,

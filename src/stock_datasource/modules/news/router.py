@@ -3,7 +3,9 @@
 Provides API endpoints for news retrieval and sentiment analysis.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     NewsCategory,
@@ -18,7 +20,7 @@ router = APIRouter()
 
 
 @router.get("/cache-info", summary="获取新闻缓存信息")
-async def get_cache_info():
+async def get_cache_info(current_user: dict = Depends(get_current_user)):
     """获取本地文件缓存信息
 
     返回缓存状态、新闻数量、更新时间等信息。
@@ -33,7 +35,7 @@ async def get_cache_info():
 
 
 @router.post("/refresh-cache", summary="刷新新闻缓存")
-async def refresh_cache():
+async def refresh_cache(current_user: dict = Depends(get_current_user)):
     """强制刷新本地文件缓存
 
     从外部 API 获取最新新闻并更新本地缓存。
@@ -62,7 +64,7 @@ async def refresh_cache():
 
 
 @router.get("/categories", summary="获取新闻分类列表")
-async def get_categories():
+async def get_categories(current_user: dict = Depends(get_current_user)):
     """获取所有可用的新闻分类"""
     categories = [
         {"value": "all", "label": "全部"},
@@ -79,7 +81,7 @@ async def get_categories():
 
 
 @router.get("/sources", summary="获取新闻来源列表")
-async def get_sources():
+async def get_sources(current_user: dict = Depends(get_current_user)):
     """获取所有可用的新闻来源
 
     当前已实现的数据源：
@@ -125,6 +127,7 @@ async def get_news_list(
     ),
     sort_by: str = Query(default="time", description="排序字段：time/heat/sentiment"),
     sort_order: str = Query(default="desc", description="排序方向：asc/desc"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取新闻列表（支持分页和筛选）
 
@@ -263,6 +266,7 @@ async def get_news_by_stock(
     code: str,
     days: int = Query(default=7, ge=1, le=30, description="查询天数"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定股票的相关新闻和公告
 
@@ -291,6 +295,7 @@ async def get_news_by_stock(
 async def get_market_news(
     category: NewsCategory = Query(default=NewsCategory.ALL, description="新闻分类"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取市场整体财经新闻
 
@@ -317,6 +322,7 @@ async def get_market_news(
 @router.get("/cctv", response_model=NewsListResponse, summary="获取新闻联播")
 async def get_cctv_news(
     date: str = Query(..., description="日期，格式YYYYMMDD"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取指定日期新闻联播文字稿。"""
     try:
@@ -345,6 +351,7 @@ async def get_policy_news(
     org: str | None = Query(default=None, description="发布机构"),
     ptype: str | None = Query(default=None, description="主题分类"),
     limit: int = Query(default=50, ge=1, le=500, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取国家政策法规。"""
     try:
@@ -378,6 +385,7 @@ async def get_research_reports(
     inst_csname: str | None = Query(default=None, description="券商名称"),
     ind_name: str | None = Query(default=None, description="行业名称"),
     limit: int = Query(default=100, ge=1, le=1000, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取券商研报数据。"""
     try:
@@ -413,6 +421,7 @@ async def get_research_reports(
 async def search_news(
     keyword: str = Query(..., min_length=1, description="搜索关键词"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """按关键词搜索新闻
 
@@ -440,6 +449,7 @@ async def analyze_sentiment(
     stock_code: str = Query(..., description="股票代码"),
     days: int = Query(default=7, ge=1, le=30, description="查询天数"),
     limit: int = Query(default=10, ge=1, le=50, description="分析数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """分析股票相关新闻的情绪倾向
 
@@ -482,6 +492,7 @@ async def summarize_news(
     focus: str | None = Query(default=None, description="关注重点（可选）"),
     days: int = Query(default=3, ge=1, le=7, description="查询天数"),
     limit: int = Query(default=20, ge=1, le=50, description="新闻数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """AI 生成新闻摘要
 

@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     BatchLatestResponse,
@@ -32,6 +34,7 @@ router = APIRouter()
 async def get_latest(
     ts_code: str = Query(..., description="证券代码，如 000001.SZ"),
     market: str | None = Query(None, description="市场类型: a_stock/etf/index/hk"),
+    current_user: dict = Depends(get_current_user),
 ):
     svc = get_realtime_kline_service()
     return svc.get_latest(ts_code, market)
@@ -41,6 +44,7 @@ async def get_latest(
 async def get_batch_latest(
     market: str | None = Query(None, description="市场过滤: a_stock/etf/index/hk"),
     limit: int = Query(100, ge=1, le=5000, description="返回条数"),
+    current_user: dict = Depends(get_current_user),
 ):
     svc = get_realtime_kline_service()
     return svc.get_batch_latest(market, limit)
@@ -51,6 +55,7 @@ async def get_daily(
     market: str = Query(..., description="市场类型: a_stock/etf/index/hk"),
     trade_date: str = Query(..., description="交易日期 YYYYMMDD"),
     limit: int = Query(5000, ge=1, le=10000, description="返回条数"),
+    current_user: dict = Depends(get_current_user),
 ):
     svc = get_realtime_kline_service()
     rows = svc.query_daily(market, trade_date, limit)
@@ -68,13 +73,17 @@ async def get_daily(
 
 
 @router.get("/status", response_model=CollectStatusResponse, summary="获取采集状态")
-async def get_collect_status():
+async def get_collect_status(
+    current_user: dict = Depends(get_current_user),
+):
     svc = get_realtime_kline_service()
     return svc.get_collect_status()
 
 
 @router.get("/runtime/health", summary="运行时健康检查")
-async def runtime_health():
+async def runtime_health(
+    current_user: dict = Depends(get_current_user),
+):
     from .scheduler import get_runtime
 
     rt = get_runtime()
@@ -92,6 +101,7 @@ async def runtime_health():
 @router.post("/trigger", response_model=TriggerResponse, summary="手动触发采集")
 async def trigger_collection(
     markets: str | None = Query(None, description="逗号分隔的市场列表，默认全部"),
+    current_user: dict = Depends(get_current_user),
 ):
     try:
         from .scheduler import run_collection
@@ -116,7 +126,9 @@ async def trigger_collection(
 @router.post(
     "/sync", response_model=SyncStatusResponse, summary="手动触发同步到 ClickHouse"
 )
-async def trigger_sync():
+async def trigger_sync(
+    current_user: dict = Depends(get_current_user),
+):
     try:
         from .scheduler import run_sink_tick
 
@@ -138,7 +150,10 @@ async def trigger_sync():
 @router.post(
     "/push/switch", response_model=PushSwitchResponse, summary="切换云端推送开关"
 )
-async def set_push_switch(req: PushSwitchRequest):
+async def set_push_switch(
+    req: PushSwitchRequest,
+    current_user: dict = Depends(get_current_user),
+):
     try:
         from .cache import get_cache_store
         from .scheduler import get_runtime
@@ -170,7 +185,9 @@ async def set_push_switch(req: PushSwitchRequest):
 @router.get(
     "/push/switch", response_model=PushSwitchResponse, summary="查询云端推送开关状态"
 )
-async def get_push_switch():
+async def get_push_switch(
+    current_user: dict = Depends(get_current_user),
+):
     from .cloud_push import _is_push_enabled
 
     enabled = _is_push_enabled()
@@ -183,7 +200,9 @@ async def get_push_switch():
 
 
 @router.get("/metrics", response_model=MetricsResponse, summary="获取运行时指标")
-async def get_metrics():
+async def get_metrics(
+    current_user: dict = Depends(get_current_user),
+):
     from .metrics import metrics
 
     snap = metrics.snapshot()
@@ -199,7 +218,9 @@ async def get_metrics():
 
 
 @router.post("/cleanup", summary="手动触发清理（Stream/latest/push state）")
-async def trigger_cleanup():
+async def trigger_cleanup(
+    current_user: dict = Depends(get_current_user),
+):
     try:
         from .scheduler import run_cleanup
 

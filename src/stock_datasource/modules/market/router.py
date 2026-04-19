@@ -6,8 +6,10 @@ API endpoints for market data and technical analysis.
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     AnalysisRequest,
@@ -35,7 +37,7 @@ router = APIRouter()
 
 
 @router.post("/kline", response_model=KLineResponse)
-async def get_kline(request: KLineRequest):
+async def get_kline(request: KLineRequest, current_user: dict = Depends(get_current_user)):
     """Get K-line data for a stock.
 
     - **code**: Stock code (e.g., 000001.SZ, 600519.SH)
@@ -59,7 +61,7 @@ async def get_kline(request: KLineRequest):
 
 
 @router.post("/indicators", response_model=IndicatorResponse)
-async def get_indicators(request: IndicatorRequest):
+async def get_indicators(request: IndicatorRequest, current_user: dict = Depends(get_current_user)):
     """Get technical indicators for a stock (legacy format).
 
     Available indicators: MA, EMA, MACD, RSI, KDJ, BOLL, ATR, OBV, DMI, CCI
@@ -76,7 +78,7 @@ async def get_indicators(request: IndicatorRequest):
 
 
 @router.post("/indicators/v2", response_model=IndicatorResponseV2)
-async def get_indicators_v2(request: IndicatorRequest):
+async def get_indicators_v2(request: IndicatorRequest, current_user: dict = Depends(get_current_user)):
     """Get technical indicators for a stock (V2 format with better structure).
 
     Returns indicators as arrays aligned with dates, plus detected signals.
@@ -110,6 +112,7 @@ async def get_indicators_v2(request: IndicatorRequest):
 @router.get("/search", response_model=list[StockSearchResult])
 async def search_stock(
     keyword: str = Query(..., min_length=1, description="Search keyword"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Search stocks by keyword (code or name)."""
     service = get_market_service()
@@ -120,6 +123,7 @@ async def search_stock(
 @router.get("/resolve")
 async def resolve_stock_code(
     code: str = Query(..., min_length=1, description="Stock code to resolve"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Resolve a possibly incomplete stock code to full ts_code.
 
@@ -138,7 +142,7 @@ async def resolve_stock_code(
 
 
 @router.get("/overview", response_model=MarketOverviewResponse)
-async def get_market_overview():
+async def get_market_overview(current_user: dict = Depends(get_current_user)):
     """Get market overview with major indices and statistics.
 
     Returns:
@@ -151,7 +155,7 @@ async def get_market_overview():
 
 
 @router.get("/hot-sectors", response_model=HotSectorsResponse)
-async def get_hot_sectors():
+async def get_hot_sectors(current_user: dict = Depends(get_current_user)):
     """Get hot sectors with leading stocks."""
     service = get_market_service()
     result = await service.get_hot_sectors()
@@ -163,6 +167,7 @@ async def get_hot_stocks(
     sort_by: str = Query("amount", description="Sort by: amount or pct_chg"),
     limit: int = Query(10, ge=1, le=50, description="Number of stocks to return"),
     date: str | None = Query(None, description="Trade date (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Get hot stocks by trading amount or price change.
 
@@ -181,7 +186,7 @@ async def get_hot_stocks(
 
 
 @router.post("/analysis", response_model=TrendAnalysisResponse)
-async def analyze_stock(request: AnalysisRequest):
+async def analyze_stock(request: AnalysisRequest, current_user: dict = Depends(get_current_user)):
     """Analyze stock trend using technical indicators.
 
     Returns:
@@ -199,6 +204,7 @@ async def analyze_stock(request: AnalysisRequest):
 async def analyze_stock_stream(
     code: str = Query(..., description="Stock code"),
     period: int = Query(60, ge=10, le=365, description="Analysis period"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Stream AI analysis for a stock (SSE format).
 
@@ -239,7 +245,7 @@ async def analyze_stock_stream(
 
 
 @router.post("/analysis/ai")
-async def ai_analyze_stock(request: AnalysisRequest):
+async def ai_analyze_stock(request: AnalysisRequest, current_user: dict = Depends(get_current_user)):
     """AI-powered stock analysis using MarketAgent.
 
     This endpoint:
@@ -397,6 +403,7 @@ async def ai_analyze_stock(request: AnalysisRequest):
 async def ai_analyze_stock_stream(
     code: str = Query(..., description="Stock code"),
     period: int = Query(60, ge=10, le=365, description="Analysis period"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Stream AI analysis for a stock (SSE format).
 
@@ -565,7 +572,7 @@ async def ai_analyze_stock_stream(
 
 
 @router.post("/pattern")
-async def detect_pattern(request: PatternRequest):
+async def detect_pattern(request: PatternRequest, current_user: dict = Depends(get_current_user)):
     """Detect chart patterns (头肩顶, 双底, 等).
 
     Note: This is a placeholder for future pattern recognition feature.
@@ -584,7 +591,7 @@ async def detect_pattern(request: PatternRequest):
 
 
 @router.post("/backfill")
-async def trigger_backfill(request: dict):
+async def trigger_backfill(request: dict, current_user: dict = Depends(get_current_user)):
     """Trigger data backfill for a specific stock.
 
     This endpoint triggers the datamanage schedule service to sync daily data

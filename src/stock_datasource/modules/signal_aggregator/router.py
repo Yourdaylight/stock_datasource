@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     SignalAggregationResponse,
@@ -24,6 +26,7 @@ router = APIRouter()
 async def aggregate_signals(
     ts_codes: str = Query(..., description="逗号分隔的股票代码, 如 600519.SH,000858.SZ"),
     signal_date: str | None = Query(None, description="信号日期 YYYYMMDD, 默认今天"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取多只股票的信号聚合评分."""
     codes = [c.strip().upper() for c in ts_codes.split(",") if c.strip()]
@@ -40,6 +43,7 @@ async def aggregate_signals(
 async def aggregate_single_stock(
     ts_code: str,
     signal_date: str | None = Query(None, description="信号日期 YYYYMMDD, 默认今天"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取单只股票的信号聚合评分."""
     aggregator = get_signal_aggregator()
@@ -66,6 +70,7 @@ async def aggregate_single_stock(
 async def get_signal_timeline(
     ts_code: str,
     days: int = Query(30, ge=1, le=365, description="回溯天数"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取某只股票的信号时序追踪数据."""
     aggregator = get_signal_aggregator()
@@ -73,7 +78,7 @@ async def get_signal_timeline(
 
 
 @router.put("/weights")
-async def update_weights(config: SignalWeightsConfig):
+async def update_weights(config: SignalWeightsConfig, current_user: dict = Depends(get_current_user)):
     """更新信号权重配置(运行时)."""
     aggregator = get_signal_aggregator(config)
     return {"success": True, "weights": config.model_dump()}

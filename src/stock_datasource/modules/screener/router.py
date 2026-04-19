@@ -12,7 +12,9 @@ import logging
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .profile import get_profile_service
 from .schemas import (
@@ -96,6 +98,7 @@ async def get_stocks(
     market_type: str | None = Query(
         None, description="市场类型: a_share, hk_stock, all (默认 a_share)"
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取分页股票列表（含最新行情）
 
@@ -139,6 +142,7 @@ async def filter_stocks(
     request: ScreenerRequest,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
 ):
     """多条件筛选股票
 
@@ -183,6 +187,7 @@ async def nl_screener(
     request: NLScreenerRequest,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
 ):
     """自然语言选股 - 使用AI解析用户意图"""
     try:
@@ -249,7 +254,10 @@ async def nl_screener(
 
 
 @router.get("/profile/{ts_code}", response_model=StockProfile)
-async def get_stock_profile(ts_code: str):
+async def get_stock_profile(
+    ts_code: str,
+    current_user: dict = Depends(get_current_user),
+):
     """获取单只股票的十维画像"""
     try:
         service = get_profile_service()
@@ -267,7 +275,10 @@ async def get_stock_profile(ts_code: str):
 
 
 @router.post("/batch-profile", response_model=list[StockProfile])
-async def batch_get_profiles(request: BatchProfileRequest):
+async def batch_get_profiles(
+    request: BatchProfileRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """批量获取股票画像"""
     try:
         if len(request.ts_codes) > 50:
@@ -296,6 +307,7 @@ async def get_sectors(
     market_type: str | None = Query(
         None, description="市场类型: a_share, hk_stock (默认 a_share)"
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取行业列表
 
@@ -322,6 +334,7 @@ async def get_sector_stocks(
     page_size: int = Query(20, ge=1, le=100),
     sort_by: str = "pct_chg",
     sort_order: str = "desc",
+    current_user: dict = Depends(get_current_user),
 ):
     """获取特定行业的股票列表"""
     try:
@@ -360,6 +373,7 @@ async def get_recommendations(
     market_type: str | None = Query(
         None, description="市场类型: a_share, hk_stock (默认 a_share)"
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取AI智能推荐
 
@@ -551,6 +565,7 @@ async def get_recommendations(
 async def get_technical_signals(
     ts_codes: str | None = Query(None, description="逗号分隔的股票代码，不传则使用量化池股票"),
     signal_date: str | None = Query(None, description="信号日期 YYYYMMDD，默认今天"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取技术信号股票（接入SignalGenerator）"""
     try:
@@ -625,7 +640,9 @@ def _get_default_signal_pool() -> list[str]:
 
 
 @router.get("/presets", response_model=list[PresetStrategy])
-async def get_presets():
+async def get_presets(
+    current_user: dict = Depends(get_current_user),
+):
     """获取预设筛选策略"""
     return [
         PresetStrategy(
@@ -682,16 +699,18 @@ async def apply_preset(
     preset_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
 ):
     """应用预设策略进行筛选"""
-    presets = await get_presets()
+    presets = await get_presets(current_user=current_user)
     preset = next((p for p in presets if p.id == preset_id), None)
 
     if not preset:
         raise HTTPException(status_code=404, detail=f"预设策略 {preset_id} 不存在")
 
     return await filter_stocks(
-        ScreenerRequest(conditions=preset.conditions), page=page, page_size=page_size
+        ScreenerRequest(conditions=preset.conditions), page=page, page_size=page_size,
+        current_user=current_user,
     )
 
 
@@ -701,7 +720,9 @@ async def apply_preset(
 
 
 @router.get("/fields", response_model=list[dict[str, Any]])
-async def get_fields():
+async def get_fields(
+    current_user: dict = Depends(get_current_user),
+):
     """获取可用筛选字段"""
     service = get_screener_service()
     return service.get_available_fields()
@@ -717,6 +738,7 @@ async def get_market_summary(
     market_type: str | None = Query(
         None, description="市场类型: a_share, hk_stock, all (默认 a_share)"
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取市场概况统计，支持 A 股和港股"""
     try:

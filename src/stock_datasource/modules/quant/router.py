@@ -3,7 +3,9 @@
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     PipelineRunRequest,
@@ -29,7 +31,7 @@ def _validate_ts_code(ts_code: str) -> bool:
 
 
 @router.get("/health")
-async def health():
+async def health(current_user: dict = Depends(get_current_user)):
     return {"status": "ok", "module": "quant"}
 
 
@@ -39,7 +41,7 @@ async def health():
 
 
 @router.get("/data-readiness")
-async def check_full_readiness():
+async def check_full_readiness(current_user: dict = Depends(get_current_user)):
     """Check full pipeline data readiness."""
     service = get_quant_service()
     result = await service.check_data_readiness()
@@ -47,7 +49,7 @@ async def check_full_readiness():
 
 
 @router.get("/data-readiness/{stage}")
-async def check_stage_readiness(stage: str):
+async def check_stage_readiness(stage: str, current_user: dict = Depends(get_current_user)):
     """Check data readiness for a specific stage."""
     if stage not in ("screening", "core_pool", "trading_signals"):
         raise HTTPException(400, f"Invalid stage: {stage}")
@@ -62,7 +64,7 @@ async def check_stage_readiness(stage: str):
 
 
 @router.post("/pipeline/run")
-async def run_pipeline(request: PipelineRunRequest):
+async def run_pipeline(request: PipelineRunRequest, current_user: dict = Depends(get_current_user)):
     """Run the full quantitative pipeline."""
     service = get_quant_service()
     result = await service.run_pipeline(request)
@@ -70,7 +72,7 @@ async def run_pipeline(request: PipelineRunRequest):
 
 
 @router.get("/pipeline/status/{run_id}")
-async def get_pipeline_status(run_id: str):
+async def get_pipeline_status(run_id: str, current_user: dict = Depends(get_current_user)):
     """Get pipeline run status."""
     service = get_quant_service()
     result = await service.get_pipeline_status(run_id)
@@ -80,7 +82,7 @@ async def get_pipeline_status(run_id: str):
 
 
 @router.get("/pipeline/latest")
-async def get_latest_pipeline():
+async def get_latest_pipeline(current_user: dict = Depends(get_current_user)):
     """Get latest pipeline run result."""
     service = get_quant_service()
     result = await service.get_latest_pipeline()
@@ -93,7 +95,7 @@ async def get_latest_pipeline():
 
 
 @router.post("/screening/run")
-async def run_screening(request: ScreeningRunRequest = None):
+async def run_screening(request: ScreeningRunRequest = None, current_user: dict = Depends(get_current_user)):
     """Run full-market screening."""
     service = get_quant_service()
     result = await service.run_screening(request or ScreeningRunRequest())
@@ -103,6 +105,7 @@ async def run_screening(request: ScreeningRunRequest = None):
 @router.get("/screening/result")
 async def get_screening_result(
     run_date: str | None = Query(None, description="运行日期 YYYYMMDD"),
+    current_user: dict = Depends(get_current_user),
 ):
     """Get screening result."""
     service = get_quant_service()
@@ -111,7 +114,7 @@ async def get_screening_result(
 
 
 @router.get("/screening/rules")
-async def get_screening_rules():
+async def get_screening_rules(current_user: dict = Depends(get_current_user)):
     """Get current screening rules configuration."""
     service = get_quant_service()
     configs = await service.get_config("screening_rules")
@@ -119,7 +122,7 @@ async def get_screening_rules():
 
 
 @router.put("/screening/rules")
-async def update_screening_rules(update: QuantConfigUpdate):
+async def update_screening_rules(update: QuantConfigUpdate, current_user: dict = Depends(get_current_user)):
     """Update screening rules."""
     update.config_type = "screening_rules"
     service = get_quant_service()
@@ -132,14 +135,14 @@ async def update_screening_rules(update: QuantConfigUpdate):
 
 
 @router.get("/pool")
-async def get_pool():
+async def get_pool(current_user: dict = Depends(get_current_user)):
     """Get current core pool."""
     service = get_quant_service()
     return await service.get_pool()
 
 
 @router.post("/pool/refresh")
-async def refresh_pool(trade_date: str | None = Query(None)):
+async def refresh_pool(trade_date: str | None = Query(None), current_user: dict = Depends(get_current_user)):
     """Refresh core pool (re-run scoring on latest screening results)."""
     service = get_quant_service()
     # Get latest screening passed stocks
@@ -165,14 +168,14 @@ async def refresh_pool(trade_date: str | None = Query(None)):
 
 
 @router.get("/pool/changes")
-async def get_pool_changes(limit: int = Query(50, ge=1, le=200)):
+async def get_pool_changes(limit: int = Query(50, ge=1, le=200), current_user: dict = Depends(get_current_user)):
     """Get pool entry/exit change log."""
     service = get_quant_service()
     return await service.get_pool_changes(limit)
 
 
 @router.get("/pool/history")
-async def get_pool_history(limit: int = Query(30, ge=1, le=100)):
+async def get_pool_history(limit: int = Query(30, ge=1, le=100), current_user: dict = Depends(get_current_user)):
     """Get pool history."""
     service = get_quant_service()
     return await service.get_pool_changes(limit)
@@ -184,14 +187,14 @@ async def get_pool_history(limit: int = Query(30, ge=1, le=100)):
 
 
 @router.get("/rps")
-async def get_rps(limit: int = Query(100, ge=1, le=500)):
+async def get_rps(limit: int = Query(100, ge=1, le=500), current_user: dict = Depends(get_current_user)):
     """Get latest RPS ranking."""
     service = get_quant_service()
     return await service.get_rps(limit)
 
 
 @router.get("/rps/{ts_code}")
-async def get_rps_detail(ts_code: str):
+async def get_rps_detail(ts_code: str, current_user: dict = Depends(get_current_user)):
     """Get RPS detail for a stock."""
     if not _validate_ts_code(ts_code):
         raise HTTPException(400, f"Invalid ts_code: {ts_code}")
@@ -216,14 +219,14 @@ async def get_rps_detail(ts_code: str):
 
 
 @router.post("/analysis/{ts_code}")
-async def analyze_stock(ts_code: str):
+async def analyze_stock(ts_code: str, current_user: dict = Depends(get_current_user)):
     """Deep analysis for a single stock."""
     service = get_quant_service()
     return await service.analyze_stock(ts_code)
 
 
 @router.get("/analysis/dashboard")
-async def get_analysis_dashboard():
+async def get_analysis_dashboard(current_user: dict = Depends(get_current_user)):
     """Get analysis dashboard for pool stocks (tech snapshots)."""
     try:
         from stock_datasource.models.database import db_client
@@ -247,6 +250,7 @@ async def get_analysis_dashboard():
 async def get_signals(
     signal_date: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
 ):
     """Get trading signals."""
     service = get_quant_service()
@@ -256,6 +260,7 @@ async def get_signals(
 @router.get("/signals/history")
 async def get_signal_history(
     limit: int = Query(100, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
 ):
     """Get signal history."""
     safe_limit = max(1, min(int(limit or 100), 500))
@@ -272,7 +277,7 @@ async def get_signal_history(
 
 
 @router.get("/risk")
-async def get_market_risk():
+async def get_market_risk(current_user: dict = Depends(get_current_user)):
     """Get current market risk status."""
     from .signal_generator import get_signal_generator
 
@@ -286,21 +291,21 @@ async def get_market_risk():
 
 
 @router.get("/config")
-async def get_config(config_type: str | None = Query(None)):
+async def get_config(config_type: str | None = Query(None), current_user: dict = Depends(get_current_user)):
     """Get model configuration."""
     service = get_quant_service()
     return await service.get_config(config_type)
 
 
 @router.put("/config")
-async def update_config(update: QuantConfigUpdate):
+async def update_config(update: QuantConfigUpdate, current_user: dict = Depends(get_current_user)):
     """Update model configuration."""
     service = get_quant_service()
     return await service.update_config(update)
 
 
 @router.get("/report")
-async def get_report():
+async def get_report(current_user: dict = Depends(get_current_user)):
     """Get model run report summary."""
     service = get_quant_service()
     pipeline = await service.get_latest_pipeline()

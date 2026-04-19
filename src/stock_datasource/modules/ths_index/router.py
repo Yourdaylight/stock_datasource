@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     THSDailyResponse,
@@ -28,6 +30,7 @@ async def get_index_list(
     ),
     limit: int = Query(100, ge=1, le=1000, description="返回数量"),
     offset: int = Query(0, ge=0, description="分页偏移"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取同花顺板块指数列表，支持按市场和类型筛选。"""
     service = get_ths_index_service()
@@ -44,6 +47,7 @@ async def get_index_list(
 async def search_index(
     keyword: str = Query(..., min_length=1, description="搜索关键词"),
     limit: int = Query(50, ge=1, le=200, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """按名称关键词搜索板块指数。"""
     service = get_ths_index_service()
@@ -63,6 +67,7 @@ async def get_ranking(
     ),
     order: str = Query("desc", description="排序方向: desc-降序, asc-升序"),
     limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取板块指数涨跌排行榜。"""
     # Validate sort_by
@@ -95,7 +100,7 @@ async def get_ranking(
 
 
 @router.get("/stats", response_model=THSStatsResponse, summary="获取板块指数统计")
-async def get_stats():
+async def get_stats(current_user: dict = Depends(get_current_user)):
     """获取板块指数按类型和市场的统计信息。"""
     service = get_ths_index_service()
     result = service.get_stats()
@@ -105,6 +110,7 @@ async def get_stats():
 @router.get("/{ts_code}", response_model=THSIndexItem, summary="获取板块指数详情")
 async def get_index_detail(
     ts_code: str = Path(..., description="板块指数代码，如 885001.TI"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取单个板块指数的详细信息。"""
     service = get_ths_index_service()
@@ -124,6 +130,7 @@ async def get_daily_data(
     start_date: str | None = Query(None, description="开始日期 (YYYYMMDD)"),
     end_date: str | None = Query(None, description="结束日期 (YYYYMMDD)"),
     limit: int = Query(30, ge=1, le=365, description="默认返回最近N条记录"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取板块指数的日线行情数据。"""
     service = get_ths_index_service()

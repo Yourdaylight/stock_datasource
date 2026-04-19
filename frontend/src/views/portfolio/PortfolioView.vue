@@ -7,6 +7,7 @@ import request from '@/utils/request'
 import DataEmptyGuide from '@/components/DataEmptyGuide.vue'
 import StockDetailDialog from '@/components/StockDetailDialog.vue'
 import type { BrokerProfile } from '@/api/profile'
+import { isTradingTime } from '@/composables/useRealtimePolling'
 
 const portfolioStore = usePortfolioStore()
 const memoryStore = useMemoryStore()
@@ -101,7 +102,10 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 const startAutoRefresh = () => {
   if (refreshTimer) return
   refreshTimer = setInterval(() => {
-    portfolioStore.fetchPositions()
+    // Only poll during trading hours to avoid unnecessary API calls during market closure
+    if (isTradingTime()) {
+      portfolioStore.fetchPositions()
+    }
   }, 30000)
 }
 

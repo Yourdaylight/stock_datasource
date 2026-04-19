@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     AnalyzeRequest,
@@ -20,6 +22,7 @@ router = APIRouter()
 @router.get("/daily", response_model=DailyOverviewResponse, summary="获取每日市场概览")
 async def get_daily_overview(
     date: str | None = Query(None, description="交易日期 (YYYYMMDD)，默认最新"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取每日市场概览，包括主要指数、市场统计、热门ETF。"""
     service = get_overview_service()
@@ -34,6 +37,7 @@ async def get_hot_etfs(
         "amount", description="排序字段 (amount=成交额, pct_chg=涨跌幅)"
     ),
     limit: int = Query(10, ge=1, le=50, description="返回数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取热门ETF列表。"""
     if sort_by not in ["amount", "pct_chg"]:
@@ -47,6 +51,7 @@ async def get_hot_etfs(
 @router.get("/indices", summary="获取主要指数行情")
 async def get_indices(
     date: str | None = Query(None, description="交易日期 (YYYYMMDD)，默认最新"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取主要指数行情数据。"""
     service = get_overview_service()
@@ -55,7 +60,7 @@ async def get_indices(
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="市场AI分析")
-async def analyze_market(request: AnalyzeRequest):
+async def analyze_market(request: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """使用AI进行市场分析，支持多轮对话记忆。
 
     - 同一个user_id + date组合会保持对话上下文
@@ -78,6 +83,7 @@ async def analyze_market(request: AnalyzeRequest):
 @router.get("/quick-analysis", summary="市场快速分析")
 async def get_quick_analysis(
     date: str | None = Query(None, description="分析日期 (YYYYMMDD)，默认最新"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取市场快速分析（不使用AI，直接数据分析）。"""
     service = get_overview_service()

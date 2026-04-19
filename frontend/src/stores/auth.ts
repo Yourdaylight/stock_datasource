@@ -23,6 +23,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value && !!user.value)
   const isAdmin = computed(() => user.value?.is_admin === true)
+  const userTier = computed(() => user.value?.subscription_tier || 'free')
+  const isFree = computed(() => userTier.value === 'free')
+  const isPro = computed(() => userTier.value === 'pro' || isAdmin.value)
 
   const login = async (data: LoginRequest): Promise<boolean> => {
     loading.value = true
@@ -88,6 +91,9 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     isAuthenticated,
     isAdmin,
+    userTier,
+    isFree,
+    isPro,
     login,
     register,
     fetchUser,

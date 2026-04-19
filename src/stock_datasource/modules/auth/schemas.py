@@ -62,6 +62,7 @@ class UserResponse(BaseModel):
     username: str = Field(..., description="用户名")
     is_active: bool = Field(..., description="是否激活")
     is_admin: bool = Field(default=False, description="是否管理员")
+    subscription_tier: str = Field(default="free", description="订阅等级: free/pro/admin")
     created_at: datetime = Field(..., description="创建时间")
 
 

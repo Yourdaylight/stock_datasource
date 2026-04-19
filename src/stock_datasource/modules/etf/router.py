@@ -3,7 +3,9 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 
 from .schemas import (
     AnalyzeRequest,
@@ -36,6 +38,7 @@ async def get_benchmark_indices(
     publisher: str | None = Query(None, description="发布机构筛选"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    current_user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     """获取ETF基准指数列表，支持分页和筛选。"""
     try:
@@ -68,7 +71,7 @@ async def get_benchmark_indices(
 
 
 @router.get("/benchmark-indices/publishers", summary="获取基准指数发布机构列表")
-async def get_benchmark_publishers() -> list[dict[str, Any]]:
+async def get_benchmark_publishers(current_user: dict = Depends(get_current_user)) -> list[dict[str, Any]]:
     """获取所有基准指数发布机构。"""
     try:
         service = _get_etf_index_service()
@@ -87,7 +90,7 @@ async def get_benchmark_publishers() -> list[dict[str, Any]]:
 
 
 @router.get("/benchmark-indices/statistics", summary="获取基准指数统计信息")
-async def get_benchmark_statistics() -> dict[str, Any]:
+async def get_benchmark_statistics(current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
     """获取ETF基准指数统计信息。"""
     try:
         service = _get_etf_index_service()
@@ -98,7 +101,7 @@ async def get_benchmark_statistics() -> dict[str, Any]:
 
 
 @router.get("/benchmark-indices/{ts_code}", summary="获取基准指数详情")
-async def get_benchmark_index_detail(ts_code: str) -> dict[str, Any]:
+async def get_benchmark_index_detail(ts_code: str, current_user: dict = Depends(get_current_user)) -> dict[str, Any]:
     """获取指定基准指数的详细信息。"""
     try:
         service = _get_etf_index_service()
@@ -137,6 +140,7 @@ async def get_etfs(
     sort_order: str = Query("desc", description="排序方向 (asc/desc)"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取ETF列表（包含指定日期行情），支持分页和筛选。"""
     service = get_etf_service()
@@ -167,7 +171,7 @@ async def get_etfs(
 
 
 @router.get("/etfs/{ts_code}", response_model=EtfInfo, summary="获取ETF详情")
-async def get_etf_detail(ts_code: str):
+async def get_etf_detail(ts_code: str, current_user: dict = Depends(get_current_user)):
     """获取ETF详细信息。"""
     service = get_etf_service()
     result = service.get_etf_detail(ts_code)
@@ -182,6 +186,7 @@ async def get_etf_detail(ts_code: str):
 async def get_etf_daily(
     ts_code: str,
     days: int = Query(30, ge=1, le=250, description="获取天数"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取ETF日线行情数据。"""
     service = get_etf_service()
@@ -199,6 +204,7 @@ async def get_etf_kline(
     adjust: str = Query(
         "qfq", description="复权类型 (qfq=前复权, hfq=后复权, none=不复权)"
     ),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取ETF K线数据，支持复权。"""
     if adjust not in ["qfq", "hfq", "none"]:
@@ -210,35 +216,35 @@ async def get_etf_kline(
 
 
 @router.get("/exchanges", summary="获取交易所列表")
-async def get_exchanges():
+async def get_exchanges(current_user: dict = Depends(get_current_user)):
     """获取所有可用交易所。"""
     service = get_etf_service()
     return service.get_exchanges()
 
 
 @router.get("/types", summary="获取ETF类型列表")
-async def get_types():
+async def get_types(current_user: dict = Depends(get_current_user)):
     """获取所有可用ETF类型。"""
     service = get_etf_service()
     return service.get_types()
 
 
 @router.get("/invest-types", summary="获取投资类型列表")
-async def get_invest_types():
+async def get_invest_types(current_user: dict = Depends(get_current_user)):
     """获取所有可用投资类型。"""
     service = get_etf_service()
     return service.get_invest_types()
 
 
 @router.get("/managers", summary="获取管理人列表")
-async def get_managers():
+async def get_managers(current_user: dict = Depends(get_current_user)):
     """获取所有可用基金管理人。"""
     service = get_etf_service()
     return service.get_managers()
 
 
 @router.get("/tracking-indices", summary="获取跟踪指数列表")
-async def get_tracking_indices():
+async def get_tracking_indices(current_user: dict = Depends(get_current_user)):
     """获取所有跟踪指数。"""
     service = get_etf_service()
     return service.get_tracking_indices()
@@ -247,6 +253,7 @@ async def get_tracking_indices():
 @router.get("/trade-dates", summary="获取可用交易日期")
 async def get_trade_dates(
     limit: int = Query(30, ge=1, le=365, description="返回日期数量"),
+    current_user: dict = Depends(get_current_user),
 ):
     """获取可用交易日期列表。"""
     service = get_etf_service()
@@ -254,7 +261,7 @@ async def get_trade_dates(
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="ETF AI量化分析")
-async def analyze_etf(request: AnalyzeRequest):
+async def analyze_etf(request: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """使用AI进行ETF量化分析，支持多轮对话记忆。
 
     - 同一个ts_code + user_id组合会保持对话上下文
@@ -275,7 +282,7 @@ async def analyze_etf(request: AnalyzeRequest):
 
 
 @router.get("/etfs/{ts_code}/quick-analysis", summary="ETF快速量化分析")
-async def get_quick_analysis(ts_code: str):
+async def get_quick_analysis(ts_code: str, current_user: dict = Depends(get_current_user)):
     """获取ETF快速量化分析（不使用AI，直接数据分析）。"""
     service = get_etf_service()
     result = service.get_quick_analysis(ts_code)
