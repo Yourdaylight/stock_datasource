@@ -3,7 +3,7 @@
 import logging
 import math
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from . import config as cfg
 from .cache import get_cache_store
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 def _get_db():
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
@@ -23,7 +24,9 @@ def _safe(v):
     return v
 
 
-def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _execute_query(
+    query: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     db = _get_db()
     try:
         df = db.execute_query(query, params or {})
@@ -47,7 +50,7 @@ def _detect_market(ts_code: str) -> str:
     return MarketType.A_STOCK.value
 
 
-def _normalize_market(market: Optional[str]) -> Optional[str]:
+def _normalize_market(market: str | None) -> str | None:
     if not market:
         return None
     market = market.strip().lower()
@@ -65,25 +68,32 @@ class RealtimeKlineService:
     def __init__(self):
         self._cache = get_cache_store()
 
-    def get_latest(self, ts_code: str, market: Optional[str] = None) -> Dict[str, Any]:
+    def get_latest(self, ts_code: str, market: str | None = None) -> dict[str, Any]:
         mkt = _normalize_market(market) or _detect_market(ts_code)
         data = self._cache.get_latest(mkt, ts_code)
         if data:
             return {"ts_code": ts_code, "market": mkt, "data": data, "source": "redis"}
 
         ch_data = self._query_clickhouse_latest(ts_code, mkt)
-        return {"ts_code": ts_code, "market": mkt, "data": ch_data, "source": "clickhouse"}
+        return {
+            "ts_code": ts_code,
+            "market": mkt,
+            "data": ch_data,
+            "source": "clickhouse",
+        }
 
-    def get_batch_latest(self, market: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+    def get_batch_latest(
+        self, market: str | None = None, limit: int = 100
+    ) -> dict[str, Any]:
         mkt = _normalize_market(market)
         items = self._cache.get_all_latest(market=mkt)
         if limit and len(items) > limit:
             items = items[:limit]
         return {"market": mkt, "count": len(items), "data": items}
 
-    def get_collect_status(self) -> Dict[str, Any]:
-        from .scheduler import get_runtime
+    def get_collect_status(self) -> dict[str, Any]:
         from .cloud_push import _is_push_enabled
+        from .scheduler import get_runtime
 
         rt = get_runtime()
         status = self._cache.get_status()
@@ -103,7 +113,9 @@ class RealtimeKlineService:
             "push_enabled": _is_push_enabled(),
         }
 
-    def _query_clickhouse_latest(self, ts_code: str, market: str) -> Optional[Dict[str, Any]]:
+    def _query_clickhouse_latest(
+        self, ts_code: str, market: str
+    ) -> dict[str, Any] | None:
         table = cfg.get_table_for_market(market)
         query = f"""
         SELECT ts_code, trade_date, trade_time, name,
@@ -125,7 +137,9 @@ class RealtimeKlineService:
         row["market"] = market
         return row
 
-    def query_daily(self, market: str, trade_date: str, limit: int = 5000) -> List[Dict[str, Any]]:
+    def query_daily(
+        self, market: str, trade_date: str, limit: int = 5000
+    ) -> list[dict[str, Any]]:
         mkt = _normalize_market(market) or market
         table = cfg.get_table_for_market(mkt)
         query = f"""
@@ -152,7 +166,7 @@ class RealtimeKlineService:
         return rows
 
 
-_service: Optional[RealtimeKlineService] = None
+_service: RealtimeKlineService | None = None
 
 
 def get_realtime_kline_service() -> RealtimeKlineService:

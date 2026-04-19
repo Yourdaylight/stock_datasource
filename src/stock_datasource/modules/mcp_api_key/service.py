@@ -6,8 +6,6 @@ import os
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional, Tuple
 
 from stock_datasource.models.database import db_client
 
@@ -24,7 +22,7 @@ def _ensure_tables() -> None:
 
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     try:
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -59,8 +57,8 @@ class McpApiKeyService:
         self,
         user_id: str,
         key_name: str = "",
-        expires_days: Optional[int] = None,
-    ) -> Tuple[bool, str, dict]:
+        expires_days: int | None = None,
+    ) -> tuple[bool, str, dict]:
         """Create a new API key.
 
         Returns:
@@ -146,7 +144,7 @@ class McpApiKeyService:
             logger.error(f"Failed to list API keys: {e}")
             return []
 
-    def revoke_api_key(self, user_id: str, key_id: str) -> Tuple[bool, str]:
+    def revoke_api_key(self, user_id: str, key_id: str) -> tuple[bool, str]:
         """Revoke an API key (soft-delete via ReplacingMergeTree)."""
         _ensure_tables()
         try:
@@ -195,7 +193,7 @@ class McpApiKeyService:
             logger.error(f"Failed to revoke API key: {e}")
             return False, f"撤销失败: {e}"
 
-    def validate_api_key(self, raw_key: str) -> Tuple[bool, dict, str]:
+    def validate_api_key(self, raw_key: str) -> tuple[bool, dict, str]:
         """Validate an API key.
 
         Returns:
@@ -240,6 +238,7 @@ class McpApiKeyService:
 
             # Fetch user info
             from stock_datasource.modules.auth.service import get_auth_service
+
             auth_service = get_auth_service()
             user = auth_service.get_user_by_id(user_id)
             if not user:
@@ -253,7 +252,7 @@ class McpApiKeyService:
 
 
 # Singleton
-_service: Optional[McpApiKeyService] = None
+_service: McpApiKeyService | None = None
 
 
 def get_mcp_api_key_service() -> McpApiKeyService:

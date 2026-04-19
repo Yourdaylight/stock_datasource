@@ -10,7 +10,6 @@ table_name and display_name are resolved dynamically from plugin_manager
 import logging
 import re
 from datetime import datetime
-from typing import Optional
 
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.models.database import db_client
@@ -44,7 +43,9 @@ def _resolve_table_name(plugin_name: str) -> str:
             plugin_manager.discover_plugins()
             schema = plugin_manager.get_plugin_schema(plugin_name)
         except Exception as e:
-            logger.warning(f"Plugin discovery failed while resolving '{plugin_name}': {e}")
+            logger.warning(
+                f"Plugin discovery failed while resolving '{plugin_name}': {e}"
+            )
 
     if not schema:
         logger.warning(f"Plugin '{plugin_name}' not found, cannot resolve table_name")
@@ -157,13 +158,15 @@ def _build_requirements(specs: list[dict]) -> list[DataRequirement]:
                 f"cannot resolve table_name"
             )
             continue
-        reqs.append(DataRequirement(
-            plugin_name=spec["plugin_name"],
-            table_name=table_name,
-            required_columns=spec.get("required_columns", []),
-            date_column=spec.get("date_column", "trade_date"),
-            description=spec.get("description", ""),
-        ))
+        reqs.append(
+            DataRequirement(
+                plugin_name=spec["plugin_name"],
+                table_name=table_name,
+                required_columns=spec.get("required_columns", []),
+                date_column=spec.get("date_column", "trade_date"),
+                description=spec.get("description", ""),
+            )
+        )
     return reqs
 
 
@@ -175,7 +178,7 @@ class DataReadinessChecker:
     """
 
     async def check_screening_readiness(
-        self, min_date: Optional[str] = None
+        self, min_date: str | None = None
     ) -> DataReadinessResult:
         """Check screening engine data requirements."""
         reqs = _build_requirements(SCREENING_REQUIREMENT_SPECS)
@@ -184,7 +187,7 @@ class DataReadinessChecker:
         return await self._check_requirements(reqs, "screening")
 
     async def check_core_pool_readiness(
-        self, min_date: Optional[str] = None
+        self, min_date: str | None = None
     ) -> DataReadinessResult:
         """Check core pool builder data requirements."""
         reqs = _build_requirements(CORE_POOL_REQUIREMENT_SPECS)
@@ -193,10 +196,12 @@ class DataReadinessChecker:
         return await self._check_requirements(reqs, "core_pool")
 
     async def check_signal_readiness(
-        self, min_date: Optional[str] = None
+        self, min_date: str | None = None
     ) -> DataReadinessResult:
         """Check signal generator data requirements (includes core pool reqs + index)."""
-        reqs = _build_requirements(CORE_POOL_REQUIREMENT_SPECS + SIGNAL_REQUIREMENT_SPECS)
+        reqs = _build_requirements(
+            CORE_POOL_REQUIREMENT_SPECS + SIGNAL_REQUIREMENT_SPECS
+        )
         if min_date:
             reqs = [r.model_copy(update={"min_date": min_date}) for r in reqs]
         return await self._check_requirements(reqs, "trading_signals")
@@ -359,7 +364,7 @@ class DataReadinessChecker:
 
 
 # Singleton
-_checker: Optional[DataReadinessChecker] = None
+_checker: DataReadinessChecker | None = None
 
 
 def get_data_readiness_checker() -> DataReadinessChecker:

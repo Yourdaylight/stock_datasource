@@ -22,5 +22,9 @@
     "pct_chg",
     "vol",
     "amount"
-  ]
+  ],
+  "schedule": {
+    "frequency": "monthly",
+    "time": "18:00"
+  }
 }

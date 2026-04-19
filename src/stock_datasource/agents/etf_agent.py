@@ -1,16 +1,16 @@
 """ETF Agent for intelligent ETF quantitative analysis using LangGraph/DeepAgents."""
 
-from typing import List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 from .etf_tools import (
-    get_etf_basic_info,
-    get_etf_daily_data,
-    get_etf_tracking_index,
     calculate_etf_metrics,
     compare_etf_with_index,
+    get_etf_basic_info,
     get_etf_comprehensive_analysis,
+    get_etf_daily_data,
+    get_etf_tracking_index,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class EtfAgent(LangGraphAgent):
     """ETF Agent for intelligent ETF quantitative analysis using DeepAgents.
-    
+
     Handles:
     - ETF basic information query
     - ETF daily data analysis
@@ -26,15 +26,15 @@ class EtfAgent(LangGraphAgent):
     - ETF metrics calculation
     - Comprehensive analysis report generation
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="EtfAgent",
-            description="负责ETF量化分析，提供基础信息、行情分析、跟踪指数对比、风险指标等多维度分析"
+            description="负责ETF量化分析，提供基础信息、行情分析、跟踪指数对比、风险指标等多维度分析",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return ETF analysis tools."""
         return [
             get_etf_basic_info,
@@ -44,7 +44,7 @@ class EtfAgent(LangGraphAgent):
             compare_etf_with_index,
             get_etf_comprehensive_analysis,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for ETF quantitative analysis."""
         return """你是一个专业的ETF量化分析师，专注于A股ETF基金的分析。

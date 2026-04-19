@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ class DataSyncScheduler:
     def _get_unified(self):
         if self._unified is None:
             from .unified_scheduler import get_unified_scheduler
+
             self._unified = get_unified_scheduler()
         return self._unified
 
@@ -42,7 +43,7 @@ class DataSyncScheduler:
     def stop(self) -> None:
         self._get_unified().stop()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return status in the old format for backward compatibility."""
         status = self._get_unified().get_status()
         return {
@@ -88,6 +89,7 @@ class DataSyncScheduler:
         """Trigger immediate sync via ScheduleService."""
         try:
             from ..modules.datamanage.schedule_service import schedule_service
+
             schedule_service.trigger_now(is_manual=True)
         except Exception as exc:
             logger.error("run_data_sync_now failed: %s", exc)
@@ -101,7 +103,7 @@ class DataSyncScheduler:
 # Module-level helpers (kept for backward compatibility)
 # ---------------------------------------------------------------------------
 
-_data_sync_scheduler: Optional[DataSyncScheduler] = None
+_data_sync_scheduler: DataSyncScheduler | None = None
 
 
 def get_data_sync_scheduler() -> DataSyncScheduler:

@@ -41,6 +41,23 @@ export interface UserProfile {
   trading_style: string
 }
 
+export interface FactOutput {
+  id: string
+  content: string
+  category: 'risk_preference' | 'sector_focus' | 'stock_opinion' | 'trading_style' | 'conclusion' | 'market_signal' | 'capital_flow'
+  confidence: number
+  source: string
+  created_at: number
+  reinforced_at: number[]
+  contradicted_at: number[]
+}
+
+export interface ConclusionOutput {
+  id: string
+  data: Record<string, any>
+  stored_at: number
+}
+
 export const memoryApi = {
   getPreference(): Promise<UserPreference> {
     return request.get('/api/memory/preference')
@@ -79,5 +96,29 @@ export const memoryApi = {
 
   getProfile(): Promise<UserProfile> {
     return request.get('/api/memory/profile')
-  }
+  },
+
+  // Facts API
+  getFacts(category?: string, limit?: number, minConfidence?: number): Promise<FactOutput[]> {
+    const params = new URLSearchParams()
+    if (category) params.set('category', category)
+    if (limit) params.set('limit', String(limit))
+    if (minConfidence !== undefined) params.set('min_confidence', String(minConfidence))
+    const qs = params.toString()
+    return request.get(`/api/memory/facts${qs ? '?' + qs : ''}`)
+  },
+
+  createFact(data: { content: string; category: string; confidence?: number; source?: string }): Promise<FactOutput> {
+    return request.post('/api/memory/facts', data)
+  },
+
+  deleteFact(factId: string): Promise<void> {
+    return request.delete(`/api/memory/facts/${factId}`)
+  },
+
+  // Conclusions API
+  getConclusions(limit?: number): Promise<ConclusionOutput[]> {
+    const params = limit ? `?limit=${limit}` : ''
+    return request.get(`/api/memory/conclusions${params}`)
+  },
 }

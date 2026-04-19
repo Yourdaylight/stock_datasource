@@ -2,4 +2,4 @@
 
 from .plugin import TuShareStkSurvPlugin
 
-__all__ = ['TuShareStkSurvPlugin']
+__all__ = ["TuShareStkSurvPlugin"]

@@ -1,16 +1,21 @@
 """TuShare index basic info query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareIndexBasicService(BaseService):
     """Query service for TuShare index basic information data."""
-    
+
     def __init__(self):
         super().__init__("tushare_index_basic")
-    
+
     @query_method(
         description="Query index basic information by code",
         params=[
@@ -33,18 +38,18 @@ class TuShareIndexBasicService(BaseService):
                 description="Index code, e.g., 000300.SH",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_index_info(
         self,
         ts_code: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Query index basic information by code.
-        
+
         Args:
             ts_code: Index code (e.g., 000300.SH)
-        
+
         Returns:
             Index information dictionary or None
         """
@@ -66,13 +71,13 @@ class TuShareIndexBasicService(BaseService):
         FROM dim_index_basic
         WHERE ts_code = '{ts_code}'
         """
-        
+
         df = self.db.execute_query(query)
         if df.empty:
             return None
-        
+
         return _convert_to_json_serializable(df.iloc[0].to_dict())
-    
+
     @query_method(
         description="Query indices by market",
         params=[
@@ -88,27 +93,27 @@ class TuShareIndexBasicService(BaseService):
                 description="Index category",
                 required=False,
             ),
-        ]
+        ],
     )
     def get_indices_by_market(
         self,
         market: str,
-        category: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Query indices by market.
-        
+
         Args:
             market: Market code (SSE/SZSE/CSI/CICC/SW/OTH)
             category: Index category (optional)
-        
+
         Returns:
             List of index information records
         """
         where_clause = f"WHERE market = '{market}'"
         if category:
             where_clause += f" AND category = '{category}'"
-        
+
         query = f"""
         SELECT 
             ts_code,
@@ -125,11 +130,11 @@ class TuShareIndexBasicService(BaseService):
         {where_clause}
         ORDER BY ts_code ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Search indices by name",
         params=[
@@ -146,20 +151,20 @@ class TuShareIndexBasicService(BaseService):
                 required=False,
                 default=100,
             ),
-        ]
+        ],
     )
     def search_indices(
         self,
         keyword: str,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search indices by name.
-        
+
         Args:
             keyword: Search keyword in index name
             limit: Maximum number of results
-        
+
         Returns:
             List of matching index information records
         """
@@ -178,21 +183,18 @@ class TuShareIndexBasicService(BaseService):
         LIMIT {limit}
         ORDER BY ts_code ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
-    @query_method(
-        description="Get all index categories",
-        params=[]
-    )
+
+    @query_method(description="Get all index categories", params=[])
     def get_index_categories(
         self,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get all index categories.
-        
+
         Returns:
             List of unique index categories
         """
@@ -202,7 +204,7 @@ class TuShareIndexBasicService(BaseService):
         WHERE category IS NOT NULL
         ORDER BY category ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]

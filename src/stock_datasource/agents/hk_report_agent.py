@@ -1,21 +1,23 @@
 """HK Report Agent for Hong Kong stock financial report analysis using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Callable, Optional, Tuple
 import logging
-import re
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
 from ..services.hk_financial_report_service import HKFinancialReportService
-from ..utils.stock_code import validate_hk_stock_code as _validate_and_normalize_hk_stock_code
+from ..utils.stock_code import (
+    validate_hk_stock_code as _validate_and_normalize_hk_stock_code,
+)
+from .base_agent import AgentConfig, LangGraphAgent
 
 logger = logging.getLogger(__name__)
 
 
 # ========== Formatting Helpers ==========
 
-def _fmt_pct(val, fallback='N/A') -> str:
+
+def _fmt_pct(val, fallback="N/A") -> str:
     """Format a percentage value, handling \\N and None."""
-    if val is None or val == '\\N' or val == 'None' or val == '':
+    if val is None or val == "\\N" or val == "None" or val == "":
         return fallback
     try:
         return f"{float(val):.2f}%"
@@ -23,9 +25,9 @@ def _fmt_pct(val, fallback='N/A') -> str:
         return fallback
 
 
-def _fmt_num(val, fallback='N/A') -> str:
+def _fmt_num(val, fallback="N/A") -> str:
     """Format a numeric value, handling \\N and None."""
-    if val is None or val == '\\N' or val == 'None' or val == '':
+    if val is None or val == "\\N" or val == "None" or val == "":
         return fallback
     try:
         return f"{float(val):.2f}"
@@ -34,6 +36,7 @@ def _fmt_num(val, fallback='N/A') -> str:
 
 
 # ========== Agent Tool Functions ==========
+
 
 def get_hk_comprehensive_financial_analysis(ts_code: str, periods: int = 8) -> str:
     """获取港股全面财务分析报告。
@@ -54,7 +57,9 @@ def get_hk_comprehensive_financial_analysis(ts_code: str, periods: int = 8) -> s
         analysis = service.get_comprehensive_analysis(ts_code, periods)
 
         if analysis.get("status") == "error":
-            return f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"
+            return (
+                f"❌ 获取 {ts_code} 财务数据失败: {analysis.get('error', '未知错误')}"
+            )
 
         summary = analysis.get("summary", {})
         health = analysis.get("health_analysis", {})
@@ -64,20 +69,20 @@ def get_hk_comprehensive_financial_analysis(ts_code: str, periods: int = 8) -> s
         # Profitability
         prof = summary.get("profitability", {})
         report += f"""### 📈 盈利能力指标
-- ROE (加权平均): {_fmt_pct(prof.get('roe_avg'))}
-- ROA (总资产收益率): {_fmt_pct(prof.get('roa'))}
-- 毛利率: {_fmt_pct(prof.get('gross_profit_ratio'))}
-- 净利率: {_fmt_pct(prof.get('net_profit_ratio'))}
-- 基本每股收益: {_fmt_num(prof.get('basic_eps'))}
+- ROE (加权平均): {_fmt_pct(prof.get("roe_avg"))}
+- ROA (总资产收益率): {_fmt_pct(prof.get("roa"))}
+- 毛利率: {_fmt_pct(prof.get("gross_profit_ratio"))}
+- 净利率: {_fmt_pct(prof.get("net_profit_ratio"))}
+- 基本每股收益: {_fmt_num(prof.get("basic_eps"))}
 
 """
 
         # Valuation
         val = summary.get("valuation", {})
         report += f"""### 💰 估值指标
-- PE (TTM): {_fmt_num(val.get('pe_ttm'))}
-- PB (TTM): {_fmt_num(val.get('pb_ttm'))}
-- 总市值: {val.get('total_market_cap', 'N/A')}
+- PE (TTM): {_fmt_num(val.get("pe_ttm"))}
+- PB (TTM): {_fmt_num(val.get("pb_ttm"))}
+- 总市值: {val.get("total_market_cap", "N/A")}
 
 """
 
@@ -112,7 +117,7 @@ def get_hk_comprehensive_financial_analysis(ts_code: str, periods: int = 8) -> s
 
     except Exception as e:
         logger.error(f"Error in HK comprehensive analysis for {ts_code}: {e}")
-        return f"❌ 分析 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 分析 {ts_code} 时发生错误: {e!s}"
 
 
 def get_hk_financial_indicators(ts_code: str, periods: int = 8) -> str:
@@ -141,8 +146,12 @@ def get_hk_financial_indicators(ts_code: str, periods: int = 8) -> str:
             return f"❌ 未找到 {ts_code} 的财务指标数据"
 
         report = f"## {ts_code} 港股财务指标 (近{len(data)}期)\n\n"
-        report += "| 报告期 | ROE(%) | ROA(%) | 毛利率(%) | 净利率(%) | EPS | PE(TTM) |\n"
-        report += "|---------|--------|--------|-----------|-----------|-----|--------|\n"
+        report += (
+            "| 报告期 | ROE(%) | ROA(%) | 毛利率(%) | 净利率(%) | EPS | PE(TTM) |\n"
+        )
+        report += (
+            "|---------|--------|--------|-----------|-----------|-----|--------|\n"
+        )
 
         for row in data[:periods]:
             report += (
@@ -158,7 +167,7 @@ def get_hk_financial_indicators(ts_code: str, periods: int = 8) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting HK indicators for {ts_code}: {e}")
-        return f"❌ 获取财务指标 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取财务指标 {ts_code} 时发生错误: {e!s}"
 
 
 def get_hk_income_statement(ts_code: str, periods: int = 8) -> str:
@@ -202,7 +211,7 @@ def get_hk_income_statement(ts_code: str, periods: int = 8) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting HK income for {ts_code}: {e}")
-        return f"❌ 获取利润表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取利润表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_hk_balance_sheet(ts_code: str, periods: int = 8) -> str:
@@ -246,7 +255,7 @@ def get_hk_balance_sheet(ts_code: str, periods: int = 8) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting HK balance sheet for {ts_code}: {e}")
-        return f"❌ 获取资产负债表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取资产负债表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_hk_cash_flow(ts_code: str, periods: int = 8) -> str:
@@ -290,7 +299,7 @@ def get_hk_cash_flow(ts_code: str, periods: int = 8) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting HK cash flow for {ts_code}: {e}")
-        return f"❌ 获取现金流量表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取现金流量表 {ts_code} 时发生错误: {e!s}"
 
 
 def get_hk_full_financial_statements(ts_code: str, periods: int = 8) -> str:
@@ -353,10 +362,11 @@ def get_hk_full_financial_statements(ts_code: str, periods: int = 8) -> str:
         return report
     except Exception as e:
         logger.error(f"Error getting HK full statements for {ts_code}: {e}")
-        return f"❌ 获取财务报表 {ts_code} 时发生错误: {str(e)}"
+        return f"❌ 获取财务报表 {ts_code} 时发生错误: {e!s}"
 
 
 # ========== Agent Class ==========
+
 
 class HKReportAgent(LangGraphAgent):
     """HK Report Agent for Hong Kong stock financial report analysis.
@@ -371,11 +381,11 @@ class HKReportAgent(LangGraphAgent):
     def __init__(self):
         config = AgentConfig(
             name="HKReportAgent",
-            description="港股财报分析师，提供港股全面财务分析、三大报表查询、财务指标分析等服务"
+            description="港股财报分析师，提供港股全面财务分析、三大报表查询、财务指标分析等服务",
         )
         super().__init__(config)
 
-    def get_tools(self) -> List[Callable]:
+    def get_tools(self) -> list[Callable]:
         """Return HK report analysis tools."""
         return [
             get_hk_comprehensive_financial_analysis,

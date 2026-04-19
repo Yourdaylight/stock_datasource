@@ -25,9 +25,16 @@
     },
     "is_open": {
       "type": "string",
-      "enum": ["0", "1"],
+      "enum": [
+        "0",
+        "1"
+      ],
       "required": false,
       "description": "Filter by trading status: 0=closed, 1=open"
     }
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
   }
 }

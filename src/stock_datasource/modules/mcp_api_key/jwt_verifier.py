@@ -1,18 +1,16 @@
 """Verify RSA-signed JWT tokens issued by nps_enhanced management platform."""
 
 import base64
-import hashlib
 import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 _public_key = None
-_public_key_path: Optional[str] = None
+_public_key_path: str | None = None
 
 
 def _load_public_key():
@@ -54,7 +52,7 @@ def _load_public_key():
         return None
 
 
-def verify_nps_jwt(token: str) -> Tuple[bool, dict, str]:
+def verify_nps_jwt(token: str) -> tuple[bool, dict, str]:
     """Verify JWT token signed by nps_enhanced (RS256).
 
     This uses the ``cryptography`` and ``PyJWT`` libraries when available,
@@ -123,7 +121,7 @@ def verify_nps_jwt(token: str) -> Tuple[bool, dict, str]:
             return False, {}, "Token expired"
 
         # Verify signature
-        signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+        signing_input = f"{header_b64}.{payload_b64}".encode()
         signature = base64.urlsafe_b64decode(signature_b64 + "==")
 
         pub_key = serialization.load_pem_public_key(public_key_pem)

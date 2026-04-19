@@ -1,6 +1,7 @@
 """Portfolio module initialization."""
 
 import logging
+
 from stock_datasource.models.database import db_client
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ def ensure_portfolio_tables():
     """Ensure portfolio tables exist in ClickHouse."""
     try:
         client = db_client
-        
+
         # Create user_positions table if not exists
         client.execute("""
         CREATE TABLE IF NOT EXISTS user_positions (
@@ -36,7 +37,7 @@ def ensure_portfolio_tables():
         ORDER BY (user_id, ts_code, id)
         SETTINGS index_granularity = 8192
         """)
-        
+
         # Create portfolio_analysis table if not exists
         client.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_analysis (
@@ -57,7 +58,7 @@ def ensure_portfolio_tables():
         ORDER BY (user_id, analysis_date, analysis_type, id)
         SETTINGS index_granularity = 8192
         """)
-        
+
         # Create technical_indicators table if not exists
         client.execute("""
         CREATE TABLE IF NOT EXISTS technical_indicators (
@@ -84,7 +85,7 @@ def ensure_portfolio_tables():
         ORDER BY (ts_code, indicator_date, id)
         SETTINGS index_granularity = 8192
         """)
-        
+
         # Create portfolio_risk_metrics table if not exists
         client.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_risk_metrics (
@@ -106,7 +107,7 @@ def ensure_portfolio_tables():
         ORDER BY (user_id, metric_date, id)
         SETTINGS index_granularity = 8192
         """)
-        
+
         # Create position_alerts table if not exists
         client.execute("""
         CREATE TABLE IF NOT EXISTS position_alerts (
@@ -127,9 +128,9 @@ def ensure_portfolio_tables():
         ORDER BY (user_id, ts_code, alert_type, id)
         SETTINGS index_granularity = 8192
         """)
-        
+
         logger.info("Portfolio tables ensured successfully")
-        
+
     except Exception as e:
         logger.error(f"Failed to ensure portfolio tables: {e}")
         raise

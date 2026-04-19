@@ -14,10 +14,8 @@ Final result is written to the project-root `.env` file.
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 import click
 
@@ -25,7 +23,9 @@ import click
 # Helpers
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]  # src/stock_datasource/cli -> project root
+_PROJECT_ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # src/stock_datasource/cli -> project root
 _ENV_FILE = _PROJECT_ROOT / ".env"
 _ENV_EXAMPLE = _PROJECT_ROOT / ".env.example"
 
@@ -39,9 +39,9 @@ def _mask(value: str, visible: int = 4) -> str:
     return value[:visible] + "****"
 
 
-def _read_env_dict() -> Dict[str, str]:
+def _read_env_dict() -> dict[str, str]:
     """Read existing .env file into an ordered dict (preserving order)."""
-    env: Dict[str, str] = {}
+    env: dict[str, str] = {}
     if not _ENV_FILE.exists():
         return env
     for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -54,7 +54,7 @@ def _read_env_dict() -> Dict[str, str]:
     return env
 
 
-def _write_env_file(updates: Dict[str, str]) -> None:
+def _write_env_file(updates: dict[str, str]) -> None:
     """Write *updates* into .env, preserving comments and order.
 
     If a key already exists the line is replaced in-place; new keys are
@@ -98,10 +98,12 @@ def _write_env_file(updates: Dict[str, str]) -> None:
 # Connectivity validators (each returns (ok: bool, message: str))
 # ---------------------------------------------------------------------------
 
-def _validate_tushare(token: str) -> Tuple[bool, str]:
+
+def _validate_tushare(token: str) -> tuple[bool, str]:
     """Validate Tushare token by calling a lightweight API."""
     try:
         import tushare as ts
+
         pro = ts.pro_api(token)
         df = pro.trade_cal(exchange="SSE", start_date="20250101", end_date="20250105")
         if df is not None and len(df) > 0:
@@ -111,10 +113,11 @@ def _validate_tushare(token: str) -> Tuple[bool, str]:
         return False, f"Connection failed: {e}"
 
 
-def _validate_llm(api_key: str, base_url: str, model: str) -> Tuple[bool, str]:
+def _validate_llm(api_key: str, base_url: str, model: str) -> tuple[bool, str]:
     """Validate LLM API by sending a tiny completion request."""
     try:
         from openai import OpenAI
+
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=15)
         resp = client.chat.completions.create(
             model=model,
@@ -127,12 +130,22 @@ def _validate_llm(api_key: str, base_url: str, model: str) -> Tuple[bool, str]:
         return False, f"LLM call failed: {e}"
 
 
-def _validate_clickhouse(host: str, port: int, user: str, password: str, database: str) -> Tuple[bool, str]:
+def _validate_clickhouse(
+    host: str, port: int, user: str, password: str, database: str
+) -> tuple[bool, str]:
     """Validate ClickHouse connectivity."""
     try:
         from clickhouse_driver import Client
-        client = Client(host=host, port=port, user=user, password=password, database="default",
-                        connect_timeout=5, send_receive_timeout=5)
+
+        client = Client(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database="default",
+            connect_timeout=5,
+            send_receive_timeout=5,
+        )
         result = client.execute("SELECT version()")
         version = result[0][0] if result else "unknown"
         return True, f"OK — ClickHouse {version}"
@@ -140,12 +153,21 @@ def _validate_clickhouse(host: str, port: int, user: str, password: str, databas
         return False, f"Connection failed: {e}"
 
 
-def _validate_redis(host: str, port: int, password: Optional[str], db: int) -> Tuple[bool, str]:
+def _validate_redis(
+    host: str, port: int, password: str | None, db: int
+) -> tuple[bool, str]:
     """Validate Redis connectivity."""
     try:
         import redis
-        r = redis.Redis(host=host, port=port, password=password or None, db=db,
-                        socket_timeout=5, socket_connect_timeout=5)
+
+        r = redis.Redis(
+            host=host,
+            port=port,
+            password=password or None,
+            db=db,
+            socket_timeout=5,
+            socket_connect_timeout=5,
+        )
         info = r.info("server")
         version = info.get("redis_version", "unknown")
         return True, f"OK — Redis {version}"
@@ -157,7 +179,8 @@ def _validate_redis(host: str, port: int, password: Optional[str], db: int) -> T
 # Step definitions
 # ---------------------------------------------------------------------------
 
-def _step_tushare(env: Dict[str, str]) -> Dict[str, str]:
+
+def _step_tushare(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
     click.secho("  Step 1/6: Tushare Token (Required)", fg="cyan", bold=True)
@@ -173,7 +196,10 @@ def _step_tushare(env: Dict[str, str]) -> Dict[str, str]:
             return {}
 
     while True:
-        token = click.prompt("  Tushare Token", default=current if current != "your_tushare_token_here" else "")
+        token = click.prompt(
+            "  Tushare Token",
+            default=current if current != "your_tushare_token_here" else "",
+        )
         if not token:
             click.secho("  ✗ Token is required, please enter a valid token.", fg="red")
             continue
@@ -189,7 +215,7 @@ def _step_tushare(env: Dict[str, str]) -> Dict[str, str]:
                 return {"TUSHARE_TOKEN": token}
 
 
-def _step_llm(env: Dict[str, str]) -> Dict[str, str]:
+def _step_llm(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
     click.secho("  Step 2/6: LLM / OpenAI API (Required)", fg="cyan", bold=True)
@@ -203,11 +229,16 @@ def _step_llm(env: Dict[str, str]) -> Dict[str, str]:
     current_model = env.get("OPENAI_MODEL", "gpt-4")
 
     if current_key and current_key != "your_openai_api_key_here":
-        click.echo(f"  Current: key={_mask(current_key)}, url={current_url}, model={current_model}")
+        click.echo(
+            f"  Current: key={_mask(current_key)}, url={current_url}, model={current_model}"
+        )
         if not click.confirm("  Change it?", default=False):
             return {}
 
-    api_key = click.prompt("  API Key", default=current_key if current_key != "your_openai_api_key_here" else "")
+    api_key = click.prompt(
+        "  API Key",
+        default=current_key if current_key != "your_openai_api_key_here" else "",
+    )
     base_url = click.prompt("  Base URL", default=current_url)
     model = click.prompt("  Model name", default=current_model)
 
@@ -218,7 +249,9 @@ def _step_llm(env: Dict[str, str]) -> Dict[str, str]:
             click.secho(f"  ✓ {msg}", fg="green")
         else:
             click.secho(f"  ✗ {msg}", fg="yellow")
-            click.echo("  (Saved anyway — you can fix it later with `stock-ds config set`)")
+            click.echo(
+                "  (Saved anyway — you can fix it later with `stock-ds config set`)"
+            )
 
     result = {}
     if api_key:
@@ -228,7 +261,7 @@ def _step_llm(env: Dict[str, str]) -> Dict[str, str]:
     return result
 
 
-def _step_clickhouse(env: Dict[str, str]) -> Dict[str, str]:
+def _step_clickhouse(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
     click.secho("  Step 3/6: ClickHouse Database", fg="cyan", bold=True)
@@ -252,8 +285,13 @@ def _step_clickhouse(env: Dict[str, str]) -> Dict[str, str]:
         host = click.prompt("  Host", default=defaults["CLICKHOUSE_HOST"])
         port = click.prompt("  Native port", default=defaults["CLICKHOUSE_PORT"])
         user = click.prompt("  User", default=defaults["CLICKHOUSE_USER"])
-        password = click.prompt("  Password", default=defaults["CLICKHOUSE_PASSWORD"], hide_input=True,
-                                show_default=False, prompt_suffix=" (hidden): ")
+        password = click.prompt(
+            "  Password",
+            default=defaults["CLICKHOUSE_PASSWORD"],
+            hide_input=True,
+            show_default=False,
+            prompt_suffix=" (hidden): ",
+        )
         database = click.prompt("  Database", default=defaults["CLICKHOUSE_DATABASE"])
         result = {
             "CLICKHOUSE_HOST": host,
@@ -266,19 +304,23 @@ def _step_clickhouse(env: Dict[str, str]) -> Dict[str, str]:
     # Validate
     click.echo("  Validating...")
     ok, msg = _validate_clickhouse(
-        result["CLICKHOUSE_HOST"], int(result["CLICKHOUSE_PORT"]),
-        result["CLICKHOUSE_USER"], result["CLICKHOUSE_PASSWORD"],
+        result["CLICKHOUSE_HOST"],
+        int(result["CLICKHOUSE_PORT"]),
+        result["CLICKHOUSE_USER"],
+        result["CLICKHOUSE_PASSWORD"],
         result["CLICKHOUSE_DATABASE"],
     )
     if ok:
         click.secho(f"  ✓ {msg}", fg="green")
     else:
         click.secho(f"  ✗ {msg}", fg="yellow")
-        click.echo("  (Saved anyway — make sure ClickHouse is running before starting services)")
+        click.echo(
+            "  (Saved anyway — make sure ClickHouse is running before starting services)"
+        )
     return result
 
 
-def _step_redis(env: Dict[str, str]) -> Dict[str, str]:
+def _step_redis(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
     click.secho("  Step 4/6: Redis", fg="cyan", bold=True)
@@ -299,8 +341,13 @@ def _step_redis(env: Dict[str, str]) -> Dict[str, str]:
     else:
         host = click.prompt("  Host", default=defaults["REDIS_HOST"])
         port = click.prompt("  Port", default=defaults["REDIS_PORT"])
-        password = click.prompt("  Password", default=defaults["REDIS_PASSWORD"], hide_input=True,
-                                show_default=False, prompt_suffix=" (hidden, empty for none): ")
+        password = click.prompt(
+            "  Password",
+            default=defaults["REDIS_PASSWORD"],
+            hide_input=True,
+            show_default=False,
+            prompt_suffix=" (hidden, empty for none): ",
+        )
         db = click.prompt("  DB number", default=defaults["REDIS_DB"])
         result = {
             "REDIS_HOST": host,
@@ -311,21 +358,27 @@ def _step_redis(env: Dict[str, str]) -> Dict[str, str]:
 
     click.echo("  Validating...")
     ok, msg = _validate_redis(
-        result["REDIS_HOST"], int(result["REDIS_PORT"]),
-        result["REDIS_PASSWORD"] or None, int(result["REDIS_DB"]),
+        result["REDIS_HOST"],
+        int(result["REDIS_PORT"]),
+        result["REDIS_PASSWORD"] or None,
+        int(result["REDIS_DB"]),
     )
     if ok:
         click.secho(f"  ✓ {msg}", fg="green")
     else:
         click.secho(f"  ✗ {msg}", fg="yellow")
-        click.echo("  (Saved anyway — make sure Redis is running before starting services)")
+        click.echo(
+            "  (Saved anyway — make sure Redis is running before starting services)"
+        )
     return result
 
 
-def _step_langfuse(env: Dict[str, str]) -> Dict[str, str]:
+def _step_langfuse(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
-    click.secho("  Step 5/6: Langfuse — AI Observability (Optional)", fg="cyan", bold=True)
+    click.secho(
+        "  Step 5/6: Langfuse — AI Observability (Optional)", fg="cyan", bold=True
+    )
     click.secho("━" * 50, fg="cyan")
     click.echo("  Langfuse tracks LLM calls, costs, and latency.")
     click.echo("")
@@ -335,11 +388,18 @@ def _step_langfuse(env: Dict[str, str]) -> Dict[str, str]:
         return {}
 
     host = click.prompt("  Langfuse Host URL", default=env.get("LANGFUSE_HOST", ""))
-    public_key = click.prompt("  Public Key", default=env.get("LANGFUSE_PUBLIC_KEY", ""))
-    secret_key = click.prompt("  Secret Key", default=env.get("LANGFUSE_SECRET_KEY", ""), hide_input=True,
-                              show_default=False, prompt_suffix=" (hidden): ")
+    public_key = click.prompt(
+        "  Public Key", default=env.get("LANGFUSE_PUBLIC_KEY", "")
+    )
+    secret_key = click.prompt(
+        "  Secret Key",
+        default=env.get("LANGFUSE_SECRET_KEY", ""),
+        hide_input=True,
+        show_default=False,
+        prompt_suffix=" (hidden): ",
+    )
 
-    result: Dict[str, str] = {}
+    result: dict[str, str] = {}
     if host:
         result["LANGFUSE_HOST"] = host
     if public_key:
@@ -349,12 +409,14 @@ def _step_langfuse(env: Dict[str, str]) -> Dict[str, str]:
     return result
 
 
-def _step_proxy(env: Dict[str, str]) -> Dict[str, str]:
+def _step_proxy(env: dict[str, str]) -> dict[str, str]:
     click.echo("")
     click.secho("━" * 50, fg="cyan")
     click.secho("  Step 6/6: HTTP Proxy (Optional)", fg="cyan", bold=True)
     click.secho("━" * 50, fg="cyan")
-    click.echo("  Required if your network restricts direct access to Tushare / OpenAI.")
+    click.echo(
+        "  Required if your network restricts direct access to Tushare / OpenAI."
+    )
     click.echo("")
 
     if not click.confirm("  Configure HTTP proxy?", default=False):
@@ -376,8 +438,14 @@ def _step_proxy(env: Dict[str, str]) -> Dict[str, str]:
 # Main command
 # ---------------------------------------------------------------------------
 
+
 @click.command("setup")
-@click.option("--non-interactive", is_flag=True, default=False, help="Skip interactive prompts, validate existing .env only")
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    default=False,
+    help="Skip interactive prompts, validate existing .env only",
+)
 def setup(non_interactive: bool):
     """Interactive setup wizard for first-time deployment.
 
@@ -392,15 +460,21 @@ def setup(non_interactive: bool):
       stock-ds setup --non-interactive  # Validate existing .env only
     """
     click.echo("")
-    click.secho("╔══════════════════════════════════════════════════╗", fg="bright_blue")
+    click.secho(
+        "╔══════════════════════════════════════════════════╗", fg="bright_blue"
+    )
     click.secho("║     Stock Datasource — Setup Wizard             ║", fg="bright_blue")
-    click.secho("╚══════════════════════════════════════════════════╝", fg="bright_blue")
+    click.secho(
+        "╚══════════════════════════════════════════════════╝", fg="bright_blue"
+    )
     click.echo("")
 
     env = _read_env_dict()
 
     if non_interactive:
-        click.echo("Running in non-interactive mode — validating existing configuration...")
+        click.echo(
+            "Running in non-interactive mode — validating existing configuration..."
+        )
         _validate_existing(env)
         return
 
@@ -408,10 +482,17 @@ def setup(non_interactive: bool):
     click.echo("Press Ctrl+C at any time to abort (changes won't be saved).")
     click.echo("")
 
-    all_updates: Dict[str, str] = {}
+    all_updates: dict[str, str] = {}
 
     try:
-        steps = [_step_tushare, _step_llm, _step_clickhouse, _step_redis, _step_langfuse, _step_proxy]
+        steps = [
+            _step_tushare,
+            _step_llm,
+            _step_clickhouse,
+            _step_redis,
+            _step_langfuse,
+            _step_proxy,
+        ]
         for step_fn in steps:
             updates = step_fn(env)
             all_updates.update(updates)
@@ -446,18 +527,28 @@ def setup(non_interactive: bool):
     # Next steps
     click.echo("")
     click.secho("  Next steps:", bold=True)
-    click.echo("  1. Start infrastructure:  docker compose -f docker-compose.infra.yml up -d")
+    click.echo(
+        "  1. Start infrastructure:  docker compose -f docker-compose.infra.yml up -d"
+    )
     click.echo("  2. Check environment:     stock-ds doctor")
     click.echo("  3. Initialize database:   stock-ds init-db")
     click.echo("  4. Start services:        stock-ds server start")
     click.echo("")
 
 
-def _validate_existing(env: Dict[str, str]):
+def _validate_existing(env: dict[str, str]):
     """Validate existing configuration without prompting."""
     checks = [
-        ("Tushare Token", bool(env.get("TUSHARE_TOKEN")) and env.get("TUSHARE_TOKEN") != "your_tushare_token_here"),
-        ("OpenAI API Key", bool(env.get("OPENAI_API_KEY")) and env.get("OPENAI_API_KEY") != "your_openai_api_key_here"),
+        (
+            "Tushare Token",
+            bool(env.get("TUSHARE_TOKEN"))
+            and env.get("TUSHARE_TOKEN") != "your_tushare_token_here",
+        ),
+        (
+            "OpenAI API Key",
+            bool(env.get("OPENAI_API_KEY"))
+            and env.get("OPENAI_API_KEY") != "your_openai_api_key_here",
+        ),
         ("ClickHouse Host", bool(env.get("CLICKHOUSE_HOST"))),
         ("Redis Host", bool(env.get("REDIS_HOST"))),
     ]
@@ -472,20 +563,34 @@ def _validate_existing(env: Dict[str, str]):
     if all_ok:
         click.secho("\n  All required settings are present.", fg="green")
     else:
-        click.secho("\n  Some required settings are missing. Run `stock-ds setup` interactively.", fg="yellow")
+        click.secho(
+            "\n  Some required settings are missing. Run `stock-ds setup` interactively.",
+            fg="yellow",
+        )
 
 
-def _print_summary(env: Dict[str, str]):
+def _print_summary(env: dict[str, str]):
     """Print a masked configuration summary."""
     rows = [
         ("Tushare Token", _mask(env.get("TUSHARE_TOKEN", ""))),
         ("OpenAI API Key", _mask(env.get("OPENAI_API_KEY", ""))),
         ("OpenAI Base URL", env.get("OPENAI_BASE_URL", "")),
         ("OpenAI Model", env.get("OPENAI_MODEL", "")),
-        ("ClickHouse", f"{env.get('CLICKHOUSE_HOST', '')}:{env.get('CLICKHOUSE_PORT', '')}"),
+        (
+            "ClickHouse",
+            f"{env.get('CLICKHOUSE_HOST', '')}:{env.get('CLICKHOUSE_PORT', '')}",
+        ),
         ("Redis", f"{env.get('REDIS_HOST', '')}:{env.get('REDIS_PORT', '')}"),
-        ("Langfuse Host", env.get("LANGFUSE_HOST", "(not configured)") or "(not configured)"),
-        ("HTTP Proxy", "enabled" if env.get("HTTP_PROXY_ENABLED", "").lower() == "true" else "disabled"),
+        (
+            "Langfuse Host",
+            env.get("LANGFUSE_HOST", "(not configured)") or "(not configured)",
+        ),
+        (
+            "HTTP Proxy",
+            "enabled"
+            if env.get("HTTP_PROXY_ENABLED", "").lower() == "true"
+            else "disabled",
+        ),
     ]
     max_label = max(len(r[0]) for r in rows)
     for label, value in rows:

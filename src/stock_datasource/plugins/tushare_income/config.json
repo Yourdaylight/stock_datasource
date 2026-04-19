@@ -5,7 +5,7 @@
   "retry_attempts": 3,
   "description": "TuShare income statement data plugin",
   "schedule": {
-    "frequency": "quarterly",
+    "frequency": "monthly",
     "time": "19:00"
   },
   "parameters_schema": {

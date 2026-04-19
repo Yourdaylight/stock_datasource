@@ -4,14 +4,15 @@ Provides contextvars that are automatically injected into every log record
 via the Loguru `patch` mechanism, enabling request-level log correlation.
 """
 
-from contextvars import ContextVar
 import uuid
-
+from contextvars import ContextVar
 
 # Context variables with safe defaults
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 user_id_var: ContextVar[str] = ContextVar("user_id", default="-")
-middleware_trace_id_var: ContextVar[str] = ContextVar("middleware_trace_id", default="-")
+middleware_trace_id_var: ContextVar[str] = ContextVar(
+    "middleware_trace_id", default="-"
+)
 
 
 def generate_request_id() -> str:

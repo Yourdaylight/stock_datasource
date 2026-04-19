@@ -7,26 +7,90 @@ Output: Detect hallucination signals via lightweight LLM check.
 from __future__ import annotations
 
 import logging
+
 from .base import AgentContext, AgentResponse, BaseMiddleware
 
 logger = logging.getLogger(__name__)
 
 # Financial-related keywords for input validation
 _FINANCIAL_KEYWORDS = [
-    "股票", "行情", "分析", "指数", "基金", "期货", "债券", "外汇",
-    "财报", "营收", "利润", "市盈率", "市净率", "估值", "K线", "均线",
-    "MACD", "RSI", "KDJ", "技术面", "基本面", "选股", "回测", "策略",
-    "投资", "交易", "持仓", "仓位", "止损", "止盈", "涨跌", "振幅",
-    "港股", "A股", "美股", "沪深", "上证", "深证", "创业板", "科创板",
-    "板块", "行业", "概念", "龙头", "白马", "蓝筹", "红利", "ETF",
-    "stock", "market", "invest", "trade", "portfolio", "fund", "bond",
-    "analysis", "chart", "indicator", "price", "volume", "trend",
+    "股票",
+    "行情",
+    "分析",
+    "指数",
+    "基金",
+    "期货",
+    "债券",
+    "外汇",
+    "财报",
+    "营收",
+    "利润",
+    "市盈率",
+    "市净率",
+    "估值",
+    "K线",
+    "均线",
+    "MACD",
+    "RSI",
+    "KDJ",
+    "技术面",
+    "基本面",
+    "选股",
+    "回测",
+    "策略",
+    "投资",
+    "交易",
+    "持仓",
+    "仓位",
+    "止损",
+    "止盈",
+    "涨跌",
+    "振幅",
+    "港股",
+    "A股",
+    "美股",
+    "沪深",
+    "上证",
+    "深证",
+    "创业板",
+    "科创板",
+    "板块",
+    "行业",
+    "概念",
+    "龙头",
+    "白马",
+    "蓝筹",
+    "红利",
+    "ETF",
+    "stock",
+    "market",
+    "invest",
+    "trade",
+    "portfolio",
+    "fund",
+    "bond",
+    "analysis",
+    "chart",
+    "indicator",
+    "price",
+    "volume",
+    "trend",
 ]
 
 # Non-financial topic keywords (strong signal of off-topic)
 _NON_FINANCIAL_KEYWORDS = [
-    "做菜", "菜谱", "天气", "旅游", "电影", "音乐", "游戏攻略",
-    "recipe", "weather", "movie", "music", "game walkthrough",
+    "做菜",
+    "菜谱",
+    "天气",
+    "旅游",
+    "电影",
+    "音乐",
+    "游戏攻略",
+    "recipe",
+    "weather",
+    "movie",
+    "music",
+    "game walkthrough",
 ]
 
 
@@ -73,7 +137,9 @@ class GuardrailMiddleware(BaseMiddleware):
 
         return context
 
-    async def after(self, context: AgentContext, response: AgentResponse) -> AgentResponse:
+    async def after(
+        self, context: AgentContext, response: AgentResponse
+    ) -> AgentResponse:
         """Optional hallucination check on agent response."""
         if not self.enabled:
             return response
@@ -131,7 +197,8 @@ class GuardrailMiddleware(BaseMiddleware):
 
             import json
             import re
-            match = re.search(r'\{.*\}', content, re.DOTALL)
+
+            match = re.search(r"\{.*\}", content, re.DOTALL)
             if match:
                 parsed = json.loads(match.group(0))
                 if parsed.get("hallucination"):

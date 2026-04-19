@@ -5,9 +5,10 @@ Write operations (set, delete) require login.
 Destructive operations (flush) require admin.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from typing import Optional, Any
 
 from stock_datasource.modules.auth.dependencies import get_current_user, require_admin
 
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/cache", tags=["cache"])
 
 class CacheSetRequest(BaseModel):
     """Request body for setting cache."""
+
     key: str
     value: Any
     ttl: int = 300
@@ -23,6 +25,7 @@ class CacheSetRequest(BaseModel):
 
 class CacheDeleteRequest(BaseModel):
     """Request body for deleting cache by pattern."""
+
     pattern: str
 
 
@@ -30,6 +33,7 @@ class CacheDeleteRequest(BaseModel):
 async def get_cache_stats():
     """Get cache statistics."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
     return cache.get_stats()
 
@@ -38,6 +42,7 @@ async def get_cache_stats():
 async def cache_health():
     """Cache health check."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
     return cache.health_check()
 
@@ -46,8 +51,9 @@ async def cache_health():
 async def get_cache(key: str):
     """Get cached value by key."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
-    
+
     value = await cache.aget(key)
     if value is None:
         return {"found": False, "key": key, "value": None}
@@ -61,8 +67,9 @@ async def set_cache(
 ):
     """Set cache value. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
-    
+
     success = await cache.aset(request.key, request.value, request.ttl)
     return {"success": success, "key": request.key, "ttl": request.ttl}
 
@@ -74,8 +81,9 @@ async def delete_cache(
 ):
     """Delete cache by key. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
-    
+
     success = await cache.adelete(key)
     return {"success": success, "key": key}
 
@@ -87,8 +95,9 @@ async def delete_cache_pattern(
 ):
     """Delete cache by pattern. Requires login."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
-    
+
     count = await cache.adelete_pattern(request.pattern)
     return {"deleted": count, "pattern": request.pattern}
 
@@ -99,7 +108,8 @@ async def flush_cache(
 ):
     """Flush all cache in namespace (stock:*). Requires admin."""
     from stock_datasource.services.cache_service import get_cache_service
+
     cache = get_cache_service()
-    
+
     count = cache.flush_namespace()
     return {"flushed": count, "message": "All stock:* keys deleted"}

@@ -31,7 +31,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (run_date, ts_code)
     """,
-
     "quant_screening_run_stats": """
         CREATE TABLE IF NOT EXISTS quant_screening_run_stats (
             run_date Date,
@@ -48,7 +47,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (run_date, run_id)
     """,
-
     "quant_rps_rank": """
         CREATE TABLE IF NOT EXISTS quant_rps_rank (
             calc_date Date,
@@ -64,7 +62,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (calc_date, ts_code)
     """,
-
     "quant_core_pool": """
         CREATE TABLE IF NOT EXISTS quant_core_pool (
             update_date Date,
@@ -86,7 +83,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (update_date, pool_type, ts_code)
     """,
-
     "quant_trading_signal": """
         CREATE TABLE IF NOT EXISTS quant_trading_signal (
             signal_date Date,
@@ -107,7 +103,6 @@ QUANT_TABLES: dict[str, str] = {
         ORDER BY (signal_date, ts_code)
         TTL signal_date + INTERVAL 365 DAY
     """,
-
     "quant_deep_analysis": """
         CREATE TABLE IF NOT EXISTS quant_deep_analysis (
             analysis_date Date,
@@ -125,7 +120,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (analysis_date, ts_code)
     """,
-
     "quant_model_config": """
         CREATE TABLE IF NOT EXISTS quant_model_config (
             config_id String,
@@ -138,7 +132,6 @@ QUANT_TABLES: dict[str, str] = {
         ) ENGINE = ReplacingMergeTree()
         ORDER BY (config_id)
     """,
-
     "quant_pipeline_run": """
         CREATE TABLE IF NOT EXISTS quant_pipeline_run (
             run_id String,

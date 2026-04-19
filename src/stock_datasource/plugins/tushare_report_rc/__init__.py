@@ -2,4 +2,4 @@
 
 from .plugin import TuShareReportRcPlugin
 
-__all__ = ['TuShareReportRcPlugin']
+__all__ = ["TuShareReportRcPlugin"]

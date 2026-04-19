@@ -10,8 +10,8 @@ import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from enum import Enum
+from typing import Any
 
 from redis import Redis
 
@@ -26,30 +26,31 @@ class RedisUnavailableError(RuntimeError):
 
 class TaskPriority(Enum):
     """Task priority levels."""
-    HIGH = 0    # Urgent tasks (manual trigger)
+
+    HIGH = 0  # Urgent tasks (manual trigger)
     NORMAL = 1  # Regular scheduled tasks
-    LOW = 2     # Background/batch tasks
+    LOW = 2  # Background/batch tasks
 
 
 class TaskQueue:
     """Redis-based task queue for sync tasks.
-    
+
     Uses Redis lists for FIFO queue with priority support.
     Task status is stored in Redis hashes for quick lookup.
     """
-    
+
     # Redis key prefixes
     QUEUE_KEY = "stock:task_queue:{priority}"
     TASK_KEY = "stock:task:{task_id}"
     RUNNING_KEY = "stock:running_tasks"
     EXECUTION_KEY = "stock:execution:{execution_id}"
-    
+
     def __init__(self):
         """Initialize task queue with Redis connection."""
-        self._redis: Optional[Redis] = None
+        self._redis: Redis | None = None
         self._connected = False
         self._last_ping_ok: float = 0.0  # timestamp of last successful ping
-    
+
     def _get_redis(self) -> Redis:
         """Get or create Redis connection.
 
@@ -86,24 +87,26 @@ class TaskQueue:
             self._redis.ping()
             self._connected = True
             self._last_ping_ok = time.time()
-            logger.info(f"Task queue connected to Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+            logger.info(
+                f"Task queue connected to Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}"
+            )
             return self._redis
         except Exception as e:
             self._connected = False
             raise RedisUnavailableError(f"Task queue Redis connection failed: {e}")
-    
+
     def enqueue(
         self,
         plugin_name: str,
         task_type: str,
-        trade_dates: List[str] = None,
+        trade_dates: list[str] = None,
         priority: TaskPriority = TaskPriority.NORMAL,
         execution_id: str = None,
         user_id: str = None,
         timeout_seconds: int = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Add a task to the queue.
-        
+
         Args:
             plugin_name: Name of the plugin to run
             task_type: Type of task (incremental, full, backfill)
@@ -112,15 +115,15 @@ class TaskQueue:
             execution_id: Batch execution ID if part of a batch
             user_id: User who triggered the task
             timeout_seconds: Maximum task execution time in seconds (default: 3600)
-            
+
         Returns:
             Task ID if successful, None otherwise
         """
         redis = self._get_redis()
-        
+
         task_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
-        
+
         task_data = {
             "task_id": task_id,
             "plugin_name": plugin_name,
@@ -144,25 +147,27 @@ class TaskQueue:
             "timeout_seconds": timeout_seconds or 3600,
             "deadline_at": "",
         }
-        
+
         try:
             # Store task data
             redis.hset(self.TASK_KEY.format(task_id=task_id), mapping=task_data)
             # Set expiry (7 days)
             redis.expire(self.TASK_KEY.format(task_id=task_id), 7 * 24 * 3600)
-            
+
             # Add to queue (LPUSH for FIFO with BRPOP)
             queue_key = self.QUEUE_KEY.format(priority=priority.value)
             redis.lpush(queue_key, task_id)
-            
-            logger.info(f"Enqueued task {task_id} for plugin {plugin_name} with priority {priority.name}")
+
+            logger.info(
+                f"Enqueued task {task_id} for plugin {plugin_name} with priority {priority.name}"
+            )
             return task_id
-            
+
         except Exception as e:
             logger.error(f"Failed to enqueue task: {e}")
             return None
-    
-    def dequeue(self, timeout: int = 5) -> Optional[Dict[str, Any]]:
+
+    def dequeue(self, timeout: int = 5) -> dict[str, Any] | None:
         """Get next task from queue (blocking).
 
         Args:
@@ -206,15 +211,23 @@ class TaskQueue:
             task_data["max_attempts"] = int(task_data.get("max_attempts", 3))
 
             try:
-                task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 3600))
+                task_data["timeout_seconds"] = int(
+                    task_data.get("timeout_seconds", 3600)
+                )
             except Exception:
                 raw_timeout = task_data.get("timeout_seconds")
-                logger.warning(f"Task {task_id}: Invalid timeout_seconds={raw_timeout!r}, fallback to 3600")
+                logger.warning(
+                    f"Task {task_id}: Invalid timeout_seconds={raw_timeout!r}, fallback to 3600"
+                )
                 task_data["timeout_seconds"] = 3600
 
             # Mark as running
             redis.hset(self.TASK_KEY.format(task_id=task_id), "status", "running")
-            redis.hset(self.TASK_KEY.format(task_id=task_id), "started_at", datetime.now().isoformat())
+            redis.hset(
+                self.TASK_KEY.format(task_id=task_id),
+                "started_at",
+                datetime.now().isoformat(),
+            )
             redis.sadd(self.RUNNING_KEY, task_id)
 
             return task_data
@@ -226,10 +239,12 @@ class TaskQueue:
             else:
                 logger.error(f"Failed to dequeue task: {e}")
             return None
-    
-    def update_progress(self, task_id: str, progress: float, records_processed: int = 0):
+
+    def update_progress(
+        self, task_id: str, progress: float, records_processed: int = 0
+    ):
         """Update task progress.
-        
+
         Args:
             task_id: Task ID
             progress: Progress percentage (0-100)
@@ -241,17 +256,20 @@ class TaskQueue:
             return
 
         try:
-            redis.hset(self.TASK_KEY.format(task_id=task_id), mapping={
-                "progress": progress,
-                "records_processed": records_processed,
-                "updated_at": datetime.now().isoformat(),
-            })
+            redis.hset(
+                self.TASK_KEY.format(task_id=task_id),
+                mapping={
+                    "progress": progress,
+                    "records_processed": records_processed,
+                    "updated_at": datetime.now().isoformat(),
+                },
+            )
         except Exception as e:
             logger.error(f"Failed to update task progress: {e}")
-    
+
     def complete_task(self, task_id: str, records_processed: int = 0):
         """Mark task as completed.
-        
+
         Args:
             task_id: Task ID
             records_processed: Total records processed
@@ -263,21 +281,24 @@ class TaskQueue:
 
         try:
             now = datetime.now().isoformat()
-            redis.hset(self.TASK_KEY.format(task_id=task_id), mapping={
-                "status": "completed",
-                "progress": 100,
-                "records_processed": records_processed,
-                "completed_at": now,
-                "updated_at": now,
-            })
+            redis.hset(
+                self.TASK_KEY.format(task_id=task_id),
+                mapping={
+                    "status": "completed",
+                    "progress": 100,
+                    "records_processed": records_processed,
+                    "completed_at": now,
+                    "updated_at": now,
+                },
+            )
             redis.srem(self.RUNNING_KEY, task_id)
             logger.info(f"Task {task_id} completed with {records_processed} records")
         except Exception as e:
             logger.error(f"Failed to complete task: {e}")
-    
+
     def fail_task(self, task_id: str, error_message: str):
         """Mark task as failed.
-        
+
         Args:
             task_id: Task ID
             error_message: Error message
@@ -289,23 +310,26 @@ class TaskQueue:
 
         try:
             now = datetime.now().isoformat()
-            redis.hset(self.TASK_KEY.format(task_id=task_id), mapping={
-                "status": "failed",
-                "error_message": error_message[:2000],  # Limit error length
-                "completed_at": now,
-                "updated_at": now,
-            })
+            redis.hset(
+                self.TASK_KEY.format(task_id=task_id),
+                mapping={
+                    "status": "failed",
+                    "error_message": error_message[:2000],  # Limit error length
+                    "completed_at": now,
+                    "updated_at": now,
+                },
+            )
             redis.srem(self.RUNNING_KEY, task_id)
             logger.error(f"Task {task_id} failed: {error_message[:200]}")
         except Exception as e:
             logger.error(f"Failed to mark task as failed: {e}")
-    
-    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
         """Get task data by ID.
-        
+
         Args:
             task_id: Task ID
-            
+
         Returns:
             Task data dict if found, None otherwise
         """
@@ -332,8 +356,8 @@ class TaskQueue:
         except Exception as e:
             logger.error(f"Failed to get task: {e}")
             return None
-    
-    def get_queue_stats(self) -> Dict[str, Any]:
+
+    def get_queue_stats(self) -> dict[str, Any]:
         """Get current queue statistics.
 
         Returns:
@@ -356,7 +380,7 @@ class TaskQueue:
             logger.error(f"Failed to get queue stats: {e}")
             return {"available": False, "error": str(e)}
 
-    def list_tasks(self, limit: int = 1000) -> List[Dict[str, Any]]:
+    def list_tasks(self, limit: int = 1000) -> list[dict[str, Any]]:
         """List recent tasks from Redis.
 
         Notes:
@@ -370,7 +394,7 @@ class TaskQueue:
         """
         redis = self._get_redis()
 
-        tasks: List[Dict[str, Any]] = []
+        tasks: list[dict[str, Any]] = []
         cursor = 0
         pattern = self.TASK_KEY.format(task_id="*")
 
@@ -382,13 +406,19 @@ class TaskQueue:
                     if not task_data:
                         continue
 
-                    task_data["trade_dates"] = json.loads(task_data.get("trade_dates", "[]"))
+                    task_data["trade_dates"] = json.loads(
+                        task_data.get("trade_dates", "[]")
+                    )
                     task_data["progress"] = float(task_data.get("progress", 0))
-                    task_data["records_processed"] = int(task_data.get("records_processed", 0))
+                    task_data["records_processed"] = int(
+                        task_data.get("records_processed", 0)
+                    )
                     task_data["priority"] = int(task_data.get("priority", 1))
                     task_data["attempt"] = int(task_data.get("attempt", 0))
                     task_data["max_attempts"] = int(task_data.get("max_attempts", 3))
-                    task_data["timeout_seconds"] = int(task_data.get("timeout_seconds", 3600))
+                    task_data["timeout_seconds"] = int(
+                        task_data.get("timeout_seconds", 3600)
+                    )
 
                     tasks.append(task_data)
                     if len(tasks) >= limit:
@@ -400,7 +430,7 @@ class TaskQueue:
             logger.error(f"Failed to list tasks: {e}")
 
         return tasks
-    
+
     def cancel_task(self, task_id: str) -> bool:
         """Cancel a pending task (remove from queue).
 
@@ -430,11 +460,14 @@ class TaskQueue:
 
             # Update status
             now = datetime.now().isoformat()
-            redis.hset(self.TASK_KEY.format(task_id=task_id), mapping={
-                "status": "cancelled",
-                "completed_at": now,
-                "updated_at": now,
-            })
+            redis.hset(
+                self.TASK_KEY.format(task_id=task_id),
+                mapping={
+                    "status": "cancelled",
+                    "completed_at": now,
+                    "updated_at": now,
+                },
+            )
 
             logger.info(f"Task {task_id} cancelled")
             return True
@@ -468,22 +501,22 @@ class TaskQueue:
         except Exception as e:
             logger.error(f"Failed to delete task: {e}")
             return False
-    
+
     def create_execution(
         self,
-        task_ids: List[str],
+        task_ids: list[str],
         trigger_type: str = "manual",
         group_name: str = None,
         date_range: str = None,
     ) -> str:
         """Create a batch execution record.
-        
+
         Args:
             task_ids: List of task IDs in this execution
             trigger_type: Type of trigger (manual, group, scheduled)
             group_name: Name of plugin group if applicable
             date_range: Date range string
-            
+
         Returns:
             Execution ID
         """
@@ -491,7 +524,7 @@ class TaskQueue:
 
         execution_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-        
+
         execution_data = {
             "execution_id": execution_id,
             "trigger_type": trigger_type,
@@ -505,27 +538,34 @@ class TaskQueue:
             "group_name": group_name or "",
             "date_range": date_range or "",
         }
-        
+
         try:
-            redis.hset(self.EXECUTION_KEY.format(execution_id=execution_id), mapping=execution_data)
-            redis.expire(self.EXECUTION_KEY.format(execution_id=execution_id), 7 * 24 * 3600)
-            
+            redis.hset(
+                self.EXECUTION_KEY.format(execution_id=execution_id),
+                mapping=execution_data,
+            )
+            redis.expire(
+                self.EXECUTION_KEY.format(execution_id=execution_id), 7 * 24 * 3600
+            )
+
             # Link tasks to execution
             for task_id in task_ids:
-                redis.hset(self.TASK_KEY.format(task_id=task_id), "execution_id", execution_id)
-            
+                redis.hset(
+                    self.TASK_KEY.format(task_id=task_id), "execution_id", execution_id
+                )
+
             logger.info(f"Created execution {execution_id} with {len(task_ids)} tasks")
             return execution_id
         except Exception as e:
             logger.error(f"Failed to create execution: {e}")
             return execution_id
-    
-    def get_execution(self, execution_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         """Get execution data by ID.
-        
+
         Args:
             execution_id: Execution ID
-            
+
         Returns:
             Execution data dict if found, None otherwise
         """
@@ -535,24 +575,34 @@ class TaskQueue:
             return None
 
         try:
-            execution_data = redis.hgetall(self.EXECUTION_KEY.format(execution_id=execution_id))
+            execution_data = redis.hgetall(
+                self.EXECUTION_KEY.format(execution_id=execution_id)
+            )
             if not execution_data:
                 return None
-            
+
             # Parse JSON fields
-            execution_data["task_ids"] = json.loads(execution_data.get("task_ids", "[]"))
-            execution_data["total_plugins"] = int(execution_data.get("total_plugins", 0))
-            execution_data["completed_plugins"] = int(execution_data.get("completed_plugins", 0))
-            execution_data["failed_plugins"] = int(execution_data.get("failed_plugins", 0))
-            
+            execution_data["task_ids"] = json.loads(
+                execution_data.get("task_ids", "[]")
+            )
+            execution_data["total_plugins"] = int(
+                execution_data.get("total_plugins", 0)
+            )
+            execution_data["completed_plugins"] = int(
+                execution_data.get("completed_plugins", 0)
+            )
+            execution_data["failed_plugins"] = int(
+                execution_data.get("failed_plugins", 0)
+            )
+
             return execution_data
         except Exception as e:
             logger.error(f"Failed to get execution: {e}")
             return None
-    
+
     def update_execution_stats(self, execution_id: str):
         """Update execution statistics based on task statuses.
-        
+
         Args:
             execution_id: Execution ID
         """
@@ -609,7 +659,9 @@ class TaskQueue:
                 updates["status"] = "failed" if failed > 0 else "completed"
                 updates["completed_at"] = datetime.now().isoformat()
 
-            redis.hset(self.EXECUTION_KEY.format(execution_id=execution_id), mapping=updates)
+            redis.hset(
+                self.EXECUTION_KEY.format(execution_id=execution_id), mapping=updates
+            )
 
         except Exception as e:
             logger.error(f"Failed to update execution stats: {e}")

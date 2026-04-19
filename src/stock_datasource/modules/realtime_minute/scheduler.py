@@ -7,7 +7,6 @@ or called directly.  Includes pause/resume control so that
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from . import config as cfg
 
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Module-level reference to the APScheduler instance so that
 # pause_collection / resume_collection can be called from anywhere.
-_scheduler_ref: Optional[object] = None
+_scheduler_ref: object | None = None
 
 COLLECT_JOB_ID = "rt_minute_collect"
 SYNC_JOB_ID = "rt_minute_sync"
@@ -26,15 +25,16 @@ CLEANUP_JOB_ID = "rt_minute_cleanup"
 # Core task functions
 # ------------------------------------------------------------------
 
+
 def run_collection(freq: str = "1MIN", markets=None) -> dict:
     """Execute one round of data collection → SQLite cache.
 
     This is the function that the scheduler calls every minute
     during trading hours. Ensures code lists are loaded before collecting.
     """
-    from .collector import get_collector
-    from .cache_store import get_cache_store
     from . import config as cfg
+    from .cache_store import get_cache_store
+    from .collector import get_collector
 
     # Ensure code lists are populated (lazy load on first call)
     if not cfg.ASTOCK_CODES or not cfg.ETF_CODES:
@@ -103,6 +103,7 @@ def is_trading_time() -> bool:
 # Pause / Resume helpers (called by RealtimeManageService)
 # ------------------------------------------------------------------
 
+
 def get_scheduler():
     """Return the stored APScheduler reference (may be None)."""
     return _scheduler_ref
@@ -155,6 +156,7 @@ def is_collection_paused() -> bool:
 # ------------------------------------------------------------------
 # Registration
 # ------------------------------------------------------------------
+
 
 def register_realtime_jobs(scheduler) -> None:
     """Register realtime minute jobs with an APScheduler BackgroundScheduler.

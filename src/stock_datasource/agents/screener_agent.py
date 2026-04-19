@@ -7,12 +7,13 @@
 - Langfuse 可观测性集成
 """
 
-from typing import Dict, Any, List, Callable, Optional
-import logging
 import json
+import logging
+from collections.abc import Callable
+from typing import Any
 
-from .base_agent import LangGraphAgent, AgentConfig
-from .tools import screen_stocks, get_market_overview, get_stock_info
+from .base_agent import AgentConfig, LangGraphAgent
+from .tools import get_market_overview, get_stock_info, screen_stocks
 
 logger = logging.getLogger(__name__)
 
@@ -85,41 +86,42 @@ NL_PARSE_SYSTEM_PROMPT = """你是一个专业的A股选股分析师，负责将
 
 class ScreenerAgent(LangGraphAgent):
     """Screener Agent for intelligent stock screening using DeepAgents.
-    
+
     Handles:
     - Condition-based stock filtering
-    - Natural language stock screening  
+    - Natural language stock screening
     - Preset strategy application
     - AI recommendations
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="ScreenerAgent",
-            description="负责智能选股，支持条件筛选、自然语言选股、预设策略等"
+            description="负责智能选股，支持条件筛选、自然语言选股、预设策略等",
         )
         super().__init__(config)
         self._llm_client = None
-    
+
     @property
     def llm_client(self):
         """Lazy load LLM client with Langfuse integration."""
         if self._llm_client is None:
             try:
                 from stock_datasource.llm.client import get_llm_client
+
                 self._llm_client = get_llm_client()
             except Exception as e:
                 logger.warning(f"Failed to get LLM client: {e}")
         return self._llm_client
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return screening tools."""
         return [
             screen_stocks,
             get_market_overview,
             get_stock_info,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for stock screening."""
         return """你是一个专业的A股选股分析师。
@@ -158,13 +160,13 @@ class ScreenerAgent(LangGraphAgent):
 ## 免责声明
 选股结果仅供参考，不构成投资建议。
 """
-    
-    async def parse_nl_conditions(self, query: str) -> Dict[str, Any]:
+
+    async def parse_nl_conditions(self, query: str) -> dict[str, Any]:
         """解析自然语言选股条件
-        
+
         Args:
             query: 用户的自然语言查询
-            
+
         Returns:
             包含 conditions 和 explanation 的字典
         """
@@ -172,9 +174,9 @@ class ScreenerAgent(LangGraphAgent):
             logger.warning("LLM client not available for NL parsing")
             return {
                 "conditions": [],
-                "explanation": "LLM服务不可用，无法解析自然语言条件"
+                "explanation": "LLM服务不可用，无法解析自然语言条件",
             }
-        
+
         try:
             # 使用 LLM 解析条件，带 Langfuse 追踪
             prompt = f"""请将以下用户选股需求转换为结构化筛选条件：
@@ -190,80 +192,82 @@ class ScreenerAgent(LangGraphAgent):
                 temperature=0.3,
                 max_tokens=1000,
                 trace_name="screener_nl_parse",
-                trace_metadata={"module": "screener", "action": "nl_parse", "query": query}
+                trace_metadata={
+                    "module": "screener",
+                    "action": "nl_parse",
+                    "query": query,
+                },
             )
-            logger.info(f"LLM response (first 500 chars): {result[:500] if result else 'None'}")
-            
+            logger.info(
+                f"LLM response (first 500 chars): {result[:500] if result else 'None'}"
+            )
+
             # 尝试解析JSON
             try:
                 # 提取JSON部分 - 支持 ```json 格式
                 json_str = result
-                if '```json' in result:
-                    start = result.find('```json') + 7
-                    end = result.find('```', start)
+                if "```json" in result:
+                    start = result.find("```json") + 7
+                    end = result.find("```", start)
                     if end > start:
                         json_str = result[start:end].strip()
-                elif '```' in result:
-                    start = result.find('```') + 3
-                    end = result.find('```', start)
+                elif "```" in result:
+                    start = result.find("```") + 3
+                    end = result.find("```", start)
                     if end > start:
                         json_str = result[start:end].strip()
                 else:
                     # 提取JSON部分
-                    json_start = result.find('{')
-                    json_end = result.rfind('}') + 1
+                    json_start = result.find("{")
+                    json_end = result.rfind("}") + 1
                     if json_start >= 0 and json_end > json_start:
                         json_str = result[json_start:json_end]
-                
-                logger.debug(f"Extracted JSON string: {json_str[:300] if json_str else 'None'}")
+
+                logger.debug(
+                    f"Extracted JSON string: {json_str[:300] if json_str else 'None'}"
+                )
                 parsed = json.loads(json_str)
                 conditions = parsed.get("conditions", [])
                 explanation = parsed.get("explanation", "")
                 logger.info(f"Parsed {len(conditions)} conditions: {conditions}")
-                return {
-                    "conditions": conditions,
-                    "explanation": explanation
-                }
+                return {"conditions": conditions, "explanation": explanation}
             except json.JSONDecodeError as je:
-                logger.warning(f"Failed to parse LLM response as JSON: {je}, response: {result[:500]}")
-            
-            return {
-                "conditions": [],
-                "explanation": result or "无法解析您的选股条件"
-            }
-            
+                logger.warning(
+                    f"Failed to parse LLM response as JSON: {je}, response: {result[:500]}"
+                )
+
+            return {"conditions": [], "explanation": result or "无法解析您的选股条件"}
+
         except Exception as e:
             logger.error(f"Failed to parse NL conditions: {e}")
-            return {
-                "conditions": [],
-                "explanation": f"解析失败: {str(e)}"
-            }
-    
-    async def execute(self, query: str, context: Optional[Dict[str, Any]] = None) -> Any:
+            return {"conditions": [], "explanation": f"解析失败: {e!s}"}
+
+    async def execute(self, query: str, context: dict[str, Any] | None = None) -> Any:
         """执行选股请求
-        
+
         增强：支持自然语言条件解析并返回结构化数据
         """
         context = context or {}
-        
+
         # 尝试解析自然语言条件
         parsed = await self.parse_nl_conditions(query)
-        
+
         if parsed["conditions"]:
             # 如果成功解析出条件，返回结构化数据
             from .base_agent import AgentResult
+
             return AgentResult(
                 response=parsed["explanation"],
                 success=True,
-                metadata={"parsed_conditions": parsed}
+                metadata={"parsed_conditions": parsed},
             )
-        
+
         # 否则使用父类的默认执行流程
         return await super().execute(query, context)
 
 
 # 单例实例
-_screener_agent: Optional[ScreenerAgent] = None
+_screener_agent: ScreenerAgent | None = None
 
 
 def get_screener_agent() -> ScreenerAgent:

@@ -10,10 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from .models import FactCategory, FactItem, SignalResult, SignalType
+from .models import FactItem, SignalResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,26 +23,69 @@ logger = logging.getLogger(__name__)
 
 # Correction signals
 _CORRECTION_PATTERNS = [
-    r"不对", r"错了", r"不是这样", r"数据有误", r"应该是", r"我说的是",
-    r"不准确", r"搞错了", r"弄错了", r"不是这个", r"反了",
-    r"不正确", r"有误", r"算错了", r"看错了",
-    r"that'?s wrong", r"incorrect", r"not right", r"mistake",
-    r"不是.*而是", r"不是.*是",
+    r"不对",
+    r"错了",
+    r"不是这样",
+    r"数据有误",
+    r"应该是",
+    r"我说的是",
+    r"不准确",
+    r"搞错了",
+    r"弄错了",
+    r"不是这个",
+    r"反了",
+    r"不正确",
+    r"有误",
+    r"算错了",
+    r"看错了",
+    r"that'?s wrong",
+    r"incorrect",
+    r"not right",
+    r"mistake",
+    r"不是.*而是",
+    r"不是.*是",
 ]
 
 # Reinforcement signals
 _REINFORCEMENT_PATTERNS = [
-    r"没错", r"就是这个", r"数据准确", r"分析到位", r"说对了",
-    r"完全正确", r"对的", r"确实", r"正是", r"对的",
-    r"到位", r"准确", r"正确",
-    r"exactly", r"correct", r"right", r"spot on", r"accurate",
-    r"就是.*这样", r"没错.*就是这样",
+    r"没错",
+    r"就是这个",
+    r"数据准确",
+    r"分析到位",
+    r"说对了",
+    r"完全正确",
+    r"对的",
+    r"确实",
+    r"正是",
+    r"对的",
+    r"到位",
+    r"准确",
+    r"正确",
+    r"exactly",
+    r"correct",
+    r"right",
+    r"spot on",
+    r"accurate",
+    r"就是.*这样",
+    r"没错.*就是这样",
 ]
 
 # Negative/uncertainty words that may trigger Layer 2
 _NEGATION_WORDS = [
-    "不", "没", "非", "错", "误", "反", "但是", "可是", "然而", "不过",
-    "应该", "实际", "真实", "正确",
+    "不",
+    "没",
+    "非",
+    "错",
+    "误",
+    "反",
+    "但是",
+    "可是",
+    "然而",
+    "不过",
+    "应该",
+    "实际",
+    "真实",
+    "正确",
 ]
 
 
@@ -51,8 +93,12 @@ class RegexSignalDetector:
     """Layer 1: Fast regex-based signal detection."""
 
     def __init__(self):
-        self._correction_re = [re.compile(p, re.IGNORECASE) for p in _CORRECTION_PATTERNS]
-        self._reinforcement_re = [re.compile(p, re.IGNORECASE) for p in _REINFORCEMENT_PATTERNS]
+        self._correction_re = [
+            re.compile(p, re.IGNORECASE) for p in _CORRECTION_PATTERNS
+        ]
+        self._reinforcement_re = [
+            re.compile(p, re.IGNORECASE) for p in _REINFORCEMENT_PATTERNS
+        ]
 
     def detect(self, message: str) -> SignalResult:
         """Detect correction/reinforcement signal via regex.
@@ -110,6 +156,7 @@ class LLMIntentClassifier:
     def _get_model(self):
         if self._model is None:
             from stock_datasource.agents.base_agent import get_langchain_model
+
             self._model = get_langchain_model()
         return self._model
 
@@ -123,7 +170,9 @@ class LLMIntentClassifier:
             prompt = _INTENT_CLASSIFICATION_PROMPT.format(message=message)
             response = await model.ainvoke([{"role": "user", "content": prompt}])
 
-            content = response.content if hasattr(response, "content") else str(response)
+            content = (
+                response.content if hasattr(response, "content") else str(response)
+            )
             # Parse JSON from response
             parsed = _extract_json_from_text(content)
             if not parsed:
@@ -154,13 +203,15 @@ _FACT_EXTRACTION_PROMPT = """从以下对话中提取关于用户的事实。只
 - 个股观点（关注/持有/回避哪些股票）
 - 交易风格（短线/中线/长线）
 - 分析结论（对某只股票的判断）
+- 消息面信号（新闻情绪、利好/利空消息对个股的影响）
+- 资金面信号（机构/游资/北向资金流向、席位集中度等）
 
 对话内容:
 {conversation}
 
 {correction_hint}
 
-输出JSON数组: [{{"content": "...", "category": "risk_preference|sector_focus|stock_opinion|trading_style|conclusion", "confidence": 0.7}}]
+输出JSON数组: [{{"content": "...", "category": "risk_preference|sector_focus|stock_opinion|trading_style|conclusion|market_signal|capital_flow", "confidence": 0.7}}]
 如果无可提取事实，返回空数组 []"""
 
 
@@ -175,6 +226,7 @@ class FactExtractor:
     def _get_model(self):
         if self._model is None:
             from stock_datasource.agents.base_agent import get_langchain_model
+
             self._model = get_langchain_model()
         return self._model
 
@@ -201,9 +253,9 @@ class FactExtractor:
         self,
         user_message: str,
         agent_response: str,
-        signal: Optional[SignalResult] = None,
+        signal: SignalResult | None = None,
         source: str = "",
-    ) -> List[FactItem]:
+    ) -> list[FactItem]:
         """Extract facts from a conversation turn.
 
         Args:
@@ -221,11 +273,15 @@ class FactExtractor:
         # Build correction hint
         correction_hint = ""
         if signal.is_correction:
-            correction_hint = "注意：用户在纠正之前的错误，提取的事实的confidence应设为0.95。"
+            correction_hint = (
+                "注意：用户在纠正之前的错误，提取的事实的confidence应设为0.95。"
+            )
             if signal.correct_value:
                 correction_hint += f"\n用户认为正确的理解: {signal.correct_value}"
         elif signal.is_reinforcement:
-            correction_hint = "注意：用户确认了之前的分析，这次提取的事实是对现有事实的强化。"
+            correction_hint = (
+                "注意：用户确认了之前的分析，这次提取的事实是对现有事实的强化。"
+            )
 
         conversation = f"用户: {user_message}\n助手: {agent_response}"
 
@@ -237,7 +293,9 @@ class FactExtractor:
             )
             response = await model.ainvoke([{"role": "user", "content": prompt}])
 
-            content = response.content if hasattr(response, "content") else str(response)
+            content = (
+                response.content if hasattr(response, "content") else str(response)
+            )
             parsed = _extract_json_from_text(content)
 
             if not parsed or not isinstance(parsed, list):
@@ -248,7 +306,15 @@ class FactExtractor:
                 if not isinstance(item, dict) or "content" not in item:
                     continue
                 category = item.get("category", "conclusion")
-                if category not in ("risk_preference", "sector_focus", "stock_opinion", "trading_style", "conclusion"):
+                if category not in (
+                    "risk_preference",
+                    "sector_focus",
+                    "stock_opinion",
+                    "trading_style",
+                    "conclusion",
+                    "market_signal",
+                    "capital_flow",
+                ):
                     category = "conclusion"
 
                 confidence = item.get("confidence", 0.7)
@@ -257,12 +323,14 @@ class FactExtractor:
                     confidence = max(confidence, 0.95)
                 confidence = max(0.0, min(1.0, confidence))
 
-                facts.append(FactItem(
-                    content=item["content"],
-                    category=category,
-                    confidence=confidence,
-                    source=source,
-                ))
+                facts.append(
+                    FactItem(
+                        content=item["content"],
+                        category=category,
+                        confidence=confidence,
+                        source=source,
+                    )
+                )
 
             return facts
 
@@ -275,7 +343,8 @@ class FactExtractor:
 # Utility
 # ---------------------------------------------------------------------------
 
-def _extract_json_from_text(text: str) -> Optional[Any]:
+
+def _extract_json_from_text(text: str) -> Any | None:
     """Extract JSON from text that may contain extra content."""
     if not text:
         return None
@@ -288,7 +357,7 @@ def _extract_json_from_text(text: str) -> Optional[Any]:
         pass
 
     # Try finding JSON array or object
-    for pattern in [r'\[.*\]', r'\{.*\}']:
+    for pattern in [r"\[.*\]", r"\{.*\}"]:
         match = re.search(pattern, text, re.DOTALL)
         if match:
             try:

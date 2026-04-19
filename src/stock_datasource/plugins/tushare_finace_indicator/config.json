@@ -5,7 +5,7 @@
   "retry_attempts": 3,
   "description": "TuShare financial indicators data plugin",
   "schedule": {
-    "frequency": "quarterly",
+    "frequency": "monthly",
     "time": "18:00"
   },
   "parameters": {

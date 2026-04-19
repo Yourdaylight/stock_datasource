@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import type { NewsFilters } from '@/types/news'
 
 interface Props {
@@ -7,21 +7,44 @@ interface Props {
   availableCategories: string[]
   availableSources: string[]
   loading?: boolean
+  signalDirection?: 'bullish' | 'bearish' | 'neutral' | ''
+  minSignalScore?: number
 }
 
 interface Emits {
   (e: 'update:filters', filters: NewsFilters): void
   (e: 'filter-change', filters: NewsFilters): void
+  (e: 'update:signalDirection', val: 'bullish' | 'bearish' | 'neutral' | ''): void
+  (e: 'update:minSignalScore', val: number): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  loading: false
+  loading: false,
+  signalDirection: '',
+  minSignalScore: 0,
 })
 
 const emit = defineEmits<Emits>()
 
+// 信号方向选项
+const signalDirectionOptions = [
+  { label: '不限', value: '' },
+  { label: '看多', value: 'bullish' },
+  { label: '看空', value: 'bearish' },
+  { label: '中性', value: 'neutral' },
+]
+
+const localSignalDirection = ref<'bullish' | 'bearish' | 'neutral' | ''>(props.signalDirection)
+const localMinSignalScore = ref(props.minSignalScore)
+
+watch(() => props.signalDirection, (v) => { localSignalDirection.value = v })
+watch(() => props.minSignalScore, (v) => { localMinSignalScore.value = v })
+
 // 防止初始化时触发 watch
 const isInitialized = ref(false)
+
+// 防止 props→local 同步时反向触发 emit
+let _syncingFromProps = false
 
 // 本地筛选状态
 const localFilters = ref<NewsFilters>({ ...props.filters })
@@ -76,9 +99,11 @@ const availableSourceOptions = computed(() => {
   }))
 })
 
-// 监听props变化
+// 监听props变化 — 从父组件同步到本地，设置防回弹标志
 watch(() => props.filters, (newFilters) => {
+  _syncingFromProps = true
   localFilters.value = { ...newFilters }
+  nextTick(() => { _syncingFromProps = false })
 }, { deep: true })
 
 // 添加股票代码
@@ -133,9 +158,9 @@ const resetFilters = () => {
   applyFilters()
 }
 
-// 监听筛选条件变化（只在初始化后才触发）
+// 监听筛选条件变化（初始化后，且非 props 同步引起的变化才触发）
 watch(localFilters, () => {
-  if (isInitialized.value) {
+  if (isInitialized.value && !_syncingFromProps) {
     applyFilters()
   }
 }, { deep: true })
@@ -327,6 +352,38 @@ onMounted(() => {
         >
           公司公告
         </t-button>
+      </div>
+    </t-card>
+
+    <!-- 信号筛选 -->
+    <t-card title="信号筛选" size="small" :bordered="false" class="filter-card">
+      <div class="filter-content">
+        <div class="filter-section">
+          <div class="filter-label">信号方向</div>
+          <t-radio-group
+            v-model="localSignalDirection"
+            variant="default-filled"
+            size="small"
+            :disabled="loading"
+            @change="emit('update:signalDirection', localSignalDirection)"
+          >
+            <t-radio-button v-for="opt in signalDirectionOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </t-radio-button>
+          </t-radio-group>
+        </div>
+        <div class="filter-section">
+          <div class="filter-label">最低信号强度</div>
+          <t-slider
+            v-model="localMinSignalScore"
+            :min="0"
+            :max="100"
+            :step="10"
+            :marks="{ 0: '0', 50: '50', 70: '70', 90: '90' }"
+            :disabled="loading"
+            @change="emit('update:minSignalScore', localMinSignalScore)"
+          />
+        </div>
       </div>
     </t-card>
   </div>

@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
 
 from .fact_extractor import FactExtractor
 from .models import FactItem, SignalResult
@@ -34,15 +33,17 @@ class MemoryUpdateQueue:
     DEBOUNCE_SECONDS: float = 30.0
     MAX_RETRIES: int = 1
 
-    def __init__(self, store: Optional[MemoryStore] = None, extractor: Optional[FactExtractor] = None):
+    def __init__(
+        self, store: MemoryStore | None = None, extractor: FactExtractor | None = None
+    ):
         self._store = store or get_memory_store()
         self._extractor = extractor or FactExtractor()
         # Track last enqueue time per user_id for debounce
-        self._last_enqueue: Dict[str, float] = {}
+        self._last_enqueue: dict[str, float] = {}
         # Pending debounce tasks
-        self._pending_tasks: Dict[str, asyncio.Task] = {}
+        self._pending_tasks: dict[str, asyncio.Task] = {}
         # Buffered messages per user_id
-        self._buffer: Dict[str, List[Tuple[str, str, Optional[SignalResult]]]] = {}
+        self._buffer: dict[str, list[tuple[str, str, SignalResult | None]]] = {}
 
     async def enqueue(
         self,
@@ -50,7 +51,7 @@ class MemoryUpdateQueue:
         session_id: str,
         user_message: str,
         agent_response: str,
-        signal: Optional[SignalResult] = None,
+        signal: SignalResult | None = None,
     ) -> None:
         """Enqueue a message pair for fact extraction.
 
@@ -76,7 +77,9 @@ class MemoryUpdateQueue:
         self._pending_tasks[user_id] = task
         self._last_enqueue[user_id] = now
 
-    async def _process_after_delay(self, user_id: str, session_id: str, delay: float) -> None:
+    async def _process_after_delay(
+        self, user_id: str, session_id: str, delay: float
+    ) -> None:
         """Wait for debounce period, then process buffered messages."""
         try:
             if delay > 0:
@@ -101,7 +104,7 @@ class MemoryUpdateQueue:
         self,
         user_id: str,
         session_id: str,
-        messages: List[Tuple[str, str, Optional[SignalResult]]],
+        messages: list[tuple[str, str, SignalResult | None]],
     ) -> None:
         """Process buffered messages with retry."""
         for attempt in range(self.MAX_RETRIES + 1):
@@ -110,20 +113,28 @@ class MemoryUpdateQueue:
                 return
             except Exception as e:
                 if attempt < self.MAX_RETRIES:
-                    logger.info("Retrying memory update for user %s (attempt %d)", user_id, attempt + 1)
+                    logger.info(
+                        "Retrying memory update for user %s (attempt %d)",
+                        user_id,
+                        attempt + 1,
+                    )
                     await asyncio.sleep(1)
                 else:
-                    logger.warning("Memory update failed after %d retries for user %s: %s",
-                                   self.MAX_RETRIES, user_id, e)
+                    logger.warning(
+                        "Memory update failed after %d retries for user %s: %s",
+                        self.MAX_RETRIES,
+                        user_id,
+                        e,
+                    )
 
     async def _process_messages(
         self,
         user_id: str,
         session_id: str,
-        messages: List[Tuple[str, str, Optional[SignalResult]]],
+        messages: list[tuple[str, str, SignalResult | None]],
     ) -> None:
         """Extract facts from buffered messages and write to store."""
-        all_facts: List[FactItem] = []
+        all_facts: list[FactItem] = []
 
         for user_msg, agent_resp, signal in messages:
             # Detect signal if not provided
@@ -154,7 +165,9 @@ class MemoryUpdateQueue:
         if all_facts:
             logger.info("Extracted %d facts for user %s", len(all_facts), user_id)
 
-    async def _apply_signal_to_existing_facts(self, user_id: str, signal: SignalResult) -> None:
+    async def _apply_signal_to_existing_facts(
+        self, user_id: str, signal: SignalResult
+    ) -> None:
         """Apply reinforcement/contradiction to existing facts matching the signal target."""
         if signal.signal == "neutral" or not signal.target_fact:
             return
@@ -176,7 +189,9 @@ class MemoryUpdateQueue:
 
                 # Update in store (re-put with same key would need the key; search by content)
                 # For simplicity, we'll do a full re-index
-                fact_id = f"fact_{int(fact.created_at * 1000)}_{hash(fact.content) % 10000}"
+                fact_id = (
+                    f"fact_{int(fact.created_at * 1000)}_{hash(fact.content) % 10000}"
+                )
                 self._store.put_fact(user_id, fact_id, fact)
 
     @property
@@ -189,7 +204,7 @@ class MemoryUpdateQueue:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_queue: Optional[MemoryUpdateQueue] = None
+_queue: MemoryUpdateQueue | None = None
 
 
 def get_memory_update_queue() -> MemoryUpdateQueue:

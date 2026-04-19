@@ -11,20 +11,20 @@ import logging
 import threading
 import uuid
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ...config.runtime_config import (
-    get_schedule_config,
-    get_plugin_schedule_config,
-    save_runtime_config,
-    save_plugin_schedule_config,
-    get_schedule_history,
     add_schedule_execution,
+    get_plugin_schedule_config,
+    get_schedule_config,
+    get_schedule_history,
+    save_plugin_schedule_config,
+    save_runtime_config,
     update_schedule_execution,
 )
+from ...core.base_plugin import CATEGORY_LABELS
 from ...core.plugin_manager import plugin_manager
 from ...core.trade_calendar import TradeCalendarService
-from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_LABELS
 from .schemas import TaskType
 
 logger = logging.getLogger(__name__)
@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 
 class ScheduleService:
     """Service for managing scheduled sync tasks."""
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -43,116 +43,142 @@ class ScheduleService:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
         self._initialized = True
-        self._executor_thread: Optional[threading.Thread] = None
+        self._executor_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         logger.info("ScheduleService initialized")
         # Check for interrupted executions on startup
         self._mark_interrupted_executions()
-    
+
     def _mark_interrupted_executions(self):
         """Mark any running executions as interrupted on service startup.
-        
+
         This handles the case where the service was restarted while executions
         were in progress. These executions need manual intervention to retry.
         Only marks as interrupted if there are actually unfinished tasks.
         """
         from datetime import datetime
-        from .service import sync_task_manager
+
         from stock_datasource.services.task_queue import task_queue
-        
+
+        from .service import sync_task_manager
+
         history = get_schedule_history(limit=100)
         interrupted_count = 0
-        
+
         for record in history:
             if record.get("status") in ("running", "stopping"):
                 execution_id = record.get("execution_id")
                 task_ids = record.get("task_ids", [])
-                
+
                 # Check if there are actually unfinished tasks
                 has_unfinished = False
                 completed = 0
                 failed = 0
-                
+
                 for task_id in task_ids:
                     task = sync_task_manager.get_task(task_id)
                     if task:
-                        status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                        status_val = (
+                            task.status.value
+                            if hasattr(task.status, "value")
+                            else str(task.status)
+                        )
                         if status_val == "completed":
                             completed += 1
                         elif status_val == "failed":
                             failed += 1
                         elif status_val in ("pending", "running"):
                             has_unfinished = True
-                
+
                 if has_unfinished:
                     # Has unfinished tasks - mark as interrupted
-                    update_schedule_execution(execution_id, {
-                        "status": "interrupted",
-                        "skip_reason": "服务重启，任务中断",
-                        "completed_at": datetime.now().isoformat(),
-                        "completed_plugins": completed,
-                        "failed_plugins": failed,
-                    })
+                    update_schedule_execution(
+                        execution_id,
+                        {
+                            "status": "interrupted",
+                            "skip_reason": "服务重启，任务中断",
+                            "completed_at": datetime.now().isoformat(),
+                            "completed_plugins": completed,
+                            "failed_plugins": failed,
+                        },
+                    )
                     interrupted_count += 1
-                    logger.warning(f"Marked execution {execution_id} as interrupted due to service restart")
-                    
+                    logger.warning(
+                        f"Marked execution {execution_id} as interrupted due to service restart"
+                    )
+
                     # Also mark stale pending/running tasks so they won't be picked
                     # up by workers. They can be retried via retry_execution.
                     for task_id in task_ids:
                         task = sync_task_manager.get_task(task_id)
                         if task:
-                            ts = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                            ts = (
+                                task.status.value
+                                if hasattr(task.status, "value")
+                                else str(task.status)
+                            )
                             if ts == "pending":
                                 sync_task_manager.cancel_task(task_id)
-                                logger.info(f"Cancelled stale pending task {task_id} in interrupted execution {execution_id}")
+                                logger.info(
+                                    f"Cancelled stale pending task {task_id} in interrupted execution {execution_id}"
+                                )
                             elif ts == "running":
-                                task_queue.fail_task(task_id, "Task interrupted by service restart")
-                                logger.info(f"Failed stale running task {task_id} in interrupted execution {execution_id}")
+                                task_queue.fail_task(
+                                    task_id, "Task interrupted by service restart"
+                                )
+                                logger.info(
+                                    f"Failed stale running task {task_id} in interrupted execution {execution_id}"
+                                )
                 else:
                     # All tasks finished - update to final status
                     final_status = "failed" if failed > 0 else "completed"
-                    update_schedule_execution(execution_id, {
-                        "status": final_status,
-                        "completed_at": datetime.now().isoformat(),
-                        "completed_plugins": completed,
-                        "failed_plugins": failed,
-                    })
-                    logger.info(f"Marked execution {execution_id} as {final_status} (all tasks finished)")
-        
+                    update_schedule_execution(
+                        execution_id,
+                        {
+                            "status": final_status,
+                            "completed_at": datetime.now().isoformat(),
+                            "completed_plugins": completed,
+                            "failed_plugins": failed,
+                        },
+                    )
+                    logger.info(
+                        f"Marked execution {execution_id} as {final_status} (all tasks finished)"
+                    )
+
         if interrupted_count > 0:
             logger.info(f"Marked {interrupted_count} executions as interrupted")
-    
+
     # ============ Global Schedule Config ============
-    
-    def get_config(self) -> Dict[str, Any]:
+
+    def get_config(self) -> dict[str, Any]:
         """Get global schedule configuration."""
         config = get_schedule_config()
-        
+
         # Calculate next_run_at based on current config
         if config.get("enabled"):
             config["next_run_at"] = self._calculate_next_run_time(config)
-        
+
         return config
-    
+
     def update_config(
         self,
-        enabled: Optional[bool] = None,
-        execute_time: Optional[str] = None,
-        frequency: Optional[str] = None,
-        include_optional_deps: Optional[bool] = None,
-        skip_non_trading_days: Optional[bool] = None,
-        missing_check_time: Optional[str] = None,
-        smart_backfill_enabled: Optional[bool] = None,
-        auto_backfill_max_days: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        enabled: bool | None = None,
+        execute_time: str | None = None,
+        frequency: str | None = None,
+        include_optional_deps: bool | None = None,
+        skip_non_trading_days: bool | None = None,
+        missing_check_time: str | None = None,
+        smart_backfill_enabled: bool | None = None,
+        auto_backfill_max_days: int | None = None,
+    ) -> dict[str, Any]:
         """Update global schedule configuration."""
         updates = {}
-        
+
         if enabled is not None:
             updates["enabled"] = enabled
         if execute_time is not None:
@@ -166,7 +192,9 @@ class ScheduleService:
             # Update cron expression
             current_config = get_schedule_config()
             exec_time = execute_time or current_config.get("execute_time", "18:00")
-            updates["cron_expression"] = self._build_cron_expression(exec_time, frequency)
+            updates["cron_expression"] = self._build_cron_expression(
+                exec_time, frequency
+            )
         if include_optional_deps is not None:
             updates["include_optional_deps"] = include_optional_deps
         if skip_non_trading_days is not None:
@@ -177,22 +205,23 @@ class ScheduleService:
             updates["smart_backfill_enabled"] = smart_backfill_enabled
         if auto_backfill_max_days is not None:
             updates["auto_backfill_max_days"] = max(1, min(30, auto_backfill_max_days))
-        
+
         if updates:
             save_runtime_config(schedule=updates)
             logger.info(f"Schedule config updated: {updates}")
-        
+
         # Notify UnifiedScheduler to reschedule with new config
         try:
             from ...tasks.unified_scheduler import get_unified_scheduler
+
             scheduler = get_unified_scheduler()
             if scheduler._running:
                 scheduler.reschedule()
         except Exception as e:
             logger.debug(f"Could not notify UnifiedScheduler: {e}")
-        
+
         return self.get_config()
-    
+
     def _build_cron_expression(self, execute_time: str, frequency: str) -> str:
         """Build cron expression from time and frequency."""
         hour, minute = execute_time.split(":")
@@ -200,35 +229,35 @@ class ScheduleService:
             return f"{minute} {hour} * * *"
         else:  # weekday
             return f"{minute} {hour} * * 1-5"
-    
-    def _calculate_next_run_time(self, config: Dict[str, Any]) -> Optional[str]:
+
+    def _calculate_next_run_time(self, config: dict[str, Any]) -> str | None:
         """Calculate next scheduled run time."""
         try:
             execute_time = config.get("execute_time", "18:00")
             frequency = config.get("frequency", "weekday")
             skip_non_trading = config.get("skip_non_trading_days", True)
-            
+
             hour, minute = map(int, execute_time.split(":"))
             target_time = time(hour, minute)
-            
+
             now = datetime.now()
             today_run = datetime.combine(now.date(), target_time)
-            
+
             # If today's time has passed, start from tomorrow
             if now >= today_run:
                 next_date = now.date() + timedelta(days=1)
             else:
                 next_date = now.date()
-            
+
             # Find next valid run date
             for _ in range(30):  # Look ahead up to 30 days
                 next_run = datetime.combine(next_date, target_time)
-                
+
                 # Check frequency
                 if frequency == "weekday" and next_date.weekday() >= 5:
                     next_date += timedelta(days=1)
                     continue
-                
+
                 # Check trading day if enabled
                 if skip_non_trading:
                     try:
@@ -238,30 +267,30 @@ class ScheduleService:
                             continue
                     except Exception:
                         pass  # Skip trading day check if calendar unavailable
-                
+
                 return next_run.isoformat()
-            
+
             return None
         except Exception as e:
             logger.warning(f"Failed to calculate next run time: {e}")
             return None
-    
+
     # ============ Plugin Schedule Config ============
-    
-    def get_plugin_configs(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    def get_plugin_configs(self, category: str | None = None) -> list[dict[str, Any]]:
         """Get schedule configuration for all plugins.
-        
+
         Excludes realtime plugins (update_schedule='realtime') which are
         managed separately via the realtime data management panel.
         """
         plugins = plugin_manager.list_plugins()
         result = []
-        
+
         for plugin_name in plugins:
             plugin = plugin_manager.get_plugin(plugin_name)
             if not plugin:
                 continue
-            
+
             # Skip realtime plugins - they should not appear in daily sync
             try:
                 plugin_config = plugin.get_config()
@@ -269,109 +298,132 @@ class ScheduleService:
                     continue
             except Exception:
                 pass
-            
+
             # Get plugin category
             try:
                 plugin_category = plugin.get_category().value
             except Exception:
                 plugin_category = "cn_stock"
-            
+
             # Filter by category if specified
             if category and plugin_category != category:
                 continue
-            
+
             # Get plugin role
             try:
                 plugin_role = plugin.get_role().value
             except Exception:
                 plugin_role = "primary"
-            
+
+            # Get plugin schedule frequency from config.json
+            try:
+                plugin_schedule = plugin.get_schedule()
+                plugin_frequency = plugin_schedule.get("frequency", "daily")
+            except Exception:
+                plugin_frequency = "daily"
+
             # Get dependencies
             try:
                 deps = plugin.get_dependencies()
             except Exception:
                 deps = []
-            
+
             try:
                 opt_deps = plugin.get_optional_dependencies()
             except Exception:
                 opt_deps = []
-            
+
             # Get saved schedule config
             saved_config = get_plugin_schedule_config(plugin_name)
 
             # Allow plugins to provide default schedule flags in their config.json.
             try:
-                plugin_default_cfg = plugin.get_config() if hasattr(plugin, "get_config") else {}
+                plugin_default_cfg = (
+                    plugin.get_config() if hasattr(plugin, "get_config") else {}
+                )
             except Exception:
                 plugin_default_cfg = {}
 
             default_schedule_enabled = plugin_default_cfg.get("schedule_enabled", True)
-            default_full_scan_enabled = plugin_default_cfg.get("full_scan_enabled", False)
-            
-            result.append({
-                "plugin_name": plugin_name,
-                "schedule_enabled": saved_config.get("schedule_enabled", default_schedule_enabled),
-                "full_scan_enabled": saved_config.get("full_scan_enabled", default_full_scan_enabled),
-                "category": plugin_category,
-                "category_label": CATEGORY_LABELS.get(plugin_category, plugin_category),
-                "role": plugin_role,
-                "dependencies": deps,
-                "optional_dependencies": opt_deps,
-            })
-        
+            default_full_scan_enabled = plugin_default_cfg.get(
+                "full_scan_enabled", False
+            )
+
+            result.append(
+                {
+                    "plugin_name": plugin_name,
+                    "schedule_enabled": saved_config.get(
+                        "schedule_enabled", default_schedule_enabled
+                    ),
+                    "full_scan_enabled": saved_config.get(
+                        "full_scan_enabled", default_full_scan_enabled
+                    ),
+                    "category": plugin_category,
+                    "category_label": CATEGORY_LABELS.get(
+                        plugin_category, plugin_category
+                    ),
+                    "role": plugin_role,
+                    "schedule_frequency": plugin_frequency,
+                    "dependencies": deps,
+                    "optional_dependencies": opt_deps,
+                }
+            )
+
         # Sort by role (basic first, then primary, then derived/auxiliary)
         role_order = {"basic": 0, "primary": 1, "derived": 2, "auxiliary": 3}
         result.sort(key=lambda x: (role_order.get(x["role"], 4), x["plugin_name"]))
-        
+
         return result
-    
+
     def update_plugin_config(
         self,
         plugin_name: str,
-        schedule_enabled: Optional[bool] = None,
-        full_scan_enabled: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+        schedule_enabled: bool | None = None,
+        full_scan_enabled: bool | None = None,
+    ) -> dict[str, Any]:
         """Update schedule configuration for a single plugin."""
         plugin = plugin_manager.get_plugin(plugin_name)
         if not plugin:
             raise ValueError(f"Plugin {plugin_name} not found")
-        
+
         save_plugin_schedule_config(plugin_name, schedule_enabled, full_scan_enabled)
-        
+
         # Return updated config
         configs = self.get_plugin_configs()
         for cfg in configs:
             if cfg["plugin_name"] == plugin_name:
                 return cfg
-        
+
         raise ValueError(f"Failed to get updated config for {plugin_name}")
-    
+
     # ============ Schedule Execution ============
-    
+
     def trigger_now(
         self,
         is_manual: bool = True,
         smart_backfill: bool = False,
         auto_backfill_max_days: int = 3,
-    ) -> Dict[str, Any]:
+        frequency_filter: str | None = None,
+    ) -> dict[str, Any]:
         """Trigger schedule execution immediately.
-        
+
         Args:
             is_manual: True if triggered by user, False if triggered by scheduler.
             smart_backfill: When True, detect missing data first and create
                            targeted backfill tasks instead of plain incremental.
             auto_backfill_max_days: Max missing days for automatic backfill.
                                    Plugins exceeding this are skipped with a warning.
-        
+            frequency_filter: When set, only trigger plugins matching this frequency
+                            ('daily', 'weekly', 'monthly'). None = all enabled plugins.
+
         Returns:
             ScheduleExecutionRecord dict
         """
         from .service import sync_task_manager
-        
+
         execution_id = str(uuid.uuid4())[:8]
         started_at = datetime.now()
-        
+
         record = {
             "execution_id": execution_id,
             "trigger_type": "manual" if is_manual else "scheduled",
@@ -384,15 +436,16 @@ class ScheduleService:
             "failed_plugins": 0,
             "task_ids": [],
         }
-        
+
         config = self.get_config()
-        
+
         # Check if we should skip (non-trading day) - only for scheduled triggers
         # Manual triggers should always proceed, but use the latest trading day
         # Check both A-share and HK markets - only skip if neither is open
         if not is_manual and config.get("skip_non_trading_days", True):
             try:
                 from stock_datasource.core.trade_calendar import MARKET_CN, MARKET_HK
+
                 calendar = TradeCalendarService()
                 today = datetime.now().date()
                 is_cn_trading = calendar.is_trading_day(today, market=MARKET_CN)
@@ -402,17 +455,21 @@ class ScheduleService:
                     record["skip_reason"] = "非交易日(A股和港股均休市)"
                     record["completed_at"] = datetime.now().isoformat()
                     add_schedule_execution(record)
-                    logger.info(f"Schedule {execution_id} skipped: non-trading day (both CN and HK)")
+                    logger.info(
+                        f"Schedule {execution_id} skipped: non-trading day (both CN and HK)"
+                    )
                     return record
             except Exception as e:
                 logger.warning(f"Failed to check trading day: {e}")
-        
+
         # Dedup: prevent duplicate scheduled triggers within 60 seconds
         if not is_manual:
             try:
                 recent = get_schedule_history(limit=3)
                 for prev in recent:
-                    if prev.get("trigger_type") == "scheduled" and prev.get("started_at"):
+                    if prev.get("trigger_type") == "scheduled" and prev.get(
+                        "started_at"
+                    ):
                         prev_time = datetime.fromisoformat(prev["started_at"])
                         if (started_at - prev_time).total_seconds() < 60:
                             logger.warning(
@@ -429,14 +486,14 @@ class ScheduleService:
                             return record
             except Exception as e:
                 logger.warning(f"Dedup check failed: {e}")
-        
+
         # Add to history (defer until we know there are plugins to run)
         # We'll add the record below after checking enabled_plugins
-        
+
         # Get enabled plugins and sort by dependency order
         plugin_configs = self.get_plugin_configs()
         enabled_plugins = [p for p in plugin_configs if p["schedule_enabled"]]
-        
+
         # Also filter out plugins that are disabled at plugin level (config.json enabled=false)
         actually_enabled = []
         for p in enabled_plugins:
@@ -446,47 +503,78 @@ class ScheduleService:
             else:
                 logger.info(f"Skipping disabled plugin: {p['plugin_name']}")
         enabled_plugins = actually_enabled
-        
+
         if not enabled_plugins:
             record["status"] = "skipped"
             record["skip_reason"] = "没有启用定时同步的插件"
             record["completed_at"] = datetime.now().isoformat()
             # Don't write empty 0/0 records to history for scheduled triggers
             if not is_manual:
-                logger.info(f"Schedule {execution_id} skipped: no enabled plugins (not recorded)")
+                logger.info(
+                    f"Schedule {execution_id} skipped: no enabled plugins (not recorded)"
+                )
                 return record
             # Manual triggers still record for visibility
             add_schedule_execution(record)
             logger.info(f"Schedule {execution_id} skipped: no enabled plugins")
             return record
-        
+
         # Now we have plugins to run, write the execution record
         add_schedule_execution(record)
-        
+
         # Sort by dependency order using plugin_manager
         plugin_names = [p["plugin_name"] for p in enabled_plugins]
         include_optional = config.get("include_optional_deps", True)
-        
+
         try:
             sorted_tasks = plugin_manager.batch_trigger_sync(
                 plugin_names=plugin_names,
                 task_type="incremental",
-                include_optional=include_optional
+                include_optional=include_optional,
             )
             execution_order = [t["plugin_name"] for t in sorted_tasks]
         except Exception as e:
             logger.error(f"Failed to sort plugins: {e}")
             execution_order = plugin_names
-        
+
+        # Filter plugins by schedule frequency
+        # - frequency_filter set: only include plugins matching that frequency
+        # - manual trigger (no filter): include all enabled plugins
+        # - scheduled daily trigger (filter=daily): only daily plugins
+        if frequency_filter:
+            filtered_order = []
+            for pname in execution_order:
+                plugin = plugin_manager.get_plugin(pname)
+                if plugin:
+                    plugin_freq = plugin.get_schedule().get("frequency", "daily")
+                    if plugin_freq == frequency_filter:
+                        filtered_order.append(pname)
+                    else:
+                        logger.debug(
+                            f"Skipping {pname}: frequency={plugin_freq} != filter={frequency_filter}"
+                        )
+                else:
+                    filtered_order.append(pname)
+            if filtered_order != execution_order:
+                skipped_freq = set(execution_order) - set(filtered_order)
+                logger.info(
+                    f"Frequency filter ({frequency_filter}): skipped {len(skipped_freq)} plugins "
+                    f"not matching: {skipped_freq}"
+                )
+            execution_order = filtered_order
+
         record["total_plugins"] = len(execution_order)
         update_schedule_execution(execution_id, {"total_plugins": len(execution_order)})
-        
+
         # ---- Smart backfill: detect missing data per plugin ----
-        missing_map: Dict[str, list] = {}  # plugin_name -> list of missing dates
+        missing_map: dict[str, list] = {}  # plugin_name -> list of missing dates
         if smart_backfill:
             try:
                 from .service import data_manage_service
-                summary = data_manage_service.detect_missing_data(days=30, force_refresh=True)
+
+                summary = data_manage_service.detect_missing_data(
+                    days=30, force_refresh=True
+                )
                 for pinfo in summary.plugins:
                     if pinfo.missing_dates:
                         missing_map[pinfo.plugin_name] = pinfo.missing_dates
@@ -494,21 +582,25 @@ class ScheduleService:
                     f"Smart backfill: {len(missing_map)} plugins with missing data detected"
                 )
             except Exception as e:
-                logger.warning(f"Smart backfill detection failed, falling back to incremental: {e}")
-        
+                logger.warning(
+                    f"Smart backfill detection failed, falling back to incremental: {e}"
+                )
+
         # Create sync tasks
         task_ids = []
         skipped_plugins = []
         from .schemas import TaskType
-        
+
         for plugin_name in execution_order:
             # Get plugin config for full_scan setting
-            plugin_cfg = next((p for p in enabled_plugins if p["plugin_name"] == plugin_name), None)
-            
+            plugin_cfg = next(
+                (p for p in enabled_plugins if p["plugin_name"] == plugin_name), None
+            )
+
             # Determine task type and trade_dates based on smart backfill
             task_type = TaskType.INCREMENTAL
             trade_dates = None
-            
+
             if plugin_cfg and plugin_cfg.get("full_scan_enabled"):
                 task_type = TaskType.FULL
             elif smart_backfill and plugin_name in missing_map:
@@ -517,7 +609,9 @@ class ScheduleService:
                     # Excessive missing – skip with warning
                     logger.warning(
                         "%s missing %d days (exceeds threshold %d), requires manual intervention",
-                        plugin_name, len(missing_days), auto_backfill_max_days,
+                        plugin_name,
+                        len(missing_days),
+                        auto_backfill_max_days,
                     )
                     skipped_plugins.append(plugin_name)
                     continue
@@ -527,9 +621,10 @@ class ScheduleService:
                     trade_dates = missing_days
                     logger.info(
                         "Auto backfill: %s, %d missing days",
-                        plugin_name, len(missing_days),
+                        plugin_name,
+                        len(missing_days),
                     )
-            
+
             try:
                 task = sync_task_manager.create_task(
                     plugin_name=plugin_name,
@@ -539,61 +634,68 @@ class ScheduleService:
                     username="scheduler",
                 )
                 task_ids.append(task.task_id)
-                logger.info(f"Created task {task.task_id} for {plugin_name} ({task_type.value})")
+                logger.info(
+                    f"Created task {task.task_id} for {plugin_name} ({task_type.value})"
+                )
             except Exception as e:
                 logger.error(f"Failed to create task for {plugin_name}: {e}")
                 record["failed_plugins"] += 1
-        
+
         record["task_ids"] = task_ids
         record["status"] = "running"
         if skipped_plugins:
             record["skipped_excessive_missing"] = skipped_plugins
-        
+
         # Update last_run_at
         save_runtime_config(schedule={"last_run_at": started_at.isoformat()})
-        
-        update_schedule_execution(execution_id, {
-            "task_ids": task_ids,
-            "total_plugins": len(execution_order),
-        })
-        
+
+        update_schedule_execution(
+            execution_id,
+            {
+                "task_ids": task_ids,
+                "total_plugins": len(execution_order),
+            },
+        )
+
         logger.info(f"Schedule {execution_id} started with {len(task_ids)} tasks")
         return record
-    
+
     def get_history(
-        self, 
-        days: int = 7, 
+        self,
+        days: int = 7,
         limit: int = 50,
-        status: Optional[str] = None,
-        trigger_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        status: str | None = None,
+        trigger_type: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get schedule execution history with optional filtering.
-        
+
         Args:
             days: Number of days to look back
             limit: Maximum number of records to return
             status: Filter by status (running, completed, failed, skipped, interrupted)
             trigger_type: Filter by trigger type (scheduled, manual, group, retry)
         """
-        history = get_schedule_history(limit=limit * 2)  # Get more to allow for filtering
-        
+        history = get_schedule_history(
+            limit=limit * 2
+        )  # Get more to allow for filtering
+
         # 收集需要更新的 running 状态记录的 execution_id
         running_ids = [
-            record.get("execution_id") 
-            for record in history 
+            record.get("execution_id")
+            for record in history
             if record.get("status") == "running" and record.get("execution_id")
         ]
-        
+
         # 只有当存在 running 状态的记录时才进行状态更新
         if running_ids:
             # 批量更新 running 状态记录（最多更新前5个，避免超时）
             # 传入 cached_history 避免重复读取文件
             for execution_id in running_ids[:5]:
                 self.update_execution_status(execution_id, cached_history=history)
-            
+
             # 只有更新过状态才重新获取历史
             history = get_schedule_history(limit=limit * 2)
-        
+
         # Filter by days
         if days > 0:
             cutoff = datetime.now() - timedelta(days=days)
@@ -606,41 +708,42 @@ class ScheduleService:
                 except Exception:
                     filtered.append(record)
             history = filtered
-        
+
         # Filter by status
         if status:
             history = [r for r in history if r.get("status") == status]
-        
+
         # Filter by trigger_type
         if trigger_type:
             history = [r for r in history if r.get("trigger_type") == trigger_type]
-        
+
         # Add can_retry flag for interrupted/failed executions
         for record in history:
             record_status = record.get("status", "")
             # Can retry if interrupted or failed
             record["can_retry"] = record_status in ("interrupted", "failed")
-        
+
         return history[:limit]
-    
-    def retry_execution(self, execution_id: str) -> Dict[str, Any]:
+
+    def retry_execution(self, execution_id: str) -> dict[str, Any]:
         """Retry a failed or interrupted execution in-place.
-        
+
         Retries all failed/cancelled tasks within the same execution record,
         rather than creating a new execution.
-        
+
         Args:
             execution_id: The ID of the execution to retry
-            
+
         Returns:
             Updated ScheduleExecutionRecord dict
-            
+
         Raises:
             ValueError: If execution not found or cannot be retried
         """
-        from .service import sync_task_manager
         from stock_datasource.services.task_queue import task_queue
-        
+
+        from .service import sync_task_manager
+
         # Find the original execution
         history = get_schedule_history(limit=100)
         original = None
@@ -648,28 +751,32 @@ class ScheduleService:
             if r.get("execution_id") == execution_id:
                 original = r
                 break
-        
+
         if not original:
             raise ValueError(f"Execution {execution_id} not found")
-        
+
         status = original.get("status", "")
         if status not in ("interrupted", "failed"):
             msg = f"Execution {execution_id} cannot be retried (status: {status})"
             logger.warning(msg)
             raise ValueError(msg)
-        
+
         # Get tasks that need to be retried
         # For interrupted executions: pending/running tasks are stale (service restarted)
         # and should also be retried, since they never actually completed.
         # For failed executions: only retry failed/cancelled tasks.
         original_task_ids = original.get("task_ids", [])
         tasks_to_retry = []
-        is_interrupted = (status == "interrupted")
-        
+        is_interrupted = status == "interrupted"
+
         for tid in original_task_ids:
             task = sync_task_manager.get_task(tid)
             if task:
-                status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                status_val = (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                )
                 if is_interrupted:
                     # Interrupted execution: retry failed, cancelled, AND stale pending/running tasks
                     if status_val in ("failed", "cancelled", "pending", "running"):
@@ -678,7 +785,7 @@ class ScheduleService:
                     # Failed execution: only retry failed/cancelled tasks
                     if status_val in ("failed", "cancelled"):
                         tasks_to_retry.append(task)
-        
+
         if not tasks_to_retry:
             msg = (
                 f"No retriable tasks found in execution {execution_id}. "
@@ -687,23 +794,33 @@ class ScheduleService:
             )
             logger.error(msg)
             raise ValueError(msg)
-        
+
         # Retry tasks in-place (create new tasks and update execution)
         new_task_ids = list(original_task_ids)  # Copy original task ids
         retried_count = 0
-        
+
         for old_task in tasks_to_retry:
             try:
                 # Clean up the old task to prevent workers from picking it up.
                 # pending -> cancel, running -> fail (cancel only works for pending)
-                old_status = old_task.status.value if hasattr(old_task.status, 'value') else str(old_task.status)
+                old_status = (
+                    old_task.status.value
+                    if hasattr(old_task.status, "value")
+                    else str(old_task.status)
+                )
                 if old_status == "pending":
                     sync_task_manager.cancel_task(old_task.task_id)
-                    logger.info(f"Retry execution: cancelled stale pending task {old_task.task_id}")
+                    logger.info(
+                        f"Retry execution: cancelled stale pending task {old_task.task_id}"
+                    )
                 elif old_status == "running":
-                    task_queue.fail_task(old_task.task_id, "Task interrupted by execution retry")
-                    logger.info(f"Retry execution: failed stale running task {old_task.task_id}")
-                
+                    task_queue.fail_task(
+                        old_task.task_id, "Task interrupted by execution retry"
+                    )
+                    logger.info(
+                        f"Retry execution: failed stale running task {old_task.task_id}"
+                    )
+
                 # Convert task_type from string to TaskType enum
                 task_type_enum = TaskType(old_task.task_type)
                 new_task = sync_task_manager.create_task(
@@ -717,61 +834,75 @@ class ScheduleService:
                 old_idx = new_task_ids.index(old_task.task_id)
                 new_task_ids[old_idx] = new_task.task_id
                 retried_count += 1
-                logger.info(f"Retry execution: retried task {old_task.task_id} -> {new_task.task_id} for {old_task.plugin_name}")
+                logger.info(
+                    f"Retry execution: retried task {old_task.task_id} -> {new_task.task_id} for {old_task.plugin_name}"
+                )
             except Exception as e:
                 logger.error(f"Failed to retry task for {old_task.plugin_name}: {e}")
-        
+
         if retried_count == 0:
             raise ValueError("Failed to retry any tasks")
-        
+
         # Update the execution record with new task ids and reset status
         original["task_ids"] = new_task_ids
         original["status"] = "running"
         original["completed_at"] = None
-        original["failed_plugins"] = max(0, original.get("failed_plugins", 0) - retried_count)
-        
+        original["failed_plugins"] = max(
+            0, original.get("failed_plugins", 0) - retried_count
+        )
+
         update_schedule_execution(execution_id, original)
         logger.info(f"Retried {retried_count} tasks in execution {execution_id}")
-        
+
         return original
-    
-    def update_execution_status(self, execution_id: str, cached_history: List[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+
+    def update_execution_status(
+        self, execution_id: str, cached_history: list[dict[str, Any]] = None
+    ) -> dict[str, Any] | None:
         """Update execution status by checking task statuses.
-        
+
         Args:
             execution_id: The execution ID to update
             cached_history: Optional pre-fetched history to avoid repeated file reads
         """
         from .service import sync_task_manager
-        
+
         # 使用缓存的历史记录，避免重复读取文件
-        history = cached_history if cached_history is not None else get_schedule_history(limit=100)
+        history = (
+            cached_history
+            if cached_history is not None
+            else get_schedule_history(limit=100)
+        )
         record = None
         for r in history:
             if r.get("execution_id") == execution_id:
                 record = r
                 break
-        
+
         if not record or record.get("status") not in ("running", "stopping"):
             return record
-        
+
         task_ids = record.get("task_ids", [])
         if not task_ids:
             record["status"] = "completed"
             record["completed_at"] = datetime.now().isoformat()
             update_schedule_execution(execution_id, record)
             return record
-        
+
         # Check task statuses
         completed = 0
         failed = 0
         cancelled = 0
         running = 0
-        
+
         for task_id in task_ids:
             task = sync_task_manager.get_task(task_id)
             if task:
-                status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                status_val = (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                )
                 if status_val == "completed":
                     completed += 1
                 elif status_val == "failed":
@@ -780,10 +911,10 @@ class ScheduleService:
                     cancelled += 1
                 elif status_val in ("pending", "running"):
                     running += 1
-        
+
         record["completed_plugins"] = completed
         record["failed_plugins"] = failed
-        
+
         if running == 0:
             # All tasks finished - determine final status
             if record.get("status") == "stopping":
@@ -794,69 +925,77 @@ class ScheduleService:
             else:
                 record["status"] = "completed"
             record["completed_at"] = datetime.now().isoformat()
-        
+
         update_schedule_execution(execution_id, record)
         return record
-    
-    def stop_execution(self, execution_id: str) -> Dict[str, Any]:
+
+    def stop_execution(self, execution_id: str) -> dict[str, Any]:
         """Stop a running execution by cancelling pending tasks.
-        
+
         Args:
             execution_id: The execution ID to stop
-            
+
         Returns:
             Updated execution record
-            
+
         Raises:
             ValueError: If execution not found or not running
         """
         from .service import sync_task_manager
-        
+
         history = get_schedule_history(limit=100)
         record = None
         for r in history:
             if r.get("execution_id") == execution_id:
                 record = r
                 break
-        
+
         if not record:
             raise ValueError(f"Execution {execution_id} not found")
-        
+
         if record.get("status") != "running":
-            raise ValueError(f"Execution {execution_id} is not running (status: {record.get('status')})")
-        
+            raise ValueError(
+                f"Execution {execution_id} is not running (status: {record.get('status')})"
+            )
+
         # Cancel pending tasks
         task_ids = record.get("task_ids", [])
         cancelled_count = 0
-        
+
         for task_id in task_ids:
             task = sync_task_manager.get_task(task_id)
             if task:
-                status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                status_val = (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                )
                 if status_val == "pending":
                     if sync_task_manager.cancel_task(task_id):
                         cancelled_count += 1
-        
+
         # Mark execution as stopping (will be updated to stopped when all tasks finish)
         record["status"] = "stopping"
         update_schedule_execution(execution_id, record)
-        
-        logger.info(f"Stopped execution {execution_id}, cancelled {cancelled_count} pending tasks")
-        
+
+        logger.info(
+            f"Stopped execution {execution_id}, cancelled {cancelled_count} pending tasks"
+        )
+
         # Update status immediately
         return self.update_execution_status(execution_id)
-    
+
     def delete_execution(self, execution_id: str) -> bool:
         """Delete an execution record.
-        
+
         Only completed/failed/interrupted/skipped/stopped executions can be deleted.
-        
+
         Args:
             execution_id: The execution ID to delete
-            
+
         Returns:
             True if deleted successfully
-            
+
         Raises:
             ValueError: If execution not found or still running
         """
@@ -868,35 +1007,36 @@ class ScheduleService:
                 record = r
                 record_index = i
                 break
-        
+
         if not record:
             raise ValueError(f"Execution {execution_id} not found")
-        
+
         status = record.get("status", "")
         if status in ("running", "stopping"):
             raise ValueError(f"Cannot delete running execution (status: {status})")
-        
+
         # Remove from history
         history.pop(record_index)
-        
+
         # Save updated history
         from ...config.runtime_config import save_schedule_history
+
         save_schedule_history(history)
-        
+
         logger.info(f"Deleted execution {execution_id}")
         return True
-    
-    def get_execution_detail(self, execution_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_execution_detail(self, execution_id: str) -> dict[str, Any] | None:
         """Get detailed execution info including all task details and error summary.
-        
+
         Args:
             execution_id: The execution ID to get details for
-            
+
         Returns:
             BatchExecutionDetail dict with all task info and error summary
         """
         from .service import sync_task_manager
-        
+
         # Find the execution record
         history = get_schedule_history(limit=100)
         record = None
@@ -904,43 +1044,51 @@ class ScheduleService:
             if r.get("execution_id") == execution_id:
                 record = r
                 break
-        
+
         if not record:
             return None
-        
+
         # Get all task details
         task_ids = record.get("task_ids", [])
         tasks = []
         error_parts = []
         all_trade_dates = set()
-        
+
         for task_id in task_ids:
             task = sync_task_manager.get_task(task_id)
             if task:
                 task_detail = {
                     "task_id": task.task_id,
                     "plugin_name": task.plugin_name,
-                    "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                    "status": task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status),
                     "progress": task.progress,
                     "records_processed": task.records_processed,
                     "error_message": task.error_message,
-                    "created_at": task.created_at.isoformat() if task.created_at else None,
-                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                    "created_at": task.created_at.isoformat()
+                    if task.created_at
+                    else None,
+                    "completed_at": task.completed_at.isoformat()
+                    if task.completed_at
+                    else None,
                     "trade_dates": task.trade_dates if task.trade_dates else [],
                 }
                 tasks.append(task_detail)
-                
+
                 # Collect all trade dates
                 if task.trade_dates:
                     all_trade_dates.update(task.trade_dates)
-                
+
                 # Collect errors for summary
                 if task.error_message:
-                    error_parts.append(f"=== {task.plugin_name} ===\n{task.error_message}")
-        
+                    error_parts.append(
+                        f"=== {task.plugin_name} ===\n{task.error_message}"
+                    )
+
         # Build error summary for easy copying
         error_summary = "\n\n".join(error_parts) if error_parts else ""
-        
+
         # Calculate date range from tasks or record
         date_range = record.get("date_range")
         if not date_range and all_trade_dates:
@@ -949,7 +1097,7 @@ class ScheduleService:
                 date_range = sorted_dates[0]
             else:
                 date_range = f"{sorted_dates[0]} ~ {sorted_dates[-1]}"
-        
+
         return {
             "execution_id": record.get("execution_id"),
             "trigger_type": record.get("trigger_type", "scheduled"),
@@ -964,28 +1112,28 @@ class ScheduleService:
             "group_name": record.get("group_name"),
             "date_range": date_range,
         }
-    
+
     def create_manual_execution(
-        self, 
-        task_ids: List[str], 
+        self,
+        task_ids: list[str],
         trigger_type: str = "manual",
-        group_name: Optional[str] = None,
-        date_range: Optional[str] = None
-    ) -> Dict[str, Any]:
+        group_name: str | None = None,
+        date_range: str | None = None,
+    ) -> dict[str, Any]:
         """Create an execution record for manual sync (single plugin or batch).
-        
+
         Args:
             task_ids: List of task IDs to associate with this execution
             trigger_type: Type of trigger ("manual", "group")
             group_name: Name of the plugin group if triggered from a group
             date_range: Date range string (e.g. "2026-01-01 ~ 2026-01-25")
-            
+
         Returns:
             ScheduleExecutionRecord dict
         """
         execution_id = str(uuid.uuid4())[:8]
         started_at = datetime.now()
-        
+
         record = {
             "execution_id": execution_id,
             "trigger_type": trigger_type,
@@ -998,39 +1146,39 @@ class ScheduleService:
             "task_ids": task_ids,
             "can_retry": False,
         }
-        
+
         if group_name:
             record["group_name"] = group_name
-        
+
         if date_range:
             record["date_range"] = date_range
-        
+
         add_schedule_execution(record)
-        logger.info(f"Created manual execution {execution_id} with {len(task_ids)} tasks")
-        
+        logger.info(
+            f"Created manual execution {execution_id} with {len(task_ids)} tasks"
+        )
+
         return record
-    
+
     def partial_retry_execution(
-        self, 
-        execution_id: str, 
-        task_ids: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        self, execution_id: str, task_ids: list[str] | None = None
+    ) -> dict[str, Any]:
         """Retry only failed tasks from an execution in-place.
-        
+
         Does not create a new execution - retries failed tasks within the same execution.
-        
+
         Args:
             execution_id: The execution ID to retry from
             task_ids: Specific task IDs to retry, or None to retry all failed
-            
+
         Returns:
             Updated ScheduleExecutionRecord dict
-            
+
         Raises:
             ValueError: If execution not found or no failed tasks
         """
         from .service import sync_task_manager
-        
+
         # Find the original execution
         history = get_schedule_history(limit=100)
         original = None
@@ -1038,32 +1186,36 @@ class ScheduleService:
             if r.get("execution_id") == execution_id:
                 original = r
                 break
-        
+
         if not original:
             raise ValueError(f"Execution {execution_id} not found")
-        
+
         # Get failed tasks
         original_task_ids = original.get("task_ids", [])
         failed_tasks = []
-        
+
         for tid in original_task_ids:
             task = sync_task_manager.get_task(tid)
             if task:
-                status_val = task.status.value if hasattr(task.status, 'value') else str(task.status)
+                status_val = (
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status)
+                )
                 if status_val == "failed":
                     # If specific task_ids provided, only include those
                     if task_ids is None or tid in task_ids:
                         failed_tasks.append(task)
-        
+
         if not failed_tasks:
             msg = f"No failed tasks to retry in execution {execution_id}"
             logger.error(msg)
             raise ValueError(msg)
-        
+
         # Retry failed tasks in-place (create new tasks and update execution)
         new_task_ids = list(original_task_ids)  # Copy original task ids
         retried_count = 0
-        
+
         for old_task in failed_tasks:
             try:
                 # Convert task_type from string to TaskType enum
@@ -1079,13 +1231,15 @@ class ScheduleService:
                 old_idx = new_task_ids.index(old_task.task_id)
                 new_task_ids[old_idx] = new_task.task_id
                 retried_count += 1
-                logger.info(f"Retried task {old_task.task_id} -> {new_task.task_id} for {old_task.plugin_name}")
+                logger.info(
+                    f"Retried task {old_task.task_id} -> {new_task.task_id} for {old_task.plugin_name}"
+                )
             except Exception as e:
                 logger.error(f"Failed to retry task for {old_task.plugin_name}: {e}")
-        
+
         if retried_count == 0:
             raise ValueError("Failed to retry any tasks")
-        
+
         # Update the execution record with new task ids and reset status
         original["task_ids"] = new_task_ids
         original["status"] = "running"
@@ -1093,10 +1247,10 @@ class ScheduleService:
         original["failed_plugins"] = original.get("failed_plugins", 0) - retried_count
         if original["failed_plugins"] < 0:
             original["failed_plugins"] = 0
-        
+
         update_schedule_execution(execution_id, original)
         logger.info(f"Retried {retried_count} failed tasks in execution {execution_id}")
-        
+
         return original
 
 

@@ -1,6 +1,6 @@
 """Portfolio module database schemas."""
 
-from stock_datasource.models.schemas import TableSchema, ColumnDefinition, TableType
+from stock_datasource.models.schemas import ColumnDefinition, TableSchema, TableType
 
 # User positions table schema
 USER_POSITIONS_SCHEMA = TableSchema(
@@ -11,95 +11,89 @@ USER_POSITIONS_SCHEMA = TableSchema(
             name="id",
             data_type="String",
             nullable=False,
-            comment="Unique position identifier"
+            comment="Unique position identifier",
         ),
         ColumnDefinition(
             name="user_id",
             data_type="String",
             nullable=False,
             default_value="'default_user'",
-            comment="User identifier"
+            comment="User identifier",
         ),
         ColumnDefinition(
             name="ts_code",
             data_type="LowCardinality(String)",
             nullable=False,
-            comment="Stock code (e.g., 600519.SH)"
+            comment="Stock code (e.g., 600519.SH)",
         ),
         ColumnDefinition(
-            name="stock_name",
-            data_type="String",
-            nullable=False,
-            comment="Stock name"
+            name="stock_name", data_type="String", nullable=False, comment="Stock name"
         ),
         ColumnDefinition(
             name="quantity",
             data_type="UInt32",
             nullable=False,
-            comment="Number of shares"
+            comment="Number of shares",
         ),
         ColumnDefinition(
             name="cost_price",
             data_type="Decimal(10, 3)",
             nullable=False,
-            comment="Cost price per share"
+            comment="Cost price per share",
         ),
         ColumnDefinition(
-            name="buy_date",
-            data_type="Date",
-            nullable=False,
-            comment="Purchase date"
+            name="buy_date", data_type="Date", nullable=False, comment="Purchase date"
         ),
         ColumnDefinition(
             name="current_price",
             data_type="Nullable(Decimal(10, 3))",
             nullable=True,
-            comment="Current market price"
+            comment="Current market price",
         ),
         ColumnDefinition(
             name="market_value",
             data_type="Nullable(Decimal(15, 2))",
             nullable=True,
-            comment="Current market value"
+            comment="Current market value",
         ),
         ColumnDefinition(
             name="profit_loss",
             data_type="Nullable(Decimal(15, 2))",
             nullable=True,
-            comment="Profit or loss amount"
+            comment="Profit or loss amount",
         ),
         ColumnDefinition(
             name="profit_rate",
             data_type="Nullable(Decimal(8, 4))",
             nullable=True,
-            comment="Profit rate percentage"
+            comment="Profit rate percentage",
         ),
         ColumnDefinition(
             name="notes",
             data_type="Nullable(String)",
             nullable=True,
-            comment="User notes"
+            comment="User notes",
         ),
         ColumnDefinition(
             name="created_at",
             data_type="DateTime",
             nullable=False,
             default_value="now()",
-            comment="Creation timestamp"
+            comment="Creation timestamp",
         ),
         ColumnDefinition(
             name="updated_at",
             data_type="DateTime",
             nullable=False,
             default_value="now()",
-            comment="Last update timestamp"
-        )
+            comment="Last update timestamp",
+        ),
     ],
     partition_by="toYYYYMM(buy_date)",
     order_by=["user_id", "ts_code", "id"],
     engine="ReplacingMergeTree",
     engine_params=["updated_at"],
-    comment="User stock positions and holdings"
+    comment="User stock positions and holdings",
 )
 
 # Portfolio analysis table schema
@@ -111,51 +105,51 @@ PORTFOLIO_ANALYSIS_SCHEMA = TableSchema(
             name="id",
             data_type="String",
             nullable=False,
-            comment="Unique analysis identifier"
+            comment="Unique analysis identifier",
         ),
         ColumnDefinition(
             name="analysis_date",
             data_type="Date",
             nullable=False,
-            comment="Analysis date"
+            comment="Analysis date",
         ),
         ColumnDefinition(
             name="analysis_summary",
             data_type="Nullable(String)",
             nullable=True,
-            comment="Analysis summary text"
+            comment="Analysis summary text",
         ),
         ColumnDefinition(
             name="stock_analyses",
             data_type="Nullable(String)",
             nullable=True,
-            comment="Individual stock analyses (JSON format)"
+            comment="Individual stock analyses (JSON format)",
         ),
         ColumnDefinition(
             name="risk_alerts",
             data_type="Nullable(String)",
             nullable=True,
-            comment="Risk alerts (JSON array)"
+            comment="Risk alerts (JSON array)",
         ),
         ColumnDefinition(
             name="recommendations",
             data_type="Nullable(String)",
             nullable=True,
-            comment="Investment recommendations (JSON array)"
+            comment="Investment recommendations (JSON array)",
         ),
         ColumnDefinition(
             name="created_at",
             data_type="DateTime",
             nullable=False,
             default_value="now()",
-            comment="Creation timestamp"
-        )
+            comment="Creation timestamp",
+        ),
     ],
     partition_by="toYYYYMM(analysis_date)",
     order_by=["analysis_date", "id"],
     engine="ReplacingMergeTree",
     engine_params=["created_at"],
-    comment="Portfolio analysis and recommendations"
+    comment="Portfolio analysis and recommendations",
 )
 
 # Portfolio module schemas

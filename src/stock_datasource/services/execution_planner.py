@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +23,10 @@ logger = logging.getLogger(__name__)
 # Enums (kept for observability / event metadata)
 # ---------------------------------------------------------------------------
 
+
 class ExecutionMode(str, Enum):
     """Supported execution modes (for metadata / logging)."""
+
     ROUTE_ONLY = "route_only"
     PARALLEL_AGGREGATE = "parallel_aggregate"
     SEQUENTIAL_HANDOFF = "sequential_handoff"
@@ -48,7 +49,7 @@ class NodeStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 # Groups of agents that are safe to run concurrently
-CONCURRENT_AGENT_GROUPS: List[Set[str]] = [
+CONCURRENT_AGENT_GROUPS: list[set[str]] = [
     {"MarketAgent", "ReportAgent"},
     {"IndexAgent", "EtfAgent"},
     {"OverviewAgent", "TopListAgent"},
@@ -58,7 +59,7 @@ CONCURRENT_AGENT_GROUPS: List[Set[str]] = [
 ]
 
 # Agent → possible handoff targets
-AGENT_HANDOFF_MAP: Dict[str, List[str]] = {
+AGENT_HANDOFF_MAP: dict[str, list[str]] = {
     "MarketAgent": ["ReportAgent", "HKReportAgent", "BacktestAgent"],
     "ScreenerAgent": ["MarketAgent", "ReportAgent"],
     "ReportAgent": ["BacktestAgent", "MarketAgent", "HKReportAgent"],
@@ -71,12 +72,13 @@ AGENT_HANDOFF_MAP: Dict[str, List[str]] = {
 # Utility: Agent expansion (used by supervisor prompt building)
 # ---------------------------------------------------------------------------
 
+
 def expand_agent_list(
-    primary: Optional[str],
-    stock_codes: List[str],
+    primary: str | None,
+    stock_codes: list[str],
     query: str,
-    available: Set[str],
-) -> List[str]:
+    available: set[str],
+) -> list[str]:
     """Expand a primary agent into a (possibly multi-agent) list.
 
     This logic is used to inform the Supervisor's prompt about which
@@ -92,8 +94,17 @@ def expand_agent_list(
 
     query_lower = query.lower()
     tech_keywords = {
-        "技术", "技术面", "技术指标", "k线", "kline", "走势",
-        "macd", "rsi", "kdj", "均线", "趋势",
+        "技术",
+        "技术面",
+        "技术指标",
+        "k线",
+        "kline",
+        "走势",
+        "macd",
+        "rsi",
+        "kdj",
+        "均线",
+        "趋势",
     }
     wants_tech = any(kw in query_lower for kw in tech_keywords)
 
@@ -114,13 +125,13 @@ def expand_agent_list(
     return plan
 
 
-def can_run_concurrently(agents: List[str]) -> bool:
+def can_run_concurrently(agents: list[str]) -> bool:
     """Check if agents can run concurrently."""
     agent_set = set(agents)
     return any(agent_set.issubset(group) for group in CONCURRENT_AGENT_GROUPS)
 
 
-def get_handoff_targets(agent_name: str) -> List[str]:
+def get_handoff_targets(agent_name: str) -> list[str]:
     """Get possible handoff targets for an agent."""
     return AGENT_HANDOFF_MAP.get(agent_name, [])
 
@@ -128,6 +139,7 @@ def get_handoff_targets(agent_name: str) -> List[str]:
 # ---------------------------------------------------------------------------
 # Singleton accessor (kept for backward compatibility)
 # ---------------------------------------------------------------------------
+
 
 class ExecutionPlanner:
     """Lightweight planner providing config data and agent expansion.
@@ -139,31 +151,31 @@ class ExecutionPlanner:
 
     def __init__(
         self,
-        concurrent_groups: Optional[List[Set[str]]] = None,
-        handoff_map: Optional[Dict[str, List[str]]] = None,
+        concurrent_groups: list[set[str]] | None = None,
+        handoff_map: dict[str, list[str]] | None = None,
     ):
         self.concurrent_groups = concurrent_groups or CONCURRENT_AGENT_GROUPS
         self.handoff_map = handoff_map or AGENT_HANDOFF_MAP
 
     def expand_agents(
         self,
-        primary: Optional[str],
-        stock_codes: List[str] = None,
+        primary: str | None,
+        stock_codes: list[str] = None,
         query: str = "",
-        available_agents: Set[str] = None,
-    ) -> List[str]:
+        available_agents: set[str] = None,
+    ) -> list[str]:
         return expand_agent_list(
             primary, stock_codes or [], query, available_agents or set()
         )
 
-    def can_run_concurrently(self, agents: List[str]) -> bool:
+    def can_run_concurrently(self, agents: list[str]) -> bool:
         return can_run_concurrently(agents)
 
-    def get_handoff_targets(self, agent_name: str) -> List[str]:
+    def get_handoff_targets(self, agent_name: str) -> list[str]:
         return get_handoff_targets(agent_name)
 
 
-_planner: Optional[ExecutionPlanner] = None
+_planner: ExecutionPlanner | None = None
 
 
 def get_execution_planner() -> ExecutionPlanner:

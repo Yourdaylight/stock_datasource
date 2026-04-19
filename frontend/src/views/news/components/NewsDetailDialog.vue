@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { FileSearchIcon, FileIcon, QueueIcon, TimeIcon, SearchIcon, ControlPlatformIcon } from 'tdesign-icons-vue-next'
 import type { NewsItem } from '@/types/news'
 import SentimentTag from './SentimentTag.vue'
+import SignalBadge from './SignalBadge.vue'
+import { useSignalAggregatorStore } from '@/stores/signalAggregator'
+import type { StockSignalSummary } from '@/api/signalAggregator'
 
 interface Props {
   visible: boolean
@@ -15,6 +18,8 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+const signalStore = useSignalAggregatorStore()
 
 // 本地状态
 const copying = ref(false)
@@ -136,6 +141,54 @@ const handleOpenOriginal = () => {
     window.open(props.newsItem.url, '_blank')
   }
 }
+
+// 信号评分
+const stockSignals = ref<Map<string, StockSignalSummary>>(new Map())
+
+const loadStockSignals = async () => {
+  if (!props.newsItem?.stock_codes?.length) return
+  const codes = props.newsItem.stock_codes.slice(0, 5)
+  try {
+    await signalStore.fetchAggregate(codes)
+    const map = new Map<string, StockSignalSummary>()
+    for (const s of signalStore.stocks) {
+      map.set(s.ts_code, s)
+    }
+    stockSignals.value = map
+  } catch {
+    stockSignals.value = new Map()
+  }
+}
+
+const primaryStockSignal = computed(() => {
+  if (!props.newsItem?.stock_codes?.length) return null
+  const code = props.newsItem.stock_codes[0]
+  return stockSignals.value.get(code) || null
+})
+
+const scoreColor = (score: number) => {
+  if (score >= 70) return '#00a870'
+  if (score >= 55) return '#0052d9'
+  if (score >= 40) return '#e37318'
+  return '#d54941'
+}
+
+const directionLabel = (dir: string) => {
+  const map: Record<string, string> = { bullish: '看多', bearish: '看空', neutral: '中性' }
+  return map[dir] || '中性'
+}
+
+const directionTheme = (dir: string) => {
+  const map: Record<string, string> = { bullish: 'success', bearish: 'danger', neutral: 'default' }
+  return map[dir] || 'default'
+}
+
+// 监听弹窗打开，加载信号
+watch(() => props.visible, (val) => {
+  if (val && props.newsItem?.stock_codes?.length) {
+    loadStockSignals()
+  }
+})
 </script>
 
 <template>
@@ -221,8 +274,58 @@ const handleOpenOriginal = () => {
             @click="handleStockClick(code)"
           >
             {{ code }}
+            <SignalBadge
+              v-if="stockSignals.get(code)"
+              :score="stockSignals.get(code)!.composite_score"
+              :direction="stockSignals.get(code)!.composite_direction"
+              size="small"
+              style="margin-left: 4px"
+            />
           </t-tag>
         </div>
+      </div>
+
+      <!-- 信号评分卡 -->
+      <div v-if="primaryStockSignal" class="signal-section">
+        <t-card title="信号评分" size="small" :bordered="false" class="signal-card">
+          <template #actions>
+            <t-tag :theme="directionTheme(primaryStockSignal.composite_direction)" size="small" variant="light">
+              {{ directionLabel(primaryStockSignal.composite_direction) }}
+            </t-tag>
+          </template>
+          <div class="signal-scores-grid">
+            <div class="signal-score-item">
+              <div class="signal-score-value" :style="{ color: scoreColor(primaryStockSignal.composite_score) }">
+                {{ primaryStockSignal.composite_score.toFixed(1) }}
+              </div>
+              <div class="signal-score-label">综合</div>
+            </div>
+            <div class="signal-score-item">
+              <div class="signal-score-value" :style="{ color: scoreColor(primaryStockSignal.news_score) }">
+                {{ primaryStockSignal.news_score.toFixed(0) }}
+              </div>
+              <div class="signal-score-label">消息面</div>
+            </div>
+            <div class="signal-score-item">
+              <div class="signal-score-value" :style="{ color: scoreColor(primaryStockSignal.capital_score) }">
+                {{ primaryStockSignal.capital_score.toFixed(0) }}
+              </div>
+              <div class="signal-score-label">资金面</div>
+            </div>
+            <div class="signal-score-item">
+              <div class="signal-score-value" :style="{ color: scoreColor(primaryStockSignal.tech_score) }">
+                {{ primaryStockSignal.tech_score.toFixed(0) }}
+              </div>
+              <div class="signal-score-label">技术面</div>
+            </div>
+          </div>
+          <div v-if="primaryStockSignal.news_detail?.top_headlines?.length" class="signal-headlines">
+            <div class="headline-label">高影响新闻：</div>
+            <div v-for="(h, i) in primaryStockSignal.news_detail.top_headlines.slice(0, 2)" :key="i" class="headline-text">
+              {{ h }}
+            </div>
+          </div>
+        </t-card>
       </div>
 
       <!-- 操作按钮 -->
@@ -424,6 +527,72 @@ const handleOpenOriginal = () => {
   flex-wrap: wrap;
   padding-top: 16px;
   border-top: 1px solid var(--td-component-stroke);
+}
+
+.signal-section {
+  margin-top: 4px;
+}
+
+.signal-card {
+  background: var(--td-bg-color-container);
+  border: none;
+  box-shadow: none;
+}
+
+.signal-card :deep(.t-card__header) {
+  background: var(--td-brand-color-light);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.signal-card :deep(.t-card__title) {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-brand-color);
+}
+
+.signal-scores-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  text-align: center;
+}
+
+.signal-score-item {
+  padding: 6px 0;
+}
+
+.signal-score-value {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.signal-score-label {
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+  margin-top: 2px;
+}
+
+.signal-headlines {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--td-component-stroke);
+}
+
+.headline-label {
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+  margin-bottom: 4px;
+}
+
+.headline-text {
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 滚动条样式 */

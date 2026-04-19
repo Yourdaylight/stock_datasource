@@ -10,8 +10,17 @@
   "update_time": "18:00",
   "category": "INDEX",
   "role": "PRIMARY",
-  "tags": ["minute", "kline", "history", "index"],
+  "tags": [
+    "minute",
+    "kline",
+    "history",
+    "index"
+  ],
   "dependencies": [],
   "schedule_enabled": false,
-  "schedule_note": "需要指定指数代码(ts_code)，不适合批量定时调度，建议按需手动执行"
+  "schedule_note": "需要指定指数代码(ts_code)，不适合批量定时调度，建议按需手动执行",
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

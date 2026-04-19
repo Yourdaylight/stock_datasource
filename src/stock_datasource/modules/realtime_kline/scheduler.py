@@ -12,7 +12,6 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Optional
 
 from . import config as cfg
 
@@ -41,8 +40,8 @@ def is_trading_time() -> bool:
 # Standalone functions (for external callers / tests)
 # ---------------------------------------------------------------------------
 def run_collection(markets=None) -> dict:
-    from .collector import get_collector
     from .cache import get_cache_store
+    from .collector import get_collector
 
     collector = get_collector()
     cache = get_cache_store()
@@ -65,12 +64,14 @@ def run_collection(markets=None) -> dict:
 
 def run_push_tick() -> None:
     from .cloud_push import get_push_worker
+
     worker = get_push_worker()
     worker.tick()
 
 
 def run_sink_tick() -> dict:
     from .sync_service import get_sink_worker
+
     worker = get_sink_worker()
     return worker.tick()
 
@@ -82,6 +83,7 @@ def run_sync(date: str | None = None) -> dict:
 
 def run_cleanup(date: str | None = None) -> dict:
     from .sync_service import get_sink_worker
+
     worker = get_sink_worker()
     stream_trimmed = worker.cleanup_streams()
     latest_deleted = worker.cleanup_latest()
@@ -118,10 +120,12 @@ class _WorkerThread(threading.Thread):
 class CollectorThread(_WorkerThread):
     def __init__(self):
         from stock_datasource.config.settings import settings
+
         super().__init__("rt-kline-collector", settings.RT_KLINE_COLLECT_INTERVAL)
 
     def run(self) -> None:
         from .collector import get_collector
+
         collector = get_collector()
 
         logger.info("Collector worker started (interval=%.1fs)", self._interval)
@@ -148,8 +152,7 @@ class CollectorThread(_WorkerThread):
             # Per-market max backoff as target cadence. Schedule from start-time
             # to avoid extra post-round waiting when collection itself is slow.
             interval = max(
-                collector.backoff.current_interval(mkt)
-                for mkt in cfg.CLICKHOUSE_TABLES
+                collector.backoff.current_interval(mkt) for mkt in cfg.CLICKHOUSE_TABLES
             )
             next_run_at = started_at + interval
 
@@ -157,6 +160,7 @@ class CollectorThread(_WorkerThread):
 class PushThread(_WorkerThread):
     def __init__(self):
         from stock_datasource.config.settings import settings
+
         super().__init__("rt-kline-push", settings.RT_KLINE_CLOUD_PUSH_INTERVAL)
 
     def run(self) -> None:
@@ -172,6 +176,7 @@ class PushThread(_WorkerThread):
 class SinkThread(_WorkerThread):
     def __init__(self):
         from stock_datasource.config.settings import settings
+
         super().__init__("rt-kline-sink", float(settings.RT_KLINE_SINK_INTERVAL))
 
     def run(self) -> None:
@@ -192,9 +197,9 @@ class RealtimeKlineRuntime:
     """Manages the three independent workers as a single runtime."""
 
     def __init__(self):
-        self._collector: Optional[CollectorThread] = None
-        self._push: Optional[PushThread] = None
-        self._sink: Optional[SinkThread] = None
+        self._collector: CollectorThread | None = None
+        self._push: PushThread | None = None
+        self._sink: SinkThread | None = None
 
     def start(self) -> None:
         from stock_datasource.config.settings import settings
@@ -248,7 +253,7 @@ class RealtimeKlineRuntime:
         }
 
 
-_runtime: Optional[RealtimeKlineRuntime] = None
+_runtime: RealtimeKlineRuntime | None = None
 
 
 def get_runtime() -> RealtimeKlineRuntime:

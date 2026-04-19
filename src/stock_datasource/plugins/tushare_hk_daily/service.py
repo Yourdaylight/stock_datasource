@@ -1,16 +1,21 @@
 """TuShare Hong Kong Stock Daily data query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareHKDailyService(BaseService):
     """Query service for TuShare Hong Kong Stock daily data."""
-    
+
     def __init__(self):
         super().__init__("tushare_hk_daily")
-    
+
     @query_method(
         description="Query HK stock daily data by code and date range",
         params=[
@@ -45,22 +50,22 @@ class TuShareHKDailyService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_by_date_range(
         self,
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query HK stock daily data by code and date range.
-        
+
         Args:
             ts_code: HK Stock code (e.g., 00001.HK)
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             List of daily data records
         """
@@ -83,15 +88,13 @@ class TuShareHKDailyService(BaseService):
         AND trade_date <= %(end_date)s
         ORDER BY trade_date ASC
         """
-        
-        df = self.db.execute_query(query, {
-            'ts_code': ts_code,
-            'start_date': start_date,
-            'end_date': end_date
-        })
-        records = df.to_dict('records')
+
+        df = self.db.execute_query(
+            query, {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+        )
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query all HK stocks' daily data for a specific trade date",
         params=[
@@ -101,18 +104,18 @@ class TuShareHKDailyService(BaseService):
                 description="Trade date in YYYYMMDD or YYYY-MM-DD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_by_trade_date(
         self,
         trade_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query all HK stocks' daily data for a specific trade date.
-        
+
         Args:
             trade_date: Trade date (YYYYMMDD or YYYY-MM-DD)
-        
+
         Returns:
             List of daily data records for all HK stocks
         """
@@ -133,11 +136,11 @@ class TuShareHKDailyService(BaseService):
         WHERE trade_date = %(trade_date)s
         ORDER BY ts_code ASC
         """
-        
-        df = self.db.execute_query(query, {'trade_date': trade_date})
-        records = df.to_dict('records')
+
+        df = self.db.execute_query(query, {"trade_date": trade_date})
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query latest HK stock daily data for multiple stocks",
         params=[
@@ -154,20 +157,20 @@ class TuShareHKDailyService(BaseService):
                 required=False,
                 default=1,
             ),
-        ]
+        ],
     )
     def get_latest(
         self,
-        ts_codes: List[str],
+        ts_codes: list[str],
         limit: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query latest HK stock daily data for multiple stocks.
-        
+
         Args:
             ts_codes: List of HK stock codes
             limit: Number of latest records per stock
-        
+
         Returns:
             List of latest daily data records
         """
@@ -194,14 +197,11 @@ class TuShareHKDailyService(BaseService):
         WHERE rn <= %(limit)s
         ORDER BY ts_code, trade_date DESC
         """
-        
-        df = self.db.execute_query(query, {
-            'ts_codes': ts_codes,
-            'limit': limit
-        })
-        records = df.to_dict('records')
+
+        df = self.db.execute_query(query, {"ts_codes": ts_codes, "limit": limit})
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Get HK stock daily data statistics for a date range",
         params=[
@@ -223,22 +223,22 @@ class TuShareHKDailyService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_stats(
         self,
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get HK stock daily data statistics for a date range.
-        
+
         Args:
             ts_code: HK Stock code
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             Statistics dictionary
         """
@@ -255,32 +255,30 @@ class TuShareHKDailyService(BaseService):
         AND trade_date >= %(start_date)s
         AND trade_date <= %(end_date)s
         """
-        
-        df = self.db.execute_query(query, {
-            'ts_code': ts_code,
-            'start_date': start_date,
-            'end_date': end_date
-        })
+
+        df = self.db.execute_query(
+            query, {"ts_code": ts_code, "start_date": start_date, "end_date": end_date}
+        )
         if df.empty:
             return {}
-        
+
         return _convert_to_json_serializable(df.iloc[0].to_dict())
-    
+
     @query_method(
         description="Get the latest trade date available in HK daily database",
-        params=[]
+        params=[],
     )
-    def get_latest_trade_date(self) -> Optional[str]:
+    def get_latest_trade_date(self) -> str | None:
         """Get the latest trade date available in the HK daily database."""
         query = "SELECT max(trade_date) as max_date FROM ods_hk_daily"
         df = self.db.execute_query(query)
-        if df.empty or df.iloc[0]['max_date'] is None:
+        if df.empty or df.iloc[0]["max_date"] is None:
             return None
-        date_val = df.iloc[0]['max_date']
-        if hasattr(date_val, 'strftime'):
-            return date_val.strftime('%Y-%m-%d')
-        return str(date_val).split()[0].split('T')[0]
-    
+        date_val = df.iloc[0]["max_date"]
+        if hasattr(date_val, "strftime"):
+            return date_val.strftime("%Y-%m-%d")
+        return str(date_val).split()[0].split("T")[0]
+
     @query_method(
         description="Get top gainers/losers for a specific trade date",
         params=[
@@ -311,7 +309,7 @@ class TuShareHKDailyService(BaseService):
                 required=False,
                 default=False,
             ),
-        ]
+        ],
     )
     def get_top_movers(
         self,
@@ -319,26 +317,26 @@ class TuShareHKDailyService(BaseService):
         top_n: int = 10,
         order_by: str = "pct_chg",
         ascending: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get top gainers or losers for a specific trade date.
-        
+
         Args:
             trade_date: Trade date in YYYYMMDD format
             top_n: Number of top stocks to return
             order_by: Field to order by (pct_chg, amount, vol)
             ascending: True for losers, False for gainers
-        
+
         Returns:
             List of top mover records
         """
         # Whitelist validation for order_by field
-        allowed_order_fields = {'pct_chg', 'amount', 'vol'}
+        allowed_order_fields = {"pct_chg", "amount", "vol"}
         if order_by not in allowed_order_fields:
-            order_by = 'pct_chg'
-        
-        order_direction = 'ASC' if ascending else 'DESC'
-        
+            order_by = "pct_chg"
+
+        order_direction = "ASC" if ascending else "DESC"
+
         query = f"""
         SELECT 
             ts_code,
@@ -357,10 +355,7 @@ class TuShareHKDailyService(BaseService):
         ORDER BY {order_by} {order_direction}
         LIMIT %(top_n)s
         """
-        
-        df = self.db.execute_query(query, {
-            'trade_date': trade_date,
-            'top_n': top_n
-        })
-        records = df.to_dict('records')
+
+        df = self.db.execute_query(query, {"trade_date": trade_date, "top_n": top_n})
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]

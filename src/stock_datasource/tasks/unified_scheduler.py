@@ -14,8 +14,8 @@ import json
 import logging
 import threading
 import time as _time
-from datetime import datetime, date, time
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
+from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -24,10 +24,12 @@ logger = logging.getLogger(__name__)
 
 # Job IDs (constants for reschedule / remove)
 JOB_DAILY_SYNC = "unified_daily_sync"
+JOB_WEEKLY_SYNC = "unified_weekly_sync"
+JOB_MONTHLY_SYNC = "unified_monthly_sync"
 JOB_MISSING_CHECK = "unified_missing_check"
 
 # Default configuration values
-_DEFAULTS: Dict[str, Any] = {
+_DEFAULTS: dict[str, Any] = {
     "enabled": False,
     "execute_time": "18:00",
     "frequency": "weekday",
@@ -53,10 +55,10 @@ class UnifiedScheduler:
     3. ``stop()`` – graceful shutdown.
     """
 
-    _instance: Optional["UnifiedScheduler"] = None
+    _instance: UnifiedScheduler | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "UnifiedScheduler":
+    def __new__(cls) -> UnifiedScheduler:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -69,11 +71,11 @@ class UnifiedScheduler:
         if self._initialized:
             return
         self._initialized = True
-        self._scheduler: Optional[BackgroundScheduler] = None
-        self._config: Dict[str, Any] = dict(_DEFAULTS)
+        self._scheduler: BackgroundScheduler | None = None
+        self._config: dict[str, Any] = dict(_DEFAULTS)
         self._running = False
-        self._last_sync_report: Optional[Dict[str, Any]] = None
-        self._last_missing_report: Optional[Dict[str, Any]] = None
+        self._last_sync_report: dict[str, Any] | None = None
+        self._last_missing_report: dict[str, Any] | None = None
         logger.info("UnifiedScheduler instance created")
 
     # ------------------------------------------------------------------
@@ -129,7 +131,7 @@ class UnifiedScheduler:
         self._load_config()
 
         # Remove existing jobs then re-register
-        for job_id in (JOB_DAILY_SYNC, JOB_MISSING_CHECK):
+        for job_id in (JOB_DAILY_SYNC, JOB_WEEKLY_SYNC, JOB_MONTHLY_SYNC, JOB_MISSING_CHECK):
             try:
                 self._scheduler.remove_job(job_id)
             except Exception:
@@ -138,11 +140,11 @@ class UnifiedScheduler:
         self._register_jobs()
         logger.info("UnifiedScheduler rescheduled with updated config")
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return a JSON-friendly status dict."""
-        jobs_info: List[Dict[str, Any]] = []
-        next_sync_at: Optional[str] = None
-        next_check_at: Optional[str] = None
+        jobs_info: list[dict[str, Any]] = []
+        next_sync_at: str | None = None
+        next_check_at: str | None = None
 
         if self._scheduler and self._running:
             for job in self._scheduler.get_jobs():
@@ -164,13 +166,19 @@ class UnifiedScheduler:
             "smart_backfill_enabled": self._config.get("smart_backfill_enabled", True),
             "auto_backfill_max_days": self._config.get("auto_backfill_max_days", 3),
             "next_sync_at": next_sync_at,
+            "next_weekly_sync_at": next(
+                (j["next_run_at"] for j in jobs_info if j["job_id"] == JOB_WEEKLY_SYNC), None
+            ),
+            "next_monthly_sync_at": next(
+                (j["next_run_at"] for j in jobs_info if j["job_id"] == JOB_MONTHLY_SYNC), None
+            ),
             "next_check_at": next_check_at,
             "jobs": jobs_info,
             "last_sync_report": self._last_sync_report,
             "last_missing_report": self._last_missing_report,
         }
 
-    def get_apscheduler(self) -> Optional[BackgroundScheduler]:
+    def get_apscheduler(self) -> BackgroundScheduler | None:
         """Expose scheduler instance for external module job registration."""
         return self._scheduler
 
@@ -214,8 +222,33 @@ class UnifiedScheduler:
         )
         logger.info(
             "Registered daily sync job: %s %s:%02d (%s)",
-            JOB_DAILY_SYNC, hour, minute, day_of_week,
+            JOB_DAILY_SYNC,
+            hour,
+            minute,
+            day_of_week,
         )
+
+        # --- Weekly sync job (Saturday 10:00) ---
+        # Runs weekly plugins (basic info, index metadata, etc.)
+        self._scheduler.add_job(
+            self._weekly_sync_job,
+            CronTrigger(day_of_week="sat", hour=10, minute=0),
+            id=JOB_WEEKLY_SYNC,
+            name="Weekly data sync",
+            replace_existing=True,
+        )
+        logger.info("Registered weekly sync job: %s sat 10:00", JOB_WEEKLY_SYNC)
+
+        # --- Monthly sync job (1st of month 10:00) ---
+        # Runs monthly plugins (financial reports, index weights, etc.)
+        self._scheduler.add_job(
+            self._monthly_sync_job,
+            CronTrigger(day=1, hour=10, minute=0),
+            id=JOB_MONTHLY_SYNC,
+            name="Monthly data sync",
+            replace_existing=True,
+        )
+        logger.info("Registered monthly sync job: %s 1st 10:00", JOB_MONTHLY_SYNC)
 
         # --- Missing data check job ---
         # Missing check runs every day (mon-sun), including non-trading days,
@@ -232,7 +265,9 @@ class UnifiedScheduler:
         )
         logger.info(
             "Registered missing check job: %s %s:%02d (every day)",
-            JOB_MISSING_CHECK, chk_hour, chk_minute,
+            JOB_MISSING_CHECK,
+            chk_hour,
+            chk_minute,
         )
 
     # ------------------------------------------------------------------
@@ -246,7 +281,7 @@ class UnifiedScheduler:
         logger.info("Daily sync job triggered at %s", triggered_at.isoformat())
         logger.info("=" * 60)
 
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "job_type": "daily_sync",
             "triggered_at": triggered_at.isoformat(),
             "completed_at": None,
@@ -281,12 +316,15 @@ class UnifiedScheduler:
                 is_manual=False,
                 smart_backfill=smart_backfill,
                 auto_backfill_max_days=auto_backfill_max_days,
+                frequency_filter="daily",
             )
 
             # If trigger returned a skipped status (e.g. non-trading day at service level)
             if record.get("status") == "skipped":
                 report["skipped"] = True
-                report["skip_reason"] = record.get("skip_reason", "skipped by schedule_service")
+                report["skip_reason"] = record.get(
+                    "skip_reason", "skipped by schedule_service"
+                )
                 report["completed_at"] = datetime.now().isoformat()
                 self._last_sync_report = report
                 logger.info("[REPORT] Daily sync skipped: %s", report["skip_reason"])
@@ -307,19 +345,25 @@ class UnifiedScheduler:
             # Build report from task results
             succeeded = 0
             failed = 0
-            failures: List[Dict[str, Any]] = []
+            failures: list[dict[str, Any]] = []
 
             for task_info in task_results:
                 if task_info["status"] == "completed":
                     succeeded += 1
                 elif task_info["status"] in ("failed", "cancelled"):
                     failed += 1
-                    failures.append({
-                        "plugin": task_info["plugin_name"],
-                        "task_id": task_info["task_id"],
-                        "error_type": self._classify_error(task_info.get("error_message", "")),
-                        "error_brief": (task_info.get("error_message", "") or "")[:200],
-                    })
+                    failures.append(
+                        {
+                            "plugin": task_info["plugin_name"],
+                            "task_id": task_info["task_id"],
+                            "error_type": self._classify_error(
+                                task_info.get("error_message", "")
+                            ),
+                            "error_brief": (task_info.get("error_message", "") or "")[
+                                :200
+                            ],
+                        }
+                    )
 
             report["summary"]["succeeded"] = succeeded
             report["summary"]["failed"] = failed
@@ -327,7 +371,9 @@ class UnifiedScheduler:
 
             completed_at = datetime.now()
             report["completed_at"] = completed_at.isoformat()
-            report["duration_seconds"] = round((completed_at - triggered_at).total_seconds(), 1)
+            report["duration_seconds"] = round(
+                (completed_at - triggered_at).total_seconds(), 1
+            )
 
             self._last_sync_report = report
             self._log_sync_report(report)
@@ -335,11 +381,65 @@ class UnifiedScheduler:
         except Exception as exc:
             completed_at = datetime.now()
             report["completed_at"] = completed_at.isoformat()
-            report["duration_seconds"] = round((completed_at - triggered_at).total_seconds(), 1)
+            report["duration_seconds"] = round(
+                (completed_at - triggered_at).total_seconds(), 1
+            )
             report["error"] = str(exc)
             self._last_sync_report = report
             logger.error("Daily sync job failed: %s", exc, exc_info=True)
             self._log_sync_report(report)
+
+    def _weekly_sync_job(self) -> None:
+        """Weekly sync (Saturday 10:00) — delegates to trigger_now(frequency_filter="weekly")."""
+        logger.info("=" * 60)
+        logger.info("Weekly sync job triggered at %s", datetime.now().isoformat())
+        logger.info("=" * 60)
+        try:
+            from ..modules.datamanage.schedule_service import schedule_service
+
+            record = schedule_service.trigger_now(
+                is_manual=False, smart_backfill=False, frequency_filter="weekly",
+            )
+            status = record.get("status", "unknown")
+            if status == "skipped":
+                logger.info("[Weekly] Skipped: %s", record.get("skip_reason", "unknown"))
+            else:
+                task_ids = record.get("task_ids", [])
+                logger.info("[Weekly] Triggered %d plugins, %d tasks",
+                            record.get("total_plugins", 0), len(task_ids))
+                if task_ids:
+                    results = self._wait_for_tasks(task_ids)
+                    ok = sum(1 for t in results if t["status"] == "completed")
+                    fail = sum(1 for t in results if t["status"] in ("failed", "cancelled"))
+                    logger.info("[Weekly] Done: %d ok, %d failed", ok, fail)
+        except Exception as exc:
+            logger.error("Weekly sync job failed: %s", exc, exc_info=True)
+
+    def _monthly_sync_job(self) -> None:
+        """Monthly sync (1st of month 10:00) — delegates to trigger_now(frequency_filter="monthly")."""
+        logger.info("=" * 60)
+        logger.info("Monthly sync job triggered at %s", datetime.now().isoformat())
+        logger.info("=" * 60)
+        try:
+            from ..modules.datamanage.schedule_service import schedule_service
+
+            record = schedule_service.trigger_now(
+                is_manual=False, smart_backfill=False, frequency_filter="monthly",
+            )
+            status = record.get("status", "unknown")
+            if status == "skipped":
+                logger.info("[Monthly] Skipped: %s", record.get("skip_reason", "unknown"))
+            else:
+                task_ids = record.get("task_ids", [])
+                logger.info("[Monthly] Triggered %d plugins, %d tasks",
+                            record.get("total_plugins", 0), len(task_ids))
+                if task_ids:
+                    results = self._wait_for_tasks(task_ids)
+                    ok = sum(1 for t in results if t["status"] == "completed")
+                    fail = sum(1 for t in results if t["status"] in ("failed", "cancelled"))
+                    logger.info("[Monthly] Done: %d ok, %d failed", ok, fail)
+        except Exception as exc:
+            logger.error("Monthly sync job failed: %s", exc, exc_info=True)
 
     def _missing_check_job(self) -> None:
         """Execute the daily missing-data check and generate a report.
@@ -353,7 +453,7 @@ class UnifiedScheduler:
         logger.info("Missing data check job triggered at %s", triggered_at.isoformat())
         logger.info("=" * 60)
 
-        report: Dict[str, Any] = {
+        report: dict[str, Any] = {
             "job_type": "missing_check",
             "triggered_at": triggered_at.isoformat(),
             "completed_at": None,
@@ -370,29 +470,37 @@ class UnifiedScheduler:
         try:
             from ..modules.datamanage.service import data_manage_service
 
-            summary = data_manage_service.detect_missing_data(days=30, force_refresh=True)
+            summary = data_manage_service.detect_missing_data(
+                days=30, force_refresh=True
+            )
 
             report["data_quality"]["total_plugins"] = summary.total_plugins
-            report["data_quality"]["plugins_with_missing"] = summary.plugins_with_missing
+            report["data_quality"]["plugins_with_missing"] = (
+                summary.plugins_with_missing
+            )
 
             total_missing = 0
-            needs_attention: List[Dict[str, Any]] = []
+            needs_attention: list[dict[str, Any]] = []
 
             if summary.plugins_with_missing > 0:
                 for plugin_info in summary.plugins:
                     if plugin_info.missing_count > 0:
                         total_missing += plugin_info.missing_count
-                        needs_attention.append({
-                            "plugin": plugin_info.plugin_name,
-                            "missing_days": plugin_info.missing_count,
-                        })
+                        needs_attention.append(
+                            {
+                                "plugin": plugin_info.plugin_name,
+                                "missing_days": plugin_info.missing_count,
+                            }
+                        )
 
             report["data_quality"]["total_missing_dates"] = total_missing
             report["data_quality"]["needs_attention"] = needs_attention
 
             completed_at = datetime.now()
             report["completed_at"] = completed_at.isoformat()
-            report["duration_seconds"] = round((completed_at - triggered_at).total_seconds(), 1)
+            report["duration_seconds"] = round(
+                (completed_at - triggered_at).total_seconds(), 1
+            )
 
             self._last_missing_report = report
             self._log_missing_report(report)
@@ -400,7 +508,9 @@ class UnifiedScheduler:
         except Exception as exc:
             completed_at = datetime.now()
             report["completed_at"] = completed_at.isoformat()
-            report["duration_seconds"] = round((completed_at - triggered_at).total_seconds(), 1)
+            report["duration_seconds"] = round(
+                (completed_at - triggered_at).total_seconds(), 1
+            )
             report["error"] = str(exc)
             self._last_missing_report = report
             logger.error("Missing data check job failed: %s", exc, exc_info=True)
@@ -412,10 +522,10 @@ class UnifiedScheduler:
 
     def _wait_for_tasks(
         self,
-        task_ids: List[str],
+        task_ids: list[str],
         poll_interval: int = _POLL_INTERVAL,
         timeout: int = _POLL_TIMEOUT,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Poll task statuses until all tasks are terminal or timeout.
 
         Returns a list of dicts with keys: task_id, plugin_name, status,
@@ -426,7 +536,7 @@ class UnifiedScheduler:
 
         terminal_statuses = {"completed", "failed", "cancelled"}
         start = _time.monotonic()
-        results: Dict[str, Dict[str, Any]] = {}
+        results: dict[str, dict[str, Any]] = {}
 
         while True:
             all_done = True
@@ -434,7 +544,10 @@ class UnifiedScheduler:
                 from ..modules.datamanage.service import sync_task_manager
 
                 for task_id in task_ids:
-                    if task_id in results and results[task_id]["status"] in terminal_statuses:
+                    if (
+                        task_id in results
+                        and results[task_id]["status"] in terminal_statuses
+                    ):
                         continue  # already terminal
 
                     task = sync_task_manager.get_task(task_id)
@@ -448,7 +561,11 @@ class UnifiedScheduler:
                         }
                         continue
 
-                    status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+                    status_val = (
+                        task.status.value
+                        if hasattr(task.status, "value")
+                        else str(task.status)
+                    )
                     results[task_id] = {
                         "task_id": task_id,
                         "plugin_name": task.plugin_name,
@@ -472,20 +589,32 @@ class UnifiedScheduler:
                 logger.warning(
                     "Task polling timed out after %ds, %d/%d tasks still running",
                     timeout,
-                    sum(1 for r in results.values() if r["status"] not in terminal_statuses),
+                    sum(
+                        1
+                        for r in results.values()
+                        if r["status"] not in terminal_statuses
+                    ),
                     len(task_ids),
                 )
                 # Mark still-running tasks as timed out in the report
                 for task_id in task_ids:
-                    if task_id not in results or results[task_id]["status"] not in terminal_statuses:
-                        results[task_id] = results.get(task_id, {
-                            "task_id": task_id,
-                            "plugin_name": "unknown",
-                            "status": "running",
-                            "error_message": None,
-                            "records_processed": 0,
-                        })
-                        results[task_id]["error_message"] = "Report timeout: task still running"
+                    if (
+                        task_id not in results
+                        or results[task_id]["status"] not in terminal_statuses
+                    ):
+                        results[task_id] = results.get(
+                            task_id,
+                            {
+                                "task_id": task_id,
+                                "plugin_name": "unknown",
+                                "status": "running",
+                                "error_message": None,
+                                "records_processed": 0,
+                            },
+                        )
+                        results[task_id]["error_message"] = (
+                            "Report timeout: task still running"
+                        )
                 break
 
             _time.sleep(poll_interval)
@@ -499,11 +628,16 @@ class UnifiedScheduler:
             return "Unknown"
 
         msg_lower = error_message.lower()
-        if any(kw in msg_lower for kw in ("rate limit", "too many request", "429", "freq")):
+        if any(
+            kw in msg_lower for kw in ("rate limit", "too many request", "429", "freq")
+        ):
             return "Rate limit exceeded"
         if any(kw in msg_lower for kw in ("timeout", "timed out", "read timed")):
             return "Timeout"
-        if any(kw in msg_lower for kw in ("connection", "connect", "refused", "unreachable")):
+        if any(
+            kw in msg_lower
+            for kw in ("connection", "connect", "refused", "unreachable")
+        ):
             return "Connection error"
         if any(kw in msg_lower for kw in ("permission", "auth", "401", "403", "token")):
             return "Authentication error"
@@ -513,7 +647,7 @@ class UnifiedScheduler:
             return "Resource exhaustion"
         return "Execution error"
 
-    def _log_sync_report(self, report: Dict[str, Any]) -> None:
+    def _log_sync_report(self, report: dict[str, Any]) -> None:
         """Output the daily sync execution report to structured log."""
         summary = report.get("summary", {})
         total = summary.get("total_plugins", 0)
@@ -554,10 +688,12 @@ class UnifiedScheduler:
 
         # Also output the full report as structured JSON for machine parsing
         logger.info("-" * 60)
-        logger.info("[REPORT JSON] %s", json.dumps(report, ensure_ascii=False, default=str))
+        logger.info(
+            "[REPORT JSON] %s", json.dumps(report, ensure_ascii=False, default=str)
+        )
         logger.info("=" * 60)
 
-    def _log_missing_report(self, report: Dict[str, Any]) -> None:
+    def _log_missing_report(self, report: dict[str, Any]) -> None:
         """Output the missing data check report to structured log."""
         dq = report.get("data_quality", {})
         total_plugins = dq.get("total_plugins", 0)
@@ -596,12 +732,14 @@ class UnifiedScheduler:
 
         # Output full report as structured JSON
         logger.info("-" * 60)
-        logger.info("[REPORT JSON] %s", json.dumps(report, ensure_ascii=False, default=str))
+        logger.info(
+            "[REPORT JSON] %s", json.dumps(report, ensure_ascii=False, default=str)
+        )
         logger.info("=" * 60)
 
     def _should_run_today(self) -> bool:
         """Check if today is a valid run day (respects skip_non_trading_days).
-        
+
         Returns True if today is a trading day in ANY market (A-share or HK),
         so that HK plugins are not skipped on HK trading days when A-share is closed.
         """
@@ -609,7 +747,7 @@ class UnifiedScheduler:
             return True
 
         try:
-            from ..core.trade_calendar import TradeCalendarService, MARKET_CN, MARKET_HK
+            from ..core.trade_calendar import MARKET_CN, MARKET_HK, TradeCalendarService
 
             calendar = TradeCalendarService()
             today = date.today()
@@ -620,7 +758,9 @@ class UnifiedScheduler:
             logger.info("Today is not a trading day for either A-share or HK")
             return False
         except Exception as exc:
-            logger.warning("Failed to check trading day, defaulting to weekday check: %s", exc)
+            logger.warning(
+                "Failed to check trading day, defaulting to weekday check: %s", exc
+            )
             return date.today().weekday() < 5
 
 
@@ -628,7 +768,7 @@ class UnifiedScheduler:
 # Module-level helpers (keep the same call-site pattern as old scheduler)
 # ---------------------------------------------------------------------------
 
-_unified_scheduler: Optional[UnifiedScheduler] = None
+_unified_scheduler: UnifiedScheduler | None = None
 
 
 def get_unified_scheduler() -> UnifiedScheduler:

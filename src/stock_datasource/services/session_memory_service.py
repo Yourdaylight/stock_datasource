@@ -21,7 +21,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SubAgentEnvelope:
@@ -38,23 +39,25 @@ class SubAgentEnvelope:
     sub-agent invocation – whether it's a business agent, a workflow
     adapter, or an arena adapter.
     """
+
     agent_name: str
     session_id: str
     user_id: str = "default"
     # Input
     query: str = ""
-    scoped_history: List[Dict[str, str]] = field(default_factory=list)
-    shared_state_keys: List[str] = field(default_factory=list)
+    scoped_history: list[dict[str, str]] = field(default_factory=list)
+    shared_state_keys: list[str] = field(default_factory=list)
     # Output (filled by the sub-agent)
     response: str = ""
     success: bool = True
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
 class MemoryEntry:
     """A single memory item."""
+
     key: str
     value: Any
     category: str = "general"
@@ -66,6 +69,7 @@ class MemoryEntry:
 # SessionMemoryService
 # ---------------------------------------------------------------------------
 
+
 class SessionMemoryService:
     """Unified session and memory management."""
 
@@ -76,24 +80,32 @@ class SessionMemoryService:
     MAX_SESSIONS: int = 1000
 
     def __init__(self) -> None:
-        self._history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        self._cache: Dict[str, Dict[str, Any]] = defaultdict(dict)
-        self._session_meta: Dict[str, Dict[str, Any]] = {}
-        self._user_preferences: Dict[str, Dict[str, MemoryEntry]] = defaultdict(dict)
-        self._user_watchlists: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
+        self._history: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self._cache: dict[str, dict[str, Any]] = defaultdict(dict)
+        self._session_meta: dict[str, dict[str, Any]] = {}
+        self._user_preferences: dict[str, dict[str, MemoryEntry]] = defaultdict(dict)
+        self._user_watchlists: dict[str, dict[str, list[str]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         # Observability counters (task 5.2)
-        self._stats: Dict[str, int] = defaultdict(int)
+        self._stats: dict[str, int] = defaultdict(int)
 
     # -- Session lifecycle --
 
-    def make_session_id(self, agent_name: str, user_id: str = "default", context_key: str = "") -> str:
+    def make_session_id(
+        self, agent_name: str, user_id: str = "default", context_key: str = ""
+    ) -> str:
         raw = f"{agent_name}:{user_id}:{context_key}"
         return hashlib.md5(raw.encode()).hexdigest()[:16]
 
     def touch_session(self, session_id: str, user_id: str = "default") -> None:
         now = time.time()
         if session_id not in self._session_meta:
-            self._session_meta[session_id] = {"created": now, "last_access": now, "user_id": user_id}
+            self._session_meta[session_id] = {
+                "created": now,
+                "last_access": now,
+                "user_id": user_id,
+            }
             self._evict_if_needed()
         else:
             self._session_meta[session_id]["last_access"] = now
@@ -115,34 +127,48 @@ class SessionMemoryService:
 
     # -- Conversation history --
 
-    def add_message(self, session_id: str, role: str, content: str,
-                    user_id: str = "default", max_messages: int = 0) -> None:
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        user_id: str = "default",
+        max_messages: int = 0,
+    ) -> None:
         max_msg = max_messages or self.MAX_HISTORY_PER_SESSION
         self.touch_session(session_id, user_id)
-        self._history[session_id].append({"role": role, "content": content, "timestamp": time.time()})
+        self._history[session_id].append(
+            {"role": role, "content": content, "timestamp": time.time()}
+        )
         if len(self._history[session_id]) > max_msg:
             self._history[session_id] = self._history[session_id][-max_msg:]
 
-    def get_history(self, session_id: str, ttl_seconds: int = 0,
-                    max_chars: int = 0) -> List[Dict[str, str]]:
+    def get_history(
+        self, session_id: str, ttl_seconds: int = 0, max_chars: int = 0
+    ) -> list[dict[str, str]]:
         ttl = ttl_seconds or self.HISTORY_TTL_SECONDS
         max_c = max_chars or self.MAX_HISTORY_CHARS
         now = time.time()
         raw = self._history.get(session_id, [])
-        valid = [{"role": h["role"], "content": h["content"]}
-                 for h in raw if now - h["timestamp"] < ttl]
+        valid = [
+            {"role": h["role"], "content": h["content"]}
+            for h in raw
+            if now - h["timestamp"] < ttl
+        ]
         total = sum(len(h["content"]) for h in valid)
         if total > max_c and len(valid) > 4:
             valid = self._summarize(valid)
         return valid
 
-    def get_scoped_history(self, session_id: str, max_messages: int = 5) -> List[Dict[str, str]]:
+    def get_scoped_history(
+        self, session_id: str, max_messages: int = 5
+    ) -> list[dict[str, str]]:
         """Return recent N messages – lightweight context for sub-agents (task 3.2)."""
         raw = self._history.get(session_id, [])
         recent = raw[-max_messages:] if len(raw) > max_messages else raw
         return [{"role": h["role"], "content": h["content"]} for h in recent]
 
-    def _summarize(self, history: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    def _summarize(self, history: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(history) <= 4:
             return history
         first, last = history[:2], history[-2:]
@@ -151,16 +177,23 @@ class SessionMemoryService:
         for m in middle:
             c = m["content"][:150] + "..." if len(m["content"]) > 150 else m["content"]
             parts.append(f"[{m['role']}]: {c}")
-        summary = {"role": "system", "content": f"[对话历史摘要 - {len(middle)}条消息]\n" + "\n".join(parts)}
+        summary = {
+            "role": "system",
+            "content": f"[对话历史摘要 - {len(middle)}条消息]\n" + "\n".join(parts),
+        }
         return first + [summary] + last
 
     # -- Session cache (TTL-bounded) --
 
     def set_cache(self, session_id: str, key: str, value: Any, ttl: int = 0) -> None:
         ttl = ttl or self.CACHE_TTL_SECONDS
-        self._cache[session_id][key] = {"value": value, "timestamp": time.time(), "ttl": ttl}
+        self._cache[session_id][key] = {
+            "value": value,
+            "timestamp": time.time(),
+            "ttl": ttl,
+        }
 
-    def get_cache(self, session_id: str, key: str) -> Optional[Any]:
+    def get_cache(self, session_id: str, key: str) -> Any | None:
         entry = self._cache.get(session_id, {}).get(key)
         if not entry:
             self._stats["cache_misses"] += 1
@@ -174,16 +207,21 @@ class SessionMemoryService:
 
     # -- Long-term memory (user-scoped) --
 
-    def save_preference(self, user_id: str, key: str, value: Any, category: str = "general") -> None:
+    def save_preference(
+        self, user_id: str, key: str, value: Any, category: str = "general"
+    ) -> None:
         self._user_preferences[user_id][key] = MemoryEntry(
-            key=key, value=value, category=category, user_id=user_id,
+            key=key,
+            value=value,
+            category=category,
+            user_id=user_id,
         )
 
-    def get_preference(self, user_id: str, key: str) -> Optional[Any]:
+    def get_preference(self, user_id: str, key: str) -> Any | None:
         entry = self._user_preferences.get(user_id, {}).get(key)
         return entry.value if entry else None
 
-    def list_preferences(self, user_id: str) -> Dict[str, Any]:
+    def list_preferences(self, user_id: str) -> dict[str, Any]:
         return {k: e.value for k, e in self._user_preferences.get(user_id, {}).items()}
 
     def add_to_watchlist(self, user_id: str, code: str, group: str = "default") -> bool:
@@ -193,14 +231,16 @@ class SessionMemoryService:
             return True
         return False
 
-    def remove_from_watchlist(self, user_id: str, code: str, group: str = "default") -> bool:
+    def remove_from_watchlist(
+        self, user_id: str, code: str, group: str = "default"
+    ) -> bool:
         wl = self._user_watchlists[user_id][group]
         if code in wl:
             wl.remove(code)
             return True
         return False
 
-    def get_watchlist(self, user_id: str, group: str = "default") -> List[str]:
+    def get_watchlist(self, user_id: str, group: str = "default") -> list[str]:
         return list(self._user_watchlists.get(user_id, {}).get(group, []))
 
     # -- Cleanup --
@@ -208,8 +248,11 @@ class SessionMemoryService:
     def cleanup_expired(self, ttl_seconds: int = 0) -> int:
         ttl = ttl_seconds or self.HISTORY_TTL_SECONDS
         now = time.time()
-        expired = [sid for sid, meta in self._session_meta.items()
-                   if now - meta["last_access"] > ttl]
+        expired = [
+            sid
+            for sid, meta in self._session_meta.items()
+            if now - meta["last_access"] > ttl
+        ]
         for sid in expired:
             self.clear_session(sid)
         return len(expired)
@@ -225,7 +268,7 @@ class SessionMemoryService:
         return sum(len(v) for v in self._cache.values())
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return a snapshot of observability counters."""
         return {
             "active_sessions": self.active_session_count,
@@ -233,7 +276,9 @@ class SessionMemoryService:
             "cache_hits": self._stats.get("cache_hits", 0),
             "cache_misses": self._stats.get("cache_misses", 0),
             "sessions_evicted": self._stats.get("sessions_evicted", 0),
-            "user_preference_count": sum(len(v) for v in self._user_preferences.values()),
+            "user_preference_count": sum(
+                len(v) for v in self._user_preferences.values()
+            ),
         }
 
     def record_stat(self, key: str, increment: int = 1) -> None:
@@ -245,7 +290,7 @@ class SessionMemoryService:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_service: Optional[SessionMemoryService] = None
+_service: SessionMemoryService | None = None
 
 
 def get_session_memory_service() -> SessionMemoryService:

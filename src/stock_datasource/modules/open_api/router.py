@@ -8,9 +8,9 @@ CRITICAL DESIGN CONSTRAINT:
 import json
 import logging
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .dependencies import rate_limiter, require_api_key
 from .schemas import EndpointInfo, EndpointListResponse, OpenApiResponse
@@ -26,7 +26,10 @@ def _get_plugin_service(plugin_name: str):
 
     Only returns services from plugins/*/service.py.
     """
-    from stock_datasource.services.http_server import _discover_services, _get_or_create_service
+    from stock_datasource.services.http_server import (
+        _discover_services,
+        _get_or_create_service,
+    )
 
     for svc_name, svc_class in _discover_services():
         if svc_name == plugin_name:
@@ -62,7 +65,7 @@ async def call_open_api(
     plugin_name: str,
     method_name: str,
     request: Request,
-    auth: Tuple[dict, str] = Depends(require_api_key),
+    auth: tuple[dict, str] = Depends(require_api_key),
 ):
     """Unified open API entry point.
 
@@ -83,17 +86,49 @@ async def call_open_api(
     # --- 1. Verify plugin & method exist ---
     service, method_info = _get_plugin_method(plugin_name, method_name)
     if service is None:
-        _log_error(open_api_svc, api_path, user, api_key_id, 404, "插件不存在", client_ip, start_time)
+        _log_error(
+            open_api_svc,
+            api_path,
+            user,
+            api_key_id,
+            404,
+            "插件不存在",
+            client_ip,
+            start_time,
+        )
         raise HTTPException(status_code=404, detail=f"插件 '{plugin_name}' 不存在")
     if method_info is None:
-        _log_error(open_api_svc, api_path, user, api_key_id, 404, "方法不存在", client_ip, start_time)
-        raise HTTPException(status_code=404, detail=f"方法 '{method_name}' 不存在于插件 '{plugin_name}' 中")
+        _log_error(
+            open_api_svc,
+            api_path,
+            user,
+            api_key_id,
+            404,
+            "方法不存在",
+            client_ip,
+            start_time,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"方法 '{method_name}' 不存在于插件 '{plugin_name}' 中",
+        )
 
     # --- 2. Check access policy ---
     policy = open_api_svc.get_policy(api_path)
     if not policy or not policy.get("is_enabled"):
-        _log_error(open_api_svc, api_path, user, api_key_id, 403, "接口未开放", client_ip, start_time)
-        raise HTTPException(status_code=403, detail=f"接口 '{api_path}' 未开放，请联系管理员")
+        _log_error(
+            open_api_svc,
+            api_path,
+            user,
+            api_key_id,
+            403,
+            "接口未开放",
+            client_ip,
+            start_time,
+        )
+        raise HTTPException(
+            status_code=403, detail=f"接口 '{api_path}' 未开放，请联系管理员"
+        )
 
     # --- 3. Rate limiting ---
     allowed, limit_msg = rate_limiter.check(
@@ -103,7 +138,16 @@ async def call_open_api(
         limit_per_day=policy.get("rate_limit_per_day", 10000),
     )
     if not allowed:
-        _log_error(open_api_svc, api_path, user, api_key_id, 429, limit_msg, client_ip, start_time)
+        _log_error(
+            open_api_svc,
+            api_path,
+            user,
+            api_key_id,
+            429,
+            limit_msg,
+            client_ip,
+            start_time,
+        )
         raise HTTPException(status_code=429, detail=limit_msg)
 
     # --- 4. Parse request body ---
@@ -117,10 +161,14 @@ async def call_open_api(
         method_func = method_info["method"]
         result = method_func(**body)
     except TypeError as e:
-        _log_error(open_api_svc, api_path, user, api_key_id, 400, str(e), client_ip, start_time)
+        _log_error(
+            open_api_svc, api_path, user, api_key_id, 400, str(e), client_ip, start_time
+        )
         raise HTTPException(status_code=400, detail=f"参数错误: {e}")
     except Exception as e:
-        _log_error(open_api_svc, api_path, user, api_key_id, 500, str(e), client_ip, start_time)
+        _log_error(
+            open_api_svc, api_path, user, api_key_id, 500, str(e), client_ip, start_time
+        )
         raise HTTPException(status_code=500, detail=f"查询执行失败: {e}")
 
     # --- 6. Response wrapping + truncation ---
@@ -165,21 +213,23 @@ async def get_open_api_docs(request: Request):
     # Determine base URL from request
     base_url = str(request.base_url).rstrip("/")
 
-    result: List[EndpointInfo] = []
+    result: list[EndpointInfo] = []
     for ep in endpoints:
         policy = open_api_svc.get_policy(ep["api_path"])
         is_enabled = bool(policy and policy.get("is_enabled"))
         if is_enabled:
             curl_example = _generate_curl(base_url, ep)
-            result.append(EndpointInfo(
-                plugin_name=ep["plugin_name"],
-                method_name=ep["method_name"],
-                api_path=ep["api_path"],
-                description=ep.get("description", ""),
-                parameters=ep.get("parameters", []),
-                is_enabled=True,
-                curl_example=curl_example,
-            ))
+            result.append(
+                EndpointInfo(
+                    plugin_name=ep["plugin_name"],
+                    method_name=ep["method_name"],
+                    api_path=ep["api_path"],
+                    description=ep.get("description", ""),
+                    parameters=ep.get("parameters", []),
+                    is_enabled=True,
+                    curl_example=curl_example,
+                )
+            )
 
     return EndpointListResponse(endpoints=result, total=len(result))
 
@@ -199,10 +249,10 @@ _TYPE_EXAMPLE_MAP = {
 }
 
 
-def _generate_curl(base_url: str, ep: Dict[str, Any]) -> str:
+def _generate_curl(base_url: str, ep: dict[str, Any]) -> str:
     """Generate a sample curl command for an endpoint."""
     url = f"{base_url}/api/open/v1/{ep['api_path']}"
-    body: Dict[str, Any] = {}
+    body: dict[str, Any] = {}
     for p in ep.get("parameters", []):
         name = p["name"]
         if p.get("default") is not None and p["default"] != "None":

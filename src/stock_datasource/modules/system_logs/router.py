@@ -2,10 +2,12 @@
 
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from stock_datasource.modules.auth.dependencies import require_admin
+
 from .schemas import (
     ArchiveListResponse,
     ErrorClusterResponse,
@@ -35,8 +37,7 @@ def _parse_iso_time(value: str, field_name: str):
         return datetime.fromisoformat(value)
     except ValueError:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid {field_name} format: {value}"
+            status_code=400, detail=f"Invalid {field_name} format: {value}"
         )
 
 
@@ -67,7 +68,7 @@ def _build_insight_filter(
     response_model=LogListResponse,
     dependencies=[Depends(require_admin)],
     summary="Get system logs",
-    description="Query and filter system logs with pagination"
+    description="Query and filter system logs with pagination",
 )
 async def get_system_logs(
     level: str = None,
@@ -77,7 +78,7 @@ async def get_system_logs(
     request_id: str = None,
     page: int = 1,
     page_size: int = 50,
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Get filtered system logs.
 
@@ -99,7 +100,7 @@ async def get_system_logs(
         keyword=keyword,
         request_id=request_id,
         page=page,
-        page_size=page_size
+        page_size=page_size,
     )
 
     # Get logs
@@ -107,33 +108,29 @@ async def get_system_logs(
         return log_service.get_logs(filters)
     except Exception as e:
         logger.error(f"Error getting logs: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve logs: {e!s}")
 
 
 @router.post(
     "/analyze",
     response_model=LogAnalysisResponse,
     summary="Analyze logs with AI",
-    description="Analyze error logs and get AI-powered suggestions"
+    description="Analyze error logs and get AI-powered suggestions",
 )
 async def analyze_logs(
     request: LogAnalysisRequest,
     current_user: dict = Depends(require_admin),
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Analyze logs using AI agent."""
     try:
-        user_id = str(current_user.get("username") or current_user.get("user_id") or "admin")
+        user_id = str(
+            current_user.get("username") or current_user.get("user_id") or "admin"
+        )
         return await log_service.analyze_logs(request, user_id=user_id)
     except Exception as e:
         logger.error(f"Error analyzing logs: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to analyze logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to analyze logs: {e!s}")
 
 
 @router.get(
@@ -141,7 +138,7 @@ async def analyze_logs(
     response_model=LogStatsResponse,
     dependencies=[Depends(require_admin)],
     summary="Get log stats",
-    description="Get overview stats and hourly trends for logs"
+    description="Get overview stats and hourly trends for logs",
 )
 async def get_log_stats(
     level: str = None,
@@ -151,7 +148,7 @@ async def get_log_stats(
     request_id: str = None,
     window_hours: int = 2,
     limit: int = 200,
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Get log overview stats and trend."""
     try:
@@ -167,7 +164,9 @@ async def get_log_stats(
         return log_service.get_stats(filters)
     except Exception as e:
         logger.error(f"Error getting log stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve log stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve log stats: {e!s}"
+        )
 
 
 @router.get(
@@ -175,7 +174,7 @@ async def get_log_stats(
     response_model=ErrorClusterResponse,
     dependencies=[Depends(require_admin)],
     summary="Get error clusters",
-    description="Group recent error/warning logs by signature"
+    description="Group recent error/warning logs by signature",
 )
 async def get_log_clusters(
     level: str = None,
@@ -185,7 +184,7 @@ async def get_log_clusters(
     request_id: str = None,
     window_hours: int = 2,
     limit: int = 20,
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Get clustered recent errors."""
     try:
@@ -201,7 +200,9 @@ async def get_log_clusters(
         return log_service.get_error_clusters(filters)
     except Exception as e:
         logger.error(f"Error getting log clusters: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve log clusters: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve log clusters: {e!s}"
+        )
 
 
 @router.get(
@@ -209,7 +210,7 @@ async def get_log_clusters(
     response_model=OperationTimelineResponse,
     dependencies=[Depends(require_admin)],
     summary="Get operation timeline",
-    description="Get recent operations timeline from logs and scheduler executions"
+    description="Get recent operations timeline from logs and scheduler executions",
 )
 async def get_operation_timeline(
     level: str = None,
@@ -219,7 +220,7 @@ async def get_operation_timeline(
     request_id: str = None,
     window_hours: int = 2,
     limit: int = 50,
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Get merged operation timeline."""
     try:
@@ -235,7 +236,9 @@ async def get_operation_timeline(
         return log_service.get_operation_timeline(filters)
     except Exception as e:
         logger.error(f"Error getting operation timeline: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve operation timeline: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve operation timeline: {e!s}"
+        )
 
 
 @router.get(
@@ -243,19 +246,16 @@ async def get_operation_timeline(
     response_model=list[LogFileInfo],
     dependencies=[Depends(require_admin)],
     summary="Get log files",
-    description="Get list of available log files"
+    description="Get list of available log files",
 )
-async def get_log_files(
-    log_service = Depends(get_log_service)
-):
+async def get_log_files(log_service=Depends(get_log_service)):
     """Get list of log files."""
     try:
         return log_service.get_log_files()
     except Exception as e:
         logger.error(f"Error getting log files: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve log files: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve log files: {e!s}"
         )
 
 
@@ -264,11 +264,9 @@ async def get_log_files(
     response_model=ArchiveListResponse,
     dependencies=[Depends(require_admin)],
     summary="Get archived logs",
-    description="Get list of archived log files"
+    description="Get list of archived log files",
 )
-async def get_archived_logs(
-    log_service = Depends(get_log_service)
-):
+async def get_archived_logs(log_service=Depends(get_log_service)):
     """Get list of archived log files."""
     try:
         archives = log_service.get_archives()
@@ -276,8 +274,7 @@ async def get_archived_logs(
     except Exception as e:
         logger.error(f"Error getting archives: {e}")
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve archives: {str(e)}"
+            status_code=500, detail=f"Failed to retrieve archives: {e!s}"
         )
 
 
@@ -285,29 +282,23 @@ async def get_archived_logs(
     "/archive",
     dependencies=[Depends(require_admin)],
     summary="Archive old logs",
-    description="Archive logs older than retention period"
+    description="Archive logs older than retention period",
 )
-async def archive_logs(
-    retention_days: int = 30,
-    log_service = Depends(get_log_service)
-):
+async def archive_logs(retention_days: int = 30, log_service=Depends(get_log_service)):
     """Manually trigger log archiving."""
     try:
         result = log_service.archive_logs(retention_days=retention_days)
         return result
     except Exception as e:
         logger.error(f"Error archiving logs: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to archive logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to archive logs: {e!s}")
 
 
 @router.get(
     "/export",
     dependencies=[Depends(require_admin)],
     summary="Export logs",
-    description="Export filtered logs to CSV or JSON"
+    description="Export filtered logs to CSV or JSON",
 )
 async def export_logs(
     level: str = None,
@@ -315,7 +306,7 @@ async def export_logs(
     end_time: str = None,
     keyword: str = None,
     format: str = "csv",
-    log_service = Depends(get_log_service)
+    log_service=Depends(get_log_service),
 ):
     """Export filtered logs to file."""
     parsed_start = _parse_iso_time(start_time, "start_time") if start_time else None
@@ -327,7 +318,7 @@ async def export_logs(
         end_time=parsed_end,
         keyword=keyword,
         page=1,
-        page_size=100000
+        page_size=100000,
     )
 
     # Export logs
@@ -336,46 +327,29 @@ async def export_logs(
         filename = Path(filepath).name
 
         return FileResponse(
-            filepath,
-            filename=filename,
-            media_type='application/octet-stream'
+            filepath, filename=filename, media_type="application/octet-stream"
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error exporting logs: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to export logs: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to export logs: {e!s}")
 
 
 @router.get(
     "/download/{filename}",
     dependencies=[Depends(require_admin)],
     summary="Download archive",
-    description="Download an archived log file"
+    description="Download an archived log file",
 )
-async def download_archive(
-    filename: str,
-    log_service = Depends(get_log_service)
-):
+async def download_archive(filename: str, log_service=Depends(get_log_service)):
     """Download an archived log file."""
     from pathlib import Path
+
     archive_dir = Path("logs") / "archive"
     filepath = archive_dir / filename
 
     if not filepath.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Archive not found: {filename}"
-        )
+        raise HTTPException(status_code=404, detail=f"Archive not found: {filename}")
 
-    return FileResponse(
-        filepath,
-        filename=filename,
-        media_type='application/gzip'
-    )
+    return FileResponse(filepath, filename=filename, media_type="application/gzip")

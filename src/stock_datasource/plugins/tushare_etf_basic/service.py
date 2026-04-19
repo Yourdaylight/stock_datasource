@@ -1,16 +1,21 @@
 """TuShare ETF basic information query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareETFBasicService(BaseService):
     """Query service for TuShare ETF basic information."""
-    
+
     def __init__(self):
         super().__init__("tushare_etf_basic")
-    
+
     @query_method(
         description="Query ETF basic information by code",
         params=[
@@ -33,14 +38,14 @@ class TuShareETFBasicService(BaseService):
                 description="ETF code, e.g., 510330.SH",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_etf_basic(self, ts_code: str) -> List[Dict[str, Any]]:
+    def get_etf_basic(self, ts_code: str) -> list[dict[str, Any]]:
         """Query ETF basic information by code.
-        
+
         Args:
             ts_code: ETF code (e.g., 510330.SH)
-        
+
         Returns:
             List of ETF basic information records
         """
@@ -63,11 +68,11 @@ class TuShareETFBasicService(BaseService):
         FROM ods_etf_basic
         WHERE ts_code = '{ts_code}'
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query all listed ETFs",
         params=[
@@ -84,28 +89,26 @@ class TuShareETFBasicService(BaseService):
                 description="Exchange: SH or SZ",
                 required=False,
             ),
-        ]
+        ],
     )
     def get_all_etfs(
-        self,
-        list_status: str = "L",
-        exchange: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, list_status: str = "L", exchange: str | None = None
+    ) -> list[dict[str, Any]]:
         """Query all ETFs by list status and exchange.
-        
+
         Args:
             list_status: List status (L/D/P)
             exchange: Exchange (SH/SZ)
-        
+
         Returns:
             List of ETF basic information records
         """
         where_clauses = [f"list_status = '{list_status}'"]
         if exchange:
             where_clauses.append(f"exchange = '{exchange}'")
-        
+
         where_sql = " AND ".join(where_clauses)
-        
+
         query = f"""
         SELECT 
             ts_code,
@@ -126,11 +129,11 @@ class TuShareETFBasicService(BaseService):
         WHERE {where_sql}
         ORDER BY list_date DESC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query ETFs by tracking index",
         params=[
@@ -140,14 +143,14 @@ class TuShareETFBasicService(BaseService):
                 description="Index code, e.g., 000300.SH",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_etfs_by_index(self, index_code: str) -> List[Dict[str, Any]]:
+    def get_etfs_by_index(self, index_code: str) -> list[dict[str, Any]]:
         """Query ETFs by tracking index.
-        
+
         Args:
             index_code: Index code (e.g., 000300.SH)
-        
+
         Returns:
             List of ETF basic information records
         """
@@ -172,11 +175,11 @@ class TuShareETFBasicService(BaseService):
         AND list_status = 'L'
         ORDER BY list_date DESC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query ETFs by manager",
         params=[
@@ -186,14 +189,14 @@ class TuShareETFBasicService(BaseService):
                 description="Manager name, e.g., 华夏基金",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_etfs_by_manager(self, mgr_name: str) -> List[Dict[str, Any]]:
+    def get_etfs_by_manager(self, mgr_name: str) -> list[dict[str, Any]]:
         """Query ETFs by manager.
-        
+
         Args:
             mgr_name: Manager name (e.g., 华夏基金)
-        
+
         Returns:
             List of ETF basic information records
         """
@@ -218,11 +221,11 @@ class TuShareETFBasicService(BaseService):
         AND list_status = 'L'
         ORDER BY list_date DESC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Get ETF code list",
         params=[
@@ -233,14 +236,14 @@ class TuShareETFBasicService(BaseService):
                 required=False,
                 default="L",
             ),
-        ]
+        ],
     )
-    def get_etf_codes(self, list_status: str = "L") -> List[str]:
+    def get_etf_codes(self, list_status: str = "L") -> list[str]:
         """Get list of ETF codes.
-        
+
         Args:
             list_status: List status (L/D/P)
-        
+
         Returns:
             List of ETF codes
         """
@@ -250,6 +253,6 @@ class TuShareETFBasicService(BaseService):
         WHERE list_status = '{list_status}'
         ORDER BY ts_code
         """
-        
+
         df = self.db.execute_query(query)
-        return df['ts_code'].tolist() if not df.empty else []
+        return df["ts_code"].tolist() if not df.empty else []

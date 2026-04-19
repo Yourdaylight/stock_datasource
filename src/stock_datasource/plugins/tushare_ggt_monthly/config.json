@@ -9,6 +9,10 @@
   "min_points": 5000,
   "max_rows_per_call": 1000,
   "dependencies": [],
+  "schedule": {
+    "frequency": "monthly",
+    "time": "18:00"
+  },
   "enabled": true,
   "parameters_schema": {
     "month": {

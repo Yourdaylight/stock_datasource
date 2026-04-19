@@ -4,8 +4,6 @@ import logging
 import math
 import os
 import uuid
-from datetime import datetime
-from typing import Optional, Dict, List, Tuple
 
 from ...models.database import db_client
 
@@ -23,7 +21,7 @@ async def _ensure_schema():
         return
     try:
         schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -50,14 +48,14 @@ class TokenUsageService:
                     "user_id": user_id,
                     "total_quota": quota,
                     "remaining_tokens": quota,
-                }
+                },
             )
             logger.info(f"Initialized token quota for user {user_id}: {quota}")
         except Exception as e:
             logger.error(f"Failed to initialize quota for user {user_id}: {e}")
 
     @staticmethod
-    async def get_balance(user_id: str) -> Dict:
+    async def get_balance(user_id: str) -> dict:
         """Get user's token balance."""
         await _ensure_schema()
         try:
@@ -65,9 +63,9 @@ class TokenUsageService:
                 "SELECT total_quota, used_tokens, remaining_tokens "
                 "FROM user_token_quota FINAL "
                 "WHERE user_id = %(user_id)s",
-                {"user_id": user_id}
+                {"user_id": user_id},
             )
-            result = df.to_dict('records') if not df.empty else []
+            result = df.to_dict("records") if not df.empty else []
             if result:
                 row = result[0]
                 total = row["total_quota"]
@@ -116,9 +114,9 @@ class TokenUsageService:
         message_id: str = "",
         agent_name: str = "",
         model_name: str = "",
-    ) -> Dict:
+    ) -> dict:
         """Deduct tokens from user's balance and log usage.
-        
+
         Returns updated balance dict.
         """
         await _ensure_schema()
@@ -137,7 +135,7 @@ class TokenUsageService:
                     "total_quota": balance["total_quota"],
                     "used_tokens": new_used,
                     "remaining_tokens": new_remaining,
-                }
+                },
             )
 
             # Insert usage log
@@ -159,7 +157,7 @@ class TokenUsageService:
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "total_tokens": total_tokens,
-                }
+                },
             )
 
             logger.info(
@@ -171,7 +169,9 @@ class TokenUsageService:
                 "total_quota": balance["total_quota"],
                 "used_tokens": new_used,
                 "remaining_tokens": new_remaining,
-                "usage_percent": round((new_used / balance["total_quota"] * 100), 2) if balance["total_quota"] > 0 else 0.0,
+                "usage_percent": round((new_used / balance["total_quota"] * 100), 2)
+                if balance["total_quota"] > 0
+                else 0.0,
             }
         except Exception as e:
             logger.error(f"Failed to deduct tokens for user {user_id}: {e}")
@@ -182,14 +182,14 @@ class TokenUsageService:
         user_id: str,
         page: int = 1,
         page_size: int = 20,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-    ) -> Dict:
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict:
         """Get paginated usage history with optional date filter."""
         await _ensure_schema()
         try:
             where = "WHERE t.user_id = %(user_id)s"
-            params: Dict = {"user_id": user_id}
+            params: dict = {"user_id": user_id}
 
             if start_date:
                 where += " AND t.created_at >= %(start_date)s"
@@ -202,7 +202,7 @@ class TokenUsageService:
             count_df = db_client.query(
                 f"SELECT count() as cnt FROM token_usage_log t {where}", params
             )
-            count_result = count_df.to_dict('records') if not count_df.empty else []
+            count_result = count_df.to_dict("records") if not count_df.empty else []
             total = count_result[0]["cnt"] if count_result else 0
 
             offset = (page - 1) * page_size
@@ -219,17 +219,27 @@ class TokenUsageService:
                 f"{where} "
                 f"ORDER BY t.created_at DESC "
                 f"LIMIT %(limit)s OFFSET %(offset)s",
-                params
+                params,
             )
-            records = records_df.to_dict('records') if not records_df.empty else []
+            records = records_df.to_dict("records") if not records_df.empty else []
 
             # Clean NaN values from LEFT JOIN / nullable columns
             for rec in records:
                 for key, val in rec.items():
                     if isinstance(val, float) and math.isnan(val):
-                        rec[key] = "" if isinstance(records_df[key].dtype, object) or key in (
-                            "session_title", "message_id", "session_id", "agent_name", "model_name"
-                        ) else 0
+                        rec[key] = (
+                            ""
+                            if isinstance(records_df[key].dtype, object)
+                            or key
+                            in (
+                                "session_title",
+                                "message_id",
+                                "session_id",
+                                "agent_name",
+                                "model_name",
+                            )
+                            else 0
+                        )
 
             return {
                 "records": records,
@@ -245,7 +255,7 @@ class TokenUsageService:
     async def get_usage_stats(
         user_id: str,
         days: int = 30,
-    ) -> Dict:
+    ) -> dict:
         """Get daily aggregated usage stats for the last N days."""
         await _ensure_schema()
         try:
@@ -259,9 +269,9 @@ class TokenUsageService:
                 "AND created_at >= today() - %(days)s "
                 "GROUP BY date "
                 "ORDER BY date",
-                {"user_id": user_id, "days": days}
+                {"user_id": user_id, "days": days},
             )
-            result = df.to_dict('records') if not df.empty else []
+            result = df.to_dict("records") if not df.empty else []
 
             daily_stats = []
             total_prompt = 0
@@ -272,12 +282,14 @@ class TokenUsageService:
                 pt = row["prompt_tokens"]
                 ct = row["completion_tokens"]
                 tt = row["total_tokens"]
-                daily_stats.append({
-                    "date": d,
-                    "prompt_tokens": pt,
-                    "completion_tokens": ct,
-                    "total_tokens": tt,
-                })
+                daily_stats.append(
+                    {
+                        "date": d,
+                        "prompt_tokens": pt,
+                        "completion_tokens": ct,
+                        "total_tokens": tt,
+                    }
+                )
                 total_prompt += pt
                 total_completion += ct
                 total_all += tt
@@ -309,7 +321,7 @@ class TokenUsageService:
                 "SELECT id FROM users FINAL "
                 "WHERE id NOT IN (SELECT user_id FROM user_token_quota FINAL)"
             )
-            users_without_quota = df.to_dict('records') if not df.empty else []
+            users_without_quota = df.to_dict("records") if not df.empty else []
             count = 0
             for user in users_without_quota:
                 await TokenUsageService.initialize_quota(user["id"])

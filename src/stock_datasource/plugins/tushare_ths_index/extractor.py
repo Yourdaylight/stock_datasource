@@ -4,7 +4,6 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import tushare as ts
@@ -23,7 +22,7 @@ class THSIndexExtractor:
         self.token = settings.TUSHARE_TOKEN
 
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         self.rate_limit = config.get("rate_limit", 120)
         self.timeout = config.get("timeout", 30)
@@ -54,7 +53,9 @@ class THSIndexExtractor:
             time.sleep(self._min_interval - time_since_last)
         self._last_call_time = time.time()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
     def _call_api(self, api_func, **kwargs) -> pd.DataFrame:
         """Call TuShare API with rate limiting and retry."""
         self._rate_limit()
@@ -72,9 +73,9 @@ class THSIndexExtractor:
 
     def extract(
         self,
-        ts_code: Optional[str] = None,
-        exchange: Optional[str] = None,
-        index_type: Optional[str] = None,
+        ts_code: str | None = None,
+        exchange: str | None = None,
+        index_type: str | None = None,
     ) -> pd.DataFrame:
         """Extract THS index metadata.
 

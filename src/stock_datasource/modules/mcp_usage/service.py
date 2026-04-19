@@ -3,8 +3,6 @@
 import logging
 import os
 import uuid
-from datetime import datetime
-from typing import Optional, Dict, List
 
 from stock_datasource.models.database import db_client
 
@@ -20,7 +18,7 @@ async def _ensure_schema():
         return
     try:
         schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -85,15 +83,15 @@ class McpUsageService:
         user_id: str,
         page: int = 1,
         page_size: int = 20,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        tool_name: Optional[str] = None,
-    ) -> Dict:
+        start_date: str | None = None,
+        end_date: str | None = None,
+        tool_name: str | None = None,
+    ) -> dict:
         """Get paginated usage history for a user."""
         await _ensure_schema()
         try:
             where = "WHERE user_id = %(user_id)s"
-            params: Dict = {"user_id": user_id}
+            params: dict = {"user_id": user_id}
 
             if start_date:
                 where += " AND created_at >= %(start_date)s"
@@ -108,7 +106,7 @@ class McpUsageService:
             count_df = db_client.query(
                 f"SELECT count() as cnt FROM mcp_tool_usage_log {where}", params
             )
-            count_result = count_df.to_dict('records') if not count_df.empty else []
+            count_result = count_df.to_dict("records") if not count_df.empty else []
             total = count_result[0]["cnt"] if count_result else 0
 
             offset = (page - 1) * page_size
@@ -124,7 +122,7 @@ class McpUsageService:
                 f"LIMIT %(limit)s OFFSET %(offset)s",
                 params,
             )
-            records = records_df.to_dict('records') if not records_df.empty else []
+            records = records_df.to_dict("records") if not records_df.empty else []
 
             return {
                 "records": records,
@@ -137,7 +135,7 @@ class McpUsageService:
             return {"records": [], "total": 0, "page": page, "page_size": page_size}
 
     @staticmethod
-    async def get_usage_stats(user_id: str, days: int = 30) -> Dict:
+    async def get_usage_stats(user_id: str, days: int = 30) -> dict:
         """Get daily aggregated usage stats."""
         await _ensure_schema()
         try:
@@ -152,7 +150,7 @@ class McpUsageService:
                 "GROUP BY date ORDER BY date",
                 {"user_id": user_id, "days": days},
             )
-            daily_result = daily_df.to_dict('records') if not daily_df.empty else []
+            daily_result = daily_df.to_dict("records") if not daily_df.empty else []
 
             daily_stats = []
             total_calls = 0
@@ -160,11 +158,13 @@ class McpUsageService:
             for row in daily_result:
                 cc = row["call_count"]
                 tr = row["total_records"]
-                daily_stats.append({
-                    "date": str(row["date"]),
-                    "call_count": cc,
-                    "total_records": tr,
-                })
+                daily_stats.append(
+                    {
+                        "date": str(row["date"]),
+                        "call_count": cc,
+                        "total_records": tr,
+                    }
+                )
                 total_calls += cc
                 total_records += tr
 
@@ -179,7 +179,7 @@ class McpUsageService:
                 "ORDER BY call_count DESC LIMIT 10",
                 {"user_id": user_id, "days": days},
             )
-            top_result = top_df.to_dict('records') if not top_df.empty else []
+            top_result = top_df.to_dict("records") if not top_df.empty else []
             top_tools = [
                 {
                     "tool_name": r["tool_name"],

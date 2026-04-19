@@ -1,16 +1,17 @@
 """MCP API Key management routes."""
 
 import logging
+
 from fastapi import APIRouter, Depends
 
 from ..auth.dependencies import get_current_user
 from .schemas import (
+    ApiKeyInfo,
+    ApiKeyListResponse,
     CreateApiKeyRequest,
     CreateApiKeyResponse,
-    ApiKeyListResponse,
-    ApiKeyInfo,
-    RevokeApiKeyRequest,
     MessageResponse,
+    RevokeApiKeyRequest,
 )
 from .service import get_mcp_api_key_service
 

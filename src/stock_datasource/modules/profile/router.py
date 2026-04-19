@@ -1,9 +1,8 @@
 """Profile router — REST API endpoints for portfolio profile management."""
 
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -15,6 +14,7 @@ router = APIRouter()
 # Request/Response models
 # ---------------------------------------------------------------------------
 
+
 class CreateProfileRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50, description="账户名称")
     broker: str = Field("", max_length=50, description="券商名称")
@@ -22,8 +22,8 @@ class CreateProfileRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=50, description="账户名称")
-    broker: Optional[str] = Field(None, max_length=50, description="券商名称")
+    name: str | None = Field(None, min_length=1, max_length=50, description="账户名称")
+    broker: str | None = Field(None, max_length=50, description="券商名称")
 
 
 class ProfileResponse(BaseModel):
@@ -38,15 +38,18 @@ class ProfileResponse(BaseModel):
 # Auth dependency — reuse the same pattern as portfolio/router.py
 # ---------------------------------------------------------------------------
 
+
 def _get_auth_dep():
     """Lazy import to avoid circular imports."""
     from stock_datasource.modules.auth.dependencies import get_current_user
+
     return get_current_user
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/profiles", response_model=list[ProfileResponse], summary="获取账户列表")
 async def list_profiles(current_user: dict = Depends(_get_auth_dep())):
@@ -76,7 +79,9 @@ async def create_profile(
     return ProfileResponse(**profile)
 
 
-@router.get("/profiles/{profile_id}", response_model=ProfileResponse, summary="获取账户详情")
+@router.get(
+    "/profiles/{profile_id}", response_model=ProfileResponse, summary="获取账户详情"
+)
 async def get_profile(
     profile_id: str,
     current_user: dict = Depends(_get_auth_dep()),
@@ -91,7 +96,9 @@ async def get_profile(
     return ProfileResponse(**profile)
 
 
-@router.put("/profiles/{profile_id}", response_model=ProfileResponse, summary="更新账户")
+@router.put(
+    "/profiles/{profile_id}", response_model=ProfileResponse, summary="更新账户"
+)
 async def update_profile(
     profile_id: str,
     request: UpdateProfileRequest,
@@ -123,5 +130,7 @@ async def delete_profile(
     svc = get_profile_service()
     success = svc.delete_profile(profile_id=profile_id, user_id=current_user["id"])
     if not success:
-        raise HTTPException(status_code=400, detail="Cannot delete profile (default or not found)")
+        raise HTTPException(
+            status_code=400, detail="Cannot delete profile (default or not found)"
+        )
     return {"success": True, "message": "Profile deleted"}

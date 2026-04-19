@@ -5,7 +5,6 @@ RPS calculator, factor scorer, core pool builder, signal generator,
 service, and API router.
 """
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -20,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # =============================================================================
 # Schema Tests
 # =============================================================================
+
 
 class TestSchemas:
     """Test Pydantic schema definitions and defaults."""
@@ -181,7 +181,9 @@ class TestSchemas:
     def test_quant_config_update(self):
         from stock_datasource.modules.quant.schemas import QuantConfigUpdate
 
-        update = QuantConfigUpdate(config_type="factor_weights", config_data={"quality": 0.4})
+        update = QuantConfigUpdate(
+            config_type="factor_weights", config_data={"quality": 0.4}
+        )
         assert update.config_name is None
 
     def test_missing_data_summary(self):
@@ -227,6 +229,7 @@ class TestSchemas:
 # =============================================================================
 # Benford Checker Tests
 # =============================================================================
+
 
 class TestBenfordChecker:
     """Test Benford's Law checker."""
@@ -290,7 +293,9 @@ class TestBenfordChecker:
         assert len(distribution) == 9
 
     def test_check_benford_for_stock_small_sample(self):
-        from stock_datasource.modules.quant.benford_checker import check_benford_for_stock
+        from stock_datasource.modules.quant.benford_checker import (
+            check_benford_for_stock,
+        )
 
         revenue = pd.Series([100, 200])
         profit = pd.Series([50, 80])
@@ -300,7 +305,9 @@ class TestBenfordChecker:
         assert result["sample_size"] == 4
 
     def test_check_benford_for_stock_normal_data(self):
-        from stock_datasource.modules.quant.benford_checker import check_benford_for_stock
+        from stock_datasource.modules.quant.benford_checker import (
+            check_benford_for_stock,
+        )
 
         pytest.importorskip("scipy", reason="scipy not installed")
 
@@ -319,6 +326,7 @@ class TestBenfordChecker:
 # Data Readiness Tests
 # =============================================================================
 
+
 class TestDataReadiness:
     """Test DataReadinessChecker with mocked ClickHouse."""
 
@@ -328,7 +336,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = True
             mock_db.execute_query.side_effect = [
                 # count query
@@ -362,7 +372,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             # First table doesn't exist
             mock_db.table_exists.return_value = False
 
@@ -378,7 +390,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = True
             mock_db.execute_query.return_value = pd.DataFrame({"cnt": [0]})
 
@@ -391,7 +405,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = True
             mock_db.execute_query.side_effect = [
                 pd.DataFrame({"cnt": [5000]}),
@@ -415,7 +431,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = False
 
             results = await checker.check_full_pipeline_readiness()
@@ -432,7 +450,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = False
 
             result = await checker.check_screening_readiness()
@@ -447,7 +467,9 @@ class TestDataReadiness:
 
         checker = DataReadinessChecker()
 
-        with patch("stock_datasource.modules.quant.data_readiness.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.data_readiness.db_client"
+        ) as mock_db:
             mock_db.table_exists.return_value = True
             mock_db.execute_query.side_effect = [
                 pd.DataFrame({"cnt": [100]}),
@@ -514,6 +536,7 @@ class TestDataReadiness:
 # Screening Engine Tests
 # =============================================================================
 
+
 class TestScreeningEngine:
     """Test screening engine with mocked ClickHouse."""
 
@@ -522,51 +545,61 @@ class TestScreeningEngine:
         rows = []
         for code in codes:
             for y in range(years):
-                rows.append({
-                    "ts_code": code,
-                    "end_date": f"{2025 - y}1231",
-                    "roe": 12.0 + y,
-                    "revenue_yoy": 15.0 + y,
-                    "netprofit_yoy": 10.0 + y,
-                })
+                rows.append(
+                    {
+                        "ts_code": code,
+                        "end_date": f"{2025 - y}1231",
+                        "roe": 12.0 + y,
+                        "revenue_yoy": 15.0 + y,
+                        "netprofit_yoy": 10.0 + y,
+                    }
+                )
         return pd.DataFrame(rows)
 
     def _make_income_df(self, codes, years=3):
         rows = []
         for code in codes:
             for y in range(years):
-                rows.append({
-                    "ts_code": code,
-                    "end_date": f"{2025 - y}1231",
-                    "total_revenue": 1e9 * (1 + y * 0.1),
-                    "n_income": 1e8 * (1 + y * 0.05),
-                })
+                rows.append(
+                    {
+                        "ts_code": code,
+                        "end_date": f"{2025 - y}1231",
+                        "total_revenue": 1e9 * (1 + y * 0.1),
+                        "n_income": 1e8 * (1 + y * 0.05),
+                    }
+                )
         return pd.DataFrame(rows)
 
     def _make_balance_df(self, codes, years=2):
         rows = []
         for code in codes:
             for y in range(years):
-                rows.append({
-                    "ts_code": code,
-                    "end_date": f"{2025 - y}1231",
-                    "accounts_receiv": 5e7 * (1 + y * 0.05),
-                })
+                rows.append(
+                    {
+                        "ts_code": code,
+                        "end_date": f"{2025 - y}1231",
+                        "accounts_receiv": 5e7 * (1 + y * 0.05),
+                    }
+                )
         return pd.DataFrame(rows)
 
     def _make_cashflow_df(self, codes, years=2):
         rows = []
         for code in codes:
             for y in range(years):
-                rows.append({
-                    "ts_code": code,
-                    "end_date": f"{2025 - y}1231",
-                    "n_cashflow_act": 6e8 * (1 + y * 0.1),
-                })
+                rows.append(
+                    {
+                        "ts_code": code,
+                        "end_date": f"{2025 - y}1231",
+                        "n_cashflow_act": 6e8 * (1 + y * 0.1),
+                    }
+                )
         return pd.DataFrame(rows)
 
     def test_default_screening_rules(self):
-        from stock_datasource.modules.quant.screening_engine import default_screening_rules
+        from stock_datasource.modules.quant.screening_engine import (
+            default_screening_rules,
+        )
 
         rules = default_screening_rules()
         assert len(rules) == 7
@@ -601,13 +634,15 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ"}
-        df = pd.DataFrame({
-            "ts_code": ["000001.SZ", "000001.SZ"],
-            "end_date": ["20251231", "20241231"],
-            "roe": [10, 10],
-            "revenue_yoy": [-5, 10],  # First year negative
-            "netprofit_yoy": [10, 10],
-        })
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "end_date": ["20251231", "20241231"],
+                "roe": [10, 10],
+                "revenue_yoy": [-5, 10],  # First year negative
+                "netprofit_yoy": [10, 10],
+            }
+        )
 
         passed, failed, skipped = engine._check_revenue_growth(
             df, codes, {"min_growth": 0, "years": 2}
@@ -619,13 +654,15 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ"}
-        df = pd.DataFrame({
-            "ts_code": ["000001.SZ"],
-            "end_date": ["20251231"],
-            "roe": [10],
-            "revenue_yoy": [15],
-            "netprofit_yoy": [10],
-        })
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "end_date": ["20251231"],
+                "roe": [10],
+                "revenue_yoy": [15],
+                "netprofit_yoy": [10],
+            }
+        )
 
         passed, failed, skipped = engine._check_revenue_growth(
             df, codes, {"min_growth": 0, "years": 2}
@@ -637,12 +674,14 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ", "000002.SZ"}
-        df = pd.DataFrame({
-            "ts_code": ["000001.SZ", "000002.SZ"],
-            "end_date": ["20251231", "20251231"],
-            "total_revenue": [1e9, 1e9],
-            "n_income": [1e8, -5e7],  # 000002 has negative profit
-        })
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000002.SZ"],
+                "end_date": ["20251231", "20251231"],
+                "total_revenue": [1e9, 1e9],
+                "n_income": [1e8, -5e7],  # 000002 has negative profit
+            }
+        )
 
         passed, failed, skipped = engine._check_net_profit(df, codes)
         assert "000001.SZ" in passed
@@ -653,12 +692,14 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ"}
-        df = pd.DataFrame({
-            "ts_code": ["000099.SZ"],  # Different code
-            "end_date": ["20251231"],
-            "total_revenue": [1e9],
-            "n_income": [1e8],
-        })
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000099.SZ"],  # Different code
+                "end_date": ["20251231"],
+                "total_revenue": [1e9],
+                "n_income": [1e8],
+            }
+        )
 
         passed, failed, skipped = engine._check_net_profit(df, codes)
         assert "000001.SZ" in skipped
@@ -681,13 +722,15 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ"}
-        df = pd.DataFrame({
-            "ts_code": ["000001.SZ"] * 3,
-            "end_date": ["20251231", "20241231", "20231231"],
-            "roe": [2.0, 1.0, 3.0],  # avg = 2.0 < 5.0
-            "revenue_yoy": [10, 10, 10],
-            "netprofit_yoy": [5, 5, 5],
-        })
+        df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"] * 3,
+                "end_date": ["20251231", "20241231", "20231231"],
+                "roe": [2.0, 1.0, 3.0],  # avg = 2.0 < 5.0
+                "revenue_yoy": [10, 10, 10],
+                "netprofit_yoy": [5, 5, 5],
+            }
+        )
 
         passed, failed, skipped = engine._check_roe(
             df, codes, {"min_roe": 5.0, "years": 3}
@@ -728,8 +771,13 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
 
-        with patch.object(engine.readiness_checker, "check_screening_readiness") as mock_check:
-            from stock_datasource.modules.quant.schemas import DataReadinessResult, MissingDataSummary
+        with patch.object(
+            engine.readiness_checker, "check_screening_readiness"
+        ) as mock_check:
+            from stock_datasource.modules.quant.schemas import (
+                DataReadinessResult,
+                MissingDataSummary,
+            )
 
             mock_check.return_value = DataReadinessResult(
                 is_ready=False,
@@ -753,24 +801,37 @@ class TestScreeningEngine:
         engine = ScreeningEngine()
         codes = ["000001.SZ", "000002.SZ"]
 
-        with patch.object(engine.readiness_checker, "check_screening_readiness") as mock_check, \
-             patch("stock_datasource.modules.quant.screening_engine.db_client") as mock_db:
-
+        with (
+            patch.object(
+                engine.readiness_checker, "check_screening_readiness"
+            ) as mock_check,
+            patch(
+                "stock_datasource.modules.quant.screening_engine.db_client"
+            ) as mock_db,
+        ):
             from stock_datasource.modules.quant.schemas import DataReadinessResult
 
-            mock_check.return_value = DataReadinessResult(is_ready=True, stage="screening")
+            mock_check.return_value = DataReadinessResult(
+                is_ready=True, stage="screening"
+            )
 
             fina_df = self._make_fina_df(codes)
             income_df = self._make_income_df(codes)
             balance_df = self._make_balance_df(codes)
             cashflow_df = self._make_cashflow_df(codes)
-            names_df = pd.DataFrame({
-                "ts_code": codes,
-                "name": ["平安银行", "万科A"],
-            })
+            names_df = pd.DataFrame(
+                {
+                    "ts_code": codes,
+                    "name": ["平安银行", "万科A"],
+                }
+            )
 
             mock_db.execute_query.side_effect = [
-                fina_df, income_df, balance_df, cashflow_df, names_df,
+                fina_df,
+                income_df,
+                balance_df,
+                cashflow_df,
+                names_df,
             ]
             mock_db.insert_dataframe = Mock()
 
@@ -785,16 +846,21 @@ class TestScreeningEngine:
 
         engine = ScreeningEngine()
         codes = {"000001.SZ"}
-        df = pd.DataFrame({"ts_code": ["000001.SZ"], "end_date": ["20251231"], "roe": [10]})
+        df = pd.DataFrame(
+            {"ts_code": ["000001.SZ"], "end_date": ["20251231"], "roe": [10]}
+        )
         # Missing revenue_yoy column
 
-        passed, failed, skipped = engine._check_revenue_growth(df, codes, {"min_growth": 0, "years": 2})
+        passed, failed, skipped = engine._check_revenue_growth(
+            df, codes, {"min_growth": 0, "years": 2}
+        )
         assert codes == skipped
 
 
 # =============================================================================
 # RPS Calculator Tests
 # =============================================================================
+
 
 class TestRPSCalculator:
     """Test RPS calculator with mocked data."""
@@ -805,10 +871,14 @@ class TestRPSCalculator:
 
         calc = RPSCalculator()
 
-        with patch.object(calc.readiness_checker, "check_core_pool_readiness") as mock_check:
+        with patch.object(
+            calc.readiness_checker, "check_core_pool_readiness"
+        ) as mock_check:
             from stock_datasource.modules.quant.schemas import DataReadinessResult
 
-            mock_check.return_value = DataReadinessResult(is_ready=False, stage="core_pool")
+            mock_check.return_value = DataReadinessResult(
+                is_ready=False, stage="core_pool"
+            )
 
             result = await calc.calculate_rps()
             assert result.total_stocks == 0
@@ -820,30 +890,43 @@ class TestRPSCalculator:
 
         calc = RPSCalculator()
 
-        with patch.object(calc.readiness_checker, "check_core_pool_readiness") as mock_check, \
-             patch("stock_datasource.modules.quant.rps_calculator.db_client") as mock_db:
-
+        with (
+            patch.object(
+                calc.readiness_checker, "check_core_pool_readiness"
+            ) as mock_check,
+            patch("stock_datasource.modules.quant.rps_calculator.db_client") as mock_db,
+        ):
             from stock_datasource.modules.quant.schemas import DataReadinessResult
 
-            mock_check.return_value = DataReadinessResult(is_ready=True, stage="core_pool")
+            mock_check.return_value = DataReadinessResult(
+                is_ready=True, stage="core_pool"
+            )
 
             # Generate 300 days of daily data for 3 stocks
             rows = []
             for code in ["000001.SZ", "000002.SZ", "000003.SZ"]:
-                base_price = 10.0 if code == "000001.SZ" else (20.0 if code == "000002.SZ" else 15.0)
+                base_price = (
+                    10.0
+                    if code == "000001.SZ"
+                    else (20.0 if code == "000002.SZ" else 15.0)
+                )
                 for i in range(300):
-                    rows.append({
-                        "ts_code": code,
-                        "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
-                        "close": base_price + i * 0.1,
-                        "pct_chg": 1.0,
-                        "adj_factor": 1.0,
-                    })
+                    rows.append(
+                        {
+                            "ts_code": code,
+                            "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
+                            "close": base_price + i * 0.1,
+                            "pct_chg": 1.0,
+                            "adj_factor": 1.0,
+                        }
+                    )
             daily_df = pd.DataFrame(rows)
-            names_df = pd.DataFrame({
-                "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
-                "name": ["平安银行", "万科A", "中国平安"],
-            })
+            names_df = pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+                    "name": ["平安银行", "万科A", "中国平安"],
+                }
+            )
 
             mock_db.execute_query.side_effect = [daily_df, names_df]
             mock_db.insert_dataframe = Mock()
@@ -860,10 +943,14 @@ class TestRPSCalculator:
 
         calc = RPSCalculator()
 
-        with patch("stock_datasource.modules.quant.rps_calculator.db_client") as mock_db:
-            mock_db.execute_query.return_value = pd.DataFrame({
-                "ts_code": ["000001.SZ", "000002.SZ"],
-            })
+        with patch(
+            "stock_datasource.modules.quant.rps_calculator.db_client"
+        ) as mock_db:
+            mock_db.execute_query.return_value = pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000002.SZ"],
+                }
+            )
 
             result = await calc.get_strong_stocks(threshold=80)
             assert len(result) == 2
@@ -885,6 +972,7 @@ class TestRPSCalculator:
 # Factor Scorer Tests
 # =============================================================================
 
+
 class TestFactorScorer:
     """Test multi-factor scoring model."""
 
@@ -903,7 +991,9 @@ class TestFactorScorer:
         assert _percentile_score(float("nan"), pd.Series([1, 2, 3])) == 50.0
 
     def test_inverse_percentile_score(self):
-        from stock_datasource.modules.quant.factor_scorer import _inverse_percentile_score
+        from stock_datasource.modules.quant.factor_scorer import (
+            _inverse_percentile_score,
+        )
 
         values = pd.Series([10, 20, 30, 40, 50])
         # Lower PE is better, so 10 should score high
@@ -933,42 +1023,55 @@ class TestFactorScorer:
         codes = ["000001.SZ", "000002.SZ"]
 
         with patch("stock_datasource.modules.quant.factor_scorer.db_client") as mock_db:
-            fina_df = pd.DataFrame({
-                "ts_code": ["000001.SZ", "000001.SZ", "000002.SZ", "000002.SZ"],
-                "end_date": ["20251231", "20241231", "20251231", "20241231"],
-                "roe": [15.0, 14.0, 8.0, 7.0],
-                "revenue_yoy": [20.0, 18.0, 5.0, 3.0],
-                "netprofit_yoy": [15.0, 12.0, -2.0, 1.0],
-                "grossprofit_margin": [35.0, 33.0, 20.0, 18.0],
-                "debt_to_assets": [40.0, 42.0, 65.0, 68.0],
-            })
-            daily_basic_df = pd.DataFrame({
-                "ts_code": ["000001.SZ", "000002.SZ"],
-                "trade_date": ["20260101", "20260101"],
-                "pe": [12.0, 25.0],
-                "pb": [1.5, 3.0],
-                "total_mv": [1e10, 5e9],
-            })
+            fina_df = pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000001.SZ", "000002.SZ", "000002.SZ"],
+                    "end_date": ["20251231", "20241231", "20251231", "20241231"],
+                    "roe": [15.0, 14.0, 8.0, 7.0],
+                    "revenue_yoy": [20.0, 18.0, 5.0, 3.0],
+                    "netprofit_yoy": [15.0, 12.0, -2.0, 1.0],
+                    "grossprofit_margin": [35.0, 33.0, 20.0, 18.0],
+                    "debt_to_assets": [40.0, 42.0, 65.0, 68.0],
+                }
+            )
+            daily_basic_df = pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000002.SZ"],
+                    "trade_date": ["20260101", "20260101"],
+                    "pe": [12.0, 25.0],
+                    "pb": [1.5, 3.0],
+                    "total_mv": [1e10, 5e9],
+                }
+            )
 
             # Daily data for momentum: 120+ rows per stock
             daily_rows = []
             for code in codes:
                 base = 10.0 if code == "000001.SZ" else 8.0
                 for i in range(150):
-                    daily_rows.append({
-                        "ts_code": code,
-                        "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
-                        "close": base + i * 0.05,
-                        "pct_chg": 0.5,
-                    })
+                    daily_rows.append(
+                        {
+                            "ts_code": code,
+                            "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
+                            "close": base + i * 0.05,
+                            "pct_chg": 0.5,
+                        }
+                    )
             daily_df = pd.DataFrame(daily_rows)
 
-            names_df = pd.DataFrame({
-                "ts_code": codes,
-                "name": ["平安银行", "万科A"],
-            })
+            names_df = pd.DataFrame(
+                {
+                    "ts_code": codes,
+                    "name": ["平安银行", "万科A"],
+                }
+            )
 
-            mock_db.execute_query.side_effect = [fina_df, daily_basic_df, daily_df, names_df]
+            mock_db.execute_query.side_effect = [
+                fina_df,
+                daily_basic_df,
+                daily_df,
+                names_df,
+            ]
 
             results = await scorer.score_stocks(codes)
             assert len(results) == 2
@@ -985,6 +1088,7 @@ class TestFactorScorer:
 # =============================================================================
 # Core Pool Builder Tests
 # =============================================================================
+
 
 class TestCorePoolBuilder:
     """Test core pool builder."""
@@ -1024,10 +1128,14 @@ class TestCorePoolBuilder:
 
         builder = CorePoolBuilder()
 
-        with patch.object(builder.readiness_checker, "check_core_pool_readiness") as mock_check:
+        with patch.object(
+            builder.readiness_checker, "check_core_pool_readiness"
+        ) as mock_check:
             from stock_datasource.modules.quant.schemas import DataReadinessResult
 
-            mock_check.return_value = DataReadinessResult(is_ready=False, stage="core_pool")
+            mock_check.return_value = DataReadinessResult(
+                is_ready=False, stage="core_pool"
+            )
 
             result = await builder.build_core_pool(["000001.SZ"])
             assert result.core_stocks == []
@@ -1038,13 +1146,19 @@ class TestCorePoolBuilder:
 
         builder = CorePoolBuilder()
 
-        with patch("stock_datasource.modules.quant.core_pool_builder.db_client") as mock_db:
-            mock_db.execute_query.return_value = pd.DataFrame({
-                "ts_code": ["000001.SZ", "000003.SZ"],
-                "latest_roe": [10.0, 5.0],
-            })
+        with patch(
+            "stock_datasource.modules.quant.core_pool_builder.db_client"
+        ) as mock_db:
+            mock_db.execute_query.return_value = pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ", "000003.SZ"],
+                    "latest_roe": [10.0, 5.0],
+                }
+            )
 
-            result = builder._quick_financial_check(["000001.SZ", "000002.SZ", "000003.SZ"])
+            result = builder._quick_financial_check(
+                ["000001.SZ", "000002.SZ", "000003.SZ"]
+            )
             assert "000001.SZ" in result
             assert "000003.SZ" in result
             assert "000002.SZ" not in result
@@ -1053,6 +1167,7 @@ class TestCorePoolBuilder:
 # =============================================================================
 # Signal Generator Tests
 # =============================================================================
+
 
 class TestSignalGenerator:
     """Test trading signal generator."""
@@ -1068,11 +1183,13 @@ class TestSignalGenerator:
                 price = base_price - i * 0.02
             else:
                 price = base_price + np.sin(i / 20) * 2
-            rows.append({
-                "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
-                "close": max(1, price),
-                "pct_chg": 0.5 if trend == "up" else -0.3,
-            })
+            rows.append(
+                {
+                    "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
+                    "close": max(1, price),
+                    "pct_chg": 0.5 if trend == "up" else -0.3,
+                }
+            )
         return pd.DataFrame(rows)
 
     @pytest.mark.asyncio
@@ -1081,10 +1198,14 @@ class TestSignalGenerator:
 
         gen = SignalGenerator()
 
-        with patch.object(gen.readiness_checker, "check_signal_readiness") as mock_check:
+        with patch.object(
+            gen.readiness_checker, "check_signal_readiness"
+        ) as mock_check:
             from stock_datasource.modules.quant.schemas import DataReadinessResult
 
-            mock_check.return_value = DataReadinessResult(is_ready=False, stage="trading_signals")
+            mock_check.return_value = DataReadinessResult(
+                is_ready=False, stage="trading_signals"
+            )
 
             result = await gen.generate_signals(["000001.SZ"])
             assert result.signals == []
@@ -1096,14 +1217,18 @@ class TestSignalGenerator:
 
         gen = SignalGenerator()
 
-        with patch("stock_datasource.modules.quant.signal_generator.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.signal_generator.db_client"
+        ) as mock_db:
             # Create 300 days of index data - uptrend so close > MA250
             rows = []
             for i in range(300):
-                rows.append({
-                    "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
-                    "close": 3500 + i * 2,  # Uptrend
-                })
+                rows.append(
+                    {
+                        "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
+                        "close": 3500 + i * 2,  # Uptrend
+                    }
+                )
             mock_db.execute_query.return_value = pd.DataFrame(rows)
 
             result = await gen.check_market_risk()
@@ -1117,14 +1242,18 @@ class TestSignalGenerator:
 
         gen = SignalGenerator()
 
-        with patch("stock_datasource.modules.quant.signal_generator.db_client") as mock_db:
+        with patch(
+            "stock_datasource.modules.quant.signal_generator.db_client"
+        ) as mock_db:
             # Create 300 days of index data - downtrend so close < MA250
             rows = []
             for i in range(300):
-                rows.append({
-                    "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
-                    "close": 4000 - i * 3,  # Downtrend
-                })
+                rows.append(
+                    {
+                        "trade_date": f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}",
+                        "close": 4000 - i * 3,  # Downtrend
+                    }
+                )
             mock_db.execute_query.return_value = pd.DataFrame(rows)
 
             result = await gen.check_market_risk()
@@ -1137,8 +1266,12 @@ class TestSignalGenerator:
 
         gen = SignalGenerator()
 
-        with patch("stock_datasource.modules.quant.signal_generator.db_client") as mock_db:
-            mock_db.execute_query.return_value = pd.DataFrame({"trade_date": [], "close": []})
+        with patch(
+            "stock_datasource.modules.quant.signal_generator.db_client"
+        ) as mock_db:
+            mock_db.execute_query.return_value = pd.DataFrame(
+                {"trade_date": [], "close": []}
+            )
 
             result = await gen.check_market_risk()
             assert "数据不足" in result.description
@@ -1146,8 +1279,8 @@ class TestSignalGenerator:
     @pytest.mark.asyncio
     async def test_golden_cross_signal(self):
         """Test that golden cross (MA25 crosses above MA120) generates buy signal."""
-        from stock_datasource.modules.quant.signal_generator import SignalGenerator
         from stock_datasource.modules.quant.schemas import MarketRiskStatus
+        from stock_datasource.modules.quant.signal_generator import SignalGenerator
 
         gen = SignalGenerator()
 
@@ -1163,15 +1296,21 @@ class TestSignalGenerator:
                 # Spike up so MA25 crosses MA120
                 prices.append(10.0 + (i - 119) * 0.5)
 
-        df = pd.DataFrame({
-            "trade_date": [f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}" for i in range(days)],
-            "close": prices,
-            "pct_chg": [0.0] * days,
-        })
+        df = pd.DataFrame(
+            {
+                "trade_date": [
+                    f"2025{(i // 28 + 1):02d}{(i % 28 + 1):02d}" for i in range(days)
+                ],
+                "close": prices,
+                "pct_chg": [0.0] * days,
+            }
+        )
 
         market_risk = MarketRiskStatus(risk_level="normal", suggested_position=1.0)
 
-        signals = await gen._check_stock_signals("000001.SZ", "20260101", "测试", market_risk)
+        signals = await gen._check_stock_signals(
+            "000001.SZ", "20260101", "测试", market_risk
+        )
         # Should have at least one signal (golden cross or other)
         # The exact signal depends on MA values
         for sig in signals:
@@ -1201,6 +1340,7 @@ class TestSignalGenerator:
 # Service Tests
 # =============================================================================
 
+
 class TestQuantService:
     """Test QuantService pipeline orchestration."""
 
@@ -1211,7 +1351,9 @@ class TestQuantService:
         service = QuantService()
         service._initialized = True
 
-        with patch("stock_datasource.modules.quant.service.get_data_readiness_checker") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.service.get_data_readiness_checker"
+        ) as mock_getter:
             mock_checker = AsyncMock()
             mock_getter.return_value = mock_checker
             mock_checker.check_full_pipeline_readiness.return_value = {
@@ -1230,30 +1372,41 @@ class TestQuantService:
         service = QuantService()
         service._initialized = True
 
-        with patch("stock_datasource.modules.quant.service.get_data_readiness_checker") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.service.get_data_readiness_checker"
+        ) as mock_getter:
             mock_checker = AsyncMock()
             mock_getter.return_value = mock_checker
-            mock_checker.check_screening_readiness.return_value = MagicMock(is_ready=True)
+            mock_checker.check_screening_readiness.return_value = MagicMock(
+                is_ready=True
+            )
 
             result = await service.check_data_readiness("screening")
             mock_checker.check_screening_readiness.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_screening(self):
+        from stock_datasource.modules.quant.schemas import (
+            ScreeningResult,
+            ScreeningRunRequest,
+        )
         from stock_datasource.modules.quant.service import QuantService
-        from stock_datasource.modules.quant.schemas import ScreeningRunRequest, ScreeningResult
 
         service = QuantService()
         service._initialized = True
 
-        with patch("stock_datasource.modules.quant.service.get_screening_engine") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.service.get_screening_engine"
+        ) as mock_getter:
             mock_engine = AsyncMock()
             mock_getter.return_value = mock_engine
             mock_engine.run_screening.return_value = ScreeningResult(
                 run_date="20260101", status="success", total_stocks=100
             )
 
-            result = await service.run_screening(ScreeningRunRequest(trade_date="20260101"))
+            result = await service.run_screening(
+                ScreeningRunRequest(trade_date="20260101")
+            )
             assert result.status == "success"
             assert result.total_stocks == 100
 
@@ -1303,8 +1456,8 @@ class TestQuantService:
 
     @pytest.mark.asyncio
     async def test_update_config(self):
-        from stock_datasource.modules.quant.service import QuantService
         from stock_datasource.modules.quant.schemas import QuantConfigUpdate
+        from stock_datasource.modules.quant.service import QuantService
 
         service = QuantService()
         service._initialized = True
@@ -1314,7 +1467,12 @@ class TestQuantService:
 
             update = QuantConfigUpdate(
                 config_type="factor_weights",
-                config_data={"quality": 0.4, "growth": 0.3, "value": 0.15, "momentum": 0.15},
+                config_data={
+                    "quality": 0.4,
+                    "growth": 0.3,
+                    "value": 0.15,
+                    "momentum": 0.15,
+                },
             )
             result = await service.update_config(update)
             assert result.config_type == "factor_weights"
@@ -1363,6 +1521,7 @@ class TestQuantService:
 # Router / API Tests
 # =============================================================================
 
+
 class TestQuantRouter:
     """Test API router endpoints."""
 
@@ -1370,6 +1529,7 @@ class TestQuantRouter:
     def client(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
         from stock_datasource.modules.quant.router import router
 
         app = FastAPI()
@@ -1384,12 +1544,16 @@ class TestQuantRouter:
         assert data["module"] == "quant"
 
     def test_check_stage_readiness_invalid(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_svc:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_svc:
             response = client.get("/api/quant/data-readiness/invalid_stage")
             assert response.status_code == 400
 
     def test_get_screening_rules(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
             mock_svc.get_config.return_value = []
@@ -1398,18 +1562,23 @@ class TestQuantRouter:
             assert response.status_code == 200
 
     def test_get_pool(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
 
             from stock_datasource.modules.quant.schemas import CorePoolResult
+
             mock_svc.get_pool.return_value = CorePoolResult(update_date="20260101")
 
             response = client.get("/api/quant/pool")
             assert response.status_code == 200
 
     def test_get_signals(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
             mock_svc.get_signals.return_value = []
@@ -1418,7 +1587,9 @@ class TestQuantRouter:
             assert response.status_code == 200
 
     def test_get_config(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
             mock_svc.get_config.return_value = []
@@ -1427,7 +1598,9 @@ class TestQuantRouter:
             assert response.status_code == 200
 
     def test_get_rps(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
             mock_svc.get_rps.return_value = []
@@ -1436,11 +1609,14 @@ class TestQuantRouter:
             assert response.status_code == 200
 
     def test_get_market_risk(self, client):
-        with patch("stock_datasource.modules.quant.signal_generator.get_signal_generator") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.signal_generator.get_signal_generator"
+        ) as mock_getter:
             mock_gen = AsyncMock()
             mock_getter.return_value = mock_gen
 
             from stock_datasource.modules.quant.schemas import MarketRiskStatus
+
             mock_gen.check_market_risk.return_value = MarketRiskStatus(
                 risk_level="normal", suggested_position=1.0
             )
@@ -1451,11 +1627,14 @@ class TestQuantRouter:
             assert data["risk_level"] == "normal"
 
     def test_run_screening_endpoint(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
 
             from stock_datasource.modules.quant.schemas import ScreeningResult
+
             mock_svc.run_screening.return_value = ScreeningResult(
                 run_date="20260101", status="success", total_stocks=50, passed_count=30
             )
@@ -1467,22 +1646,29 @@ class TestQuantRouter:
             assert data["total_stocks"] == 50
 
     def test_run_pipeline_endpoint(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
 
             from stock_datasource.modules.quant.schemas import PipelineRunStatus
+
             mock_svc.run_pipeline.return_value = PipelineRunStatus(
                 run_id="test123", overall_status="completed"
             )
 
-            response = client.post("/api/quant/pipeline/run", json={"pipeline_type": "full"})
+            response = client.post(
+                "/api/quant/pipeline/run", json={"pipeline_type": "full"}
+            )
             assert response.status_code == 200
             data = response.json()
             assert data["run_id"] == "test123"
 
     def test_get_pipeline_status_not_found(self, client):
-        with patch("stock_datasource.modules.quant.router.get_quant_service") as mock_getter:
+        with patch(
+            "stock_datasource.modules.quant.router.get_quant_service"
+        ) as mock_getter:
             mock_svc = AsyncMock()
             mock_getter.return_value = mock_svc
             mock_svc.get_pipeline_status.return_value = None

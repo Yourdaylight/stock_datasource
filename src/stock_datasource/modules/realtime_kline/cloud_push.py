@@ -11,14 +11,14 @@ import json
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import requests
 
 from . import config as cfg
-from .cache import get_cache_store, RealtimeKlineCacheStore
 from . import metrics as m
+from .cache import RealtimeKlineCacheStore, get_cache_store
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 def _is_push_enabled() -> bool:
     """Check push switch: runtime Redis > env default."""
     from stock_datasource.config.settings import settings
+
     cache = get_cache_store()
     runtime = cache.get_push_switch()
     if runtime is not None:
@@ -38,18 +39,21 @@ class CloudPushWorker:
 
     def __init__(self):
         from stock_datasource.config.settings import settings
+
         self._settings = settings
         self._cache: RealtimeKlineCacheStore = get_cache_store()
         self._markets = list(cfg.CLICKHOUSE_TABLES.keys())
 
         # Per-market in-memory backlog (circuit-breaker overflow)
-        self._backlog: Dict[str, deque] = {
+        self._backlog: dict[str, deque] = {
             mkt: deque(maxlen=settings.RT_KLINE_PUSH_MAX_BACKLOG)
             for mkt in self._markets
         }
 
         # Per-market continuous-failure tracking
-        self._failure_start: Dict[str, Optional[float]] = {mkt: None for mkt in self._markets}
+        self._failure_start: dict[str, float | None] = {
+            mkt: None for mkt in self._markets
+        }
 
         # Auth token (refreshable)
         self._token: str = settings.RT_KLINE_CLOUD_PUSH_TOKEN
@@ -100,15 +104,17 @@ class CloudPushWorker:
     # ------------------------------------------------------------------
     # Read sliding window
     # ------------------------------------------------------------------
-    def _read_window(self, market: str) -> Dict[str, Dict[str, Any]]:
+    def _read_window(self, market: str) -> dict[str, dict[str, Any]]:
         """Read events from the last 10s window, return latest per symbol."""
         now_ms = int(time.time() * 1000)
         window_start_ms = now_ms - int(self._settings.RT_KLINE_CLOUD_PUSH_WINDOW * 1000)
         min_id = f"{window_start_ms}-0"
 
-        entries = self._cache.xrange_since(market, min_id=min_id, max_id="+", count=10000)
+        entries = self._cache.xrange_since(
+            market, min_id=min_id, max_id="+", count=10000
+        )
         # Deduplicate: keep last entry per symbol
-        latest_per_symbol: Dict[str, Dict[str, Any]] = {}
+        latest_per_symbol: dict[str, dict[str, Any]] = {}
         for entry_id, fields in entries:
             ts_code = fields.get("ts_code", "")
             if not ts_code:
@@ -126,13 +132,13 @@ class CloudPushWorker:
     # Compute delta vs last_acked_state
     # ------------------------------------------------------------------
     def _compute_deltas(
-        self, market: str, window: Dict[str, Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        payloads: List[Dict[str, Any]] = []
+        self, market: str, window: dict[str, dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
 
         for symbol, current in window.items():
             last_state = self._cache.get_last_acked_state(market, symbol)
-            delta_fields: Dict[str, Any] = {}
+            delta_fields: dict[str, Any] = {}
 
             for field in cfg.SNAPSHOT_CORE_FIELDS:
                 cur_val = current.get(field)
@@ -143,27 +149,31 @@ class CloudPushWorker:
             if not delta_fields:
                 continue
 
-            event_id = current.get("_stream_id", f"{int(time.time()*1000)}-0")
-            payloads.append({
-                "schema_version": "v1",
-                "event_id": event_id,
-                "event_time": datetime.now(timezone.utc).isoformat(),
-                "market": market,
-                "source_api": current.get("source_api", cfg.MARKET_API_MAP.get(market, "")),
-                "symbol": symbol,
-                "version": current.get("version", int(time.time() * 1000)),
-                "delta": delta_fields,
-                "full_ref": {
-                    "redis_latest_key": f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:{symbol}",
-                },
-            })
+            event_id = current.get("_stream_id", f"{int(time.time() * 1000)}-0")
+            payloads.append(
+                {
+                    "schema_version": "v1",
+                    "event_id": event_id,
+                    "event_time": datetime.now(UTC).isoformat(),
+                    "market": market,
+                    "source_api": current.get(
+                        "source_api", cfg.MARKET_API_MAP.get(market, "")
+                    ),
+                    "symbol": symbol,
+                    "version": current.get("version", int(time.time() * 1000)),
+                    "delta": delta_fields,
+                    "full_ref": {
+                        "redis_latest_key": f"{cfg.REDIS_KEY_PREFIX_LATEST}:{market}:{symbol}",
+                    },
+                }
+            )
 
         return payloads
 
     # ------------------------------------------------------------------
     # Push one payload
     # ------------------------------------------------------------------
-    def _push_one(self, market: str, payload: Dict[str, Any]) -> bool:
+    def _push_one(self, market: str, payload: dict[str, Any]) -> bool:
         url = self._settings.RT_KLINE_CLOUD_PUSH_URL
         if not url:
             logger.debug("No push URL configured, skipping")
@@ -185,13 +195,13 @@ class CloudPushWorker:
                 # Token expired — try refresh once
                 if self._refresh_token():
                     headers["Authorization"] = f"Bearer {self._token}"
-                    resp = self._session.post(url, json=payload, headers=headers, timeout=5)
+                    resp = self._session.post(
+                        url, json=payload, headers=headers, timeout=5
+                    )
                     if resp.status_code == 200:
                         return self._handle_ack(market, payload, resp.json())
                 return self._handle_non_retryable(market, payload, resp.status_code)
-            elif resp.status_code in (429, 503):
-                return self._handle_retryable(market, payload, resp)
-            elif resp.status_code >= 500:
+            elif resp.status_code in (429, 503) or resp.status_code >= 500:
                 return self._handle_retryable(market, payload, resp)
             else:
                 return self._handle_non_retryable(market, payload, resp.status_code)
@@ -212,7 +222,9 @@ class CloudPushWorker:
             self._record_failure(market)
             return False
 
-    def _handle_ack(self, market: str, payload: Dict[str, Any], ack: Dict[str, Any]) -> bool:
+    def _handle_ack(
+        self, market: str, payload: dict[str, Any], ack: dict[str, Any]
+    ) -> bool:
         status = ack.get("status", "")
         code = ack.get("code", -1)
 
@@ -238,7 +250,9 @@ class CloudPushWorker:
         else:
             return self._handle_non_retryable(market, payload, code)
 
-    def _handle_retryable(self, market: str, payload: Dict[str, Any], resp: Any) -> bool:
+    def _handle_retryable(
+        self, market: str, payload: dict[str, Any], resp: Any
+    ) -> bool:
         m.push_event(market, "retryable")
         m.push_retry(market)
         # Add to memory backlog for priority retry in next tick
@@ -246,14 +260,20 @@ class CloudPushWorker:
         self._record_failure(market)
         return False
 
-    def _handle_non_retryable(self, market: str, payload: Dict[str, Any], status_code: int) -> bool:
+    def _handle_non_retryable(
+        self, market: str, payload: dict[str, Any], status_code: int
+    ) -> bool:
         m.push_event(market, "failed")
-        self._cache.push_to_dlq(cfg.REDIS_KEY_DLQ_PUSH, market, {
-            "payload": payload,
-            "status_code": status_code,
-        })
+        self._cache.push_to_dlq(
+            cfg.REDIS_KEY_DLQ_PUSH,
+            market,
+            {
+                "payload": payload,
+                "status_code": status_code,
+            },
+        )
         m.push_dlq_size(market, self._cache.dlq_size(cfg.REDIS_KEY_DLQ_PUSH, market))
-        
+
         # Mark as acked even if failed (to avoid repeat DLQ entries for same version)
         symbol = payload["symbol"]
         delta = payload.get("delta", {})
@@ -262,7 +282,11 @@ class CloudPushWorker:
         self._cache.set_last_acked_state(market, symbol, last_state)
 
         self._record_failure(market)
-        logger.warning("Non-retryable push failure for %s (status=%s), sent to DLQ", market, status_code)
+        logger.warning(
+            "Non-retryable push failure for %s (status=%s), sent to DLQ",
+            market,
+            status_code,
+        )
         return False
 
     # ------------------------------------------------------------------
@@ -275,7 +299,9 @@ class CloudPushWorker:
         if duration_min >= self._settings.RT_KLINE_PUSH_CIRCUIT_BREAKER_MINUTES:
             self._cache.set_circuit_breaker(market, True)
             m.push_circuit_breaker(market, True)
-            logger.error("Circuit breaker activated for %s after %.0f min", market, duration_min)
+            logger.error(
+                "Circuit breaker activated for %s after %.0f min", market, duration_min
+            )
 
     def _clear_failure(self, market: str) -> None:
         self._failure_start[market] = None
@@ -335,17 +361,19 @@ class CloudPushWorker:
     # ------------------------------------------------------------------
     # DLQ cleanup
     # ------------------------------------------------------------------
-    def cleanup_dlq(self) -> Dict[str, int]:
+    def cleanup_dlq(self) -> dict[str, int]:
         result = {}
         for market in self._markets:
             removed = self._cache.dlq_trim_old(
-                cfg.REDIS_KEY_DLQ_PUSH, market, self._settings.RT_KLINE_PUSH_DLQ_TTL_DAYS
+                cfg.REDIS_KEY_DLQ_PUSH,
+                market,
+                self._settings.RT_KLINE_PUSH_DLQ_TTL_DAYS,
             )
             result[market] = removed
         return result
 
 
-_push_worker: Optional[CloudPushWorker] = None
+_push_worker: CloudPushWorker | None = None
 
 
 def get_push_worker() -> CloudPushWorker:

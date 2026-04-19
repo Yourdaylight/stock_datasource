@@ -10,11 +10,10 @@ Financial-scenario customized summary prompt that preserves key numbers.
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any, Dict, List, Optional
+
+from stock_datasource.modules.memory.models import ContextSize
 
 from .base import AgentContext, AgentResponse, BaseMiddleware
-from stock_datasource.modules.memory.models import ContextSize
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +54,9 @@ class SummarizationMiddleware(BaseMiddleware):
 
     def __init__(
         self,
-        trigger: Optional[List[ContextSize]] = None,
-        keep: Optional[ContextSize] = None,
-        summary_prompt: Optional[str] = None,
+        trigger: list[ContextSize] | None = None,
+        keep: ContextSize | None = None,
+        summary_prompt: str | None = None,
         model_name: str = "",
         model_max_tokens: int = 0,
     ):
@@ -74,6 +73,7 @@ class SummarizationMiddleware(BaseMiddleware):
     def _detect_model_window(self) -> int:
         """Detect model context window size from model name."""
         import os
+
         model = self._model_name or os.getenv("OPENAI_MODEL", "gpt-4")
 
         for key, window in self.MODEL_WINDOWS.items():
@@ -98,10 +98,9 @@ class SummarizationMiddleware(BaseMiddleware):
         should_summarize = False
         for trigger in self._trigger:
             threshold = trigger.resolve(self._model_max_tokens)
-            if trigger.type == "fraction" and context_tokens >= threshold:
-                should_summarize = True
-                break
-            elif trigger.type == "tokens" and context_tokens >= threshold:
+            if (trigger.type == "fraction" and context_tokens >= threshold) or (
+                trigger.type == "tokens" and context_tokens >= threshold
+            ):
                 should_summarize = True
                 break
 
@@ -112,7 +111,9 @@ class SummarizationMiddleware(BaseMiddleware):
         context.trace(self.name, "done")
         return context
 
-    async def after(self, context: AgentContext, response: AgentResponse) -> AgentResponse:
+    async def after(
+        self, context: AgentContext, response: AgentResponse
+    ) -> AgentResponse:
         """No post-processing needed for summarization in this implementation.
 
         Actual summarization is handled by LangGraph's built-in mechanisms

@@ -19,7 +19,7 @@ import pkgutil
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,30 +28,34 @@ logger = logging.getLogger(__name__)
 # Enums & Descriptors
 # ---------------------------------------------------------------------------
 
+
 class AgentRole(str, Enum):
     """Role of an agent in the runtime."""
-    AGENT = "agent"          # Business agent, directly routable
+
+    AGENT = "agent"  # Business agent, directly routable
     SUB_AGENT = "sub_agent"  # Invoked by coordinator/runtime only
-    ADAPTER = "adapter"      # Wraps workflow / arena into runtime
+    ADAPTER = "adapter"  # Wraps workflow / arena into runtime
 
 
 @dataclass
 class CapabilityDescriptor:
     """Describes what an agent can do."""
-    intents: List[str] = field(default_factory=list)
-    markets: List[str] = field(default_factory=list)   # e.g. ["A", "HK"]
-    tags: List[str] = field(default_factory=list)
+
+    intents: list[str] = field(default_factory=list)
+    markets: list[str] = field(default_factory=list)  # e.g. ["A", "HK"]
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
 class AgentDescriptor:
     """Metadata about a registered agent."""
+
     name: str
     description: str
-    agent_class: Type
+    agent_class: type
     role: AgentRole = AgentRole.AGENT
     capability: CapabilityDescriptor = field(default_factory=CapabilityDescriptor)
-    priority: int = 0                      # Higher = preferred when multiple match
+    priority: int = 0  # Higher = preferred when multiple match
     enabled: bool = True
     registered_at: float = field(default_factory=time.time)
 
@@ -62,6 +66,7 @@ class AgentDescriptor:
 # ---------------------------------------------------------------------------
 # AgentRegistry
 # ---------------------------------------------------------------------------
+
 
 class AgentRegistry:
     """Centralized registry for agent descriptors and instances.
@@ -79,7 +84,7 @@ class AgentRegistry:
     """
 
     def __init__(self) -> None:
-        self._descriptors: Dict[str, AgentDescriptor] = {}
+        self._descriptors: dict[str, AgentDescriptor] = {}
         self._fallback_scanned: bool = False
 
     # ------------------------------------------------------------------
@@ -95,10 +100,12 @@ class AgentRegistry:
         self._descriptors[descriptor.name] = descriptor
         logger.info(
             "Agent registered: %s (role=%s, enabled=%s)",
-            descriptor.name, descriptor.role.value, descriptor.enabled,
+            descriptor.name,
+            descriptor.role.value,
+            descriptor.enabled,
         )
 
-    def register_many(self, descriptors: List[AgentDescriptor]) -> None:
+    def register_many(self, descriptors: list[AgentDescriptor]) -> None:
         for d in descriptors:
             self.register(d)
 
@@ -112,15 +119,15 @@ class AgentRegistry:
     # Discovery helpers
     # ------------------------------------------------------------------
 
-    def get_descriptor(self, name: str) -> Optional[AgentDescriptor]:
+    def get_descriptor(self, name: str) -> AgentDescriptor | None:
         return self._descriptors.get(name)
 
     def list_descriptors(
         self,
         *,
-        role: Optional[AgentRole] = None,
+        role: AgentRole | None = None,
         enabled_only: bool = True,
-    ) -> List[AgentDescriptor]:
+    ) -> list[AgentDescriptor]:
         result = list(self._descriptors.values())
         if role is not None:
             result = [d for d in result if d.role == role]
@@ -128,31 +135,25 @@ class AgentRegistry:
             result = [d for d in result if d.enabled]
         return sorted(result, key=lambda d: (-d.priority, d.name))
 
-    def list_available(self) -> List[Dict[str, str]]:
+    def list_available(self) -> list[dict[str, str]]:
         """Return lightweight list for LLM classification prompts."""
         return [
             {"name": d.name, "description": d.description}
             for d in self.list_descriptors(role=AgentRole.AGENT)
         ]
 
-    def find_by_intent(self, intent: str) -> List[AgentDescriptor]:
+    def find_by_intent(self, intent: str) -> list[AgentDescriptor]:
         """Find agents whose capability declares a matching intent."""
-        return [
-            d for d in self.list_descriptors()
-            if intent in d.capability.intents
-        ]
+        return [d for d in self.list_descriptors() if intent in d.capability.intents]
 
-    def find_by_tag(self, tag: str) -> List[AgentDescriptor]:
-        return [
-            d for d in self.list_descriptors()
-            if tag in d.capability.tags
-        ]
+    def find_by_tag(self, tag: str) -> list[AgentDescriptor]:
+        return [d for d in self.list_descriptors() if tag in d.capability.tags]
 
     # ------------------------------------------------------------------
     # Instance management (lazy singleton per name)
     # ------------------------------------------------------------------
 
-    def get_agent(self, name: str) -> Optional[Any]:
+    def get_agent(self, name: str) -> Any | None:
         """Get or lazily create an agent instance by name."""
         desc = self._descriptors.get(name)
         if desc is None or not desc.enabled:
@@ -189,7 +190,10 @@ class AgentRegistry:
         self._fallback_scanned = True
 
         if self._descriptors:
-            logger.debug("Registry already has %d entries, skip fallback scan", len(self._descriptors))
+            logger.debug(
+                "Registry already has %d entries, skip fallback scan",
+                len(self._descriptors),
+            )
             return
 
         logger.info("No explicit registrations found, running fallback package scan")
@@ -198,13 +202,15 @@ class AgentRegistry:
     def _scan_agents_package(self) -> None:
         """Import ``stock_datasource.agents.*_agent`` and register found classes."""
         try:
-            from stock_datasource.agents.base_agent import LangGraphAgent
             import stock_datasource.agents as agents_pkg
+            from stock_datasource.agents.base_agent import LangGraphAgent
         except ImportError:
             logger.warning("Cannot import stock_datasource.agents for fallback scan")
             return
 
-        for module_info in pkgutil.iter_modules(agents_pkg.__path__, agents_pkg.__name__ + "."):
+        for module_info in pkgutil.iter_modules(
+            agents_pkg.__path__, agents_pkg.__name__ + "."
+        ):
             if not module_info.name.endswith("_agent"):
                 continue
             try:
@@ -225,12 +231,14 @@ class AgentRegistry:
                 name = instance.config.name
                 desc = instance.config.description
                 if name not in self._descriptors:
-                    self.register(AgentDescriptor(
-                        name=name,
-                        description=desc,
-                        agent_class=obj,
-                        role=AgentRole.AGENT,
-                    ))
+                    self.register(
+                        AgentDescriptor(
+                            name=name,
+                            description=desc,
+                            agent_class=obj,
+                            role=AgentRole.AGENT,
+                        )
+                    )
 
     # ------------------------------------------------------------------
     # Metrics / Introspection
@@ -241,7 +249,7 @@ class AgentRegistry:
         return len(self._descriptors)
 
     @property
-    def names(self) -> Set[str]:
+    def names(self) -> set[str]:
         return set(self._descriptors.keys())
 
 
@@ -249,7 +257,7 @@ class AgentRegistry:
 # Singleton accessor
 # ---------------------------------------------------------------------------
 
-_registry: Optional[AgentRegistry] = None
+_registry: AgentRegistry | None = None
 
 
 def get_agent_registry() -> AgentRegistry:

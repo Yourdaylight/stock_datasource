@@ -1,16 +1,21 @@
 """TuShare adjustment factor query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareAdjFactorService(BaseService):
     """Query service for TuShare adjustment factor data."""
-    
+
     def __init__(self):
         super().__init__("tushare_adj_factor")
-    
+
     @query_method(
         description="Query adjustment factor by code and date range",
         params=[
@@ -45,22 +50,22 @@ class TuShareAdjFactorService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_adj_factor(\
+    def get_adj_factor(
         self,
         code: str,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query adjustment factor data.
-        
+
         Args:
             code: Stock code (e.g., 000001.SZ)
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             List of adjustment factor records
         """
@@ -75,11 +80,11 @@ class TuShareAdjFactorService(BaseService):
         AND trade_date <= '{end_date}'
         ORDER BY trade_date ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query latest adjustment factor for multiple stocks",
         params=[
@@ -89,18 +94,18 @@ class TuShareAdjFactorService(BaseService):
                 description="List of stock codes",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_latest_adj_factor(\
+    def get_latest_adj_factor(
         self,
-        codes: List[str],
-    ) -> List[Dict[str, Any]]:
+        codes: list[str],
+    ) -> list[dict[str, Any]]:
         """
         Query latest adjustment factor for multiple stocks.
-        
+
         Args:
             codes: List of stock codes
-        
+
         Returns:
             List of latest adjustment factor records
         """
@@ -120,7 +125,7 @@ class TuShareAdjFactorService(BaseService):
         WHERE rn = 1
         ORDER BY ts_code
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]

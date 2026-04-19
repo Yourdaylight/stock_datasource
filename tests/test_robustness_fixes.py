@@ -11,10 +11,10 @@ Covers:
 """
 
 import sys
-import os
-import pytest
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 # Add src to path so we can import the real modules (bypass conftest mocks)
 _src_dir = Path(__file__).parent.parent / "src"
@@ -26,24 +26,30 @@ if str(_src_dir) not in sys.path:
 # C1-C5: _to_clickhouse_literal prevents SQL injection
 # =============================================================================
 
+
 class TestToClickhouseLiteral:
     """Verify _to_clickhouse_literal handles special characters safely."""
 
     def _get_func(self):
         # Import directly from the real file, bypassing conftest mock
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(
             "database_real",
             _src_dir / "stock_datasource" / "models" / "database.py",
-            submodule_search_locations=[]
+            submodule_search_locations=[],
         )
         mod = importlib.util.module_from_spec(spec)
         # Set up minimal dependencies
-        sys.modules['stock_datasource'] = type(sys)('stock_datasource')
-        sys.modules['stock_datasource'].__path__ = [str(_src_dir / "stock_datasource")]
-        sys.modules['stock_datasource.config'] = type(sys)('stock_datasource.config')
-        sys.modules['stock_datasource.config'].__path__ = [str(_src_dir / "stock_datasource" / "config")]
-        sys.modules['stock_datasource.config.settings'] = type(sys)('stock_datasource.config.settings')
+        sys.modules["stock_datasource"] = type(sys)("stock_datasource")
+        sys.modules["stock_datasource"].__path__ = [str(_src_dir / "stock_datasource")]
+        sys.modules["stock_datasource.config"] = type(sys)("stock_datasource.config")
+        sys.modules["stock_datasource.config"].__path__ = [
+            str(_src_dir / "stock_datasource" / "config")
+        ]
+        sys.modules["stock_datasource.config.settings"] = type(sys)(
+            "stock_datasource.config.settings"
+        )
 
         class _MockSettings:
             CLICKHOUSE_HOST = "localhost"
@@ -61,20 +67,26 @@ class TestToClickhouseLiteral:
             BACKUP_CLICKHOUSE_DATABASE = ""
             CLICKHOUSE_PREFER_HTTP = True
 
-        sys.modules['stock_datasource.config.settings'].settings = _MockSettings()
-        sys.modules['stock_datasource.config.settings'].Settings = _MockSettings
+        sys.modules["stock_datasource.config.settings"].settings = _MockSettings()
+        sys.modules["stock_datasource.config.settings"].Settings = _MockSettings
 
         # Skip heavy __init__ imports by providing mock submodules
-        for submod in ['stock_datasource.utils', 'stock_datasource.utils.logger',
-                        'stock_datasource.services', 'stock_datasource.core']:
-            if submod not in sys.modules or not hasattr(sys.modules[submod], '__path__'):
+        for submod in [
+            "stock_datasource.utils",
+            "stock_datasource.utils.logger",
+            "stock_datasource.services",
+            "stock_datasource.core",
+        ]:
+            if submod not in sys.modules or not hasattr(
+                sys.modules[submod], "__path__"
+            ):
                 sys.modules[submod] = type(sys)(submod)
 
         # Provide mock logger
         mock_logger = MagicMock()
-        sys.modules['stock_datasource.utils'].logger = mock_logger
-        sys.modules['stock_datasource.utils.logger'].logger = mock_logger
-        sys.modules['stock_datasource.utils.logger'].setup_logging = lambda: None
+        sys.modules["stock_datasource.utils"].logger = mock_logger
+        sys.modules["stock_datasource.utils.logger"].logger = mock_logger
+        sys.modules["stock_datasource.utils.logger"].setup_logging = lambda: None
 
         try:
             spec.loader.exec_module(mod)
@@ -127,11 +139,13 @@ class TestToClickhouseLiteral:
 # M1: Error classification
 # =============================================================================
 
+
 class TestErrorClassification:
     """Verify _classify_error_type recognizes rate_limit errors."""
 
     def _get_func(self):
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(
             "task_worker_real",
             _src_dir / "stock_datasource" / "services" / "task_worker.py",
@@ -139,21 +153,27 @@ class TestErrorClassification:
         mod = importlib.util.module_from_spec(spec)
 
         # Provide minimal mocks
-        for submod in ['stock_datasource', 'stock_datasource.utils',
-                        'stock_datasource.utils.logger',
-                        'stock_datasource.config', 'stock_datasource.config.settings',
-                        'stock_datasource.services']:
-            if submod not in sys.modules or not hasattr(sys.modules.get(submod, object), '__path__'):
+        for submod in [
+            "stock_datasource",
+            "stock_datasource.utils",
+            "stock_datasource.utils.logger",
+            "stock_datasource.config",
+            "stock_datasource.config.settings",
+            "stock_datasource.services",
+        ]:
+            if submod not in sys.modules or not hasattr(
+                sys.modules.get(submod, object), "__path__"
+            ):
                 m = type(sys)(submod)
-                if '.' not in submod or submod.endswith(('.logger', '.settings')):
+                if "." not in submod or submod.endswith((".logger", ".settings")):
                     pass
                 else:
                     m.__path__ = []
                 sys.modules[submod] = m
 
         mock_logger = MagicMock()
-        sys.modules['stock_datasource.utils.logger'].logger = mock_logger
-        sys.modules['stock_datasource.utils.logger'].setup_logging = lambda: None
+        sys.modules["stock_datasource.utils.logger"].logger = mock_logger
+        sys.modules["stock_datasource.utils.logger"].setup_logging = lambda: None
 
         class _MockSettings:
             REDIS_ENABLED = True
@@ -162,7 +182,7 @@ class TestErrorClassification:
             REDIS_PASSWORD = None
             REDIS_DB = 0
 
-        sys.modules['stock_datasource.config.settings'].settings = _MockSettings()
+        sys.modules["stock_datasource.config.settings"].settings = _MockSettings()
 
         try:
             spec.loader.exec_module(mod)
@@ -205,6 +225,7 @@ class TestErrorClassification:
 # Source-code level verification (doesn't need imports)
 # =============================================================================
 
+
 class TestSourceCodeVerification:
     """Verify fixes by inspecting source code directly."""
 
@@ -244,35 +265,49 @@ class TestSourceCodeVerification:
     # C2: Extractor parameterized queries
     def test_extractor_no_fstring_sql_injection(self):
         source = self._read_file("stock_datasource/utils/extractor.py")
-        lines = source.split('\n')
+        lines = source.split("\n")
         for i, line in enumerate(lines):
             # Should not have f"... WHERE trade_date = '{trade_date}'"
             if "WHERE trade_date = '" in line:
-                assert "f\"" not in line, f"Line {i+1}: unsafe f-string SQL: {line.strip()}"
+                assert 'f"' not in line, (
+                    f"Line {i + 1}: unsafe f-string SQL: {line.strip()}"
+                )
             if "WHERE cal_date = '" in line:
-                assert "f\"" not in line, f"Line {i+1}: unsafe f-string SQL: {line.strip()}"
+                assert 'f"' not in line, (
+                    f"Line {i + 1}: unsafe f-string SQL: {line.strip()}"
+                )
 
     # I7: insert_dataframe has retry
     def test_insert_dataframe_has_retry(self):
         source = self._read_file("stock_datasource/models/database.py")
         # Find ALL insert_dataframe method definitions
         # The ClickHouseClient.insert_dataframe (the one we care about) should have @retry
-        lines = source.split('\n')
+        lines = source.split("\n")
         for i, line in enumerate(lines):
             # Look for the one in ClickHouseClient class (has @retry before it)
-            if 'def insert_dataframe' in line and 'self' in line and 'table_name' in line:
+            if (
+                "def insert_dataframe" in line
+                and "self" in line
+                and "table_name" in line
+            ):
                 # Check previous lines for @retry
-                for j in range(i-1, max(i-5, 0), -1):
-                    if '@retry' in lines[j]:
+                for j in range(i - 1, max(i - 5, 0), -1):
+                    if "@retry" in lines[j]:
                         return  # Found it!
-                    elif lines[j].strip().startswith('def ') or lines[j].strip().startswith('class '):
+                    elif lines[j].strip().startswith("def ") or lines[
+                        j
+                    ].strip().startswith("class "):
                         break
         # If we get here without finding @retry on any insert_dataframe, fail
         # Actually, let's just check if @retry appears before the LAST insert_dataframe
         # (which is the ClickHouseClient one)
-        last_idx = max(i for i, l in enumerate(lines) if 'def insert_dataframe' in l and 'self' in l)
-        for j in range(last_idx-1, max(last_idx-5, 0), -1):
-            if '@retry' in lines[j]:
+        last_idx = max(
+            i
+            for i, l in enumerate(lines)
+            if "def insert_dataframe" in l and "self" in l
+        )
+        for j in range(last_idx - 1, max(last_idx - 5, 0), -1):
+            if "@retry" in lines[j]:
                 return
         pytest.fail("ClickHouseClient.insert_dataframe should have @retry decorator")
 
@@ -282,13 +317,17 @@ class TestSourceCodeVerification:
         # _get_redis should have a ping() call in the connection check path
         assert "self._redis.ping()" in source
         # Should handle ping failure
-        assert "Reconnect" in source or "reconnect" in source or "_connected = False" in source
+        assert (
+            "Reconnect" in source
+            or "reconnect" in source
+            or "_connected = False" in source
+        )
 
     # C1: _save_task_to_db uses _to_clickhouse_literal
     def test_save_task_uses_to_clickhouse_literal(self):
         source = self._read_file("stock_datasource/modules/datamanage/service.py")
         # Should NOT have f"'{task.error_message}'" pattern
-        assert "f\"'{task.error_message}'\"" not in source.replace(' ', '')
+        assert "f\"'{task.error_message}'\"" not in source.replace(" ", "")
         # Should use _to_clickhouse_literal
         assert "_to_clickhouse_literal(task.error_message)" in source
         assert "_to_clickhouse_literal(task.plugin_name)" in source
@@ -297,7 +336,7 @@ class TestSourceCodeVerification:
     def test_check_dates_uses_safe_literal(self):
         source = self._read_file("stock_datasource/modules/datamanage/service.py")
         # Should NOT have f"'{d}'" for date escaping
-        assert "[f\"'{d}'\" for d in dates]" not in source.replace(' ', '')
+        assert "[f\"'{d}'\" for d in dates]" not in source.replace(" ", "")
         # Should use _to_clickhouse_literal
         assert "_to_clickhouse_literal(d) for d in dates" in source
 

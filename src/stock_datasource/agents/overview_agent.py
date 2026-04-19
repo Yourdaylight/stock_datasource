@@ -1,16 +1,16 @@
 """Overview Agent for intelligent market overview analysis using LangGraph/DeepAgents."""
 
-from typing import List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 from .overview_tools import (
+    get_hot_etfs_analysis,
     get_major_indices_status,
     get_market_breadth,
-    get_sector_performance,
-    get_hot_etfs_analysis,
-    get_market_sentiment,
     get_market_daily_summary,
+    get_market_sentiment,
+    get_sector_performance,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class OverviewAgent(LangGraphAgent):
     """Overview Agent for intelligent market overview analysis using DeepAgents.
-    
+
     Handles:
     - Major indices status analysis
     - Market breadth analysis
@@ -26,15 +26,15 @@ class OverviewAgent(LangGraphAgent):
     - Hot ETFs analysis
     - Market sentiment analysis
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="OverviewAgent",
-            description="负责市场概览分析，提供主要指数、涨跌家数、板块表现、热门ETF、市场情绪等多维度分析"
+            description="负责市场概览分析，提供主要指数、涨跌家数、板块表现、热门ETF、市场情绪等多维度分析",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return market overview analysis tools."""
         return [
             get_major_indices_status,
@@ -44,7 +44,7 @@ class OverviewAgent(LangGraphAgent):
             get_market_sentiment,
             get_market_daily_summary,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for market overview analysis."""
         return """你是一个专业的A股市场分析师，专注于每日市场概览分析。

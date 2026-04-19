@@ -1,9 +1,9 @@
 """Backtest Agent for strategy backtesting using LangGraph/DeepAgents."""
 
-from typing import Dict, Any, List, Callable
 import logging
+from collections.abc import Callable
 
-from .base_agent import LangGraphAgent, AgentConfig
+from .base_agent import AgentConfig, LangGraphAgent
 from .tools import get_stock_kline
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def list_available_strategies() -> str:
     """获取可用的回测策略列表。
-    
+
     Returns:
         策略列表，包含策略ID、名称、描述和参数说明
     """
@@ -53,31 +53,27 @@ def list_available_strategies() -> str:
 """
 
 
-def run_simple_backtest(
-    strategy: str,
-    ts_code: str,
-    days: int = 60
-) -> str:
+def run_simple_backtest(strategy: str, ts_code: str, days: int = 60) -> str:
     """执行简单策略回测（基于均线）。
-    
+
     Args:
         strategy: 策略名称，如 ma, macd, rsi
         ts_code: 股票代码
         days: 回测天数
-        
+
     Returns:
         回测结果摘要
     """
     # Auto-complete code suffix
     if len(ts_code) == 6 and ts_code.isdigit():
-        if ts_code.startswith('6'):
+        if ts_code.startswith("6"):
             ts_code = f"{ts_code}.SH"
-        elif ts_code.startswith(('0', '3')):
+        elif ts_code.startswith(("0", "3")):
             ts_code = f"{ts_code}.SZ"
-    
+
     # 这里是简化的回测逻辑示例
     # 生产环境应该实现完整的回测引擎
-    
+
     return f"""## {ts_code} {strategy.upper()}策略回测结果
 
 ### 回测参数
@@ -108,7 +104,7 @@ def run_simple_backtest(
 
 def get_backtest_guide() -> str:
     """获取策略回测使用指南。
-    
+
     Returns:
         回测功能的详细使用说明
     """
@@ -146,22 +142,22 @@ def get_backtest_guide() -> str:
 
 class BacktestAgent(LangGraphAgent):
     """Backtest Agent for strategy backtesting using DeepAgents.
-    
+
     Handles:
     - Strategy selection
     - Backtest execution
     - Result analysis
     - Strategy comparison
     """
-    
+
     def __init__(self):
         config = AgentConfig(
             name="BacktestAgent",
-            description="负责策略回测，包括策略选择、参数配置、回测执行、结果分析"
+            description="负责策略回测，包括策略选择、参数配置、回测执行、结果分析",
         )
         super().__init__(config)
-    
-    def get_tools(self) -> List[Callable]:
+
+    def get_tools(self) -> list[Callable]:
         """Return backtesting tools."""
         return [
             list_available_strategies,
@@ -169,7 +165,7 @@ class BacktestAgent(LangGraphAgent):
             get_backtest_guide,
             get_stock_kline,
         ]
-    
+
     def get_system_prompt(self) -> str:
         """Return system prompt for backtesting."""
         return """你是策略回测助手，帮助用户验证和分析交易策略。

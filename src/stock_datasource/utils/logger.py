@@ -10,7 +10,6 @@ Unified Loguru logging with:
 import logging
 import sys
 import threading
-from typing import Optional
 
 from loguru import logger as _loguru_logger
 
@@ -65,17 +64,20 @@ class InterceptHandler(logging.Handler):
 
 # ---------- Format helpers ----------
 
+
 def _format_with_context(fmt: str):
     """Return a format function that injects request_id/user_id defaults.
 
     This avoids ``KeyError: 'request_id'`` when records are emitted via
     the InterceptHandler (stdlib bridge) which bypasses the Loguru ``patch``.
     """
+
     def _formatter(record):
         record["extra"].setdefault("request_id", get_request_id())
         record["extra"].setdefault("user_id", get_user_id())
         record["extra"].setdefault("middleware_trace_id", get_middleware_trace_id())
         return fmt
+
     return _formatter
 
 
@@ -104,6 +106,7 @@ def _jsonl_sink(message):
     """
     record = message.record
     import json as _json
+
     entry = {
         "timestamp": record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         "level": record["level"].name,
@@ -121,7 +124,7 @@ def _jsonl_sink(message):
 
 _setup_done = False
 _setup_lock = threading.Lock()
-_watcher_thread: Optional[threading.Thread] = None
+_watcher_thread: threading.Thread | None = None
 
 
 def setup_logging():
@@ -203,12 +206,14 @@ def setup_logging():
     # --- Start CH sink watcher (background thread) ---
     if settings.LOG_CH_SINK_ENABLED and _watcher_thread is None:
         from stock_datasource.utils.log_sink_clickhouse import start_ch_sink_watcher
+
         _watcher_thread = start_ch_sink_watcher(settings.LOGS_DIR, interval=30.0)
 
     # --- Import any pending JSONL files from previous runs ---
     if settings.LOG_CH_SINK_ENABLED:
         try:
             from stock_datasource.utils.log_sink_clickhouse import import_pending_files
+
             import_pending_files(settings.LOGS_DIR)
         except Exception:
             pass  # Non-critical; will retry on next startup

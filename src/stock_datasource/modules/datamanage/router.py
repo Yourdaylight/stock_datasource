@@ -1,38 +1,64 @@
 """Data management module router - Admin only access."""
 
-import uuid
 import asyncio
 import io
-from datetime import datetime
-from fastapi import APIRouter, Query, HTTPException, Depends
-from typing import List, Optional
 import logging
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 logger = logging.getLogger(__name__)
 
-from .schemas import (
-    DataSource, SyncTask, TriggerSyncRequest, ManualDetectRequest,
-    QualityMetrics, PluginInfo, PluginDetail, PluginDataPreview,
-    PluginStatus, MissingDataSummary, TaskType, SyncHistory,
-    DiagnosisRequest, DiagnosisResult,
-    CheckDataExistsRequest, DataExistsCheckResult,
-    SyncConfig, SyncConfigRequest,
-    ProxyConfig, ProxyConfigRequest, ProxyTestResult,
-    DependencyCheckResponse, DependencyGraphResponse, PluginDependency,
-    BatchSyncRequest, BatchSyncResponse, PluginCategoryEnum, PluginRoleEnum,
-    SyncTaskListResponse, TaskStatus,
-    GroupCategory, PluginGroupDetail, GroupPluginStatus, PredefinedGroupsResponse, GroupCategoryInfo,
-    GroupDataExistsCheckRequest, GroupDataExistsCheckResult
-)
-from .service import data_manage_service, sync_task_manager, diagnosis_service
-from ...core.plugin_manager import plugin_manager, DependencyNotSatisfiedError
-from ...core.base_plugin import PluginCategory, PluginRole, CATEGORY_ALIASES
 from ...config.runtime_config import (
-    save_runtime_config, 
-    get_plugin_groups, get_plugin_group, save_plugin_group, delete_plugin_group,
-    load_predefined_groups, get_predefined_categories, is_predefined_group, get_custom_plugin_groups
+    delete_plugin_group,
+    get_custom_plugin_groups,
+    get_plugin_group,
+    get_plugin_groups,
+    get_predefined_categories,
+    is_predefined_group,
+    load_predefined_groups,
+    save_plugin_group,
+    save_runtime_config,
 )
+from ...core.base_plugin import CATEGORY_ALIASES, PluginCategory, PluginRole
+from ...core.plugin_manager import plugin_manager
 from ..auth.dependencies import require_admin
+from .schemas import (
+    BatchSyncRequest,
+    BatchSyncResponse,
+    CheckDataExistsRequest,
+    DataExistsCheckResult,
+    DataSource,
+    DependencyCheckResponse,
+    DependencyGraphResponse,
+    DiagnosisRequest,
+    DiagnosisResult,
+    GroupCategoryInfo,
+    GroupDataExistsCheckRequest,
+    GroupPluginStatus,
+    ManualDetectRequest,
+    MissingDataSummary,
+    PluginDataPreview,
+    PluginDependency,
+    PluginDetail,
+    PluginGroupDetail,
+    PluginInfo,
+    PluginStatus,
+    PredefinedGroupsResponse,
+    ProxyConfig,
+    ProxyConfigRequest,
+    ProxyTestResult,
+    QualityMetrics,
+    SyncConfig,
+    SyncConfigRequest,
+    SyncHistory,
+    SyncTask,
+    SyncTaskListResponse,
+    TaskType,
+    TriggerSyncRequest,
+)
+from .service import data_manage_service, diagnosis_service, sync_task_manager
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +68,9 @@ router = APIRouter()
 AUTO_MISSING_DATA_MAX_DAYS = 180
 
 
-async def _detect_missing_data_async(days: int, force_refresh: bool) -> MissingDataSummary:
+async def _detect_missing_data_async(
+    days: int, force_refresh: bool
+) -> MissingDataSummary:
     """Run missing-data detection off the event loop to avoid blocking other requests."""
     return await asyncio.to_thread(
         data_manage_service.detect_missing_data,
@@ -53,12 +81,25 @@ async def _detect_missing_data_async(days: int, force_refresh: bool) -> MissingD
 
 # ============ Data Sources ============
 
-@router.get("/datasources", response_model=List[DataSource])
+
+@router.get("/datasources", response_model=list[DataSource])
 async def get_datasources(current_user: dict = Depends(require_admin)):
     """Get data source list."""
     return [
-        DataSource(id="tushare", source_name="TuShare", source_type="api", provider="tushare", last_sync_at="2026-01-09 18:00:00"),
-        DataSource(id="akshare", source_name="AKShare", source_type="api", provider="akshare", last_sync_at="2026-01-09 18:00:00"),
+        DataSource(
+            id="tushare",
+            source_name="TuShare",
+            source_type="api",
+            provider="tushare",
+            last_sync_at="2026-01-09 18:00:00",
+        ),
+        DataSource(
+            id="akshare",
+            source_name="AKShare",
+            source_type="api",
+            provider="akshare",
+            last_sync_at="2026-01-09 18:00:00",
+        ),
     ]
 
 
@@ -70,9 +111,15 @@ async def test_connection(source_id: str, current_user: dict = Depends(require_a
 
 # ============ Missing Data Detection ============
 
+
 @router.get("/missing-data", response_model=MissingDataSummary)
 async def get_missing_data(
-    days: int = Query(default=30, ge=1, le=3650, description="Number of trading days to check (max 10 years)"),
+    days: int = Query(
+        default=30,
+        ge=1,
+        le=3650,
+        description="Number of trading days to check (max 10 years)",
+    ),
     force_refresh: bool = Query(default=False, description="Force refresh cache"),
     current_user: dict = Depends(require_admin),
 ):
@@ -99,13 +146,22 @@ async def trigger_missing_data_detection(
 
 # ============ Sync Tasks ============
 
+
 @router.get("/sync/tasks", response_model=SyncTaskListResponse)
 async def get_sync_tasks(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Page size"),
-    status: Optional[str] = Query(default=None, description="Filter by status: pending, running, completed, failed, cancelled"),
-    plugin_name: Optional[str] = Query(default=None, description="Filter by plugin name (partial match)"),
-    sort_by: str = Query(default="created_at", description="Sort field: created_at, started_at, completed_at"),
+    status: str | None = Query(
+        default=None,
+        description="Filter by status: pending, running, completed, failed, cancelled",
+    ),
+    plugin_name: str | None = Query(
+        default=None, description="Filter by plugin name (partial match)"
+    ),
+    sort_by: str = Query(
+        default="created_at",
+        description="Sort field: created_at, started_at, completed_at",
+    ),
     sort_order: str = Query(default="desc", description="Sort order: asc, desc"),
     current_user: dict = Depends(require_admin),
 ):
@@ -116,7 +172,7 @@ async def get_sync_tasks(
         status=status,
         plugin_name=plugin_name,
         sort_by=sort_by,
-        sort_order=sort_order
+        sort_order=sort_order,
     )
 
 
@@ -126,7 +182,7 @@ async def trigger_sync(
     current_user: dict = Depends(require_admin),
 ):
     """Trigger a sync task for a plugin.
-    
+
     This endpoint checks plugin dependencies before creating the task.
     If dependencies are not satisfied, returns a 400 error with details.
     Creates an execution record so single plugin syncs appear in batch task list.
@@ -134,28 +190,30 @@ async def trigger_sync(
     # Check if plugin exists
     plugin = plugin_manager.get_plugin(request.plugin_name)
     if not plugin:
-        raise HTTPException(status_code=404, detail=f"Plugin {request.plugin_name} not found")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Plugin {request.plugin_name} not found"
+        )
+
     # Check dependencies
     dep_result = plugin_manager.check_dependencies(request.plugin_name)
     if not dep_result.satisfied:
-        error_msg = f"Plugin dependencies not satisfied."
+        error_msg = "Plugin dependencies not satisfied."
         if dep_result.missing_plugins:
             error_msg += f" Missing plugins: {', '.join(dep_result.missing_plugins)}."
         if dep_result.missing_data:
             data_msgs = [f"{k} ({v})" for k, v in dep_result.missing_data.items()]
             error_msg += f" Missing data: {', '.join(data_msgs)}."
         error_msg += " Please run the dependent plugins first."
-        
+
         raise HTTPException(
             status_code=400,
             detail={
                 "message": error_msg,
                 "missing_plugins": dep_result.missing_plugins,
-                "missing_data": dep_result.missing_data
-            }
+                "missing_data": dep_result.missing_data,
+            },
         )
-    
+
     try:
         task = sync_task_manager.create_task(
             plugin_name=request.plugin_name,
@@ -167,14 +225,14 @@ async def trigger_sync(
     except Exception as e:
         # Mode A: Redis required
         raise HTTPException(status_code=503, detail=str(e))
-    
+
     # Create execution record for single plugin sync with plugin name as group_name
     schedule_service.create_manual_execution(
         task_ids=[task.task_id],
         trigger_type="manual",
-        group_name=request.plugin_name  # Use plugin name for better display
+        group_name=request.plugin_name,  # Use plugin name for better display
     )
-    
+
     return task
 
 
@@ -201,7 +259,9 @@ async def cancel_sync_task(task_id: str, current_user: dict = Depends(require_ad
         raise HTTPException(status_code=503, detail=str(e))
 
     if not success:
-        raise HTTPException(status_code=400, detail="Cannot cancel task (not pending or not found)")
+        raise HTTPException(
+            status_code=400, detail="Cannot cancel task (not pending or not found)"
+        )
 
     return {"success": True, "message": "Task cancelled"}
 
@@ -215,7 +275,9 @@ async def delete_sync_task(task_id: str, current_user: dict = Depends(require_ad
         raise HTTPException(status_code=503, detail=str(e))
 
     if not success:
-        raise HTTPException(status_code=400, detail="Cannot delete task (running or not found)")
+        raise HTTPException(
+            status_code=400, detail="Cannot delete task (running or not found)"
+        )
 
     return {"success": True, "message": "Task deleted"}
 
@@ -223,7 +285,7 @@ async def delete_sync_task(task_id: str, current_user: dict = Depends(require_ad
 @router.post("/sync/retry/{task_id}", response_model=SyncTask)
 async def retry_sync_task(task_id: str, current_user: dict = Depends(require_admin)):
     """Retry a failed or cancelled sync task.
-    
+
     Creates a new task with the same parameters as the original task.
     Only works for tasks with status 'failed' or 'cancelled'.
     """
@@ -235,7 +297,7 @@ async def retry_sync_task(task_id: str, current_user: dict = Depends(require_adm
     if not new_task:
         raise HTTPException(
             status_code=400,
-            detail="Cannot retry task (not found or not in failed/cancelled status)"
+            detail="Cannot retry task (not found or not in failed/cancelled status)",
         )
 
     return new_task
@@ -249,47 +311,57 @@ async def get_sync_config(current_user: dict = Depends(require_admin)):
 
 
 @router.put("/sync/config", response_model=SyncConfig)
-async def update_sync_config(request: SyncConfigRequest, current_user: dict = Depends(require_admin)):
+async def update_sync_config(
+    request: SyncConfigRequest, current_user: dict = Depends(require_admin)
+):
     """Update sync configuration (parallelism settings).
-    
+
     - max_concurrent_tasks: Max parallel tasks (1-10), default 1 for TuShare IP limit
     - max_date_threads: Max threads per task for multi-date processing (1-20), default 1
     """
     config = sync_task_manager.update_config(
         max_concurrent_tasks=request.max_concurrent_tasks,
-        max_date_threads=request.max_date_threads
+        max_date_threads=request.max_date_threads,
     )
     return SyncConfig(**config)
 
 
-@router.get("/sync/history", response_model=List[SyncHistory])
+@router.get("/sync/history", response_model=list[SyncHistory])
 async def get_sync_history(
-    days: int = Query(default=7, ge=1, le=30, description="Number of days to look back"),
+    days: int = Query(
+        default=7, ge=1, le=30, description="Number of days to look back"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
-    plugin_name: Optional[str] = None,
+    plugin_name: str | None = None,
     current_user: dict = Depends(require_admin),
 ):
     """Get sync task history from database."""
     history = sync_task_manager.get_task_history(days=days, limit=limit)
-    
+
     # Filter by plugin if specified
     if plugin_name:
         history = [h for h in history if h.plugin_name == plugin_name]
-    
+
     return history
 
 
 # ============ Plugins ============
 
-@router.get("/plugins", response_model=List[PluginInfo])
+
+@router.get("/plugins", response_model=list[PluginInfo])
 async def get_plugins(
-    category: Optional[str] = Query(default=None, description="Filter by category: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system (or 'stock' for backward compatibility)"),
-    role: Optional[str] = Query(default=None, description="Filter by role: primary, basic, derived, auxiliary"),
+    category: str | None = Query(
+        default=None,
+        description="Filter by category: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system (or 'stock' for backward compatibility)",
+    ),
+    role: str | None = Query(
+        default=None, description="Filter by role: primary, basic, derived, auxiliary"
+    ),
     current_user: dict = Depends(require_admin),
 ):
     """Get plugin list with status info, optionally filtered by category and/or role."""
     plugins = data_manage_service.get_plugin_list()
-    
+
     # Apply filters
     if category:
         # Handle category aliases (stock -> cn_stock)
@@ -297,17 +369,24 @@ async def get_plugins(
         try:
             cat_enum = PluginCategory(resolved_category)
             # Filter by resolved category or original (for backward compat)
-            plugins = [p for p in plugins if p.category == resolved_category or p.category == category]
+            plugins = [
+                p
+                for p in plugins
+                if p.category == resolved_category or p.category == category
+            ]
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid category: {category}. Valid values: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system")
-    
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid category: {category}. Valid values: cn_stock, hk_stock, index, etf_fund, market, reference, fundamental, system",
+            )
+
     if role:
         try:
             role_enum = PluginRole(role)
             plugins = [p for p in plugins if p.role == role]
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
-    
+
     return plugins
 
 
@@ -332,25 +411,30 @@ async def get_plugin_status(name: str, current_user: dict = Depends(require_admi
 @router.get("/plugins/{name}/data", response_model=PluginDataPreview)
 async def get_plugin_data(
     name: str,
-    trade_date: Optional[str] = Query(default=None, description="Filter by trade date (YYYY-MM-DD)"),
+    trade_date: str | None = Query(
+        default=None, description="Filter by trade date (YYYY-MM-DD)"
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=1000),
     current_user: dict = Depends(require_admin),
 ):
     """Get plugin data preview."""
     preview = data_manage_service.get_plugin_data_preview(
-        plugin_name=name,
-        trade_date=trade_date,
-        page=page,
-        page_size=page_size
+        plugin_name=name, trade_date=trade_date, page=page, page_size=page_size
     )
     if not preview:
-        raise HTTPException(status_code=404, detail=f"Plugin {name} not found or no data available")
+        raise HTTPException(
+            status_code=404, detail=f"Plugin {name} not found or no data available"
+        )
     return preview
 
 
 @router.post("/plugins/{name}/check-exists", response_model=DataExistsCheckResult)
-async def check_data_exists(name: str, request: CheckDataExistsRequest, current_user: dict = Depends(require_admin)):
+async def check_data_exists(
+    name: str,
+    request: CheckDataExistsRequest,
+    current_user: dict = Depends(require_admin),
+):
     """Check if data exists for specific dates in a plugin's table."""
     result = data_manage_service.check_dates_data_exists(name, request.dates)
     return result
@@ -362,7 +446,7 @@ async def enable_plugin(name: str, current_user: dict = Depends(require_admin)):
     plugin = plugin_manager.get_plugin(name)
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
-    
+
     success = plugin.set_enabled(True)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to enable plugin")
@@ -375,7 +459,7 @@ async def disable_plugin(name: str, current_user: dict = Depends(require_admin))
     plugin = plugin_manager.get_plugin(name)
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
-    
+
     success = plugin.set_enabled(False)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to disable plugin")
@@ -384,20 +468,23 @@ async def disable_plugin(name: str, current_user: dict = Depends(require_admin))
 
 # ============ Plugin Dependencies ============
 
+
 @router.get("/plugins/{name}/dependencies", response_model=DependencyCheckResponse)
-async def get_plugin_dependencies(name: str, current_user: dict = Depends(require_admin)):
+async def get_plugin_dependencies(
+    name: str, current_user: dict = Depends(require_admin)
+):
     """Get plugin dependencies and their status.
-    
+
     Returns the list of dependencies for a plugin and whether they are satisfied.
     """
     plugin = plugin_manager.get_plugin(name)
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
-    
+
     dependencies = plugin.get_dependencies()
     optional_deps = plugin.get_optional_dependencies()
     dep_result = plugin_manager.check_dependencies(name)
-    
+
     # Build dependency details
     dep_details = []
     for dep_name in dependencies:
@@ -406,32 +493,30 @@ async def get_plugin_dependencies(name: str, current_user: dict = Depends(requir
             if dep_plugin:
                 try:
                     schema = dep_plugin.get_schema()
-                    table_name = schema.get('table_name') if schema else None
+                    table_name = schema.get("table_name") if schema else None
                 except Exception:
                     table_name = None
                 try:
                     has_data = dep_plugin.has_data()
                 except Exception:
                     has_data = False
-                dep_details.append(PluginDependency(
-                    plugin_name=dep_name,
-                    has_data=has_data,
-                    table_name=table_name,
-                    record_count=0  # Could be expensive to calculate
-                ))
+                dep_details.append(
+                    PluginDependency(
+                        plugin_name=dep_name,
+                        has_data=has_data,
+                        table_name=table_name,
+                        record_count=0,  # Could be expensive to calculate
+                    )
+                )
             else:
-                dep_details.append(PluginDependency(
-                    plugin_name=dep_name,
-                    has_data=False
-                ))
+                dep_details.append(
+                    PluginDependency(plugin_name=dep_name, has_data=False)
+                )
         except Exception as e:
             # Log error but continue with other dependencies
             logger.warning(f"Failed to get dependency info for {dep_name}: {e}")
-            dep_details.append(PluginDependency(
-                plugin_name=dep_name,
-                has_data=False
-            ))
-    
+            dep_details.append(PluginDependency(plugin_name=dep_name, has_data=False))
+
     return DependencyCheckResponse(
         plugin_name=name,
         dependencies=dependencies,
@@ -439,14 +524,18 @@ async def get_plugin_dependencies(name: str, current_user: dict = Depends(requir
         satisfied=dep_result.satisfied,
         missing_plugins=dep_result.missing_plugins,
         missing_data=dep_result.missing_data,
-        dependency_details=dep_details
+        dependency_details=dep_details,
     )
 
 
-@router.get("/plugins/{name}/check-dependencies", response_model=DependencyCheckResponse)
-async def check_plugin_dependencies(name: str, current_user: dict = Depends(require_admin)):
+@router.get(
+    "/plugins/{name}/check-dependencies", response_model=DependencyCheckResponse
+)
+async def check_plugin_dependencies(
+    name: str, current_user: dict = Depends(require_admin)
+):
     """Check if plugin dependencies are satisfied.
-    
+
     This is an alias for GET /plugins/{name}/dependencies for backward compatibility.
     """
     return await get_plugin_dependencies(name, current_user)
@@ -455,35 +544,36 @@ async def check_plugin_dependencies(name: str, current_user: dict = Depends(requ
 @router.get("/plugins/dependency-graph", response_model=DependencyGraphResponse)
 async def get_dependency_graph(current_user: dict = Depends(require_admin)):
     """Get the dependency graph for all plugins.
-    
+
     Returns both the forward dependency graph (plugin -> dependencies)
     and the reverse graph (plugin -> dependents).
     """
     graph = plugin_manager.get_dependency_graph()
-    
+
     # Build reverse graph
     reverse_graph = {}
     for plugin_name in plugin_manager.list_plugins():
-        reverse_graph[plugin_name] = plugin_manager.get_reverse_dependencies(plugin_name)
-    
-    return DependencyGraphResponse(
-        graph=graph,
-        reverse_graph=reverse_graph
-    )
+        reverse_graph[plugin_name] = plugin_manager.get_reverse_dependencies(
+            plugin_name
+        )
+
+    return DependencyGraphResponse(graph=graph, reverse_graph=reverse_graph)
 
 
 @router.post("/sync/batch", response_model=BatchSyncResponse)
-async def batch_trigger_sync(request: BatchSyncRequest, current_user: dict = Depends(require_admin)):
+async def batch_trigger_sync(
+    request: BatchSyncRequest, current_user: dict = Depends(require_admin)
+):
     """Trigger sync for multiple plugins in dependency order.
-    
+
     This endpoint:
     1. Validates all requested plugins exist
     2. Sorts plugins by dependency order (dependencies first)
     3. Creates sync tasks for each plugin in order
-    
+
     Args:
         request: BatchSyncRequest with plugin names and options
-    
+
     Returns:
         BatchSyncResponse with tasks and execution order
     """
@@ -492,30 +582,29 @@ async def batch_trigger_sync(request: BatchSyncRequest, current_user: dict = Dep
     for name in request.plugin_names:
         if not plugin_manager.get_plugin(name):
             invalid_plugins.append(name)
-    
+
     if invalid_plugins:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid plugins: {', '.join(invalid_plugins)}"
+            status_code=400, detail=f"Invalid plugins: {', '.join(invalid_plugins)}"
         )
-    
+
     # Get sorted execution order with optional dependencies
     tasks_info = plugin_manager.batch_trigger_sync(
         plugin_names=request.plugin_names,
         task_type=request.task_type.value,
-        include_optional=request.include_optional
+        include_optional=request.include_optional,
     )
-    
+
     execution_order = [t["plugin_name"] for t in tasks_info]
-    
+
     # Create sync tasks for each plugin
     created_tasks = []
     for task_info in tasks_info:
         plugin_name = task_info["plugin_name"]
-        
+
         # Check dependencies for this plugin
         dep_result = plugin_manager.check_dependencies(plugin_name)
-        
+
         # Create task (dependency check is informational for batch)
         task = sync_task_manager.create_task(
             plugin_name=plugin_name,
@@ -524,83 +613,99 @@ async def batch_trigger_sync(request: BatchSyncRequest, current_user: dict = Dep
             user_id=current_user.get("id"),
             username=current_user.get("username"),
         )
-        
-        created_tasks.append({
-            "task_id": task.task_id,
-            "plugin_name": plugin_name,
-            "task_type": task.task_type,
-            "status": task.status.value,
-            "order": task_info["order"],
-            "dependencies_satisfied": dep_result.satisfied
-        })
-    
+
+        created_tasks.append(
+            {
+                "task_id": task.task_id,
+                "plugin_name": plugin_name,
+                "task_type": task.task_type,
+                "status": task.status.value,
+                "order": task_info["order"],
+                "dependencies_satisfied": dep_result.satisfied,
+            }
+        )
+
     return BatchSyncResponse(
         tasks=created_tasks,
         total_plugins=len(created_tasks),
-        execution_order=execution_order
+        execution_order=execution_order,
     )
 
 
 # ============ Data Quality ============
 
-@router.get("/quality/metrics", response_model=List[QualityMetrics])
+
+@router.get("/quality/metrics", response_model=list[QualityMetrics])
 async def get_quality_metrics(current_user: dict = Depends(require_admin)):
     """Get data quality metrics."""
     # Get plugin list and calculate quality metrics
     plugins = data_manage_service.get_plugin_list()
-    
+
     metrics = []
     for plugin in plugins:
         # Calculate scores based on missing data
         completeness = 100 - (plugin.missing_count * 3)  # -3% per missing day
         completeness = max(0, min(100, completeness))
-        
-        metrics.append(QualityMetrics(
-            table_name=f"ods_{plugin.name.replace('tushare_', '').replace('akshare_', '')}",
-            completeness_score=completeness,
-            consistency_score=99.0,  # TODO: Implement real consistency check
-            timeliness_score=95.0 if plugin.missing_count == 0 else 80.0,
-            overall_score=(completeness + 99.0 + (95.0 if plugin.missing_count == 0 else 80.0)) / 3,
-            record_count=0,  # TODO: Get from status
-            latest_update=plugin.latest_date
-        ))
-    
+
+        metrics.append(
+            QualityMetrics(
+                table_name=f"ods_{plugin.name.replace('tushare_', '').replace('akshare_', '')}",
+                completeness_score=completeness,
+                consistency_score=99.0,  # TODO: Implement real consistency check
+                timeliness_score=95.0 if plugin.missing_count == 0 else 80.0,
+                overall_score=(
+                    completeness + 99.0 + (95.0 if plugin.missing_count == 0 else 80.0)
+                )
+                / 3,
+                record_count=0,  # TODO: Get from status
+                latest_update=plugin.latest_date,
+            )
+        )
+
     return metrics
 
 
 @router.get("/quality/report")
-async def get_quality_report(table: Optional[str] = None, current_user: dict = Depends(require_admin)):
+async def get_quality_report(
+    table: str | None = None, current_user: dict = Depends(require_admin)
+):
     """Get data quality report."""
     return {"report": "Data quality is good"}
 
 
 # ============ Metadata ============
 
+
 @router.get("/metadata/tables")
 async def get_table_metadata(current_user: dict = Depends(require_admin)):
     """Get table metadata."""
     plugins = data_manage_service.get_plugin_list()
-    
+
     tables = []
     for plugin in plugins:
         detail = data_manage_service.get_plugin_detail(plugin.name)
         if detail:
-            tables.append({
-                "table_name": detail.table_schema.table_name,
-                "description": detail.table_schema.comment or plugin.description,
-                "row_count": detail.status.total_records,
-                "size_bytes": 0,  # TODO: Get actual size
-                "latest_date": detail.status.latest_date
-            })
-    
+            tables.append(
+                {
+                    "table_name": detail.table_schema.table_name,
+                    "description": detail.table_schema.comment or plugin.description,
+                    "row_count": detail.status.total_records,
+                    "size_bytes": 0,  # TODO: Get actual size
+                    "latest_date": detail.status.latest_date,
+                }
+            )
+
     return tables
 
 
 # ============ AI Diagnosis ============
 
+
 @router.get("/diagnosis", response_model=DiagnosisResult)
 async def get_diagnosis(
-    log_lines: int = Query(default=100, ge=10, le=500, description="Number of log lines to analyze"),
+    log_lines: int = Query(
+        default=100, ge=10, le=500, description="Number of log lines to analyze"
+    ),
     errors_only: bool = Query(default=False, description="Only analyze error logs"),
     current_user: dict = Depends(require_admin),
 ):
@@ -609,157 +714,162 @@ async def get_diagnosis(
 
 
 @router.post("/diagnosis", response_model=DiagnosisResult)
-async def trigger_diagnosis(request: DiagnosisRequest, current_user: dict = Depends(require_admin)):
+async def trigger_diagnosis(
+    request: DiagnosisRequest, current_user: dict = Depends(require_admin)
+):
     """Trigger AI diagnosis with custom parameters."""
     return diagnosis_service.diagnose(
         lines=request.log_lines,
         errors_only=request.include_errors_only,
-        context=request.context
+        context=request.context,
     )
 
 
 # ============ Proxy Configuration ============
 
+
 @router.get("/proxy/config", response_model=ProxyConfig)
 async def get_proxy_config(current_user: dict = Depends(require_admin)):
     """Get current HTTP proxy configuration."""
     from ...config.settings import settings
+
     return ProxyConfig(
         enabled=settings.HTTP_PROXY_ENABLED,
         host=settings.HTTP_PROXY_HOST,
         port=settings.HTTP_PROXY_PORT,
         username=settings.HTTP_PROXY_USERNAME,
-        password="******" if settings.HTTP_PROXY_PASSWORD else None  # Mask password
+        password="******" if settings.HTTP_PROXY_PASSWORD else None,  # Mask password
     )
 
 
 @router.put("/proxy/config", response_model=ProxyConfig)
-async def update_proxy_config(request: ProxyConfigRequest, current_user: dict = Depends(require_admin)):
+async def update_proxy_config(
+    request: ProxyConfigRequest, current_user: dict = Depends(require_admin)
+):
     """Update HTTP proxy configuration (runtime + persisted).
-    
+
     Note: Proxy is NOT applied globally. It will only be used
     within data extraction tasks via proxy_context().
     """
     from ...config.settings import settings
-    
+
     # Update runtime settings
     settings.HTTP_PROXY_ENABLED = request.enabled
     settings.HTTP_PROXY_HOST = request.host
     settings.HTTP_PROXY_PORT = request.port
     settings.HTTP_PROXY_USERNAME = request.username
     settings.HTTP_PROXY_PASSWORD = request.password
-    
+
     # Persist to runtime config file
     try:
-        save_runtime_config(proxy={
-            "enabled": request.enabled,
-            "host": request.host,
-            "port": request.port,
-            "username": request.username,
-            "password": request.password,
-        })
+        save_runtime_config(
+            proxy={
+                "enabled": request.enabled,
+                "host": request.host,
+                "port": request.port,
+                "username": request.username,
+                "password": request.password,
+            }
+        )
     except Exception as e:
         logger.warning(f"Failed to persist proxy config: {e}")
-    
-    logger.info(f"Proxy config updated: enabled={request.enabled}, host={request.host}:{request.port} (used only for data extraction)")
-    
+
+    logger.info(
+        f"Proxy config updated: enabled={request.enabled}, host={request.host}:{request.port} (used only for data extraction)"
+    )
+
     return ProxyConfig(
         enabled=settings.HTTP_PROXY_ENABLED,
         host=settings.HTTP_PROXY_HOST,
         port=settings.HTTP_PROXY_PORT,
         username=settings.HTTP_PROXY_USERNAME,
-        password="******" if settings.HTTP_PROXY_PASSWORD else None
+        password="******" if settings.HTTP_PROXY_PASSWORD else None,
     )
 
 
 @router.post("/proxy/test", response_model=ProxyTestResult)
-async def test_proxy_connection(request: ProxyConfigRequest, current_user: dict = Depends(require_admin)):
+async def test_proxy_connection(
+    request: ProxyConfigRequest, current_user: dict = Depends(require_admin)
+):
     """Test HTTP proxy connection."""
     import time
-    import requests
     from urllib.parse import quote
-    
+
+    import requests
+
     if not request.enabled or not request.host or not request.port:
-        return ProxyTestResult(
-            success=False,
-            message="代理未启用或配置不完整"
-        )
-    
+        return ProxyTestResult(success=False, message="代理未启用或配置不完整")
+
     # Build proxy URL
     if request.username and request.password:
-        encoded_password = quote(request.password, safe='')
+        encoded_password = quote(request.password, safe="")
         proxy_url = f"http://{request.username}:{encoded_password}@{request.host}:{request.port}"
     else:
         proxy_url = f"http://{request.host}:{request.port}"
-    
-    proxies = {
-        "http": proxy_url,
-        "https": proxy_url
-    }
-    
+
+    proxies = {"http": proxy_url, "https": proxy_url}
+
     try:
         start_time = time.time()
         # Test connection by fetching a simple endpoint
-        response = requests.get(
-            "https://httpbin.org/ip",
-            proxies=proxies,
-            timeout=10
-        )
+        response = requests.get("https://httpbin.org/ip", proxies=proxies, timeout=10)
         latency = (time.time() - start_time) * 1000
-        
+
         if response.status_code == 200:
             data = response.json()
             external_ip = data.get("origin", "Unknown")
             return ProxyTestResult(
                 success=True,
-                message=f"代理连接成功",
+                message="代理连接成功",
                 latency_ms=round(latency, 2),
-                external_ip=external_ip
+                external_ip=external_ip,
             )
         else:
             return ProxyTestResult(
-                success=False,
-                message=f"代理返回错误状态码: {response.status_code}"
+                success=False, message=f"代理返回错误状态码: {response.status_code}"
             )
-    except requests.exceptions.ProxyError as e:
+    except requests.exceptions.ProxyError:
         return ProxyTestResult(
-            success=False,
-            message=f"代理连接失败: 认证错误或代理不可用"
+            success=False, message="代理连接失败: 认证错误或代理不可用"
         )
     except requests.exceptions.ConnectTimeout:
         return ProxyTestResult(
-            success=False,
-            message=f"代理连接超时: {request.host}:{request.port}"
+            success=False, message=f"代理连接超时: {request.host}:{request.port}"
         )
-    except requests.exceptions.ConnectionError as e:
+    except requests.exceptions.ConnectionError:
         return ProxyTestResult(
             success=False,
-            message=f"无法连接到代理服务器: {request.host}:{request.port}"
+            message=f"无法连接到代理服务器: {request.host}:{request.port}",
         )
     except Exception as e:
-        return ProxyTestResult(
-            success=False,
-            message=f"测试失败: {str(e)}"
-        )
+        return ProxyTestResult(success=False, message=f"测试失败: {e!s}")
 
 
 # ============ Schedule Management ============
 
 from .schedule_service import schedule_service
 from .schemas import (
-    ScheduleConfig, ScheduleConfigRequest,
-    PluginScheduleConfig, PluginScheduleConfigRequest,
-    ScheduleExecutionRecord, ScheduleHistoryResponse,
-    BatchExecutionDetail, BatchTaskDetail,
-    PartialRetryRequest, PluginGroup, PluginGroupCreateRequest,
-    PluginGroupUpdateRequest, PluginGroupListResponse, PluginGroupTriggerRequest
+    BatchExecutionDetail,
+    BatchTaskDetail,
+    PartialRetryRequest,
+    PluginGroup,
+    PluginGroupCreateRequest,
+    PluginGroupListResponse,
+    PluginGroupTriggerRequest,
+    PluginGroupUpdateRequest,
+    PluginScheduleConfig,
+    PluginScheduleConfigRequest,
+    ScheduleConfig,
+    ScheduleConfigRequest,
+    ScheduleExecutionRecord,
+    ScheduleHistoryResponse,
 )
 
 
 @router.get("/schedule/config", response_model=ScheduleConfig)
 async def get_schedule_config(current_user: dict = Depends(require_admin)):
     """获取全局定时调度配置.
-    
+
     返回调度是否启用、执行时间、频率等配置。
     """
     config = schedule_service.get_config()
@@ -768,11 +878,10 @@ async def get_schedule_config(current_user: dict = Depends(require_admin)):
 
 @router.put("/schedule/config", response_model=ScheduleConfig)
 async def update_schedule_config(
-    request: ScheduleConfigRequest,
-    current_user: dict = Depends(require_admin)
+    request: ScheduleConfigRequest, current_user: dict = Depends(require_admin)
 ):
     """更新全局定时调度配置.
-    
+
     可配置项：
     - enabled: 是否启用定时调度
     - execute_time: 执行时间（HH:MM格式）
@@ -790,13 +899,15 @@ async def update_schedule_config(
     return ScheduleConfig(**config)
 
 
-@router.get("/schedule/plugins", response_model=List[PluginScheduleConfig])
+@router.get("/schedule/plugins", response_model=list[PluginScheduleConfig])
 async def get_plugin_schedule_configs(
-    category: Optional[str] = Query(default=None, description="按分类筛选: cn_stock, hk_stock, index, etf_fund"),
-    current_user: dict = Depends(require_admin)
+    category: str | None = Query(
+        default=None, description="按分类筛选: cn_stock, hk_stock, index, etf_fund"
+    ),
+    current_user: dict = Depends(require_admin),
 ):
     """获取所有插件的调度配置.
-    
+
     返回每个插件是否加入定时任务、是否启用全量扫描等配置。
     按依赖顺序排序（basic → primary → derived → auxiliary）。
     """
@@ -808,10 +919,10 @@ async def get_plugin_schedule_configs(
 async def update_plugin_schedule_config(
     name: str,
     request: PluginScheduleConfigRequest,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """更新单个插件的调度配置.
-    
+
     可配置项：
     - schedule_enabled: 是否加入定时任务（启用后每日自动同步）
     - full_scan_enabled: 是否启用全量扫描（启用后重新获取全部历史数据）
@@ -830,7 +941,7 @@ async def update_plugin_schedule_config(
 @router.post("/schedule/trigger", response_model=ScheduleExecutionRecord)
 async def trigger_schedule_now(current_user: dict = Depends(require_admin)):
     """立即触发一次调度执行.
-    
+
     不等待 cron 时间，立即按依赖顺序创建同步任务。
     启用智能补数：检测最近30天内缺失数据并自动补全。
     如果是非交易日且配置了跳过非交易日，会返回 skipped 状态。
@@ -847,29 +958,34 @@ async def trigger_schedule_now(current_user: dict = Depends(require_admin)):
 async def get_schedule_history(
     days: int = Query(default=7, ge=1, le=30, description="查询天数"),
     limit: int = Query(default=50, ge=1, le=200, description="返回条数"),
-    status: Optional[str] = Query(default=None, description="状态过滤: running, completed, failed, skipped, interrupted"),
-    trigger_type: Optional[str] = Query(default=None, description="触发类型: scheduled, manual, group, retry"),
-    current_user: dict = Depends(require_admin)
+    status: str | None = Query(
+        default=None,
+        description="状态过滤: running, completed, failed, skipped, interrupted",
+    ),
+    trigger_type: str | None = Query(
+        default=None, description="触发类型: scheduled, manual, group, retry"
+    ),
+    current_user: dict = Depends(require_admin),
 ):
     """获取调度执行历史.
-    
+
     返回最近的调度执行记录，包括执行时间、状态、涉及的插件数量等。
     支持按状态和触发类型筛选。
     """
-    history = schedule_service.get_history(days=days, limit=limit, status=status, trigger_type=trigger_type)
+    history = schedule_service.get_history(
+        days=days, limit=limit, status=status, trigger_type=trigger_type
+    )
     return ScheduleHistoryResponse(
-        items=[ScheduleExecutionRecord(**r) for r in history],
-        total=len(history)
+        items=[ScheduleExecutionRecord(**r) for r in history], total=len(history)
     )
 
 
 @router.post("/schedule/retry/{execution_id}", response_model=ScheduleExecutionRecord)
 async def retry_schedule_execution(
-    execution_id: str,
-    current_user: dict = Depends(require_admin)
+    execution_id: str, current_user: dict = Depends(require_admin)
 ):
     """重新执行一个中断或失败的调度.
-    
+
     仅支持重试状态为 interrupted 或 failed 的执行记录。
     会创建一个新的调度执行，按依赖顺序重新同步所有启用的插件。
     """
@@ -883,24 +999,25 @@ async def retry_schedule_execution(
 
 @router.get("/schedule/execution/{execution_id}", response_model=BatchExecutionDetail)
 async def get_execution_detail(
-    execution_id: str,
-    current_user: dict = Depends(require_admin)
+    execution_id: str, current_user: dict = Depends(require_admin)
 ):
     """获取批量任务执行详情.
-    
+
     返回执行记录的详细信息，包括所有子任务的状态和错误信息汇总。
     错误汇总可以一键复制用于问题排查。
     """
     # First update execution status based on task statuses
     schedule_service.update_execution_status(execution_id)
-    
+
     detail = schedule_service.get_execution_detail(execution_id)
     if not detail:
-        raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Execution {execution_id} not found"
+        )
+
     # Convert tasks to BatchTaskDetail
     tasks = [BatchTaskDetail(**t) for t in detail.get("tasks", [])]
-    
+
     return BatchExecutionDetail(
         execution_id=detail["execution_id"],
         trigger_type=detail["trigger_type"],
@@ -912,17 +1029,16 @@ async def get_execution_detail(
         failed_plugins=detail.get("failed_plugins", 0),
         tasks=tasks,
         error_summary=detail.get("error_summary", ""),
-        group_name=detail.get("group_name")
+        group_name=detail.get("group_name"),
     )
 
 
 @router.post("/schedule/stop/{execution_id}", response_model=ScheduleExecutionRecord)
 async def stop_execution(
-    execution_id: str,
-    current_user: dict = Depends(require_admin)
+    execution_id: str, current_user: dict = Depends(require_admin)
 ):
     """停止正在执行的批量任务.
-    
+
     取消所有待执行的子任务，正在运行的任务会继续完成。
     """
     try:
@@ -934,37 +1050,40 @@ async def stop_execution(
 
 @router.delete("/schedule/execution/{execution_id}")
 async def delete_schedule_execution(
-    execution_id: str,
-    current_user: dict = Depends(require_admin)
+    execution_id: str, current_user: dict = Depends(require_admin)
 ):
     """删除一条调度执行记录.
-    
+
     仅支持删除已完成/失败/中断的执行记录，不能删除正在运行的记录。
     """
     try:
         success = schedule_service.delete_execution(execution_id)
         if not success:
-            raise HTTPException(status_code=400, detail="Cannot delete execution (not found or still running)")
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete execution (not found or still running)",
+            )
         return {"success": True, "message": "Execution deleted"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/schedule/partial-retry/{execution_id}", response_model=ScheduleExecutionRecord)
+@router.post(
+    "/schedule/partial-retry/{execution_id}", response_model=ScheduleExecutionRecord
+)
 async def partial_retry_execution(
     execution_id: str,
     request: PartialRetryRequest = PartialRetryRequest(),
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """部分重试批量任务中失败的插件.
-    
+
     仅重试失败的任务，不重新执行成功的任务。
     可选指定要重试的 task_ids，否则重试所有失败的任务。
     """
     try:
         record = schedule_service.partial_retry_execution(
-            execution_id=execution_id,
-            task_ids=request.task_ids
+            execution_id=execution_id, task_ids=request.task_ids
         )
         return ScheduleExecutionRecord(**record)
     except ValueError as e:
@@ -977,68 +1096,71 @@ async def partial_retry_execution(
 
 @router.get("/groups", response_model=PluginGroupListResponse)
 async def list_plugin_groups(
-    category: Optional[str] = Query(None, description="按分类筛选: cn_stock/index/etf_fund/daily/custom"),
-    current_user: dict = Depends(require_admin)
+    category: str | None = Query(
+        None, description="按分类筛选: cn_stock/index/etf_fund/daily/custom"
+    ),
+    current_user: dict = Depends(require_admin),
 ):
     """获取所有插件组合（预定义 + 用户自定义）.
-    
+
     返回预定义组合和用户自定义组合，预定义组合排在前面。
     支持按分类筛选。
     """
     groups = get_plugin_groups(include_predefined=True)
-    
+
     # 按分类筛选
     if category:
         groups = [g for g in groups if g.get("category") == category]
-    
+
     # 统计预定义和自定义组合数量
     predefined_count = sum(1 for g in groups if g.get("is_predefined", False))
     custom_count = len(groups) - predefined_count
-    
+
     return PluginGroupListResponse(
         items=[PluginGroup(**g) for g in groups],
         total=len(groups),
         predefined_count=predefined_count,
-        custom_count=custom_count
+        custom_count=custom_count,
     )
 
 
 @router.get("/groups/predefined", response_model=PredefinedGroupsResponse)
 async def list_predefined_groups(current_user: dict = Depends(require_admin)):
     """获取预定义插件组合列表.
-    
+
     仅返回系统预定义的组合，不包含用户自定义组合。
     同时返回分类列表。
     """
     predefined = load_predefined_groups()
     categories = get_predefined_categories()
-    
+
     return PredefinedGroupsResponse(
         groups=[PluginGroup(**g) for g in predefined],
-        categories=[GroupCategoryInfo(**c) for c in categories]
+        categories=[GroupCategoryInfo(**c) for c in categories],
     )
 
 
 @router.post("/groups", response_model=PluginGroup)
 async def create_plugin_group(
-    request: PluginGroupCreateRequest,
-    current_user: dict = Depends(require_admin)
+    request: PluginGroupCreateRequest, current_user: dict = Depends(require_admin)
 ):
     """创建自定义插件组合.
-    
+
     将多个插件组合在一起，方便批量触发同步。
     """
     # Validate plugin names
     for name in request.plugin_names:
         if not plugin_manager.get_plugin(name):
             raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
-    
+
     # Check for duplicate name (only against custom groups)
     existing = get_custom_plugin_groups()
     for g in existing:
         if g.get("name") == request.name:
-            raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
-    
+            raise HTTPException(
+                status_code=400, detail=f"Group name '{request.name}' already exists"
+            )
+
     group = {
         "group_id": str(uuid.uuid4())[:8],
         "name": request.name,
@@ -1050,23 +1172,22 @@ async def create_plugin_group(
         "is_readonly": False,
         "created_at": datetime.now().isoformat(),
         "updated_at": None,
-        "created_by": current_user.get("username", "admin")
+        "created_by": current_user.get("username", "admin"),
     }
-    
+
     save_plugin_group(group)
     return PluginGroup(**group)
 
 
 @router.get("/groups/{group_id}", response_model=PluginGroupDetail)
 async def get_plugin_group_detail(
-    group_id: str,
-    current_user: dict = Depends(require_admin)
+    group_id: str, current_user: dict = Depends(require_admin)
 ):
     """获取插件组合详情，包含依赖关系图和执行顺序."""
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-    
+
     # 获取插件状态
     plugin_status = []
     for name in group.get("plugin_names", []):
@@ -1079,12 +1200,10 @@ async def get_plugin_group_detail(
                 has_data = status.get("total_records", 0) > 0
             except:
                 pass
-        plugin_status.append(GroupPluginStatus(
-            name=name,
-            exists=exists,
-            has_data=has_data
-        ))
-    
+        plugin_status.append(
+            GroupPluginStatus(name=name, exists=exists, has_data=has_data)
+        )
+
     # 构建依赖关系图
     dependency_graph = {}
     for name in group.get("plugin_names", []):
@@ -1097,15 +1216,15 @@ async def get_plugin_group_detail(
             dependency_graph[name] = internal_deps
         else:
             dependency_graph[name] = []
-    
+
     # 计算执行顺序（拓扑排序）
     execution_order = _topological_sort(dependency_graph)
-    
+
     return PluginGroupDetail(
         **group,
         plugin_status=plugin_status,
         dependency_graph=dependency_graph,
-        execution_order=execution_order
+        execution_order=execution_order,
     )
 
 
@@ -1113,7 +1232,7 @@ def _topological_sort(graph: dict) -> list:
     """对依赖图进行拓扑排序."""
     visited = set()
     result = []
-    
+
     def visit(node):
         if node in visited:
             return
@@ -1121,10 +1240,10 @@ def _topological_sort(graph: dict) -> list:
         for dep in graph.get(node, []):
             visit(dep)
         result.append(node)
-    
+
     for node in graph:
         visit(node)
-    
+
     return result
 
 
@@ -1132,60 +1251,62 @@ def _topological_sort(graph: dict) -> list:
 async def update_plugin_group(
     group_id: str,
     request: PluginGroupUpdateRequest,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """更新插件组合.
-    
+
     预定义组合不可修改。
     """
     # 检查是否为预定义组合
     if is_predefined_group(group_id):
         raise HTTPException(status_code=403, detail="Cannot modify predefined group")
-    
+
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-    
+
     # Validate plugin names if provided
     if request.plugin_names:
         for name in request.plugin_names:
             if not plugin_manager.get_plugin(name):
                 raise HTTPException(status_code=400, detail=f"Plugin {name} not found")
         group["plugin_names"] = request.plugin_names
-    
+
     # Check for duplicate name (if changing, only against custom groups)
     if request.name and request.name != group.get("name"):
         existing = get_custom_plugin_groups()
         for g in existing:
             if g.get("name") == request.name and g.get("group_id") != group_id:
-                raise HTTPException(status_code=400, detail=f"Group name '{request.name}' already exists")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Group name '{request.name}' already exists",
+                )
         group["name"] = request.name
-    
+
     if request.description is not None:
         group["description"] = request.description
-    
+
     if request.default_task_type is not None:
         group["default_task_type"] = request.default_task_type.value
-    
+
     group["updated_at"] = datetime.now().isoformat()
-    
+
     save_plugin_group(group)
     return PluginGroup(**group)
 
 
 @router.delete("/groups/{group_id}")
 async def delete_plugin_group_endpoint(
-    group_id: str,
-    current_user: dict = Depends(require_admin)
+    group_id: str, current_user: dict = Depends(require_admin)
 ):
     """删除插件组合.
-    
+
     预定义组合不可删除。
     """
     # 检查是否为预定义组合
     if is_predefined_group(group_id):
         raise HTTPException(status_code=403, detail="Cannot delete predefined group")
-    
+
     success = delete_plugin_group(group_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
@@ -1196,10 +1317,10 @@ async def delete_plugin_group_endpoint(
 async def check_group_data_exists(
     group_id: str,
     request: GroupDataExistsCheckRequest,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """检查组合中所有插件指定日期的数据是否存在.
-    
+
     用于在触发组合同步前检查数据重复情况，与单插件同步的数据检查逻辑一致。
     """
     try:
@@ -1213,31 +1334,39 @@ async def check_group_data_exists(
 async def trigger_plugin_group(
     group_id: str,
     request: PluginGroupTriggerRequest = PluginGroupTriggerRequest(),
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """触发插件组合同步.
-    
+
     按依赖顺序执行组合中的所有插件。
     维度表(basic类)只执行一次全量同步,不传递多日期。
     日期列表会自动过滤非交易日。
     """
-    from stock_datasource.core.trade_calendar import trade_calendar_service, MARKET_CN, MARKET_HK
     from stock_datasource.core.base_plugin import PluginCategory
-    
+    from stock_datasource.core.trade_calendar import (
+        MARKET_CN,
+        MARKET_HK,
+        trade_calendar_service,
+    )
+
     group = get_plugin_group(group_id)
     if not group:
         raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-    
+
     plugin_names = group.get("plugin_names", [])
     if not plugin_names:
         raise HTTPException(status_code=400, detail="Group has no plugins")
-    
+
     # Dimension tables that should not receive trade_dates for backfill
     dim_tables = {
-        "tushare_stock_basic", "tushare_index_basic", "tushare_index_classify",
-        "tushare_ths_index", "tushare_etf_basic", "akshare_hk_stock_list",
+        "tushare_stock_basic",
+        "tushare_index_basic",
+        "tushare_index_classify",
+        "tushare_ths_index",
+        "tushare_etf_basic",
+        "akshare_hk_stock_list",
     }
-    
+
     # Determine the market for this group based on plugin categories
     # If any plugin is HK_STOCK, use HK calendar for date filtering
     group_market = MARKET_CN
@@ -1246,43 +1375,48 @@ async def trigger_plugin_group(
         if plugin and plugin.get_category() == PluginCategory.HK_STOCK:
             group_market = MARKET_HK
             break
-    
+
     # Filter trade_dates to only include actual trading days for the appropriate market
     filtered_trade_dates = None
     if request.trade_dates:
         filtered_trade_dates = [
-            d for d in request.trade_dates 
+            d
+            for d in request.trade_dates
             if trade_calendar_service.is_trading_day(d, market=group_market)
         ]
         if not filtered_trade_dates:
-            logger.warning(f"All provided dates are non-trading days ({group_market}): {request.trade_dates[:5]}...")
+            logger.warning(
+                f"All provided dates are non-trading days ({group_market}): {request.trade_dates[:5]}..."
+            )
             # Fall back to original dates if all filtered out (edge case)
             filtered_trade_dates = request.trade_dates
         elif len(filtered_trade_dates) < len(request.trade_dates):
-            filtered_out = [d for d in request.trade_dates if d not in filtered_trade_dates]
+            filtered_out = [
+                d for d in request.trade_dates if d not in filtered_trade_dates
+            ]
             logger.info(
                 f"Filtered {len(filtered_out)} non-trading days ({group_market}), "
                 f"remaining {len(filtered_trade_dates)} trading days. "
                 f"Example filtered out: {filtered_out[:5]}"
             )
-    
+
     # Create tasks for each plugin
     task_ids = []
     for name in plugin_names:
         plugin = plugin_manager.get_plugin(name)
         if not plugin:
             continue
-        
+
         try:
             # Determine task type and dates based on plugin type
             task_type = request.task_type
             trade_dates = filtered_trade_dates
-            
+
             # For dimension tables, always use incremental (single run) without multi-date
             if name in dim_tables:
                 task_type = TaskType.INCREMENTAL
                 trade_dates = None  # Dimension tables don't need dates
-            
+
             task = sync_task_manager.create_task(
                 plugin_name=name,
                 task_type=task_type,
@@ -1294,10 +1428,10 @@ async def trigger_plugin_group(
         except Exception as e:
             # Log but continue
             logger.warning(f"Failed to create task for {name}: {e}")
-    
+
     if not task_ids:
         raise HTTPException(status_code=400, detail="Failed to create any tasks")
-    
+
     # Calculate date range string for display
     date_range = None
     if filtered_trade_dates:
@@ -1306,37 +1440,45 @@ async def trigger_plugin_group(
             date_range = sorted_dates[0]
         else:
             date_range = f"{sorted_dates[0]} ~ {sorted_dates[-1]}"
-    
+
     # Create execution record
     record = schedule_service.create_manual_execution(
         task_ids=task_ids,
         trigger_type="group",
         group_name=group.get("name"),
-        date_range=date_range
+        date_range=date_range,
     )
-    
+
     return ScheduleExecutionRecord(**record)
 
 
 # ============ Data Explorer API ============
 
 from fastapi.responses import StreamingResponse
+
 from .data_explorer_service import data_explorer_service
 from .schemas import (
-    ExplorerTableListResponse, ExplorerTableSchema, ExplorerTableInfo,
-    ExplorerSimpleQueryRequest, ExplorerSqlExecuteRequest, ExplorerSqlExecuteResponse,
-    ExplorerSqlExportRequest, ExportFormat,
-    SqlTemplate, SqlTemplateCreate, SqlTemplateListResponse
+    ExplorerSimpleQueryRequest,
+    ExplorerSqlExecuteRequest,
+    ExplorerSqlExecuteResponse,
+    ExplorerSqlExportRequest,
+    ExplorerTableListResponse,
+    ExplorerTableSchema,
+    ExportFormat,
+    SqlTemplate,
+    SqlTemplateCreate,
 )
 
 
 @router.get("/explorer/tables", response_model=ExplorerTableListResponse)
 async def get_explorer_tables(
-    category: Optional[str] = Query(default=None, description="按分类筛选: cn_stock, index, etf_fund 等"),
+    category: str | None = Query(
+        default=None, description="按分类筛选: cn_stock, index, etf_fund 等"
+    ),
     current_user: dict = Depends(require_admin),
 ):
     """获取所有可查询的表列表.
-    
+
     返回所有插件对应的数据库表，包含表名、分类、列信息、行数等。
     """
     return data_explorer_service.get_available_tables(category)
@@ -1348,7 +1490,7 @@ async def get_explorer_table_schema(
     current_user: dict = Depends(require_admin),
 ):
     """获取表结构详情.
-    
+
     返回表的完整列定义、分区方式、排序键等信息。
     """
     schema = data_explorer_service.get_table_schema(table_name)
@@ -1357,14 +1499,16 @@ async def get_explorer_table_schema(
     return schema
 
 
-@router.post("/explorer/tables/{table_name}/query", response_model=ExplorerSqlExecuteResponse)
+@router.post(
+    "/explorer/tables/{table_name}/query", response_model=ExplorerSqlExecuteResponse
+)
 async def query_explorer_table(
     table_name: str,
     request: ExplorerSimpleQueryRequest,
     current_user: dict = Depends(require_admin),
 ):
     """简单筛选查询.
-    
+
     支持日期范围、代码筛选、排序和分页。
     """
     try:
@@ -1379,15 +1523,13 @@ async def execute_explorer_sql(
     current_user: dict = Depends(require_admin),
 ):
     """执行 SQL 查询.
-    
+
     仅允许 SELECT 查询，且只能查询已注册的插件表。
     自动添加 LIMIT 限制，防止返回过多数据。
     """
     try:
         return data_explorer_service.execute_sql_query(
-            sql=request.sql,
-            max_rows=request.max_rows,
-            timeout=request.timeout
+            sql=request.sql, max_rows=request.max_rows, timeout=request.timeout
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1399,31 +1541,32 @@ async def export_explorer_sql(
     current_user: dict = Depends(require_admin),
 ):
     """导出查询结果.
-    
+
     支持 CSV 和 Excel 格式，最大导出 10000 行。
     """
     try:
         content, filename = data_explorer_service.export_query_result(
-            sql=request.sql,
-            format=request.format,
-            filename=request.filename
+            sql=request.sql, format=request.format, filename=request.filename
         )
-        
-        media_type = "text/csv" if request.format == ExportFormat.CSV else \
-                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        
+
+        media_type = (
+            "text/csv"
+            if request.format == ExportFormat.CSV
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
         return StreamingResponse(
             io.BytesIO(content),
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/explorer/sql/templates", response_model=List[SqlTemplate])
+@router.get("/explorer/sql/templates", response_model=list[SqlTemplate])
 async def get_explorer_templates(
-    category: Optional[str] = Query(default=None, description="按分类筛选"),
+    category: str | None = Query(default=None, description="按分类筛选"),
     current_user: dict = Depends(require_admin),
 ):
     """获取查询模板列表."""
@@ -1461,7 +1604,7 @@ async def delete_explorer_template(
 # NOTE: The old /scheduler/* endpoints are DEPRECATED.
 # Use /schedule/config and /schedule/scheduler-status instead.
 
-from .schemas import SchedulerStatus, SchedulerConfigUpdate, SchedulerRunResult
+from .schemas import SchedulerConfigUpdate, SchedulerRunResult, SchedulerStatus
 
 
 @router.get("/schedule/scheduler-status")
@@ -1491,8 +1634,7 @@ async def get_scheduler_status(current_user: dict = Depends(require_admin)):
 
 @router.put("/scheduler/config", response_model=SchedulerStatus, deprecated=True)
 async def update_scheduler_config(
-    request: SchedulerConfigUpdate,
-    current_user: dict = Depends(require_admin)
+    request: SchedulerConfigUpdate, current_user: dict = Depends(require_admin)
 ):
     """[DEPRECATED] 更新数据同步调度器配置.
 
@@ -1533,7 +1675,7 @@ async def stop_scheduler(current_user: dict = Depends(require_admin)):
 @router.post("/scheduler/run", response_model=SchedulerRunResult, deprecated=True)
 async def run_scheduler_task(
     task_type: str = Query(..., description="任务类型: data_sync 或 analysis"),
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin),
 ):
     """[DEPRECATED] 立即执行指定类型的调度任务.
 
@@ -1550,13 +1692,16 @@ async def run_scheduler_task(
         scheduler.run_analysis_now()
         message = "分析任务已触发（已弃用，无实际效果）"
     else:
-        raise HTTPException(status_code=400, detail="无效的任务类型，支持: data_sync, analysis")
+        raise HTTPException(
+            status_code=400, detail="无效的任务类型，支持: data_sync, analysis"
+        )
 
     logger.info(f"Manual scheduler task triggered: {task_type}")
     return SchedulerRunResult(success=True, message=message, task_type=task_type)
 
 
 # ============ Knowledge Base (WeKnora) Configuration ============
+
 
 @router.get("/knowledge/config")
 async def get_knowledge_config(current_user: dict = Depends(require_admin)):
@@ -1610,7 +1755,7 @@ async def update_knowledge_config(
 async def get_knowledge_status(current_user: dict = Depends(require_admin)):
     """Get WeKnora knowledge base connection status and deployment guide."""
     from ...config.settings import settings
-    from ...services.weknora_client import get_weknora_client, _quick_deploy_info
+    from ...services.weknora_client import _quick_deploy_info, get_weknora_client
 
     if not settings.WEKNORA_ENABLED:
         return {
@@ -1697,16 +1842,22 @@ async def list_knowledge_bases(current_user: dict = Depends(require_admin)):
 
 # ============ Knowledge Sync (ClickHouse → WeKnora) ============
 
+
 @router.get("/knowledge/sync/debug")
 async def debug_weknora_connection(current_user: dict = Depends(require_admin)):
     """Debug endpoint: test WeKnora HTTP call from within uvicorn process."""
-    import httpx as _httpx
     import os as _os
     import time as _time
+
+    import httpx as _httpx
+
     from ...config.settings import settings
 
     url = f"{settings.WEKNORA_BASE_URL}/knowledge-bases"
-    headers = {"X-API-Key": settings.WEKNORA_API_KEY or "", "Content-Type": "application/json"}
+    headers = {
+        "X-API-Key": settings.WEKNORA_API_KEY or "",
+        "Content-Type": "application/json",
+    }
 
     results = {
         "env_proxy": {
@@ -1721,9 +1872,15 @@ async def debug_weknora_connection(current_user: dict = Depends(require_admin)):
         try:
             with _httpx.Client(timeout=15, trust_env=False) as c:
                 resp = c.get(url, headers=headers)
-                return {"status": resp.status_code, "elapsed": round(_time.time() - t0, 3)}
+                return {
+                    "status": resp.status_code,
+                    "elapsed": round(_time.time() - t0, 3),
+                }
         except Exception as e:
-            return {"error": f"{type(e).__name__}: {e}", "elapsed": round(_time.time() - t0, 3)}
+            return {
+                "error": f"{type(e).__name__}: {e}",
+                "elapsed": round(_time.time() - t0, 3),
+            }
 
     results["sync_no_proxy"] = await asyncio.to_thread(_sync_test)
 
@@ -1740,11 +1897,15 @@ async def get_sync_tables(current_user: dict = Depends(require_admin)):
 
 
 @router.get("/knowledge/sync/tables/{table_name}/columns")
-async def get_sync_table_columns(table_name: str, current_user: dict = Depends(require_admin)):
+async def get_sync_table_columns(
+    table_name: str, current_user: dict = Depends(require_admin)
+):
     """Get column info for a ClickHouse table."""
     from ...services.knowledge_sync_service import knowledge_sync_service
 
-    columns = await asyncio.to_thread(knowledge_sync_service.get_table_columns, table_name)
+    columns = await asyncio.to_thread(
+        knowledge_sync_service.get_table_columns, table_name
+    )
     return {"columns": columns}
 
 
@@ -1774,7 +1935,9 @@ async def trigger_knowledge_sync(
     if not kb_id:
         raise HTTPException(status_code=400, detail="kb_id 是必填参数")
     if not table_name and not custom_sql:
-        raise HTTPException(status_code=400, detail="table_name 或 custom_sql 至少需要提供一个")
+        raise HTTPException(
+            status_code=400, detail="table_name 或 custom_sql 至少需要提供一个"
+        )
 
     task = await knowledge_sync_service.sync_table(
         kb_id=kb_id,
@@ -1791,7 +1954,7 @@ async def trigger_knowledge_sync(
 
 @router.get("/knowledge/sync/status")
 async def get_knowledge_sync_status(
-    task_id: Optional[str] = Query(default=None),
+    task_id: str | None = Query(default=None),
     current_user: dict = Depends(require_admin),
 ):
     """Get knowledge sync status. If task_id is given, return that task; else return current running task."""
@@ -1826,7 +1989,7 @@ async def list_knowledge_documents(
     kb_id: str = Query(..., description="Knowledge base ID"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    keyword: Optional[str] = Query(default=None),
+    keyword: str | None = Query(default=None),
     current_user: dict = Depends(require_admin),
 ):
     """List knowledge documents in a WeKnora knowledge base."""
@@ -1836,7 +1999,9 @@ async def list_knowledge_documents(
     if client is None:
         raise HTTPException(status_code=503, detail="WeKnora 服务未配置")
 
-    result = await asyncio.to_thread(client.list_knowledges, kb_id, page, page_size, keyword)
+    result = await asyncio.to_thread(
+        client.list_knowledges, kb_id, page, page_size, keyword
+    )
     return result
 
 
@@ -1860,10 +2025,12 @@ async def delete_knowledge_document(
 
 # ============ Realtime Data Management Endpoints ============
 
+
 @router.get("/realtime/config")
 async def get_realtime_config():
     """Get realtime data management configuration."""
     from .realtime_manage_service import realtime_manage_service
+
     return realtime_manage_service.get_config()
 
 
@@ -1872,10 +2039,11 @@ async def update_realtime_config(
     body: dict,
 ):
     """Update realtime data management configuration.
-    
+
     Body params: enabled, watchlist_monitor_enabled, collect_freq
     """
     from .realtime_manage_service import realtime_manage_service
+
     return realtime_manage_service.update_config(
         enabled=body.get("enabled"),
         watchlist_monitor_enabled=body.get("watchlist_monitor_enabled"),
@@ -1887,6 +2055,7 @@ async def update_realtime_config(
 async def get_realtime_plugins():
     """Get list of all realtime plugins with their status."""
     from .realtime_manage_service import realtime_manage_service
+
     return realtime_manage_service.get_realtime_plugins()
 
 
@@ -1897,6 +2066,7 @@ async def update_realtime_plugin_config(
 ):
     """Enable or disable a specific realtime plugin."""
     from .realtime_manage_service import realtime_manage_service
+
     enabled = body.get("enabled", False)
     return realtime_manage_service.update_plugin_config(plugin_name, enabled)
 
@@ -1905,6 +2075,7 @@ async def update_realtime_plugin_config(
 async def get_realtime_status():
     """Get realtime system status summary."""
     from .realtime_manage_service import realtime_manage_service
+
     return realtime_manage_service.get_realtime_status()
 
 
@@ -1912,5 +2083,6 @@ async def get_realtime_status():
 async def sync_watchlist_to_realtime():
     """Manually sync watchlist codes to realtime collector."""
     from .realtime_manage_service import realtime_manage_service
+
     realtime_manage_service._sync_watchlist_to_collector()
     return {"success": True, "message": "自选股已同步到实时采集"}

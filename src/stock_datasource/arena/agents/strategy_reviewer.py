@@ -7,9 +7,9 @@ Agent responsible for critically reviewing and validating trading strategies.
 import json
 import logging
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
-from ..models import AgentConfig, AgentRole, ArenaStrategy, CompetitionStage
+from ..models import ArenaStrategy, CompetitionStage
 from .base import ArenaAgentBase
 
 logger = logging.getLogger(__name__)
@@ -17,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 class StrategyReviewerAgent(ArenaAgentBase):
     """Agent that reviews and validates trading strategies.
-    
+
     This agent critically examines strategies for logical flaws,
     missing risk controls, and optimization opportunities.
     """
-    
+
     @property
     def role_name(self) -> str:
         return "Strategy Reviewer"
-    
+
     def get_system_prompt(self) -> str:
         """Get system prompt for strategy review."""
         return """你是一个专业的量化策略评审专家。
@@ -44,11 +44,11 @@ class StrategyReviewerAgent(ArenaAgentBase):
 
 你应该像一个严格的风控经理一样审查每一个策略。
 """
-    
+
     async def generate_strategy(
         self,
-        symbols: List[str],
-        market_context: Dict[str, Any] = None,
+        symbols: list[str],
+        market_context: dict[str, Any] = None,
         round_id: str = "",
     ) -> ArenaStrategy:
         """Reviewers can also generate strategies, typically more conservative ones."""
@@ -56,10 +56,10 @@ class StrategyReviewerAgent(ArenaAgentBase):
             "作为评审者，我将生成一个更加保守稳健的策略...",
             round_id=round_id,
         )
-        
+
         prompt = f"""作为一个策略评审专家，请生成一个稳健保守的交易策略。
 
-目标股票: {', '.join(symbols[:10])}
+目标股票: {", ".join(symbols[:10])}
 
 请特别关注:
 1. 风险控制措施
@@ -69,14 +69,16 @@ class StrategyReviewerAgent(ArenaAgentBase):
 
 输出一个完整的策略，包括名称、描述、逻辑和交易规则（JSON格式）。
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         strategy = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name="稳健型策略",
             description="由策略评审专家生成的保守型策略",
             logic=response,
@@ -91,26 +93,26 @@ class StrategyReviewerAgent(ArenaAgentBase):
             stage=CompetitionStage.BACKTEST,
             discussion_rounds=[round_id] if round_id else [],
         )
-        
+
         await self.conclude(
             f"策略生成完成: {strategy.name}",
             round_id=round_id,
         )
-        
+
         return strategy
-    
+
     async def critique_strategy(
         self,
         strategy: ArenaStrategy,
-        market_context: Dict[str, Any] = None,
+        market_context: dict[str, Any] = None,
         round_id: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Thoroughly critique a strategy."""
         await self.think(
             f"开始严格审查策略: {strategy.name}",
             round_id=round_id,
         )
-        
+
         prompt = f"""请严格审查以下交易策略，找出所有潜在问题:
 
 策略名称: {strategy.name}
@@ -136,9 +138,9 @@ class StrategyReviewerAgent(ArenaAgentBase):
     "recommendation": "approve/revise/reject"
 }}
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         try:
             critique = self._extract_json(response)
         except:
@@ -152,7 +154,7 @@ class StrategyReviewerAgent(ArenaAgentBase):
                 "recommendation": "revise",
                 "raw_response": response,
             }
-        
+
         # Ensure all required fields
         critique.setdefault("strengths", [])
         critique.setdefault("weaknesses", [])
@@ -161,26 +163,33 @@ class StrategyReviewerAgent(ArenaAgentBase):
         critique.setdefault("overall_score", 50)
         critique.setdefault("risk_level", "medium")
         critique.setdefault("recommendation", "revise")
-        
+
         await self.argue(
-            f"## 策略审查报告: {strategy.name}\n\n" +
-            f"**评分**: {critique['overall_score']}/100\n" +
-            f"**风险等级**: {critique['risk_level']}\n" +
-            f"**建议**: {critique['recommendation']}\n\n" +
-            f"### 优点\n" + "\n".join(f"- {s}" for s in critique['strengths']) + "\n\n" +
-            f"### 问题\n" + "\n".join(f"- {w}" for w in critique['weaknesses']) + "\n\n" +
-            f"### 风险\n" + "\n".join(f"- {r}" for r in critique['risks']) + "\n\n" +
-            f"### 改进建议\n" + "\n".join(f"- {s}" for s in critique['suggestions']),
+            f"## 策略审查报告: {strategy.name}\n\n"
+            + f"**评分**: {critique['overall_score']}/100\n"
+            + f"**风险等级**: {critique['risk_level']}\n"
+            + f"**建议**: {critique['recommendation']}\n\n"
+            + "### 优点\n"
+            + "\n".join(f"- {s}" for s in critique["strengths"])
+            + "\n\n"
+            + "### 问题\n"
+            + "\n".join(f"- {w}" for w in critique["weaknesses"])
+            + "\n\n"
+            + "### 风险\n"
+            + "\n".join(f"- {r}" for r in critique["risks"])
+            + "\n\n"
+            + "### 改进建议\n"
+            + "\n".join(f"- {s}" for s in critique["suggestions"]),
             round_id=round_id,
             target_strategy_id=strategy.id,
         )
-        
+
         return critique
-    
+
     async def refine_strategy(
         self,
         strategy: ArenaStrategy,
-        critiques: List[Dict[str, Any]],
+        critiques: list[dict[str, Any]],
         round_id: str = "",
     ) -> ArenaStrategy:
         """Refine strategy with focus on addressing identified issues."""
@@ -188,17 +197,17 @@ class StrategyReviewerAgent(ArenaAgentBase):
             "正在根据审查意见优化策略，重点关注风险控制...",
             round_id=round_id,
         )
-        
+
         # Collect all issues and suggestions
         all_weaknesses = []
         all_risks = []
         all_suggestions = []
-        
+
         for critique in critiques:
             all_weaknesses.extend(critique.get("weaknesses", []))
             all_risks.extend(critique.get("risks", []))
             all_suggestions.extend(critique.get("suggestions", []))
-        
+
         prompt = f"""请根据以下审查意见优化策略:
 
 原策略:
@@ -207,60 +216,67 @@ class StrategyReviewerAgent(ArenaAgentBase):
 - 规则: {json.dumps(strategy.rules, ensure_ascii=False)}
 
 发现的问题:
-{chr(10).join(f'- {w}' for w in all_weaknesses)}
+{chr(10).join(f"- {w}" for w in all_weaknesses)}
 
 识别的风险:
-{chr(10).join(f'- {r}' for r in all_risks)}
+{chr(10).join(f"- {r}" for r in all_risks)}
 
 改进建议:
-{chr(10).join(f'- {s}' for s in all_suggestions)}
+{chr(10).join(f"- {s}" for s in all_suggestions)}
 
 请输出优化后的策略，特别关注风险控制。
 """
-        
+
         response = await self._call_llm(prompt)
-        
+
         refined = ArenaStrategy(
             id=str(uuid.uuid4())[:8],
             arena_id=self.arena_id,
             agent_id=self.agent_id,
-            agent_role=self.role.value if hasattr(self.role, 'value') else str(self.role),
+            agent_role=self.role.value
+            if hasattr(self.role, "value")
+            else str(self.role),
             name=f"{strategy.name} (审核优化版)",
             description=strategy.description,
             logic=response,
             rules=strategy.rules,
             symbols=strategy.symbols,
             stage=CompetitionStage.BACKTEST,
-            refinement_history=strategy.refinement_history + [{
-                "reviewer_id": self.agent_id,
-                "issues_addressed": len(all_weaknesses) + len(all_risks),
-            }],
-            discussion_rounds=strategy.discussion_rounds + [round_id] if round_id else strategy.discussion_rounds,
+            refinement_history=strategy.refinement_history
+            + [
+                {
+                    "reviewer_id": self.agent_id,
+                    "issues_addressed": len(all_weaknesses) + len(all_risks),
+                }
+            ],
+            discussion_rounds=strategy.discussion_rounds + [round_id]
+            if round_id
+            else strategy.discussion_rounds,
         )
-        
+
         await self.conclude(
             f"策略审核优化完成: {refined.name}",
             round_id=round_id,
         )
-        
+
         return refined
-    
-    def _extract_json(self, text: str) -> Dict[str, Any]:
+
+    def _extract_json(self, text: str) -> dict[str, Any]:
         """Extract JSON from text."""
         import re
-        
-        json_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+
+        json_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group())
             except json.JSONDecodeError:
                 pass
-        
-        code_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+
+        code_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if code_match:
             try:
                 return json.loads(code_match.group(1))
             except json.JSONDecodeError:
                 pass
-        
+
         raise ValueError("No valid JSON found in text")

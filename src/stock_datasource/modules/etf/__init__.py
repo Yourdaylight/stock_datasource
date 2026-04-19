@@ -1,6 +1,6 @@
 """ETF module for ETF data display and analysis."""
 
-from .service import get_etf_service, EtfService
 from .router import router
+from .service import EtfService, get_etf_service
 
-__all__ = ["get_etf_service", "EtfService", "router"]
+__all__ = ["EtfService", "get_etf_service", "router"]

@@ -6,7 +6,6 @@ via the /api/realtime/refresh-codes endpoint.
 
 import logging
 import threading
-from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Major indices – rarely change
-INDEX_CODES: List[str] = [
+INDEX_CODES: list[str] = [
     "000001.SH",  # 上证指数
     "399001.SZ",  # 深证成指
     "399006.SZ",  # 创业板指
@@ -28,8 +27,8 @@ INDEX_CODES: List[str] = [
 
 # A-stock & ETF codes — populated from DB by refresh_codes_from_db()
 # A+ETF 共享同一个采集通道（rt_min），合并管理
-ASTOCK_CODES: List[str] = []
-ETF_CODES: List[str] = []
+ASTOCK_CODES: list[str] = []
+ETF_CODES: list[str] = []
 
 # Thread lock for code list updates
 _codes_lock = threading.Lock()
@@ -54,7 +53,7 @@ MIN_CALL_INTERVAL = 60.0 / RATE_LIMIT_PER_MINUTE  # ~0.12s
 # ---------------------------------------------------------------------------
 
 # Default collection frequency per market (minutes)
-COLLECT_FREQ: Dict[str, int] = {
+COLLECT_FREQ: dict[str, int] = {
     "a_etf": 1,
     "index": 1,
 }
@@ -71,6 +70,7 @@ MAX_RETRIES = 3
 
 # SQLite 数据库文件路径（可通过环境变量 RT_MINUTE_SQLITE_PATH 覆盖）
 import os as _os
+
 SQLITE_DB_PATH = _os.environ.get(
     "RT_MINUTE_SQLITE_PATH",
     _os.path.join(_os.path.dirname(__file__), "rt_minute_cache.db"),
@@ -83,11 +83,11 @@ REDIS_DEFAULT_TTL = 18 * 3600  # 仅作接口兼容占位，SQLite 版本不使�
 # Sync configuration
 # ---------------------------------------------------------------------------
 
-SYNC_TIME = "15:30"          # Default sync time after market close
-CLEANUP_TIME = "03:00"       # Default cleanup time
+SYNC_TIME = "15:30"  # Default sync time after market close
+CLEANUP_TIME = "03:00"  # Default cleanup time
 
 # ClickHouse target tables (per market)
-CLICKHOUSE_TABLES: Dict[str, str] = {
+CLICKHOUSE_TABLES: dict[str, str] = {
     "a_stock": "ods_min_kline_cn",
     "etf": "ods_min_kline_etf",
     "index": "ods_min_kline_index",
@@ -100,6 +100,7 @@ CLICKHOUSE_TABLE_DEFAULT = "ods_min_kline_cn"
 def get_table_for_market(market: str) -> str:
     """Return ClickHouse table name for a given market type."""
     return CLICKHOUSE_TABLES.get(market, CLICKHOUSE_TABLE_DEFAULT)
+
 
 # ---------------------------------------------------------------------------
 # Trading hours (for scheduler)
@@ -115,15 +116,16 @@ CN_TRADING_HOURS = [
 # Dynamic code list management
 # ---------------------------------------------------------------------------
 
-def refresh_codes_from_db() -> Dict[str, int]:
+
+def refresh_codes_from_db() -> dict[str, int]:
     """Load A-stock and ETF code lists from ClickHouse.
-    
+
     Returns dict with counts per market.
     """
     global ASTOCK_CODES, ETF_CODES
     try:
-        from stock_datasource.models.database import db_client
         from stock_datasource.config.settings import settings
+        from stock_datasource.models.database import db_client
 
         database = settings.CLICKHOUSE_DATABASE
 
@@ -166,19 +168,19 @@ def refresh_codes_from_db() -> Dict[str, int]:
         }
 
 
-def get_all_astock_codes() -> List[str]:
+def get_all_astock_codes() -> list[str]:
     """Return current A-stock code list (thread-safe)."""
     with _codes_lock:
         return list(ASTOCK_CODES)
 
 
-def get_all_etf_codes() -> List[str]:
+def get_all_etf_codes() -> list[str]:
     """Return current ETF code list (thread-safe)."""
     with _codes_lock:
         return list(ETF_CODES)
 
 
-def get_all_a_etf_codes() -> List[str]:
+def get_all_a_etf_codes() -> list[str]:
     """Return merged A-stock + ETF code list for batch collection (thread-safe)."""
     with _codes_lock:
         return list(ASTOCK_CODES) + list(ETF_CODES)

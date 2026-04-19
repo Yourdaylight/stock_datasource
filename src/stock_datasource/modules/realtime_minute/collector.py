@@ -11,8 +11,6 @@ HK stocks are NOT supported for realtime minute data.
 import asyncio
 import logging
 import time
-from datetime import datetime
-from typing import Dict, List, Optional
 
 import pandas as pd
 import tushare as ts
@@ -38,7 +36,7 @@ class RealtimeMinuteCollector:
         # Rate limiting state (shared across concurrent calls via lock)
         self._last_call_time: float = 0
         self._min_interval: float = cfg.MIN_CALL_INTERVAL
-        self._rate_lock = __import__('threading').Lock()
+        self._rate_lock = __import__("threading").Lock()
 
     # ------------------------------------------------------------------
     # Rate limiter (thread-safe, called from asyncio.to_thread)
@@ -56,9 +54,13 @@ class RealtimeMinuteCollector:
     # Synchronous API calls (run in thread pool via asyncio.to_thread)
     # ------------------------------------------------------------------
 
-    @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
-           wait=wait_exponential(multiplier=1, min=2, max=10))
-    def _call_rt_min_batch(self, ts_codes: List[str], freq: str = "1MIN") -> pd.DataFrame:
+    @retry(
+        stop=stop_after_attempt(cfg.MAX_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def _call_rt_min_batch(
+        self, ts_codes: list[str], freq: str = "1MIN"
+    ) -> pd.DataFrame:
         """Call rt_min API with multiple codes (up to 300, comma-separated)."""
         self._rate_limit()
         codes_str = ",".join(ts_codes)
@@ -68,12 +70,18 @@ class RealtimeMinuteCollector:
                 return pd.DataFrame()
             return result
         except Exception as e:
-            logger.error("rt_min batch failed for %d codes (first=%s): %s",
-                         len(ts_codes), ts_codes[0] if ts_codes else "?", e)
+            logger.error(
+                "rt_min batch failed for %d codes (first=%s): %s",
+                len(ts_codes),
+                ts_codes[0] if ts_codes else "?",
+                e,
+            )
             raise
 
-    @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
-           wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(cfg.MAX_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def _call_rt_min_single(self, ts_code: str, freq: str = "1MIN") -> pd.DataFrame:
         """Call rt_min API for a single code (fallback)."""
         self._rate_limit()
@@ -86,8 +94,10 @@ class RealtimeMinuteCollector:
             logger.error("rt_min failed for %s: %s", ts_code, e)
             raise
 
-    @retry(stop=stop_after_attempt(cfg.MAX_RETRIES),
-           wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(
+        stop=stop_after_attempt(cfg.MAX_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
     def _call_rt_idx_min(self, ts_code: str, freq: str = "1MIN") -> pd.DataFrame:
         """Call rt_idx_min API for index."""
         self._rate_limit()
@@ -124,7 +134,16 @@ class RealtimeMinuteCollector:
             df = df.rename(columns=rename_map)
 
         # Ensure required columns exist
-        for col in ["ts_code", "trade_time", "open", "close", "high", "low", "vol", "amount"]:
+        for col in [
+            "ts_code",
+            "trade_time",
+            "open",
+            "close",
+            "high",
+            "low",
+            "vol",
+            "amount",
+        ]:
             if col not in df.columns:
                 df[col] = None
 
@@ -142,11 +161,28 @@ class RealtimeMinuteCollector:
                 if not isinstance(code, str):
                     return "a_stock"
                 prefix = code[:3] if len(code) >= 3 else ""
-                if prefix in ("510", "511", "512", "513", "515", "516", "518", "520",
-                              "560", "561", "562", "563", "588",
-                              "159", "150", "501", "502"):
+                if prefix in (
+                    "510",
+                    "511",
+                    "512",
+                    "513",
+                    "515",
+                    "516",
+                    "518",
+                    "520",
+                    "560",
+                    "561",
+                    "562",
+                    "563",
+                    "588",
+                    "159",
+                    "150",
+                    "501",
+                    "502",
+                ):
                     return "etf"
                 return "a_stock"
+
             df["market_type"] = df["ts_code"].apply(_infer_market)
         else:
             df["market_type"] = market.value
@@ -158,9 +194,9 @@ class RealtimeMinuteCollector:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _chunk_list(lst: List[str], size: int) -> List[List[str]]:
+    def _chunk_list(lst: list[str], size: int) -> list[list[str]]:
         """Split a list into chunks of given size."""
-        return [lst[i:i + size] for i in range(0, len(lst), size)]
+        return [lst[i : i + size] for i in range(0, len(lst), size)]
 
     # ------------------------------------------------------------------
     # Async collection for A-stock + ETF (merged, batch API)
@@ -179,27 +215,35 @@ class RealtimeMinuteCollector:
         batches = self._chunk_list(codes, cfg.BATCH_SIZE)
         logger.info(
             "Collecting A+ETF minute data: %d codes → %d batches, concurrency=%d",
-            len(codes), len(batches), cfg.CONCURRENT_WORKERS,
+            len(codes),
+            len(batches),
+            cfg.CONCURRENT_WORKERS,
         )
 
         # Semaphore to limit concurrency
         semaphore = asyncio.Semaphore(cfg.CONCURRENT_WORKERS)
 
-        async def _fetch_batch(batch: List[str], batch_idx: int) -> pd.DataFrame:
+        async def _fetch_batch(batch: list[str], batch_idx: int) -> pd.DataFrame:
             """Async wrapper: run sync API call in thread pool."""
             async with semaphore:
                 try:
                     df = await asyncio.to_thread(self._call_rt_min_batch, batch, freq)
                     return df
                 except Exception as e:
-                    logger.warning("Batch %d (%d codes, first=%s) failed: %s",
-                                   batch_idx, len(batch),
-                                   batch[0] if batch else "?", e)
+                    logger.warning(
+                        "Batch %d (%d codes, first=%s) failed: %s",
+                        batch_idx,
+                        len(batch),
+                        batch[0] if batch else "?",
+                        e,
+                    )
                     # Fallback: try one by one
                     dfs = []
                     for code in batch:
                         try:
-                            df = await asyncio.to_thread(self._call_rt_min_single, code, freq)
+                            df = await asyncio.to_thread(
+                                self._call_rt_min_single, code, freq
+                            )
                             if not df.empty:
                                 dfs.append(df)
                         except Exception:
@@ -276,6 +320,7 @@ class RealtimeMinuteCollector:
             # We're inside an existing event loop (e.g. FastAPI/uvicorn)
             # Use a new thread to run the coroutine with its own loop
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(asyncio.run, coro)
                 return future.result()
@@ -298,8 +343,8 @@ class RealtimeMinuteCollector:
     def collect_all(
         self,
         freq: str = "1MIN",
-        markets: Optional[List[str]] = None,
-    ) -> Dict[str, pd.DataFrame]:
+        markets: list[str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
         """Collect all configured markets.
 
         Args:
@@ -324,7 +369,7 @@ class RealtimeMinuteCollector:
                 effective_markets.add(m)
         effective_markets = list(effective_markets)
 
-        results: Dict[str, pd.DataFrame] = {}
+        results: dict[str, pd.DataFrame] = {}
         collectors = {
             "a_etf": self.collect_a_etf,
             "index": self.collect_index,
@@ -352,7 +397,7 @@ class RealtimeMinuteCollector:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_collector: Optional[RealtimeMinuteCollector] = None
+_collector: RealtimeMinuteCollector | None = None
 
 
 def get_collector() -> RealtimeMinuteCollector:

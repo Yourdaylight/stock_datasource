@@ -1,11 +1,11 @@
 """港股通十大成交股查询服务"""
 
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class GgtTop10Service:
@@ -27,7 +27,7 @@ class GgtTop10Service:
         self.table = "stock_datasource.ods_ggt_top10"
 
     def get_top10_by_date(
-        self, trade_date: str, market_type: Optional[str] = None
+        self, trade_date: str, market_type: str | None = None
     ) -> pd.DataFrame:
         """
         获取指定日期港股通十大成交股
@@ -52,8 +52,8 @@ class GgtTop10Service:
     def get_stock_history(
         self,
         ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 100,
     ) -> pd.DataFrame:
         """
@@ -78,7 +78,7 @@ class GgtTop10Service:
             sql += " AND trade_date <= %(end_date)s"
             params["end_date"] = end_date
 
-        sql += f" ORDER BY trade_date DESC LIMIT %(limit)s"
+        sql += " ORDER BY trade_date DESC LIMIT %(limit)s"
         params["limit"] = limit
         return self.client.execute_query(sql, params)
 
@@ -99,7 +99,9 @@ class GgtTop10Service:
             ORDER BY net_amount DESC
             LIMIT %(limit)s
         """
-        return self.client.execute_query(sql, {"trade_date": trade_date, "limit": limit})
+        return self.client.execute_query(
+            sql, {"trade_date": trade_date, "limit": limit}
+        )
 
     def get_top_net_sell(self, trade_date: str, limit: int = 10) -> pd.DataFrame:
         """
@@ -118,7 +120,9 @@ class GgtTop10Service:
             ORDER BY net_amount ASC
             LIMIT %(limit)s
         """
-        return self.client.execute_query(sql, {"trade_date": trade_date, "limit": limit})
+        return self.client.execute_query(
+            sql, {"trade_date": trade_date, "limit": limit}
+        )
 
     def get_frequent_stocks(
         self, start_date: str, end_date: str, limit: int = 20

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from stock_datasource.agents.orchestrator import get_orchestrator
 
@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 class LogAIDiagnosisService:
     """Build prompt and call orchestrator for log diagnosis."""
 
-    def _build_log_context(self, log_entries: List[Dict[str, Any]], max_entries: int = 40) -> str:
+    def _build_log_context(
+        self, log_entries: list[dict[str, Any]], max_entries: int = 40
+    ) -> str:
         recent = log_entries[:max_entries]
-        lines: List[str] = []
+        lines: list[str] = []
         for idx, item in enumerate(recent, start=1):
             timestamp = item.get("timestamp", "")
             level = str(item.get("level", "INFO")).upper()
@@ -23,7 +25,7 @@ class LogAIDiagnosisService:
             lines.append(f"{idx}. [{timestamp}] [{level}] [{module}] {message[:300]}")
         return "\n".join(lines)
 
-    def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json(self, text: str) -> dict[str, Any] | None:
         if not text:
             return None
 
@@ -32,7 +34,7 @@ class LogAIDiagnosisService:
         if start < 0 or end < 0 or end <= start:
             return None
 
-        json_text = text[start:end + 1]
+        json_text = text[start : end + 1]
         try:
             value = json.loads(json_text)
             if isinstance(value, dict):
@@ -43,12 +45,12 @@ class LogAIDiagnosisService:
 
     async def diagnose(
         self,
-        log_entries: List[Dict[str, Any]],
-        user_query: Optional[str] = None,
-        context: Optional[str] = None,
+        log_entries: list[dict[str, Any]],
+        user_query: str | None = None,
+        context: str | None = None,
         include_code_context: bool = True,
-        user_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         """Run AI diagnosis and return structured result dict."""
         orchestrator = get_orchestrator()
         log_context = self._build_log_context(log_entries=log_entries)
@@ -94,7 +96,7 @@ class LogAIDiagnosisService:
         }
 
 
-_ai_diagnosis_service: Optional[LogAIDiagnosisService] = None
+_ai_diagnosis_service: LogAIDiagnosisService | None = None
 
 
 def get_log_ai_diagnosis_service() -> LogAIDiagnosisService:

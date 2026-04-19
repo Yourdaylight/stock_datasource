@@ -4,7 +4,6 @@ All endpoints require admin authentication.
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -109,14 +108,16 @@ async def list_endpoints(
     for ep in endpoints:
         policy = svc.get_policy(ep["api_path"])
         is_enabled = bool(policy and policy.get("is_enabled"))
-        result.append(EndpointInfo(
-            plugin_name=ep["plugin_name"],
-            method_name=ep["method_name"],
-            api_path=ep["api_path"],
-            description=ep.get("description", ""),
-            parameters=ep.get("parameters", []),
-            is_enabled=is_enabled,
-        ))
+        result.append(
+            EndpointInfo(
+                plugin_name=ep["plugin_name"],
+                method_name=ep["method_name"],
+                api_path=ep["api_path"],
+                description=ep.get("description", ""),
+                parameters=ep.get("parameters", []),
+                is_enabled=is_enabled,
+            )
+        )
     return EndpointListResponse(endpoints=result, total=len(result))
 
 
@@ -128,8 +129,8 @@ async def list_endpoints(
 @admin_router.get("/usage", response_model=UsageStatsResponse)
 async def get_usage_stats(
     days: int = Query(7, ge=1, le=365),
-    api_path: Optional[str] = Query(None),
-    api_key_id: Optional[str] = Query(None),
+    api_path: str | None = Query(None),
+    api_key_id: str | None = Query(None),
     _admin: dict = Depends(require_admin),
 ):
     """Get aggregated usage statistics."""

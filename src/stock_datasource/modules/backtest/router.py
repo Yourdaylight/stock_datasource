@@ -1,26 +1,29 @@
 """Backtest module router."""
 
-from fastapi import APIRouter, Query, HTTPException
-from typing import List, Dict, Any, Optional, Tuple
-from pydantic import BaseModel
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any
 
-from ...backtest.models import TradeType, TradeStatus
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+
+from ...backtest.models import TradeStatus, TradeType
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_BACKTEST_HISTORY: List["BacktestResult"] = []
+_BACKTEST_HISTORY: list["BacktestResult"] = []
 _MAX_HISTORY_SIZE = 100
 
 
-def _calculate_trade_stats(trades: List[Any]) -> Tuple[int, int, int, float, float, float, float]:
+def _calculate_trade_stats(
+    trades: list[Any],
+) -> tuple[int, int, int, float, float, float, float]:
     """计算已完成交易的统计指标"""
     filled_trades = [t for t in trades if t.status == TradeStatus.FILLED]
-    pnls: List[float] = []
-    positions: Dict[str, Tuple[int, float]] = {}
+    pnls: list[float] = []
+    positions: dict[str, tuple[int, float]] = {}
 
     for trade in filled_trades:
         symbol = trade.symbol
@@ -32,7 +35,9 @@ def _calculate_trade_stats(trades: List[Any]) -> Tuple[int, int, int, float, flo
         if trade.trade_type == TradeType.BUY:
             new_qty = current_qty + trade.quantity
             if new_qty > 0:
-                new_avg_price = ((current_qty * current_avg_price) + (trade.quantity * trade.price)) / new_qty
+                new_avg_price = (
+                    (current_qty * current_avg_price) + (trade.quantity * trade.price)
+                ) / new_qty
             else:
                 new_avg_price = trade.price
             positions[symbol] = (new_qty, new_avg_price)
@@ -57,19 +62,33 @@ def _calculate_trade_stats(trades: List[Any]) -> Tuple[int, int, int, float, flo
     win_count = len(winning_trades)
     loss_count = len(losing_trades)
     win_rate = win_count / total_trades if total_trades > 0 else 0.0
-    avg_win = float(sum(winning_trades) / len(winning_trades)) if winning_trades else 0.0
-    avg_loss = float(abs(sum(losing_trades) / len(losing_trades))) if losing_trades else 0.0
-    profit_factor = (sum(winning_trades) / abs(sum(losing_trades))) if losing_trades else 0.0
+    avg_win = (
+        float(sum(winning_trades) / len(winning_trades)) if winning_trades else 0.0
+    )
+    avg_loss = (
+        float(abs(sum(losing_trades) / len(losing_trades))) if losing_trades else 0.0
+    )
+    profit_factor = (
+        (sum(winning_trades) / abs(sum(losing_trades))) if losing_trades else 0.0
+    )
 
-    return total_trades, win_count, loss_count, win_rate, avg_win, avg_loss, float(profit_factor)
+    return (
+        total_trades,
+        win_count,
+        loss_count,
+        win_rate,
+        avg_win,
+        avg_loss,
+        float(profit_factor),
+    )
 
 
 class StrategyParam(BaseModel):
     name: str
     type: str
     default: Any
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
+    min_value: float | None = None
+    max_value: float | None = None
     description: str
 
 
@@ -78,16 +97,16 @@ class Strategy(BaseModel):
     name: str
     description: str
     category: str
-    params: List[StrategyParam]
+    params: list[StrategyParam]
 
 
 class BacktestRequest(BaseModel):
     strategy_id: str
-    ts_codes: List[str]
+    ts_codes: list[str]
     start_date: str
     end_date: str
     initial_capital: float = 100000
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
 
 
 class Trade(BaseModel):
@@ -107,7 +126,7 @@ class EquityPoint(BaseModel):
 class BacktestResult(BaseModel):
     task_id: str
     strategy_name: str
-    ts_codes: List[str]
+    ts_codes: list[str]
     start_date: str
     end_date: str
     initial_capital: float
@@ -137,27 +156,27 @@ class BacktestResult(BaseModel):
     cvar_99: float = 0.0
     skewness: float = 0.0
     kurtosis: float = 0.0
-    trades: List[Trade] = []
-    equity_curve: List[EquityPoint] = []
-    drawdown_series: Dict[str, float] = {}
-    daily_returns: Dict[str, float] = {}
-    benchmark_curve: Dict[str, float] = {}
+    trades: list[Trade] = []
+    equity_curve: list[EquityPoint] = []
+    drawdown_series: dict[str, float] = {}
+    daily_returns: dict[str, float] = {}
+    benchmark_curve: dict[str, float] = {}
     created_at: str
 
 
-@router.get("/strategies", response_model=List[Strategy])
+@router.get("/strategies", response_model=list[Strategy])
 async def get_strategies():
     """Get available strategies."""
     try:
         # 导入策略注册表
         from ...strategies.init import get_strategy_registry
-        
+
         registry = get_strategy_registry()
         strategies = []
-        
+
         for strategy_id, strategy_info in registry._strategies.items():
             metadata = strategy_info.metadata
-            
+
             # 获取策略参数
             strategy_class = registry.get_strategy_class(strategy_id)
             if strategy_class:
@@ -169,24 +188,26 @@ async def get_strategies():
                         default=param.default,
                         min_value=param.min_value,
                         max_value=param.max_value,
-                        description=param.description
+                        description=param.description,
                     )
                     for param in param_schema
                 ]
             else:
                 params = []
-            
-            strategies.append(Strategy(
-                id=metadata.id,
-                name=metadata.name,
-                description=metadata.description,
-                category=metadata.category.value,
-                params=params
-            ))
-        
+
+            strategies.append(
+                Strategy(
+                    id=metadata.id,
+                    name=metadata.name,
+                    description=metadata.description,
+                    category=metadata.category.value,
+                    params=params,
+                )
+            )
+
         logger.info(f"返回 {len(strategies)} 个策略给回测模块")
         return strategies
-        
+
     except Exception as e:
         logger.error(f"获取策略列表失败: {e}")
         # 如果出错，返回备用的硬编码策略
@@ -197,9 +218,23 @@ async def get_strategies():
                 description="基于短期和长期均线交叉的趋势跟踪策略",
                 category="trend",
                 params=[
-                    StrategyParam(name="short_period", type="int", default=5, min_value=2, max_value=30, description="短期均线周期"),
-                    StrategyParam(name="long_period", type="int", default=20, min_value=10, max_value=120, description="长期均线周期")
-                ]
+                    StrategyParam(
+                        name="short_period",
+                        type="int",
+                        default=5,
+                        min_value=2,
+                        max_value=30,
+                        description="短期均线周期",
+                    ),
+                    StrategyParam(
+                        name="long_period",
+                        type="int",
+                        default=20,
+                        min_value=10,
+                        max_value=120,
+                        description="长期均线周期",
+                    ),
+                ],
             ),
             Strategy(
                 id="macd_strategy",
@@ -207,10 +242,31 @@ async def get_strategies():
                 description="基于MACD指标的趋势策略",
                 category="trend",
                 params=[
-                    StrategyParam(name="fast", type="int", default=12, min_value=5, max_value=20, description="快线周期"),
-                    StrategyParam(name="slow", type="int", default=26, min_value=20, max_value=40, description="慢线周期"),
-                    StrategyParam(name="signal", type="int", default=9, min_value=5, max_value=15, description="信号线周期")
-                ]
+                    StrategyParam(
+                        name="fast",
+                        type="int",
+                        default=12,
+                        min_value=5,
+                        max_value=20,
+                        description="快线周期",
+                    ),
+                    StrategyParam(
+                        name="slow",
+                        type="int",
+                        default=26,
+                        min_value=20,
+                        max_value=40,
+                        description="慢线周期",
+                    ),
+                    StrategyParam(
+                        name="signal",
+                        type="int",
+                        default=9,
+                        min_value=5,
+                        max_value=15,
+                        description="信号线周期",
+                    ),
+                ],
             ),
             Strategy(
                 id="rsi_strategy",
@@ -218,11 +274,32 @@ async def get_strategies():
                 description="基于RSI超买超卖的震荡策略",
                 category="momentum",
                 params=[
-                    StrategyParam(name="period", type="int", default=14, min_value=5, max_value=30, description="RSI周期"),
-                    StrategyParam(name="oversold", type="int", default=30, min_value=10, max_value=40, description="超卖阈值"),
-                    StrategyParam(name="overbought", type="int", default=70, min_value=60, max_value=90, description="超买阈值")
-                ]
-            )
+                    StrategyParam(
+                        name="period",
+                        type="int",
+                        default=14,
+                        min_value=5,
+                        max_value=30,
+                        description="RSI周期",
+                    ),
+                    StrategyParam(
+                        name="oversold",
+                        type="int",
+                        default=30,
+                        min_value=10,
+                        max_value=40,
+                        description="超卖阈值",
+                    ),
+                    StrategyParam(
+                        name="overbought",
+                        type="int",
+                        default=70,
+                        min_value=60,
+                        max_value=90,
+                        description="超买阈值",
+                    ),
+                ],
+            ),
         ]
 
 
@@ -252,14 +329,16 @@ async def run_backtest(request: BacktestRequest):
         registry = get_strategy_registry()
         strategy = registry.get_strategy(request.strategy_id, request.params)
         if strategy is None:
-            raise HTTPException(status_code=404, detail=f"策略不存在: {request.strategy_id}")
+            raise HTTPException(
+                status_code=404, detail=f"策略不存在: {request.strategy_id}"
+            )
 
         config = BacktestConfig(
             strategy_id=request.strategy_id,
             symbols=request.ts_codes,
             start_date=request.start_date,
             end_date=request.end_date,
-            trading_config=TradingConfig(initial_capital=request.initial_capital)
+            trading_config=TradingConfig(initial_capital=request.initial_capital),
         )
 
         errors = engine.validate_config(config)
@@ -267,12 +346,12 @@ async def run_backtest(request: BacktestRequest):
             raise HTTPException(status_code=400, detail="; ".join(errors))
 
         historical_data = await engine.data_service.get_historical_data(
-            config.symbols,
-            config.start_date,
-            config.end_date
+            config.symbols, config.start_date, config.end_date
         )
         simulator = TradingSimulator(config.trading_config)
-        result = await engine._execute_backtest(strategy, historical_data, simulator, config)
+        result = await engine._execute_backtest(
+            strategy, historical_data, simulator, config
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -280,7 +359,9 @@ async def run_backtest(request: BacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     performance = result.performance_metrics
-    total_trades, win_count, loss_count, win_rate, avg_win, avg_loss, profit_factor = _calculate_trade_stats(result.trades)
+    total_trades, win_count, loss_count, win_rate, avg_win, avg_loss, profit_factor = (
+        _calculate_trade_stats(result.trades)
+    )
     trades = [
         Trade(
             date=trade.timestamp.date().isoformat(),
@@ -288,7 +369,7 @@ async def run_backtest(request: BacktestRequest):
             price=float(trade.price),
             quantity=int(trade.quantity),
             amount=float(trade.trade_value),
-            signal_reason=trade.signal_reason or ""
+            signal_reason=trade.signal_reason or "",
         )
         for trade in result.trades
     ]
@@ -297,8 +378,10 @@ async def run_backtest(request: BacktestRequest):
     if result.equity_curve is not None and len(result.equity_curve) > 0:
         equity_curve = [
             EquityPoint(
-                date=(idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)),
-                value=float(value)
+                date=(
+                    idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)
+                ),
+                value=float(value),
             )
             for idx, value in result.equity_curve.items()
         ]
@@ -306,14 +389,18 @@ async def run_backtest(request: BacktestRequest):
     drawdown_series = {}
     if result.drawdown_series is not None and len(result.drawdown_series) > 0:
         drawdown_series = {
-            (idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)): float(value)
+            (idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)): float(
+                value
+            )
             for idx, value in result.drawdown_series.items()
         }
 
     daily_returns = {}
     if result.returns_series is not None and len(result.returns_series) > 0:
         daily_returns = {
-            (idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)): float(value)
+            (idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)): float(
+                value
+            )
             for idx, value in result.returns_series.items()
         }
 
@@ -356,7 +443,7 @@ async def run_backtest(request: BacktestRequest):
         equity_curve=equity_curve,
         drawdown_series=drawdown_series,
         daily_returns=daily_returns,
-        created_at=datetime.utcnow().isoformat()
+        created_at=datetime.utcnow().isoformat(),
     )
 
     _BACKTEST_HISTORY.insert(0, backtest_result)
@@ -366,7 +453,7 @@ async def run_backtest(request: BacktestRequest):
     return backtest_result
 
 
-@router.get("/results", response_model=List[BacktestResult])
+@router.get("/results", response_model=list[BacktestResult])
 async def get_results(limit: int = Query(default=20)):
     """Get backtest history."""
     safe_limit = max(1, min(limit, _MAX_HISTORY_SIZE))

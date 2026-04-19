@@ -22,5 +22,10 @@
     "pct_chg",
     "vol",
     "amount"
-  ]
+  ],
+  "schedule": {
+    "frequency": "weekly",
+    "time": "18:00",
+    "day_of_week": "saturday"
+  }
 }

@@ -1,16 +1,21 @@
 """TuShare daily basic indicators query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareDailyBasicService(BaseService):
     """Query service for TuShare daily basic indicators."""
-    
+
     def __init__(self):
         super().__init__("tushare_daily_basic")
-    
+
     @query_method(
         description="Query daily basic indicators by code and date range",
         params=[
@@ -45,22 +50,22 @@ class TuShareDailyBasicService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_daily_basic(\
+    def get_daily_basic(
         self,
         code: str,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query daily basic indicators.
-        
+
         Args:
             code: Stock code (e.g., 000001.SZ)
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             List of daily basic indicator records
         """
@@ -90,26 +95,23 @@ class TuShareDailyBasicService(BaseService):
         AND trade_date <= '{end_date}'
         ORDER BY trade_date ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
-    @query_method(
-        description="Get latest trade date in the database",
-        params=[]
-    )
-    def get_latest_trade_date(self) -> Optional[str]:
+
+    @query_method(description="Get latest trade date in the database", params=[])
+    def get_latest_trade_date(self) -> str | None:
         """Get the latest trade date available in the database."""
         query = "SELECT max(trade_date) as max_date FROM ods_daily_basic"
         df = self.db.execute_query(query)
-        if df.empty or df.iloc[0]['max_date'] is None:
+        if df.empty or df.iloc[0]["max_date"] is None:
             return None
-        date_val = df.iloc[0]['max_date']
-        if hasattr(date_val, 'strftime'):
-            return date_val.strftime('%Y-%m-%d')
-        return str(date_val).split()[0].split('T')[0]
-    
+        date_val = df.iloc[0]["max_date"]
+        if hasattr(date_val, "strftime"):
+            return date_val.strftime("%Y-%m-%d")
+        return str(date_val).split()[0].split("T")[0]
+
     @query_method(
         description="Query all stocks' daily basic indicators for a specific date",
         params=[
@@ -119,7 +121,7 @@ class TuShareDailyBasicService(BaseService):
                 description="Trade date in YYYY-MM-DD or YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_all_daily_basic_by_date(
         self,
@@ -127,10 +129,10 @@ class TuShareDailyBasicService(BaseService):
     ) -> pd.DataFrame:
         """
         Query all stocks' daily basic indicators for a specific date.
-        
+
         Args:
             trade_date: Trade date (YYYY-MM-DD or YYYYMMDD)
-        
+
         Returns:
             DataFrame with daily basic indicators
         """
@@ -159,7 +161,7 @@ class TuShareDailyBasicService(BaseService):
         GROUP BY ts_code, trade_date
         """
         return self.db.execute_query(query)
-    
+
     @query_method(
         description="Query latest daily basic indicators for multiple stocks",
         params=[
@@ -169,18 +171,18 @@ class TuShareDailyBasicService(BaseService):
                 description="List of stock codes",
                 required=True,
             ),
-        ]
+        ],
     )
-    def get_latest_daily_basic(\
+    def get_latest_daily_basic(
         self,
-        codes: List[str],
-    ) -> List[Dict[str, Any]]:
+        codes: list[str],
+    ) -> list[dict[str, Any]]:
         """
         Query latest daily basic indicators for multiple stocks.
-        
+
         Args:
             codes: List of stock codes
-        
+
         Returns:
             List of latest daily basic indicator records
         """
@@ -215,26 +217,23 @@ class TuShareDailyBasicService(BaseService):
         WHERE rn = 1
         ORDER BY ts_code
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
-    @query_method(
-        description="Get latest trade date in the database",
-        params=[]
-    )
-    def get_latest_trade_date(self) -> Optional[str]:
+
+    @query_method(description="Get latest trade date in the database", params=[])
+    def get_latest_trade_date(self) -> str | None:
         """Get the latest trade date available in the database."""
         query = "SELECT max(trade_date) as max_date FROM ods_daily_basic"
         df = self.db.execute_query(query)
-        if df.empty or df.iloc[0]['max_date'] is None:
+        if df.empty or df.iloc[0]["max_date"] is None:
             return None
-        date_val = df.iloc[0]['max_date']
-        if hasattr(date_val, 'strftime'):
-            return date_val.strftime('%Y-%m-%d')
-        return str(date_val).split()[0].split('T')[0]
-    
+        date_val = df.iloc[0]["max_date"]
+        if hasattr(date_val, "strftime"):
+            return date_val.strftime("%Y-%m-%d")
+        return str(date_val).split()[0].split("T")[0]
+
     @query_method(
         description="Query all stocks' daily basic indicators for a specific date",
         params=[
@@ -244,7 +243,7 @@ class TuShareDailyBasicService(BaseService):
                 description="Trade date in YYYY-MM-DD or YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_all_daily_basic_by_date(
         self,
@@ -252,10 +251,10 @@ class TuShareDailyBasicService(BaseService):
     ) -> pd.DataFrame:
         """
         Query all stocks' daily basic indicators for a specific date.
-        
+
         Args:
             trade_date: Trade date (YYYY-MM-DD or YYYYMMDD)
-        
+
         Returns:
             DataFrame with daily basic indicators
         """

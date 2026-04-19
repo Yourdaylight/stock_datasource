@@ -8,32 +8,38 @@
 - 策略优化和回测
 """
 
-from .base import BaseStrategy, StrategyMetadata, StrategyCategory, RiskLevel
-from .registry import StrategyRegistry
+from .base import BaseStrategy, RiskLevel, StrategyCategory, StrategyMetadata
 from .builtin import *
+
 # 延迟导入以避免依赖问题
 # from .ai_generator import AIStrategyGenerator
 # from .optimizer import StrategyOptimizer
-from .init import initialize_builtin_strategies, get_strategy_registry
+from .init import get_strategy_registry, initialize_builtin_strategies
+from .registry import StrategyRegistry
+
 
 def get_ai_generator():
     """延迟导入AI生成器"""
     from .ai_generator import AIStrategyGenerator
+
     return AIStrategyGenerator
+
 
 def get_optimizer():
     """延迟导入优化器"""
     from .optimizer import StrategyOptimizer
+
     return StrategyOptimizer
+
 
 __all__ = [
     "BaseStrategy",
-    "StrategyMetadata", 
-    "StrategyCategory",
     "RiskLevel",
+    "StrategyCategory",
+    "StrategyMetadata",
     "StrategyRegistry",
     "get_ai_generator",
     "get_optimizer",
-    "initialize_builtin_strategies",
     "get_strategy_registry",
+    "initialize_builtin_strategies",
 ]

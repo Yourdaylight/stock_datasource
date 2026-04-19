@@ -1,16 +1,21 @@
 """TuShare trade calendar query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareTradeCalendarService(BaseService):
     """Query service for TuShare trade calendar."""
-    
+
     def __init__(self):
         super().__init__("tushare_trade_calendar")
-    
+
     @query_method(
         description="Query trade calendar by date range",
         params=[
@@ -46,22 +51,22 @@ class TuShareTradeCalendarService(BaseService):
                 required=False,
                 default="SSE",
             ),
-        ]
+        ],
     )
-    def get_trade_calendar(\
+    def get_trade_calendar(
         self,
         start_date: str,
         end_date: str,
         exchange: str = "SSE",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query trade calendar.
-        
+
         Args:
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
             exchange: Exchange code (SSE/SZSE)
-        
+
         Returns:
             List of trade calendar records
         """
@@ -77,11 +82,11 @@ class TuShareTradeCalendarService(BaseService):
         AND cal_date <= '{end_date}'
         ORDER BY cal_date ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query trading days by date range",
         params=[
@@ -104,22 +109,22 @@ class TuShareTradeCalendarService(BaseService):
                 required=False,
                 default="SSE",
             ),
-        ]
+        ],
     )
-    def get_trading_days(\
+    def get_trading_days(
         self,
         start_date: str,
         end_date: str,
         exchange: str = "SSE",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Query trading days only.
-        
+
         Args:
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
             exchange: Exchange code (SSE/SZSE)
-        
+
         Returns:
             List of trading day records
         """
@@ -136,11 +141,11 @@ class TuShareTradeCalendarService(BaseService):
         AND is_open = 1
         ORDER BY cal_date ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Get next trading day",
         params=[
@@ -157,20 +162,20 @@ class TuShareTradeCalendarService(BaseService):
                 required=False,
                 default="SSE",
             ),
-        ]
+        ],
     )
-    def get_next_trading_day(\
+    def get_next_trading_day(
         self,
         date: str,
         exchange: str = "SSE",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get next trading day after given date.
-        
+
         Args:
             date: Reference date in YYYYMMDD format
             exchange: Exchange code (SSE/SZSE)
-        
+
         Returns:
             List containing next trading day record
         """
@@ -187,7 +192,7 @@ class TuShareTradeCalendarService(BaseService):
         ORDER BY cal_date ASC
         LIMIT 1
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]

@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 import tushare as ts
@@ -18,7 +18,7 @@ class GgtMonthlyExtractor:
         self.pro = ts.pro_api()
 
         config_path = Path(__file__).parent / "config.json"
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             self.config = json.load(f)
 
         self.api_name = self.config["api_name"]
@@ -36,9 +36,9 @@ class GgtMonthlyExtractor:
 
     def extract(
         self,
-        month: Optional[str] = None,
-        start_month: Optional[str] = None,
-        end_month: Optional[str] = None,
+        month: str | None = None,
+        start_month: str | None = None,
+        end_month: str | None = None,
     ) -> pd.DataFrame:
         """
         提取港股通每月成交统计数据

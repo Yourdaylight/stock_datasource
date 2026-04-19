@@ -10,10 +10,10 @@ def register_commands(cli_group):
     Args:
         cli_group: The root Click group from cli.py
     """
-    from .setup_wizard import setup
+    from .config_manager import config
     from .doctor import doctor
     from .server_manager import server
-    from .config_manager import config
+    from .setup_wizard import setup
 
     cli_group.add_command(setup)
     cli_group.add_command(doctor)

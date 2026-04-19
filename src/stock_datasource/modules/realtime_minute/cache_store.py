@@ -6,16 +6,14 @@
 - 收盘后由 sync_service 批量同步到 ClickHouse，再清理
 """
 
-import json
 import logging
 import math
 import os
 import sqlite3
 import threading
-import time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -24,9 +22,7 @@ from . import config as cfg
 logger = logging.getLogger(__name__)
 
 # SQLite 文件路径（可通过环境变量覆盖）
-_DEFAULT_DB_PATH = os.path.join(
-    os.path.dirname(__file__), "rt_minute_cache.db"
-)
+_DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "rt_minute_cache.db")
 SQLITE_DB_PATH = os.environ.get("RT_MINUTE_SQLITE_PATH", _DEFAULT_DB_PATH)
 
 # DDL
@@ -191,8 +187,20 @@ class RealtimeMinuteCacheStore:
                 work[col] = None
 
         # Build bar tuples for rt_minute_bars
-        bar_cols = ["ts_code", "market_type", "freq", "trade_date", "time_str", "epoch",
-                     "open", "close", "high", "low", "vol", "amount"]
+        bar_cols = [
+            "ts_code",
+            "market_type",
+            "freq",
+            "trade_date",
+            "time_str",
+            "epoch",
+            "open",
+            "close",
+            "high",
+            "low",
+            "vol",
+            "amount",
+        ]
         for c in bar_cols:
             if c not in work.columns:
                 work[c] = None
@@ -202,8 +210,19 @@ class RealtimeMinuteCacheStore:
             return 0
 
         # Build latest tuples (same as bar but without trade_date)
-        latest_cols = ["ts_code", "market_type", "freq", "time_str", "epoch",
-                       "open", "close", "high", "low", "vol", "amount"]
+        latest_cols = [
+            "ts_code",
+            "market_type",
+            "freq",
+            "time_str",
+            "epoch",
+            "open",
+            "close",
+            "high",
+            "low",
+            "vol",
+            "amount",
+        ]
         latest_rows = list(work[latest_cols].itertuples(index=False, name=None))
 
         try:
@@ -268,15 +287,15 @@ class RealtimeMinuteCacheStore:
         market: str,
         ts_code: str,
         freq: str = "1min",
-        date: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        date: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> list[dict[str, Any]]:
         """按时间范围查询分钟 bar。"""
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
 
-        params: List[Any] = [ts_code, freq, date]
+        params: list[Any] = [ts_code, freq, date]
         sql = """SELECT ts_code, market_type, freq, trade_time,
                         open, close, high, low, vol, amount
                  FROM rt_minute_bars
@@ -307,7 +326,9 @@ class RealtimeMinuteCacheStore:
             logger.warning("SQLite get_bars failed: %s", e)
             return []
 
-    def get_latest(self, market: str, ts_code: str, freq: str = "1min") -> Optional[Dict[str, Any]]:
+    def get_latest(
+        self, market: str, ts_code: str, freq: str = "1min"
+    ) -> dict[str, Any] | None:
         """获取最新一条 bar 快照。"""
         try:
             conn = self._get_conn()
@@ -323,7 +344,9 @@ class RealtimeMinuteCacheStore:
             logger.warning("SQLite get_latest failed: %s", e)
             return None
 
-    def get_all_latest(self, market: Optional[str] = None, freq: str = "1min") -> List[Dict[str, Any]]:
+    def get_all_latest(
+        self, market: str | None = None, freq: str = "1min"
+    ) -> list[dict[str, Any]]:
         """获取所有（或指定市场的）最新快照。"""
         try:
             conn = self._get_conn()
@@ -348,7 +371,7 @@ class RealtimeMinuteCacheStore:
             logger.warning("SQLite get_all_latest failed: %s", e)
             return []
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """获取采集状态。"""
         try:
             conn = self._get_conn()
@@ -372,8 +395,8 @@ class RealtimeMinuteCacheStore:
 
     def get_all_bars_for_date(
         self,
-        date: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        date: str | None = None,
+    ) -> list[dict[str, Any]]:
         """读取指定日期的全部 bar（用于同步到 ClickHouse）。"""
         if date is None:
             date = datetime.now().strftime("%Y%m%d")
@@ -433,7 +456,7 @@ class RealtimeMinuteCacheStore:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_cache_store: Optional[RealtimeMinuteCacheStore] = None
+_cache_store: RealtimeMinuteCacheStore | None = None
 
 
 def get_cache_store() -> RealtimeMinuteCacheStore:

@@ -1,6 +1,7 @@
 """Top list (龙虎榜) module initialization."""
 
 import logging
+
 from stock_datasource.models.database import db_client
 
 logger = logging.getLogger(__name__)
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def init_toplist_tables():
     """Initialize top list related tables."""
-    
+
     # Create top_list table
     top_list_sql = """
     CREATE TABLE IF NOT EXISTS ods_top_list (
@@ -34,7 +35,7 @@ def init_toplist_tables():
     ORDER BY (trade_date, ts_code)
     COMMENT 'Top list (龙虎榜) data from TuShare API'
     """
-    
+
     # Create top_inst table
     top_inst_sql = """
     CREATE TABLE IF NOT EXISTS ods_top_inst (
@@ -54,7 +55,7 @@ def init_toplist_tables():
     ORDER BY (trade_date, ts_code, exalter)
     COMMENT 'Top institutional seats (机构席位) data from TuShare API'
     """
-    
+
     # Create seat classification table
     seat_classification_sql = """
     CREATE TABLE IF NOT EXISTS dim_seat_classification (
@@ -67,7 +68,7 @@ def init_toplist_tables():
     ORDER BY seat_name
     COMMENT 'Seat classification for top list analysis'
     """
-    
+
     # Create top list analysis summary table
     top_list_summary_sql = """
     CREATE TABLE IF NOT EXISTS fact_top_list_summary (
@@ -87,23 +88,23 @@ def init_toplist_tables():
     ORDER BY trade_date
     COMMENT 'Daily top list summary statistics'
     """
-    
+
     try:
         # Create tables
         db_client.execute(top_list_sql)
         logger.info("Created ods_top_list table")
-        
+
         db_client.execute(top_inst_sql)
         logger.info("Created ods_top_inst table")
-        
+
         db_client.execute(seat_classification_sql)
         logger.info("Created dim_seat_classification table")
-        
+
         db_client.execute(top_list_summary_sql)
         logger.info("Created fact_top_list_summary table")
-        
+
         logger.info("Top list tables initialized successfully")
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize top list tables: {e}")
         raise

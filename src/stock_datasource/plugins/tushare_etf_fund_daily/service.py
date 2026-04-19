@@ -1,16 +1,21 @@
 """TuShare ETF fund daily data query service."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
-from stock_datasource.core.base_service import BaseService, query_method, QueryParam
+
+from stock_datasource.core.base_service import BaseService, QueryParam, query_method
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
     """Convert non-JSON-serializable objects to JSON-compatible types."""
     if isinstance(obj, pd.Timestamp):
-        return obj.strftime('%Y%m%d')
+        return obj.strftime("%Y%m%d")
     elif isinstance(obj, (pd.Series, dict)):
-        return {k: _convert_to_json_serializable(v) for k, v in (obj.items() if isinstance(obj, dict) else obj.items())}
+        return {
+            k: _convert_to_json_serializable(v)
+            for k, v in (obj.items() if isinstance(obj, dict) else obj.items())
+        }
     elif isinstance(obj, list):
         return [_convert_to_json_serializable(item) for item in obj]
     elif pd.isna(obj):
@@ -20,10 +25,10 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class TuShareETFFundDailyService(BaseService):
     """Query service for TuShare ETF fund daily data."""
-    
+
     def __init__(self):
         super().__init__("tushare_etf_fund_daily")
-    
+
     @query_method(
         description="Query ETF daily data by code and date range",
         params=[
@@ -45,21 +50,21 @@ class TuShareETFFundDailyService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_etf_daily(
         self,
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query ETF daily data by code and date range.
-        
+
         Args:
             ts_code: ETF code (e.g., 510330.SH)
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             List of ETF daily data records
         """
@@ -82,11 +87,11 @@ class TuShareETFFundDailyService(BaseService):
         AND trade_date <= '{end_date}'
         ORDER BY trade_date ASC
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Query latest ETF daily data",
         params=[
@@ -103,19 +108,19 @@ class TuShareETFFundDailyService(BaseService):
                 required=False,
                 default=10,
             ),
-        ]
+        ],
     )
     def get_latest_etf_daily(
         self,
         ts_code: str,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query latest ETF daily data.
-        
+
         Args:
             ts_code: ETF code (e.g., 510330.SH)
             limit: Number of latest records
-        
+
         Returns:
             List of latest ETF daily data records
         """
@@ -137,11 +142,11 @@ class TuShareETFFundDailyService(BaseService):
         ORDER BY trade_date DESC
         LIMIT {limit}
         """
-        
+
         df = self.db.execute_query(query)
-        records = df.to_dict('records')
+        records = df.to_dict("records")
         return [_convert_to_json_serializable(record) for record in records]
-    
+
     @query_method(
         description="Get ETF daily statistics",
         params=[
@@ -163,21 +168,21 @@ class TuShareETFFundDailyService(BaseService):
                 description="End date in YYYYMMDD format",
                 required=True,
             ),
-        ]
+        ],
     )
     def get_etf_daily_stats(
         self,
         ts_code: str,
         start_date: str,
         end_date: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get ETF daily statistics.
-        
+
         Args:
             ts_code: ETF code
             start_date: Start date in YYYYMMDD format
             end_date: End date in YYYYMMDD format
-        
+
         Returns:
             Statistics dictionary
         """
@@ -194,9 +199,9 @@ class TuShareETFFundDailyService(BaseService):
         AND trade_date >= '{start_date}'
         AND trade_date <= '{end_date}'
         """
-        
+
         df = self.db.execute_query(query)
         if df.empty:
             return {}
-        
+
         return _convert_to_json_serializable(df.iloc[0].to_dict())

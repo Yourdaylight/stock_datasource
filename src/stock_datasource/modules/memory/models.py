@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Context size specification (reference: deer-flow summarization_config.py)
@@ -31,9 +31,11 @@ class ContextSize:
     """
 
     type: ContextSizeType
-    value: Union[int, float]
+    value: int | float
 
-    def resolve(self, model_max_tokens: int = 128000, current_message_count: int = 0) -> float:
+    def resolve(
+        self, model_max_tokens: int = 128000, current_message_count: int = 0
+    ) -> float:
         """Resolve to an absolute token/message count.
 
         Args:
@@ -45,9 +47,7 @@ class ContextSize:
         """
         if self.type == "fraction":
             return model_max_tokens * self.value
-        elif self.type == "tokens":
-            return float(self.value)
-        elif self.type == "messages":
+        elif self.type == "tokens" or self.type == "messages":
             return float(self.value)
         return float(self.value)
 
@@ -62,6 +62,8 @@ FactCategory = Literal[
     "stock_opinion",
     "trading_style",
     "conclusion",
+    "market_signal",
+    "capital_flow",
 ]
 
 
@@ -81,8 +83,8 @@ class FactItem:
     confidence: float = 0.7
     source: str = ""
     created_at: float = field(default_factory=time.time)
-    reinforced_at: List[float] = field(default_factory=list)
-    contradicted_at: List[float] = field(default_factory=list)
+    reinforced_at: list[float] = field(default_factory=list)
+    contradicted_at: list[float] = field(default_factory=list)
 
     # Class-level constants
     INITIAL_CONFIDENCE: float = 0.7
@@ -95,12 +97,16 @@ class FactItem:
 
     def reinforce(self) -> None:
         """Reinforce this fact (user confirmed it)."""
-        self.confidence = min(self.MAX_CONFIDENCE, self.confidence + self.REINFORCEMENT_DELTA)
+        self.confidence = min(
+            self.MAX_CONFIDENCE, self.confidence + self.REINFORCEMENT_DELTA
+        )
         self.reinforced_at.append(time.time())
 
     def contradict(self) -> None:
         """Mark this fact as contradicted (user corrected it)."""
-        self.confidence = max(self.MIN_CONFIDENCE, self.confidence - self.CONTRADICTION_DELTA)
+        self.confidence = max(
+            self.MIN_CONFIDENCE, self.confidence - self.CONTRADICTION_DELTA
+        )
         self.contradicted_at.append(time.time())
 
     def should_decay(self) -> bool:
@@ -108,11 +114,13 @@ class FactItem:
         now = time.time()
         seven_days_ago = now - (self.DECAY_DAYS * 86400)
         if self.confidence < self.DECAY_THRESHOLD:
-            last_reinforcement = self.reinforced_at[-1] if self.reinforced_at else self.created_at
+            last_reinforcement = (
+                self.reinforced_at[-1] if self.reinforced_at else self.created_at
+            )
             return last_reinforcement < seven_days_ago
         return False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for Store persistence."""
         return {
             "content": self.content,
@@ -125,7 +133,7 @@ class FactItem:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> FactItem:
+    def from_dict(cls, data: dict[str, Any]) -> FactItem:
         """Deserialize from dict."""
         return cls(
             content=data["content"],
@@ -142,6 +150,7 @@ class FactItem:
 # User profile
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class UserProfileEntry:
     """A single profile attribute for a user."""
@@ -150,11 +159,11 @@ class UserProfileEntry:
     value: Any
     updated_at: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"key": self.key, "value": self.value, "updated_at": self.updated_at}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> UserProfileEntry:
+    def from_dict(cls, data: dict[str, Any]) -> UserProfileEntry:
         return cls(
             key=data["key"],
             value=data["value"],
@@ -166,17 +175,18 @@ class UserProfileEntry:
 # Agent shared result (session-level)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentSharedResult:
     """Result shared by an agent within a session for cross-agent collaboration."""
 
     agent_name: str
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
-    key_findings: List[str] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    key_findings: list[str] = field(default_factory=list)
     token_count: int = 0
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "agent_name": self.agent_name,
             "tool_calls": self.tool_calls,
@@ -186,7 +196,7 @@ class AgentSharedResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> AgentSharedResult:
+    def from_dict(cls, data: dict[str, Any]) -> AgentSharedResult:
         return cls(
             agent_name=data["agent_name"],
             tool_calls=data.get("tool_calls", []),

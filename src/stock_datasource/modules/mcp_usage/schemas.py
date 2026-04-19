@@ -1,7 +1,6 @@
 """Pydantic schemas for MCP usage tracking."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -22,7 +21,7 @@ class UsageRecord(BaseModel):
 
 
 class UsageHistoryResponse(BaseModel):
-    records: List[UsageRecord]
+    records: list[UsageRecord]
     total: int
     page: int
     page_size: int
@@ -42,8 +41,8 @@ class TopTool(BaseModel):
 
 
 class UsageStatsResponse(BaseModel):
-    daily_stats: List[DailyStat]
+    daily_stats: list[DailyStat]
     total_calls: int
     total_records: int
     avg_daily_calls: float
-    top_tools: List[TopTool]
+    top_tools: list[TopTool]

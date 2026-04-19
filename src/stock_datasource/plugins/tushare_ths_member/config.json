@@ -15,5 +15,9 @@
       "required": false,
       "description": "Optional stock code to filter"
     }
+  },
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
   }
 }

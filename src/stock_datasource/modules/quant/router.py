@@ -2,20 +2,13 @@
 
 import logging
 import re
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from .schemas import (
-    CorePoolResult,
-    DataReadinessResult,
     PipelineRunRequest,
-    PipelineRunStatus,
-    QuantConfig,
     QuantConfigUpdate,
-    ScreeningResult,
     ScreeningRunRequest,
-    SignalResult,
 )
 from .service import get_quant_service
 
@@ -34,6 +27,7 @@ def _validate_ts_code(ts_code: str) -> bool:
 # Health Check
 # =============================================================================
 
+
 @router.get("/health")
 async def health():
     return {"status": "ok", "module": "quant"}
@@ -42,6 +36,7 @@ async def health():
 # =============================================================================
 # Data Readiness
 # =============================================================================
+
 
 @router.get("/data-readiness")
 async def check_full_readiness():
@@ -64,6 +59,7 @@ async def check_stage_readiness(stage: str):
 # =============================================================================
 # Pipeline
 # =============================================================================
+
 
 @router.post("/pipeline/run")
 async def run_pipeline(request: PipelineRunRequest):
@@ -95,6 +91,7 @@ async def get_latest_pipeline():
 # Screening
 # =============================================================================
 
+
 @router.post("/screening/run")
 async def run_screening(request: ScreeningRunRequest = None):
     """Run full-market screening."""
@@ -104,7 +101,9 @@ async def run_screening(request: ScreeningRunRequest = None):
 
 
 @router.get("/screening/result")
-async def get_screening_result(run_date: Optional[str] = Query(None, description="运行日期 YYYYMMDD")):
+async def get_screening_result(
+    run_date: str | None = Query(None, description="运行日期 YYYYMMDD"),
+):
     """Get screening result."""
     service = get_quant_service()
     result = await service.get_screening_result(run_date)
@@ -131,6 +130,7 @@ async def update_screening_rules(update: QuantConfigUpdate):
 # Core Pool
 # =============================================================================
 
+
 @router.get("/pool")
 async def get_pool():
     """Get current core pool."""
@@ -139,16 +139,19 @@ async def get_pool():
 
 
 @router.post("/pool/refresh")
-async def refresh_pool(trade_date: Optional[str] = Query(None)):
+async def refresh_pool(trade_date: str | None = Query(None)):
     """Refresh core pool (re-run scoring on latest screening results)."""
     service = get_quant_service()
     # Get latest screening passed stocks
     screening = await service.get_screening_result()
     if not screening:
-        raise HTTPException(400, "No screening result available. Please run screening first.")
+        raise HTTPException(
+            400, "No screening result available. Please run screening first."
+        )
 
     # Get passed stock codes from screening result table
     from stock_datasource.models.database import db_client
+
     df = db_client.execute_query(
         """SELECT ts_code FROM quant_screening_result
         WHERE run_date = %(run_date)s AND overall_pass = 1""",
@@ -179,6 +182,7 @@ async def get_pool_history(limit: int = Query(30, ge=1, le=100)):
 # RPS
 # =============================================================================
 
+
 @router.get("/rps")
 async def get_rps(limit: int = Query(100, ge=1, le=500)):
     """Get latest RPS ranking."""
@@ -194,6 +198,7 @@ async def get_rps_detail(ts_code: str):
 
     try:
         from stock_datasource.models.database import db_client
+
         df = db_client.execute_query(
             """SELECT * FROM quant_rps_rank
             WHERE ts_code = %(ts_code)s
@@ -209,6 +214,7 @@ async def get_rps_detail(ts_code: str):
 # Deep Analysis
 # =============================================================================
 
+
 @router.post("/analysis/{ts_code}")
 async def analyze_stock(ts_code: str):
     """Deep analysis for a single stock."""
@@ -221,6 +227,7 @@ async def get_analysis_dashboard():
     """Get analysis dashboard for pool stocks (tech snapshots)."""
     try:
         from stock_datasource.models.database import db_client
+
         df = db_client.execute_query(
             """SELECT * FROM quant_deep_analysis
             WHERE analysis_date = (SELECT max(analysis_date) FROM quant_deep_analysis)
@@ -235,9 +242,10 @@ async def get_analysis_dashboard():
 # Trading Signals
 # =============================================================================
 
+
 @router.get("/signals")
 async def get_signals(
-    signal_date: Optional[str] = Query(None),
+    signal_date: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     """Get trading signals."""
@@ -253,6 +261,7 @@ async def get_signal_history(
     safe_limit = max(1, min(int(limit or 100), 500))
     try:
         from stock_datasource.models.database import db_client
+
         df = db_client.execute_query(
             "SELECT * FROM quant_trading_signal ORDER BY signal_date DESC, ts_code LIMIT %(limit)s",
             {"limit": safe_limit},
@@ -266,6 +275,7 @@ async def get_signal_history(
 async def get_market_risk():
     """Get current market risk status."""
     from .signal_generator import get_signal_generator
+
     generator = get_signal_generator()
     return await generator.check_market_risk()
 
@@ -274,8 +284,9 @@ async def get_market_risk():
 # Config
 # =============================================================================
 
+
 @router.get("/config")
-async def get_config(config_type: Optional[str] = Query(None)):
+async def get_config(config_type: str | None = Query(None)):
     """Get model configuration."""
     service = get_quant_service()
     return await service.get_config(config_type)

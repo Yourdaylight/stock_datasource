@@ -3,5 +3,9 @@
   "timeout": 30,
   "api_name": "index_global",
   "description": "国际指数日线行情数据",
-  "min_points": 2000
+  "min_points": 2000,
+  "schedule": {
+    "frequency": "daily",
+    "time": "18:00"
+  }
 }

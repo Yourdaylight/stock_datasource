@@ -1,14 +1,13 @@
 """Tests for request_context module."""
 
 import threading
+
 from stock_datasource.utils.request_context import (
     generate_request_id,
     get_request_id,
     get_user_id,
-    set_request_context,
     reset_request_context,
-    request_id_var,
-    user_id_var,
+    set_request_context,
 )
 
 

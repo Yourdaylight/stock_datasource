@@ -1,38 +1,38 @@
 """Core modules for stock data source."""
 
-from .task_runner import task_runner, TaskRunner
-from .plugin_manager import (
-    plugin_manager, 
-    PluginManager,
-    DependencyCheckResult,
-    DependencyNotSatisfiedError
-)
 from .base_plugin import BasePlugin, PluginCategory, PluginRole
+from .plugin_manager import (
+    DependencyCheckResult,
+    DependencyNotSatisfiedError,
+    PluginManager,
+    plugin_manager,
+)
+from .task_runner import TaskRunner, task_runner
 from .trade_calendar import (
-    trade_calendar_service, 
-    TradeCalendarService,
-    TradeCalendarError,
-    CalendarNotFoundError,
-    InvalidDateError,
     MARKET_CN,
     MARKET_HK,
+    CalendarNotFoundError,
+    InvalidDateError,
+    TradeCalendarError,
+    TradeCalendarService,
+    trade_calendar_service,
 )
 
 __all__ = [
-    "task_runner",
-    "TaskRunner", 
-    "plugin_manager",
-    "PluginManager",
-    "DependencyCheckResult",
-    "DependencyNotSatisfiedError",
-    "BasePlugin",
-    "PluginCategory",
-    "PluginRole",
-    "trade_calendar_service",
-    "TradeCalendarService",
-    "TradeCalendarError",
-    "CalendarNotFoundError",
-    "InvalidDateError",
     "MARKET_CN",
     "MARKET_HK",
+    "BasePlugin",
+    "CalendarNotFoundError",
+    "DependencyCheckResult",
+    "DependencyNotSatisfiedError",
+    "InvalidDateError",
+    "PluginCategory",
+    "PluginManager",
+    "PluginRole",
+    "TaskRunner",
+    "TradeCalendarError",
+    "TradeCalendarService",
+    "plugin_manager",
+    "task_runner",
+    "trade_calendar_service",
 ]

@@ -1,7 +1,7 @@
 """MCP tool usage tracking routes."""
 
 import logging
-from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 
 from ..auth.dependencies import get_current_user
@@ -17,9 +17,9 @@ router = APIRouter()
 async def get_usage_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    tool_name: Optional[str] = Query(None, description="Filter by tool name"),
+    start_date: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: str | None = Query(None, description="End date (YYYY-MM-DD)"),
+    tool_name: str | None = Query(None, description="Filter by tool name"),
     current_user: dict = Depends(get_current_user),
 ):
     """Get paginated MCP tool usage history."""

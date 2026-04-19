@@ -1,17 +1,18 @@
 """
 策略相关的API路由
 """
-from typing import List, Dict, Any, Optional
+
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..strategies.registry import StrategyRegistry
-from ..strategies.init import get_strategy_registry
 from ..modules.auth.dependencies import get_current_user, get_current_user_optional
+from ..strategies.init import get_strategy_registry
+
 # 延迟导入避免依赖问题
 # from ..strategies.ai_generator import AIStrategyGenerator
 # from ..strategies.optimizer import StrategyOptimizer
@@ -21,14 +22,10 @@ from ..modules.auth.dependencies import get_current_user, get_current_user_optio
 """
 策略相关的API路由
 """
-from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
 
-from ..strategies.registry import StrategyRegistry
-from ..strategies.init import get_strategy_registry
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
+
 
 # 请求/响应模型
 class StrategyResponse(BaseModel):
@@ -38,23 +35,26 @@ class StrategyResponse(BaseModel):
     category: str
     author: str
     version: str
-    tags: List[str]
+    tags: list[str]
     risk_level: str
     created_at: str
     updated_at: str
     usage_count: int
     is_ai_generated: bool
-    parameter_schema: List[Dict[str, Any]]
+    parameter_schema: list[dict[str, Any]]
+
 
 class StrategyListResponse(BaseModel):
-    strategies: List[StrategyResponse]
+    strategies: list[StrategyResponse]
+
 
 class AIStrategyRequest(BaseModel):
     description: str
     market_type: str = "stock"
     risk_level: str = "medium"
     time_frame: str = "daily"
-    additional_requirements: Optional[str] = None
+    additional_requirements: str | None = None
+
 
 class TradingConfig(BaseModel):
     initial_capital: float = 100000.0
@@ -71,22 +71,24 @@ class IntelligentConfig(BaseModel):
 
 class BacktestRequest(BaseModel):
     strategy_id: str
-    symbols: List[str] = []  # 支持多个股票
-    symbol: Optional[str] = None  # 兼容单个股票
+    symbols: list[str] = []  # 支持多个股票
+    symbol: str | None = None  # 兼容单个股票
     start_date: str
     end_date: str
-    benchmark: Optional[str] = "000300.SH"
+    benchmark: str | None = "000300.SH"
     initial_capital: float = 100000.0  # 兼容旧格式
-    trading_config: Optional[TradingConfig] = None
-    parameters: Dict[str, Any] = {}
-    intelligent_config: Optional[IntelligentConfig] = None
+    trading_config: TradingConfig | None = None
+    parameters: dict[str, Any] = {}
+    intelligent_config: IntelligentConfig | None = None
+
 
 class CreateStrategyRequest(BaseModel):
     """创建策略请求"""
+
     name: str
-    strategy_data: Dict[str, Any]
-    parameters: Dict[str, Any] = {}
-    description: Optional[str] = None
+    strategy_data: dict[str, Any]
+    parameters: dict[str, Any] = {}
+    description: str | None = None
 
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,7 @@ _USER_STRATEGY_STORE_PATH = (
 )
 
 
-def _load_user_strategies() -> Dict[str, Dict[str, Any]]:
+def _load_user_strategies() -> dict[str, dict[str, Any]]:
     if not _USER_STRATEGY_STORE_PATH.exists():
         return {}
     try:
@@ -122,7 +124,7 @@ def _save_user_strategies() -> None:
 
 # 存储用户创建的策略（持久化到文件，生产环境应使用数据库）
 # 结构: {strategy_id: {"user_id": str, "strategy": Dict}}
-_user_strategies: Dict[str, Dict[str, Any]] = _load_user_strategies()
+_user_strategies: dict[str, dict[str, Any]] = _load_user_strategies()
 
 
 @router.post("/")
@@ -133,15 +135,15 @@ async def create_strategy(
     """创建新策略（需要登录，策略将绑定到当前用户）"""
     import uuid
     from datetime import datetime
-    
+
     try:
         # 获取当前用户ID
         user_id = current_user["id"]
-        
+
         # 从 strategy_data 中获取基本信息
         strategy_data = request.strategy_data
         strategy_id = strategy_data.get("id", f"user_{uuid.uuid4().hex[:8]}")
-        
+
         # 构建完整的策略信息
         strategy = {
             "id": strategy_id,
@@ -160,20 +162,17 @@ async def create_strategy(
             "generation_prompt": strategy_data.get("generation_prompt", ""),
             "parameter_schema": strategy_data.get("parameter_schema", []),
             "parameters": request.parameters,
-            "confidence_score": strategy_data.get("confidence_score", 0)
+            "confidence_score": strategy_data.get("confidence_score", 0),
         }
-        
+
         # 存储策略（带有user_id）
-        _user_strategies[strategy_id] = {
-            "user_id": user_id,
-            "strategy": strategy
-        }
+        _user_strategies[strategy_id] = {"user_id": user_id, "strategy": strategy}
         _save_user_strategies()
-        
+
         return {"data": strategy}
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"创建策略失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建策略失败: {e!s}")
 
 
 @router.get("/", response_model=StrategyListResponse)
@@ -184,64 +183,77 @@ async def get_strategies(
     try:
         registry = get_strategy_registry()
         strategies = []
-        
+
         # 获取内置策略
         for strategy_id, strategy_info in registry._strategies.items():
             metadata = strategy_info.metadata
-            
-            strategies.append(StrategyResponse(
-                id=metadata.id,
-                name=metadata.name,
-                description=metadata.description,
-                category=metadata.category.value,
-                author=metadata.author,
-                version=metadata.version,
-                tags=metadata.tags,
-                risk_level=metadata.risk_level.value,
-                created_at=metadata.created_at.isoformat() if metadata.created_at else "",
-                updated_at=metadata.updated_at.isoformat() if metadata.updated_at else "",
-                usage_count=getattr(metadata, 'usage_count', 0),  # 使用默认值
-                is_ai_generated=metadata.is_ai_generated,
-                parameter_schema=[
-                    {
-                        "name": param.name,
-                        "type": param.type,
-                        "default": param.default,
-                        "min_value": param.min_value,
-                        "max_value": param.max_value,
-                        "description": param.description,
-                        "required": param.required
-                    }
-                    for param in registry.get_strategy_class(strategy_id)().get_parameter_schema()
-                ]
-            ))
-        
+
+            strategies.append(
+                StrategyResponse(
+                    id=metadata.id,
+                    name=metadata.name,
+                    description=metadata.description,
+                    category=metadata.category.value,
+                    author=metadata.author,
+                    version=metadata.version,
+                    tags=metadata.tags,
+                    risk_level=metadata.risk_level.value,
+                    created_at=metadata.created_at.isoformat()
+                    if metadata.created_at
+                    else "",
+                    updated_at=metadata.updated_at.isoformat()
+                    if metadata.updated_at
+                    else "",
+                    usage_count=getattr(metadata, "usage_count", 0),  # 使用默认值
+                    is_ai_generated=metadata.is_ai_generated,
+                    parameter_schema=[
+                        {
+                            "name": param.name,
+                            "type": param.type,
+                            "default": param.default,
+                            "min_value": param.min_value,
+                            "max_value": param.max_value,
+                            "description": param.description,
+                            "required": param.required,
+                        }
+                        for param in registry.get_strategy_class(
+                            strategy_id
+                        )().get_parameter_schema()
+                    ],
+                )
+            )
+
         # 添加当前用户的自定义策略（如果已登录）
         if current_user:
             user_id = current_user["id"]
             for strategy_id, strategy_data in _user_strategies.items():
                 # 只返回属于当前用户的策略，或管理员可以看到所有策略
-                if strategy_data.get("user_id") == user_id or current_user.get("is_admin", False):
+                if strategy_data.get("user_id") == user_id or current_user.get(
+                    "is_admin", False
+                ):
                     strategy = strategy_data.get("strategy", strategy_data)
-                    strategies.append(StrategyResponse(
-                        id=strategy["id"],
-                        name=strategy["name"],
-                        description=strategy.get("description", ""),
-                        category=strategy.get("category", "custom"),
-                        author=strategy.get("author", "User"),
-                        version=strategy.get("version", "1.0.0"),
-                        tags=strategy.get("tags", []),
-                        risk_level=strategy.get("risk_level", "medium"),
-                        created_at=strategy.get("created_at", ""),
-                        updated_at=strategy.get("updated_at", ""),
-                        usage_count=strategy.get("usage_count", 0),
-                        is_ai_generated=strategy.get("is_ai_generated", False),
-                        parameter_schema=strategy.get("parameter_schema", [])
-                    ))
-        
+                    strategies.append(
+                        StrategyResponse(
+                            id=strategy["id"],
+                            name=strategy["name"],
+                            description=strategy.get("description", ""),
+                            category=strategy.get("category", "custom"),
+                            author=strategy.get("author", "User"),
+                            version=strategy.get("version", "1.0.0"),
+                            tags=strategy.get("tags", []),
+                            risk_level=strategy.get("risk_level", "medium"),
+                            created_at=strategy.get("created_at", ""),
+                            updated_at=strategy.get("updated_at", ""),
+                            usage_count=strategy.get("usage_count", 0),
+                            is_ai_generated=strategy.get("is_ai_generated", False),
+                            parameter_schema=strategy.get("parameter_schema", []),
+                        )
+                    )
+
         return StrategyListResponse(strategies=strategies)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/category-stats")
 async def get_category_stats():
@@ -249,14 +261,15 @@ async def get_category_stats():
     try:
         registry = get_strategy_registry()
         stats = {}
-        
+
         for strategy_id, strategy_info in registry._strategies.items():
             category = strategy_info.metadata.category.value
             stats[category] = stats.get(category, 0) + 1
-        
+
         return {"data": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/{strategy_id}/explain")
 async def explain_strategy(strategy_id: str):
@@ -264,48 +277,55 @@ async def explain_strategy(strategy_id: str):
     try:
         registry = get_strategy_registry()
         strategy_class = registry.get_strategy_class(strategy_id)
-        
+
         if not strategy_class:
             raise HTTPException(status_code=404, detail=f"策略 {strategy_id} 不存在")
-        
+
         strategy = strategy_class()
         explanation = strategy._explain_strategy_logic()
-        
+
         return {"data": {"explanation": explanation}}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/backtest")
 async def run_backtest(request: BacktestRequest):
     """运行策略回测"""
     import uuid
     from datetime import datetime
-    
+
     try:
         registry = get_strategy_registry()
         strategy_class = registry.get_strategy_class(request.strategy_id)
-        
+
         if not strategy_class:
-            raise HTTPException(status_code=404, detail=f"策略 {request.strategy_id} 不存在")
-        
+            raise HTTPException(
+                status_code=404, detail=f"策略 {request.strategy_id} 不存在"
+            )
+
         # 获取策略信息
         strategy_info = registry._strategies[request.strategy_id]
         strategy_name = strategy_info.metadata.name
-        
+
         # TODO: 实现真实回测逻辑，目前返回模拟数据
         backtest_id = str(uuid.uuid4())
-        
+
         # 处理 symbols（兼容 symbols 数组和 symbol 单个字符串）
-        symbols = request.symbols if request.symbols else ([request.symbol] if request.symbol else [])
-        
+        symbols = (
+            request.symbols
+            if request.symbols
+            else ([request.symbol] if request.symbol else [])
+        )
+
         # 获取初始资金（优先从 trading_config 获取）
         if request.trading_config:
             initial_capital = request.trading_config.initial_capital
         else:
             initial_capital = request.initial_capital
-        
+
         final_capital = initial_capital * 1.15  # 模拟15%收益
-        
+
         return {
             "data": {
                 "id": backtest_id,
@@ -317,7 +337,7 @@ async def run_backtest(request: BacktestRequest):
                     "start_date": request.start_date,
                     "end_date": request.end_date,
                     "initial_capital": initial_capital,
-                    "parameters": request.parameters
+                    "parameters": request.parameters,
                 },
                 "performance_metrics": {
                     "total_return": 15.0,
@@ -325,7 +345,7 @@ async def run_backtest(request: BacktestRequest):
                     "sharpe_ratio": 1.2,
                     "max_drawdown": 8.5,
                     "win_rate": 55.0,
-                    "profit_factor": 1.8
+                    "profit_factor": 1.8,
                 },
                 "trades": [
                     {
@@ -334,14 +354,14 @@ async def run_backtest(request: BacktestRequest):
                         "price": 100.0,
                         "quantity": int(initial_capital / 100),
                         "amount": initial_capital,
-                        "signal_reason": "策略信号"
+                        "signal_reason": "策略信号",
                     }
                 ],
                 "equity_curve": [
                     {"date": request.start_date, "value": initial_capital},
-                    {"date": request.end_date, "value": final_capital}
+                    {"date": request.end_date, "value": final_capital},
                 ],
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now().isoformat(),
             }
         }
     except HTTPException:
@@ -354,7 +374,7 @@ async def run_backtest(request: BacktestRequest):
 async def get_backtest_result(backtest_id: str):
     """获取回测结果"""
     from datetime import datetime
-    
+
     # TODO: 从数据库获取真实回测结果
     return {
         "data": {
@@ -366,7 +386,7 @@ async def get_backtest_result(backtest_id: str):
                 "start_date": "2023-01-01",
                 "end_date": "2024-01-01",
                 "initial_capital": 100000,
-                "parameters": {}
+                "parameters": {},
             },
             "performance_metrics": {
                 "total_return": 15.0,
@@ -374,11 +394,11 @@ async def get_backtest_result(backtest_id: str):
                 "sharpe_ratio": 1.2,
                 "max_drawdown": 8.5,
                 "win_rate": 55.0,
-                "profit_factor": 1.8
+                "profit_factor": 1.8,
             },
             "trades": [],
             "equity_curve": [],
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
         }
     }
 
@@ -391,20 +411,20 @@ async def generate_ai_strategy(
     """AI生成策略（需要登录，生成的策略将绑定到当前用户）"""
     import uuid
     from datetime import datetime
-    
+
     try:
         # 获取当前用户ID
         user_id = current_user["id"]
-        
+
         # 根据用户描述生成策略
         strategy_id = f"ai_{uuid.uuid4().hex[:8]}"
-        
+
         # 解析用户描述，生成策略名称
         description = request.description
         market_type = request.market_type
         risk_level = request.risk_level
         time_frame = request.time_frame
-        
+
         # 根据描述生成策略名称
         strategy_name = f"AI策略-{strategy_id[-8:]}"
         if "均线" in description or "ma" in description.lower():
@@ -417,7 +437,7 @@ async def generate_ai_strategy(
             strategy_name = "AI均值回归策略"
         elif "突破" in description or "breakout" in description.lower():
             strategy_name = "AI突破策略"
-        
+
         # 根据风险等级设置参数
         if risk_level == "low":
             stop_loss = 0.03
@@ -428,7 +448,7 @@ async def generate_ai_strategy(
         else:  # medium
             stop_loss = 0.05
             take_profit = 0.10
-        
+
         # 根据时间周期设置参数
         if time_frame == "1min":
             short_period = 5
@@ -442,7 +462,7 @@ async def generate_ai_strategy(
         else:  # daily
             short_period = 10
             long_period = 30
-        
+
         # 构建生成的策略响应
         generated_strategy = {
             "id": strategy_id,
@@ -468,7 +488,7 @@ async def generate_ai_strategy(
                     "min_value": 2,
                     "max_value": 50,
                     "description": "短期周期",
-                    "required": True
+                    "required": True,
                 },
                 {
                     "name": "long_period",
@@ -477,7 +497,7 @@ async def generate_ai_strategy(
                     "min_value": 10,
                     "max_value": 200,
                     "description": "长期周期",
-                    "required": True
+                    "required": True,
                 },
                 {
                     "name": "stop_loss",
@@ -486,7 +506,7 @@ async def generate_ai_strategy(
                     "min_value": 0.01,
                     "max_value": 0.2,
                     "description": "止损比例",
-                    "required": False
+                    "required": False,
                 },
                 {
                     "name": "take_profit",
@@ -495,14 +515,14 @@ async def generate_ai_strategy(
                     "min_value": 0.02,
                     "max_value": 0.5,
                     "description": "止盈比例",
-                    "required": False
-                }
-            ]
+                    "required": False,
+                },
+            ],
         }
-        
+
         _user_strategies[strategy_id] = {
             "user_id": user_id,
-            "strategy": generated_strategy
+            "strategy": generated_strategy,
         }
         _save_user_strategies()
 
@@ -511,41 +531,42 @@ async def generate_ai_strategy(
         if "均线" in description or "ma" in description.lower():
             explanation += "该策略基于移动平均线的交叉信号，当短期均线上穿长期均线时产生买入信号，下穿时产生卖出信号。"
         elif "动量" in description or "momentum" in description.lower():
-            explanation += "该策略追踪市场动量，在趋势形成初期入场，捕捉价格惯性带来的收益。"
+            explanation += (
+                "该策略追踪市场动量，在趋势形成初期入场，捕捉价格惯性带来的收益。"
+            )
         elif "趋势" in description or "trend" in description.lower():
             explanation += "该策略专注于识别和跟踪市场主要趋势，在趋势延续时持有仓位。"
         else:
-            explanation += "该策略结合了技术指标分析，通过参数优化来适应不同的市场环境。"
-        
+            explanation += (
+                "该策略结合了技术指标分析，通过参数优化来适应不同的市场环境。"
+            )
+
         # Generate risk warnings based on risk level
         risk_warnings = []
         if risk_level == "high":
             risk_warnings = [
                 "高风险策略可能导致较大的资金回撤",
                 "建议使用较小的仓位进行测试",
-                "在实盘前请务必进行充分的回测验证"
+                "在实盘前请务必进行充分的回测验证",
             ]
         elif risk_level == "medium":
             risk_warnings = [
                 "中等风险策略需要关注市场波动",
-                "建议设置合理的止损止盈参数"
+                "建议设置合理的止损止盈参数",
             ]
         else:
-            risk_warnings = [
-                "低风险策略收益可能相对有限",
-                "适合长期稳健投资"
-            ]
-        
+            risk_warnings = ["低风险策略收益可能相对有限", "适合长期稳健投资"]
+
         return {
             "data": {
                 "strategy": generated_strategy,
                 "explanation": explanation,
-                "risk_warnings": risk_warnings
+                "risk_warnings": risk_warnings,
             }
         }
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI策略生成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI策略生成失败: {e!s}")
 
 
 @router.get("/{strategy_id}/backtest-history")
@@ -561,13 +582,13 @@ async def get_strategy(strategy_id: str):
     try:
         registry = get_strategy_registry()
         strategy_class = registry.get_strategy_class(strategy_id)
-        
+
         if not strategy_class:
             raise HTTPException(status_code=404, detail=f"策略 {strategy_id} 不存在")
-        
+
         strategy_info = registry._strategies[strategy_id]
         metadata = strategy_info.metadata
-        
+
         return {
             "id": metadata.id,
             "name": metadata.name,
@@ -577,9 +598,13 @@ async def get_strategy(strategy_id: str):
             "version": metadata.version,
             "tags": metadata.tags,
             "risk_level": metadata.risk_level.value,
-            "created_at": metadata.created_at.isoformat() if metadata.created_at else "",
-            "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else "",
-            "usage_count": getattr(metadata, 'usage_count', 0),  # 使用默认值
+            "created_at": metadata.created_at.isoformat()
+            if metadata.created_at
+            else "",
+            "updated_at": metadata.updated_at.isoformat()
+            if metadata.updated_at
+            else "",
+            "usage_count": getattr(metadata, "usage_count", 0),  # 使用默认值
             "is_ai_generated": metadata.is_ai_generated,
             "parameter_schema": [
                 {
@@ -589,10 +614,10 @@ async def get_strategy(strategy_id: str):
                     "min_value": param.min_value,
                     "max_value": param.max_value,
                     "description": param.description,
-                    "required": param.required
+                    "required": param.required,
                 }
                 for param in strategy_class().get_parameter_schema()
-            ]
+            ],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

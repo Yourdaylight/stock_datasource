@@ -1,17 +1,14 @@
 """Service layer for WeChat Bridge (picoclaw) operations."""
 
-import subprocess
-import os
-import sys
 import json
 import logging
-import platform
-import urllib.request
-import tempfile
+import os
 import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
 from pathlib import Path
-from typing import Optional
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +35,15 @@ _DEFAULT_MIRRORS = [
 
 def _detect_arch() -> tuple[str, str]:
     """Detect system architecture for binary download.
-    
+
     Returns (os_part, arch_part) matching GitHub release naming convention:
       picoclaw_{OS}_{ARCH}.tar.gz
     """
     import platform as _pf
+
     machine = _pf.machine().lower()
     system = _pf.system().lower()
-    
+
     # OS mapping
     if system == "linux":
         os_name = "Linux"
@@ -55,19 +53,19 @@ def _detect_arch() -> tuple[str, str]:
         os_name = "Freebsd"
     else:
         raise RuntimeError(f"Unsupported OS: {system}")
-    
+
     # Arch mapping (GitHub release uses GoReleaser conventions)
     arch_map = {
         "x86_64": "x86_64",
-        "amd64":  "x86_64",
+        "amd64": "x86_64",
         "aarch64": "aarch64",
-        "arm64":  "aarch64",
-        "riscv64":"riscv64",
+        "arm64": "aarch64",
+        "riscv64": "riscv64",
     }
     arch = arch_map.get(machine)
     if not arch:
         raise RuntimeError(f"Unsupported architecture: {machine}")
-    
+
     return os_name, arch
 
 
@@ -80,10 +78,13 @@ def _get_latest_version() -> str:
     api_url = f"https://api.github.com/repos/{PICOCLAW_GITHUB_REPO}/releases/latest"
 
     # Try direct connection first
-    req = urllib.request.Request(api_url, headers={
-        "User-Agent": "stock-datasource",
-        "Accept": "application/vnd.github+json",
-    })
+    req = urllib.request.Request(
+        api_url,
+        headers={
+            "User-Agent": "stock-datasource",
+            "Accept": "application/vnd.github+json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
@@ -99,7 +100,9 @@ def _get_latest_version() -> str:
             continue
         mirrored_url = f"{mirror}/{api_url}"
         try:
-            req = urllib.request.Request(mirrored_url, headers={"User-Agent": "stock-datasource"})
+            req = urllib.request.Request(
+                mirrored_url, headers={"User-Agent": "stock-datasource"}
+            )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             tag = data.get("tag_name")
@@ -136,7 +139,9 @@ def _download_with_mirrors(github_path: str, dest_path: str) -> None:
 
         logger.info(f"Trying download: {url}")
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "stock-datasource"})
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "stock-datasource"}
+            )
             with urllib.request.urlopen(req, timeout=180) as resp:
                 with open(dest_path, "wb") as f:
                     shutil.copyfileobj(resp, f)
@@ -153,7 +158,7 @@ def _download_with_mirrors(github_path: str, dest_path: str) -> None:
     )
 
 
-def _download_picoclaw(version: Optional[str] = None) -> str:
+def _download_picoclaw(version: str | None = None) -> str:
     """Download picoclaw binary from GitHub releases and install to BIN_DIR.
 
     Uses mirror proxies (ghfast.top, ghproxy.cc) as fallback when GitHub
@@ -172,10 +177,7 @@ def _download_picoclaw(version: Optional[str] = None) -> str:
     # Build download path — matches GoReleaser output format:
     #   /sipeed/picoclaw/releases/download/v0.2.5/picoclaw_Linux_x86_64.tar.gz
     filename = f"picoclaw_{os_part}_{arch_part}.tar.gz"
-    github_path = (
-        f"/{PICOCLAW_GITHUB_REPO}"
-        f"/releases/download/{version}/{filename}"
-    )
+    github_path = f"/{PICOCLAW_GITHUB_REPO}/releases/download/{version}/{filename}"
 
     logger.info(f"Downloading picoclaw {version} ({os_part}-{arch_part})")
 
@@ -193,6 +195,7 @@ def _download_picoclaw(version: Optional[str] = None) -> str:
     dest = str(PICOCLAW_BIN)
     try:
         import tarfile
+
         with tarfile.open(tmp_path, "r:gz") as tar:
             # Find the picoclaw member
             member = None
@@ -219,8 +222,12 @@ def _download_picoclaw(version: Optional[str] = None) -> str:
 
     # Verify installation
     try:
-        ver_result = subprocess.run([dest, "--version"], capture_output=True, text=True, timeout=5)
-        installed_ver = ver_result.stdout.strip() or ver_result.stderr.strip() or "unknown"
+        ver_result = subprocess.run(
+            [dest, "--version"], capture_output=True, text=True, timeout=5
+        )
+        installed_ver = (
+            ver_result.stdout.strip() or ver_result.stderr.strip() or "unknown"
+        )
     except Exception:
         installed_ver = "unknown"
 
@@ -228,7 +235,7 @@ def _download_picoclaw(version: Optional[str] = None) -> str:
     return installed_ver
 
 
-def _read_pid(file_path: Path) -> Optional[int]:
+def _read_pid(file_path: Path) -> int | None:
     """Read PID from file, return None if not running."""
     if not file_path.exists():
         return None
@@ -245,41 +252,44 @@ def get_status() -> dict:
     """Get current status of all picoclaw-related services."""
     # Check if binary is installed
     installed = PICOCLAW_BIN.is_file() and os.access(PICOCLAW_BIN, os.X_OK)
-    
+
     # Get version if installed (extract clean version from output)
     version = None
     if installed:
         try:
             result = subprocess.run(
                 [str(PICOCLAW_BIN), "version"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             raw = result.stdout + result.stderr
             # Strip ANSI escape codes
             import re
-            clean = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+
+            clean = re.sub(r"\x1b\[[0-9;]*m", "", raw)
             # Find version pattern like "picoclaw 0.2.5" or "v0.2.5"
-            m = re.search(r'picoclaw\s+(v?[\d.]+)', clean)
+            m = re.search(r"picoclaw\s+(v?[\d.]+)", clean)
             if m:
                 version = m.group(1)
             else:
                 # Fallback: find any semver
-                m2 = re.search(r'(v?\d+\.\d+\.\d+)', clean)
+                m2 = re.search(r"(v?\d+\.\d+\.\d+)", clean)
                 version = m2.group(1) if m2 else "unknown"
         except Exception:
             version = "unknown"
-    
+
     # Check if running
     main_pid = _read_pid(PID_FILE)
     rt_pid = _read_pid(RT_PID_FILE)
-    
+
     return {
         "installed": installed,
         "version": version,
         "running": main_pid is not None,
         "pid": main_pid,
         "port": 18790 if main_pid else None,
-        "gateway_url": f"http://127.0.0.1:18790" if main_pid else None,
+        "gateway_url": "http://127.0.0.1:18790" if main_pid else None,
         "rt_running": rt_pid is not None,
         "rt_pid": rt_pid,
         "config_exists": PICOCLAW_CONFIG.exists(),
@@ -290,7 +300,7 @@ def get_status() -> dict:
 PICOCLAW_CONFIG = Path("/root/.picoclaw/config.json")
 
 
-def generate_config(mcp_token: Optional[str] = None) -> dict:
+def generate_config(mcp_token: str | None = None) -> dict:
     """Update picoclaw config.json with model + MCP + weixin settings."""
     from dotenv import load_dotenv
 
@@ -298,7 +308,9 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
     load_dotenv(env_file)
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip(
+        "/"
+    )
     model = os.environ.get("OPENAI_MODEL", "gpt-4")
 
     if not api_key:
@@ -312,7 +324,9 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
         try:
             subprocess.run(
                 [str(PICOCLAW_BIN), "onboard"],
-                capture_output=True, timeout=10, check=False,
+                capture_output=True,
+                timeout=10,
+                check=False,
             )
         except Exception:
             pass
@@ -326,13 +340,15 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
             cfg = {}
 
     # Set model_list (picoclaw requires both "model" and "model_name")
-    cfg["model_list"] = [{
-        "model": model,
-        "model_name": model,
-        "base_url": base_url,
-        "api_key": api_key,
-        "model_type": "openai-chat",
-    }]
+    cfg["model_list"] = [
+        {
+            "model": model,
+            "model_name": model,
+            "base_url": base_url,
+            "api_key": api_key,
+            "model_type": "openai-chat",
+        }
+    ]
 
     # Set gateway
     cfg["gateway"] = {"host": "0.0.0.0", "port": 18790}
@@ -357,7 +373,9 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
     tools["mcp"] = mcp_cfg
     cfg["tools"] = tools
 
-    PICOCLAW_CONFIG.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    PICOCLAW_CONFIG.write_text(
+        json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     logger.info(f"Config written to {PICOCLAW_CONFIG}")
 
     # Auto-inject workspace md files (AGENTS.md, SOUL.md, etc.)
@@ -376,7 +394,7 @@ def generate_config(mcp_token: Optional[str] = None) -> dict:
 PICOCLAW_WORKSPACE = Path.home() / ".picoclaw" / "workspace"
 
 
-def _inject_workspace_md(mcp_token: Optional[str] = None) -> dict:
+def _inject_workspace_md(mcp_token: str | None = None) -> dict:
     """Inject workspace md files into PicoClaw's ~/.picoclaw/workspace/.
 
     This ensures PicoClaw has full knowledge of stock_datasource's
@@ -392,21 +410,26 @@ def _inject_workspace_md(mcp_token: Optional[str] = None) -> dict:
     """
     try:
         from stock_datasource.services.agent_registrations import register_all_agents
-        from stock_datasource.services.agent_registry import get_agent_registry, AgentRole
+        from stock_datasource.services.agent_registry import (
+            AgentRole,
+            get_agent_registry,
+        )
 
         register_all_agents()
         registry = get_agent_registry()
 
         agents = []
         for desc in registry.list_descriptors(role=AgentRole.AGENT, enabled_only=True):
-            agents.append({
-                "name": desc.name,
-                "description": desc.description,
-                "markets": desc.capability.markets,
-                "intents": desc.capability.intents,
-                "tags": desc.capability.tags,
-                "priority": desc.priority,
-            })
+            agents.append(
+                {
+                    "name": desc.name,
+                    "description": desc.description,
+                    "markets": desc.capability.markets,
+                    "intents": desc.capability.intents,
+                    "tags": desc.capability.tags,
+                    "priority": desc.priority,
+                }
+            )
     except Exception as e:
         logger.warning(f"Failed to collect agent capabilities from registry: {e}")
         agents = []
@@ -434,7 +457,9 @@ def _inject_workspace_md(mcp_token: Optional[str] = None) -> dict:
         path.write_text(content, encoding="utf-8")
         written.append(filename)
 
-    logger.info(f"Injected {len(written)} workspace md files to {PICOCLAW_WORKSPACE}: {', '.join(written)}")
+    logger.info(
+        f"Injected {len(written)} workspace md files to {PICOCLAW_WORKSPACE}: {', '.join(written)}"
+    )
     return {"workspace_dir": str(PICOCLAW_WORKSPACE), "files": written}
 
 
@@ -528,7 +553,7 @@ def _build_user_md() -> str:
 """
 
 
-def _build_tools_md(mcp_url: str, ws_url: str, mcp_token: Optional[str]) -> str:
+def _build_tools_md(mcp_url: str, ws_url: str, mcp_token: str | None) -> str:
     auth = f"Bearer {mcp_token}" if mcp_token else "未设置"
     return f"""# Stock Datasource — 工具配置
 
@@ -561,7 +586,7 @@ def _build_heartbeat_md() -> str:
 """
 
 
-def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
+def start_bridge(symbols: str | None = None, no_rt: bool = False) -> dict:
     """Start picoclaw + realtime subscription."""
     status = get_status()
 
@@ -572,10 +597,10 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
             installed_ver = _download_picoclaw()
         except Exception as e:
             raise RuntimeError(f"Failed to download picoclaw: {e}")
-    
+
     # Generate config
     generate_config()
-    
+
     # Kill old process if any
     old_pid = _read_pid(PID_FILE)
     if old_pid:
@@ -585,7 +610,7 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
             pass
         if PID_FILE.exists():
             PID_FILE.unlink()
-    
+
     if RT_PID_FILE.exists() and _read_pid(RT_PID_FILE):
         try:
             os.kill(_read_pid(RT_PID_FILE), 15)
@@ -593,15 +618,15 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
             pass
         if RT_PID_FILE.exists():
             RT_PID_FILE.unlink()
-    
+
     # Ensure bin dir in PATH
     env = os.environ.copy()
     env["PATH"] = str(BIN_DIR) + ":" + env.get("PATH", "")
-    
+
     # Start picoclaw
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     log_fh = open(LOG_FILE, "w")
-    
+
     proc = subprocess.Popen(
         [str(PICOCLAW_BIN), "gateway"],
         stdout=log_fh,
@@ -610,24 +635,29 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
         cwd=str(PROJECT_ROOT),
         start_new_session=True,
     )
-    
+
     PID_FILE.write_text(str(proc.pid))
-    
+
     # Start realtime subscription unless disabled
     rt_pid = None
     if not no_rt:
         subscribe_script = (
-            PROJECT_ROOT / "skills" / "stock-rt-subscribe" / "scripts" / "subscribe_client.py"
+            PROJECT_ROOT
+            / "skills"
+            / "stock-rt-subscribe"
+            / "scripts"
+            / "subscribe_client.py"
         )
         if subscribe_script.exists():
             default_symbols = symbols or "00700.HK,09988.HK,600519.SH"
             rt_symbols = default_symbols.replace(",", " ")
-            
+
             rt_log = LOCAL_DIR / "subscribe_rt.log"
             rt_log_f = open(rt_log, "w")
-            
+
             rt_proc = subprocess.Popen(
-                [sys.executable, str(subscribe_script), "--symbols"] + rt_symbols.split(),
+                [sys.executable, str(subscribe_script), "--symbols"]
+                + rt_symbols.split(),
                 stdout=rt_log_f,
                 stderr=rt_log_f,
                 cwd=str(PROJECT_ROOT),
@@ -641,10 +671,11 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
                 f"RT subscribe script not found at {subscribe_script}. "
                 f"Skipping realtime data subscription."
             )
-    
+
     return {
         "success": True,
-        "message": f"Picoclaw started (PID: {proc.pid})" + (f", RT subscription started (PID: {rt_pid})" if rt_pid else ""),
+        "message": f"Picoclaw started (PID: {proc.pid})"
+        + (f", RT subscription started (PID: {rt_pid})" if rt_pid else ""),
         "pid": proc.pid,
         "rt_pid": rt_pid,
     }
@@ -653,7 +684,7 @@ def start_bridge(symbols: Optional[str] = None, no_rt: bool = False) -> dict:
 def stop_bridge() -> dict:
     """Stop all picoclaw-related processes."""
     stopped = []
-    
+
     main_pid = _read_pid(PID_FILE)
     if main_pid:
         try:
@@ -663,7 +694,7 @@ def stop_bridge() -> dict:
             pass
         if PID_FILE.exists():
             PID_FILE.unlink()
-    
+
     rt_pid = _read_pid(RT_PID_FILE)
     if rt_pid:
         try:
@@ -673,8 +704,11 @@ def stop_bridge() -> dict:
             pass
         if RT_PID_FILE.exists():
             RT_PID_FILE.unlink()
-    
-    return {"success": True, "message": f"Stopped: {', '.join(stopped) or 'nothing running'}"}
+
+    return {
+        "success": True,
+        "message": f"Stopped: {', '.join(stopped) or 'nothing running'}",
+    }
 
 
 def get_config_preview() -> dict:
@@ -683,7 +717,11 @@ def get_config_preview() -> dict:
         try:
             cfg = json.loads(PICOCLAW_CONFIG.read_text(encoding="utf-8"))
         except Exception:
-            return {"exists": False, "error": "config parse error", "config_path": str(PICOCLAW_CONFIG)}
+            return {
+                "exists": False,
+                "error": "config parse error",
+                "config_path": str(PICOCLAW_CONFIG),
+            }
 
         # Extract key info, mask secrets
         model_list = cfg.get("model_list", [])
@@ -706,7 +744,7 @@ def get_config_preview() -> dict:
             "config_path": str(PICOCLAW_CONFIG),
             "raw_config": json.dumps(safe_cfg, indent=2, ensure_ascii=False)[:3000],
         }
-    
+
     return {
         "llm_model": "",
         "llm_base_url": "",

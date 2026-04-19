@@ -14,10 +14,8 @@ others. Output is a neatly aligned status table with fix suggestions.
 from __future__ import annotations
 
 import time
-from typing import List, Tuple
 
 import click
-
 
 # Status symbols
 _PASS = click.style("✓ PASS", fg="green")
@@ -26,15 +24,16 @@ _FAIL = click.style("✗ FAIL", fg="red")
 _SKIP = click.style("- SKIP", fg="bright_black")
 
 
-def _check_clickhouse() -> Tuple[str, str, str]:
+def _check_clickhouse() -> tuple[str, str, str]:
     """Check ClickHouse connectivity.
 
     Returns:
         (status_symbol, message, fix_hint)
     """
     try:
-        from stock_datasource.config.settings import settings
         from clickhouse_driver import Client
+
+        from stock_datasource.config.settings import settings
 
         client = Client(
             host=settings.CLICKHOUSE_HOST,
@@ -53,16 +52,25 @@ def _check_clickhouse() -> Tuple[str, str, str]:
         if settings.CLICKHOUSE_DATABASE in dbs:
             return _PASS, f"v{version}, db '{settings.CLICKHOUSE_DATABASE}' exists", ""
         else:
-            return _WARN, f"v{version}, db '{settings.CLICKHOUSE_DATABASE}' NOT found", "Run: stock-ds init-db"
+            return (
+                _WARN,
+                f"v{version}, db '{settings.CLICKHOUSE_DATABASE}' NOT found",
+                "Run: stock-ds init-db",
+            )
     except Exception as e:
-        return _FAIL, str(e)[:80], "Check CLICKHOUSE_HOST/PORT in .env, ensure ClickHouse is running"
+        return (
+            _FAIL,
+            str(e)[:80],
+            "Check CLICKHOUSE_HOST/PORT in .env, ensure ClickHouse is running",
+        )
 
 
-def _check_redis() -> Tuple[str, str, str]:
+def _check_redis() -> tuple[str, str, str]:
     """Check Redis connectivity."""
     try:
-        from stock_datasource.config.settings import settings
         import redis as redis_lib
+
+        from stock_datasource.config.settings import settings
 
         r = redis_lib.Redis(
             host=settings.REDIS_HOST,
@@ -76,38 +84,56 @@ def _check_redis() -> Tuple[str, str, str]:
         version = info.get("redis_version", "?")
         return _PASS, f"v{version} at {settings.REDIS_HOST}:{settings.REDIS_PORT}", ""
     except Exception as e:
-        return _FAIL, str(e)[:80], "Check REDIS_HOST/PORT/PASSWORD in .env, ensure Redis is running"
+        return (
+            _FAIL,
+            str(e)[:80],
+            "Check REDIS_HOST/PORT/PASSWORD in .env, ensure Redis is running",
+        )
 
 
-def _check_tushare() -> Tuple[str, str, str]:
+def _check_tushare() -> tuple[str, str, str]:
     """Check Tushare token validity."""
     try:
         from stock_datasource.config.settings import settings
 
         token = settings.TUSHARE_TOKEN
         if not token:
-            return _FAIL, "Token not set", "Set TUSHARE_TOKEN in .env or run: stock-ds setup"
+            return (
+                _FAIL,
+                "Token not set",
+                "Set TUSHARE_TOKEN in .env or run: stock-ds setup",
+            )
 
         import tushare as ts
+
         pro = ts.pro_api(token)
         df = pro.trade_cal(exchange="SSE", start_date="20250101", end_date="20250105")
         if df is not None and len(df) > 0:
             return _PASS, f"Token valid ({len(df)} calendar rows)", ""
-        return _WARN, "API returned empty data", "Token may have insufficient permissions"
+        return (
+            _WARN,
+            "API returned empty data",
+            "Token may have insufficient permissions",
+        )
     except Exception as e:
         return _FAIL, str(e)[:80], "Check TUSHARE_TOKEN in .env"
 
 
-def _check_llm() -> Tuple[str, str, str]:
+def _check_llm() -> tuple[str, str, str]:
     """Check LLM / OpenAI API connectivity."""
     try:
         from stock_datasource.config.settings import settings
 
         api_key = settings.OPENAI_API_KEY
         if not api_key:
-            return _WARN, "API key not set", "Set OPENAI_API_KEY in .env (optional for data-only usage)"
+            return (
+                _WARN,
+                "API key not set",
+                "Set OPENAI_API_KEY in .env (optional for data-only usage)",
+            )
 
         from openai import OpenAI
+
         client = OpenAI(
             api_key=api_key,
             base_url=settings.OPENAI_BASE_URL,
@@ -121,10 +147,14 @@ def _check_llm() -> Tuple[str, str, str]:
         model_used = resp.model or settings.OPENAI_MODEL
         return _PASS, f"Model '{model_used}' responded", ""
     except Exception as e:
-        return _FAIL, str(e)[:80], "Check OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL in .env"
+        return (
+            _FAIL,
+            str(e)[:80],
+            "Check OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL in .env",
+        )
 
 
-def _check_proxy() -> Tuple[str, str, str]:
+def _check_proxy() -> tuple[str, str, str]:
     """Check HTTP proxy connectivity (if enabled)."""
     try:
         from stock_datasource.config.settings import settings
@@ -134,21 +164,31 @@ def _check_proxy() -> Tuple[str, str, str]:
 
         proxy_url = settings.http_proxy_url
         if not proxy_url:
-            return _WARN, "Proxy enabled but URL is incomplete", "Check HTTP_PROXY_HOST/PORT in .env"
+            return (
+                _WARN,
+                "Proxy enabled but URL is incomplete",
+                "Check HTTP_PROXY_HOST/PORT in .env",
+            )
 
         import requests
+
         proxies = {"http": proxy_url, "https": proxy_url}
         resp = requests.get("https://httpbin.org/ip", proxies=proxies, timeout=10)
         if resp.status_code == 200:
-            return _PASS, f"Proxy OK via {settings.HTTP_PROXY_HOST}:{settings.HTTP_PROXY_PORT}", ""
+            return (
+                _PASS,
+                f"Proxy OK via {settings.HTTP_PROXY_HOST}:{settings.HTTP_PROXY_PORT}",
+                "",
+            )
         return _WARN, f"HTTP {resp.status_code}", "Proxy may be misconfigured"
     except Exception as e:
         return _FAIL, str(e)[:60], "Check proxy settings in .env or runtime config"
 
 
-def _check_env_file() -> Tuple[str, str, str]:
+def _check_env_file() -> tuple[str, str, str]:
     """Check if .env file exists and has required keys."""
     from pathlib import Path
+
     env_file = Path(__file__).resolve().parents[3] / ".env"
     if not env_file.exists():
         return _FAIL, ".env file not found", "Run: stock-ds setup"
@@ -168,8 +208,15 @@ def _check_env_file() -> Tuple[str, str, str]:
 # Main command
 # ---------------------------------------------------------------------------
 
+
 @click.command("doctor")
-@click.option("--json-output", "json_out", is_flag=True, default=False, help="Output results as JSON")
+@click.option(
+    "--json-output",
+    "json_out",
+    is_flag=True,
+    default=False,
+    help="Output results as JSON",
+)
 def doctor(json_out: bool):
     """Check environment health and service connectivity.
 
@@ -183,9 +230,13 @@ def doctor(json_out: bool):
       stock-ds doctor --json-output
     """
     click.echo("")
-    click.secho("╔══════════════════════════════════════════════════╗", fg="bright_blue")
+    click.secho(
+        "╔══════════════════════════════════════════════════╗", fg="bright_blue"
+    )
     click.secho("║     Stock Datasource — Environment Doctor       ║", fg="bright_blue")
-    click.secho("╚══════════════════════════════════════════════════╝", fg="bright_blue")
+    click.secho(
+        "╚══════════════════════════════════════════════════╝", fg="bright_blue"
+    )
     click.echo("")
 
     checks = [
@@ -197,7 +248,7 @@ def doctor(json_out: bool):
         ("HTTP Proxy", _check_proxy),
     ]
 
-    results: List[dict] = []
+    results: list[dict] = []
     pass_count = 0
     warn_count = 0
     fail_count = 0
@@ -227,13 +278,21 @@ def doctor(json_out: bool):
         if hint:
             click.echo(f"         {'':16} └─ {hint}")
 
-        results.append({
-            "name": name,
-            "status": "pass" if "PASS" in status else ("warn" if "WARN" in status else ("skip" if "SKIP" in status else "fail")),
-            "message": message,
-            "hint": hint,
-            "elapsed_seconds": round(elapsed, 2),
-        })
+        results.append(
+            {
+                "name": name,
+                "status": "pass"
+                if "PASS" in status
+                else (
+                    "warn"
+                    if "WARN" in status
+                    else ("skip" if "SKIP" in status else "fail")
+                ),
+                "message": message,
+                "hint": hint,
+                "elapsed_seconds": round(elapsed, 2),
+            }
+        )
 
     # Summary
     click.echo("")
@@ -248,13 +307,22 @@ def doctor(json_out: bool):
     click.echo(f"  Results: {', '.join(summary_parts)}")
 
     if fail_count == 0 and warn_count == 0:
-        click.secho("  ✓ All checks passed! Your environment is ready.", fg="green", bold=True)
+        click.secho(
+            "  ✓ All checks passed! Your environment is ready.", fg="green", bold=True
+        )
     elif fail_count == 0:
-        click.secho("  ⚠ Some warnings — services may work with reduced functionality.", fg="yellow")
+        click.secho(
+            "  ⚠ Some warnings — services may work with reduced functionality.",
+            fg="yellow",
+        )
     else:
-        click.secho("  ✗ Some checks failed — please fix them before starting services.", fg="red")
+        click.secho(
+            "  ✗ Some checks failed — please fix them before starting services.",
+            fg="red",
+        )
     click.echo("")
 
     if json_out:
         import json
+
         click.echo(json.dumps(results, indent=2, ensure_ascii=False))

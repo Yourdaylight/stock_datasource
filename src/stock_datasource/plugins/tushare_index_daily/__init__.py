@@ -2,4 +2,4 @@
 
 from .plugin import TuShareIndexDailyPlugin
 
-__all__ = ['TuShareIndexDailyPlugin']
+__all__ = ["TuShareIndexDailyPlugin"]

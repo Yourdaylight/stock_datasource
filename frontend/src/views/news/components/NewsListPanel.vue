@@ -2,6 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { RefreshIcon, TimeIcon, TrendingUpIcon, HeartIcon } from 'tdesign-icons-vue-next'
 import type { NewsItem, NewsSortBy, NewsFilters } from '@/types/news'
+import type { StockSignalSummary } from '@/api/signalAggregator'
 import NewsItemCard from './NewsItemCard.vue'
 
 interface Props {
@@ -14,6 +15,9 @@ interface Props {
   sortBy?: NewsSortBy
   total?: number
   activeStockCode?: string | null
+  signalMap?: Map<string, StockSignalSummary>
+  currentPage?: number
+  pageSize?: number
 }
 
 interface Emits {
@@ -25,13 +29,17 @@ interface Emits {
   (e: 'sort-change', sortBy: NewsSortBy, sortOrder: 'asc' | 'desc'): void
   (e: 'stock-search', stockCode: string): void
   (e: 'stock-clear'): void
+  (e: 'page-change', page: number): void
+  (e: 'page-size-change', size: number): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
   hasMore: true,
   sortBy: 'time',
-  total: 0
+  total: 0,
+  currentPage: 1,
+  pageSize: 20,
 })
 
 const emit = defineEmits<Emits>()
@@ -205,15 +213,23 @@ const handleLoadMore = () => {
   }
 }
 
-// 滚动到底部检测
-const handleScroll = (event: Event) => {
-  const target = event.target as HTMLElement
-  const { scrollTop, scrollHeight, clientHeight } = target
-  
-  // 当滚动到距离底部100px时触发加载更多
-  if (scrollHeight - scrollTop - clientHeight < 100) {
-    handleLoadMore()
+// 信号辅助函数
+const getSignalScore = (news: NewsItem): number | null => {
+  if (!props.signalMap) return null
+  for (const code of news.stock_codes) {
+    const signal = props.signalMap.get(code)
+    if (signal) return signal.composite_score
   }
+  return null
+}
+
+const getSignalDirection = (news: NewsItem): 'bullish' | 'bearish' | 'neutral' | null => {
+  if (!props.signalMap) return null
+  for (const code of news.stock_codes) {
+    const signal = props.signalMap.get(code)
+    if (signal) return signal.composite_direction
+  }
+  return null
 }
 </script>
 
@@ -321,10 +337,9 @@ const handleScroll = (event: Event) => {
       </template>
 
       <!-- 新闻列表内容 -->
-      <div 
+      <div
         ref="listContainer"
         class="news-list-content"
-        @scroll="handleScroll"
       >
         <!-- 新闻列表 -->
         <div class="news-list" v-if="newsItems.length > 0">
@@ -332,6 +347,8 @@ const handleScroll = (event: Event) => {
             v-for="news in newsItems"
             :key="news.id"
             :news-item="news"
+            :signal-score="getSignalScore(news)"
+            :signal-direction="getSignalDirection(news)"
             @click="handleNewsClick(news)"
           />
         </div>
@@ -354,25 +371,17 @@ const handleScroll = (event: Event) => {
           </t-empty>
         </div>
 
-        <!-- 加载更多 -->
-        <div v-if="hasMore && newsItems.length > 0" class="load-more">
-          <t-button
-            v-if="!loading"
-            variant="text"
-            @click="handleLoadMore"
-            block
-          >
-            加载更多
-          </t-button>
-          <div v-else class="loading-more">
-            <t-loading size="small" />
-            <span>加载中...</span>
-          </div>
-        </div>
-
-        <!-- 没有更多数据 -->
-        <div v-else-if="!hasMore && newsItems.length > 0" class="no-more">
-          <t-divider>没有更多数据了</t-divider>
+        <!-- 分页器 -->
+        <div v-if="total > 0" class="pagination-wrapper">
+          <t-pagination
+            :current="currentPage"
+            :page-size="pageSize"
+            :total="total"
+            :page-size-options="[10, 20, 50]"
+            show-jumper
+            @current-change="$emit('page-change', $event)"
+            @page-size-change="$emit('page-size-change', $event)"
+          />
         </div>
 
         <!-- 初始加载状态 -->
@@ -488,29 +497,12 @@ const handleScroll = (event: Event) => {
   min-height: 300px;
 }
 
-.load-more {
-  margin-top: 16px;
-  padding: 8px 0;
-}
-
-.loading-more {
+.pagination-wrapper {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 16px;
-  color: var(--td-text-color-secondary);
-  font-size: 14px;
-}
-
-.no-more {
+  padding: 16px 0 8px;
+  border-top: 1px solid var(--td-component-stroke);
   margin-top: 16px;
-  text-align: center;
-}
-
-.no-more :deep(.t-divider__content) {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
 }
 
 .initial-loading {

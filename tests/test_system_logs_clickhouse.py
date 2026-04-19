@@ -1,9 +1,7 @@
 """Tests for system_logs schemas and log_parser with ClickHouse context fields."""
 
 from datetime import datetime
-from unittest.mock import patch, MagicMock, PropertyMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from stock_datasource.modules.system_logs.schemas import (
     LogEntry,
@@ -149,12 +147,17 @@ class TestLogServiceClickHousePaths:
     def test_ch_client_property_returns_none_on_import_error(self):
         """_ch_client should return None when db_client is unavailable."""
         # Import only the service module with heavy deps mocked out
-        with patch.dict("sys.modules", {
-            "stock_datasource.modules.system_logs.ai_diagnosis_service": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "stock_datasource.modules.system_logs.ai_diagnosis_service": MagicMock(),
+            },
+        ):
             # Re-import to get fresh module
             import importlib
+
             import stock_datasource.modules.system_logs.service as svc_mod
+
             importlib.reload(svc_mod)
 
             service = svc_mod.LogService(log_dir="/tmp/test_logs")
@@ -166,28 +169,36 @@ class TestLogServiceClickHousePaths:
 
     def test_get_logs_fallback_uses_single_reader_call(self):
         """Fallback path should not rescan files just to compute totals."""
-        with patch.dict("sys.modules", {
-            "stock_datasource.modules.system_logs.ai_diagnosis_service": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "stock_datasource.modules.system_logs.ai_diagnosis_service": MagicMock(),
+            },
+        ):
             import importlib
+
             import stock_datasource.modules.system_logs.service as svc_mod
 
             importlib.reload(svc_mod)
             service = svc_mod.LogService(log_dir="/tmp/test_logs")
             service.reader = MagicMock()
-            service.reader.read_logs.return_value = [{
-                "timestamp": datetime(2026, 4, 9, 15, 30, 0),
-                "level": "ERROR",
-                "module": "test_module",
-                "message": "boom",
-                "raw_line": "raw",
-                "request_id": "req-2",
-                "user_id": "user2",
-            }]
+            service.reader.read_logs.return_value = [
+                {
+                    "timestamp": datetime(2026, 4, 9, 15, 30, 0),
+                    "level": "ERROR",
+                    "module": "test_module",
+                    "message": "boom",
+                    "raw_line": "raw",
+                    "request_id": "req-2",
+                    "user_id": "user2",
+                }
+            ]
 
             filters = LogFilter(request_id="req-2", page=1, page_size=50)
 
-            with patch.object(svc_mod.LogService, "_get_logs_from_clickhouse", return_value=None):
+            with patch.object(
+                svc_mod.LogService, "_get_logs_from_clickhouse", return_value=None
+            ):
                 result = service.get_logs(filters)
 
             assert service.reader.read_logs.call_count == 1

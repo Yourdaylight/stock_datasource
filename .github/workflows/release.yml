@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ── 计算版本号 ──────────────────────────────────────────────
+  semantic-release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.release.outputs.version }}
+      new_release: ${{ steps.release.outputs.new_release_published }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Semantic Release
+        id: release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 22
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 构建 & 推送 Docker 镜像 ────────────────────────────────
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: semantic-release
+    if: needs.semantic-release.outputs.new_release == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata for backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: zl3n22/stock_datasource
+          tags: |
+            type=raw,value=backend-latest
+            type=raw,value=backend-${{ needs.semantic-release.outputs.new_version }}
+            type=sha,prefix=backend-
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          target: production
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker metadata for frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: zl3n22/stock_datasource
+          tags: |
+            type=raw,value=frontend-latest
+            type=raw,value=frontend-${{ needs.semantic-release.outputs.new_version }}
+            type=sha,prefix=frontend-
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: docker/Dockerfile.frontend
+          target: production
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 更新 pyproject.toml 版本号 ──────────────────────────────
+  bump-version:
+    name: Bump Version in pyproject.toml
+    runs-on: ubuntu-latest
+    needs: semantic-release
+    if: needs.semantic-release.outputs.new_release == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version
+        run: |
+          VERSION="${{ needs.semantic-release.outputs.new_version }}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --cached --quiet || git commit -m "chore: bump version to ${VERSION}"
+          git push

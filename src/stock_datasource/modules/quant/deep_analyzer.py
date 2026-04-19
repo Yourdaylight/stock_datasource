@@ -6,9 +6,7 @@ NLP analysis: calls LLM for management discussion analysis.
 
 import json
 import logging
-import time
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -35,7 +33,7 @@ class DeepAnalyzer:
     def __init__(self):
         self.readiness_checker = get_data_readiness_checker()
 
-    async def analyze_technical(self, ts_code: str) -> Optional[TechSnapshot]:
+    async def analyze_technical(self, ts_code: str) -> TechSnapshot | None:
         """Technical analysis for a stock. Reads from ClickHouse only."""
         try:
             df = db_client.execute_query(
@@ -50,7 +48,11 @@ class DeepAnalyzer:
                 return None
 
             close = pd.to_numeric(df["close"], errors="coerce")
-            vol = pd.to_numeric(df["vol"], errors="coerce") if "vol" in df else pd.Series()
+            vol = (
+                pd.to_numeric(df["vol"], errors="coerce")
+                if "vol" in df
+                else pd.Series()
+            )
 
             # Calculate MAs
             ma25 = close.rolling(25).mean().iloc[-1] if len(close) >= 25 else None
@@ -97,10 +99,18 @@ class DeepAnalyzer:
                 ma25=round(ma25, 2) if ma25 and not pd.isna(ma25) else None,
                 ma120=round(ma120, 2) if ma120 and not pd.isna(ma120) else None,
                 ma250=round(ma250, 2) if ma250 and not pd.isna(ma250) else None,
-                macd=round(float(macd_line.iloc[-1]), 4) if not pd.isna(macd_line.iloc[-1]) else None,
-                macd_signal=round(float(signal_line.iloc[-1]), 4) if not pd.isna(signal_line.iloc[-1]) else None,
-                macd_hist=round(float(macd_hist.iloc[-1]), 4) if not pd.isna(macd_hist.iloc[-1]) else None,
-                rsi_14=round(float(rsi.iloc[-1]), 2) if not pd.isna(rsi.iloc[-1]) else None,
+                macd=round(float(macd_line.iloc[-1]), 4)
+                if not pd.isna(macd_line.iloc[-1])
+                else None,
+                macd_signal=round(float(signal_line.iloc[-1]), 4)
+                if not pd.isna(signal_line.iloc[-1])
+                else None,
+                macd_hist=round(float(macd_hist.iloc[-1]), 4)
+                if not pd.isna(macd_hist.iloc[-1])
+                else None,
+                rsi_14=round(float(rsi.iloc[-1]), 2)
+                if not pd.isna(rsi.iloc[-1])
+                else None,
                 volume_ratio=volume_ratio,
                 close=latest_close,
                 pct_chg=round(pct_chg, 2),
@@ -111,7 +121,7 @@ class DeepAnalyzer:
             logger.error(f"Technical analysis failed for {ts_code}: {e}")
             return None
 
-    async def analyze_mgmt_discussion(self, ts_code: str) -> Optional[AiAnalysisCard]:
+    async def analyze_mgmt_discussion(self, ts_code: str) -> AiAnalysisCard | None:
         """NLP analysis of management discussion (via LLM).
 
         This is the one component that calls LLM (not TuShare).
@@ -123,6 +133,7 @@ class DeepAnalyzer:
             # Check if LLM service is available
             try:
                 from stock_datasource.services.llm_service import get_llm_service
+
                 llm = get_llm_service()
             except Exception:
                 return AiAnalysisCard(
@@ -156,7 +167,9 @@ class DeepAnalyzer:
                 key_findings=data.get("key_findings", []),
                 risk_factors=data.get("risk_factors", []),
                 verification_points=data.get("verification_points", []),
-                ai_summary=data.get("ai_summary", response[:200] if isinstance(response, str) else ""),
+                ai_summary=data.get(
+                    "ai_summary", response[:200] if isinstance(response, str) else ""
+                ),
             )
 
         except Exception as e:
@@ -198,7 +211,9 @@ class DeepAnalyzer:
             tech_snapshot=tech,
             ai_analysis=ai,
             tech_score=round(tech_score, 2),
-            overall_score=round(tech_score * 0.6 + (ai.credibility_score if ai else 50) * 0.4, 2),
+            overall_score=round(
+                tech_score * 0.6 + (ai.credibility_score if ai else 50) * 0.4, 2
+            ),
         )
 
         # Save to ClickHouse
@@ -233,7 +248,7 @@ class DeepAnalyzer:
         try:
             df = db_client.execute_query(
                 "SELECT name FROM dim_stock_basic WHERE ts_code = %(ts_code)s LIMIT 1",
-                params={"ts_code": ts_code}
+                params={"ts_code": ts_code},
             )
             return str(df.iloc[0]["name"]) if len(df) > 0 else ""
         except Exception:
@@ -246,13 +261,27 @@ class DeepAnalyzer:
                 "ts_code": result.ts_code,
                 "stock_name": result.stock_name,
                 "tech_score": result.tech_score,
-                "mgmt_discussion_score": result.ai_analysis.credibility_score if result.ai_analysis else 0,
-                "prospect_score": result.ai_analysis.optimism_score if result.ai_analysis else 0,
-                "key_findings": result.ai_analysis.key_findings if result.ai_analysis else [],
-                "risk_factors": result.ai_analysis.risk_factors if result.ai_analysis else [],
-                "verification_points": result.ai_analysis.verification_points if result.ai_analysis else [],
-                "ai_summary": result.ai_analysis.ai_summary if result.ai_analysis else "",
-                "tech_snapshot": result.tech_snapshot.model_dump_json() if result.tech_snapshot else "",
+                "mgmt_discussion_score": result.ai_analysis.credibility_score
+                if result.ai_analysis
+                else 0,
+                "prospect_score": result.ai_analysis.optimism_score
+                if result.ai_analysis
+                else 0,
+                "key_findings": result.ai_analysis.key_findings
+                if result.ai_analysis
+                else [],
+                "risk_factors": result.ai_analysis.risk_factors
+                if result.ai_analysis
+                else [],
+                "verification_points": result.ai_analysis.verification_points
+                if result.ai_analysis
+                else [],
+                "ai_summary": result.ai_analysis.ai_summary
+                if result.ai_analysis
+                else "",
+                "tech_snapshot": result.tech_snapshot.model_dump_json()
+                if result.tech_snapshot
+                else "",
             }
             df = pd.DataFrame([row])
             db_client.insert_dataframe("quant_deep_analysis", df)
@@ -261,7 +290,7 @@ class DeepAnalyzer:
 
 
 # Singleton
-_analyzer: Optional[DeepAnalyzer] = None
+_analyzer: DeepAnalyzer | None = None
 
 
 def get_deep_analyzer() -> DeepAnalyzer:

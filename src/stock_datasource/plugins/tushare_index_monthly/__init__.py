@@ -3,4 +3,4 @@
 from .plugin import TuShareIndexMonthlyPlugin
 from .service import TuShareIndexMonthlyService
 
-__all__ = ['TuShareIndexMonthlyPlugin', 'TuShareIndexMonthlyService']
+__all__ = ["TuShareIndexMonthlyPlugin", "TuShareIndexMonthlyService"]

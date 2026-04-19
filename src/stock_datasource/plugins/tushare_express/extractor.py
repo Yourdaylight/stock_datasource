@@ -1,13 +1,14 @@
 """Tushare 业绩快报数据提取器"""
 
-import logging
 import json
+import logging
 import time
-import pandas as pd
-from typing import Optional
 from pathlib import Path
+
+import pandas as pd
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from stock_datasource.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class TuShareExpressExtractor:
 
         # Load rate_limit from config.json
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         rate_limit_config = config.get("rate_limit", 120)
         # rate_limit can be either a number or an object with calls_per_minute
@@ -51,7 +52,9 @@ class TuShareExpressExtractor:
 
         self._last_call_time = time.time()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
     def _call_api(self, api_func, **kwargs) -> pd.DataFrame:
         """Call TuShare API with rate limiting and retry."""
         self._rate_limit()
@@ -72,10 +75,10 @@ class TuShareExpressExtractor:
     def extract(
         self,
         ts_code: str,
-        ann_date: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        period: Optional[str] = None,
+        ann_date: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        period: str | None = None,
     ) -> pd.DataFrame:
         """
         提取业绩快报数据

@@ -190,6 +190,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/quant/QuantView.vue'),
     meta: { title: '量化选股', icon: 'chart-analytics', requiresAuth: true }
   },
+  // Signal Observatory
+  {
+    path: '/signal',
+    name: 'Signal',
+    component: () => import('@/views/signal/SignalDashboard.vue'),
+    meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true }
+  },
   {
     path: '/quant/screening',
     name: 'QuantScreening',

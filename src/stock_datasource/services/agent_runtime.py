@@ -26,15 +26,14 @@ Tasks implemented:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import MessagesState
+from langgraph.prebuilt import create_react_agent
 
 from .agent_registry import AgentRegistry, AgentRole, get_agent_registry
 
@@ -44,6 +43,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Feature flag
 # ---------------------------------------------------------------------------
+
 
 def is_runtime_enabled() -> bool:
     """Check whether the new Agent Runtime is enabled.
@@ -58,7 +58,8 @@ def is_runtime_enabled() -> bool:
 # SSE Event Adapter
 # ---------------------------------------------------------------------------
 
-def adapt_langgraph_event_to_sse(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+
+def adapt_langgraph_event_to_sse(event: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a LangGraph astream_events v2 event to legacy SSE format.
 
     The frontend expects: thinking, content, tool, debug, visualization, done, error.
@@ -112,23 +113,27 @@ def adapt_langgraph_event_to_sse(event: Dict[str, Any]) -> Optional[Dict[str, An
         # Extract visualization if present
         viz = _extract_visualization(tool_output)
         events = []
-        events.append({
-            "type": "debug",
-            "debug_type": "tool_result",
-            "agent": _extract_agent_from_tags(tags),
-            "timestamp": time.time(),
-            "data": {
-                "tool": name,
-                "result_summary": summary,
-            },
-        })
-        if viz:
-            events.append({
-                "type": "visualization",
-                "visualization": viz,
+        events.append(
+            {
+                "type": "debug",
+                "debug_type": "tool_result",
                 "agent": _extract_agent_from_tags(tags),
-                "tool": name,
-            })
+                "timestamp": time.time(),
+                "data": {
+                    "tool": name,
+                    "result_summary": summary,
+                },
+            }
+        )
+        if viz:
+            events.append(
+                {
+                    "type": "visualization",
+                    "visualization": viz,
+                    "agent": _extract_agent_from_tags(tags),
+                    "tool": name,
+                }
+            )
         # Return first event; caller handles multi-event case
         return events[0] if len(events) == 1 else events
 
@@ -142,15 +147,21 @@ def adapt_langgraph_event_to_sse(event: Dict[str, Any]) -> Optional[Dict[str, An
         }
 
     # Skip noisy internal events
-    if etype in ("on_chain_start", "on_chain_end", "on_chain_stream",
-                 "on_chat_model_start", "on_chat_model_end",
-                 "on_prompt_start", "on_prompt_end"):
+    if etype in (
+        "on_chain_start",
+        "on_chain_end",
+        "on_chain_stream",
+        "on_chat_model_start",
+        "on_chat_model_end",
+        "on_prompt_start",
+        "on_prompt_end",
+    ):
         return None
 
     return None
 
 
-def _extract_agent_from_tags(tags: List[str]) -> str:
+def _extract_agent_from_tags(tags: list[str]) -> str:
     """Try to extract agent name from LangGraph event tags."""
     for tag in tags:
         if tag.endswith("Agent") or tag.endswith("_agent"):
@@ -158,9 +169,10 @@ def _extract_agent_from_tags(tags: List[str]) -> str:
     return ""
 
 
-def _extract_visualization(tool_output: Any) -> Optional[Dict[str, Any]]:
+def _extract_visualization(tool_output: Any) -> dict[str, Any] | None:
     """Extract _visualization from tool output."""
     import json as _json
+
     if isinstance(tool_output, dict) and "_visualization" in tool_output:
         return tool_output["_visualization"]
     if hasattr(tool_output, "content"):
@@ -188,6 +200,7 @@ def _extract_visualization(tool_output: Any) -> Optional[Dict[str, Any]]:
 # AgentRuntime
 # ---------------------------------------------------------------------------
 
+
 class AgentRuntime:
     """Unified control plane powered by LangGraph Supervisor.
 
@@ -209,28 +222,29 @@ class AgentRuntime:
 
     def __init__(
         self,
-        registry: Optional[AgentRegistry] = None,
+        registry: AgentRegistry | None = None,
         default_timeout: int = 120,
     ):
         self.registry = registry or get_agent_registry()
         self.default_timeout = default_timeout
         self._supervisor = None
         self._checkpointer = MemorySaver()
-        self._sub_agents: Dict[str, Any] = {}
+        self._sub_agents: dict[str, Any] = {}
         # Task 5.2: Observability metrics
-        self._cold_start_ms: Optional[float] = None
+        self._cold_start_ms: float | None = None
         self._classification_count: int = 0
         self._concurrent_failures: int = 0
         self._total_invocations: int = 0
 
         # Memory Store + Middleware Chain (feature-flagged)
         self._store = None
-        self._middleware_chain: List = []
+        self._middleware_chain: list = []
         self._init_memory_and_middlewares()
 
         # Trigger explicit agent registrations (no-op if already done)
         try:
             from .agent_registrations import register_all_agents
+
             register_all_agents()
         except Exception as exc:
             logger.debug("Agent registrations skipped: %s", exc)
@@ -238,12 +252,19 @@ class AgentRuntime:
     def _init_memory_and_middlewares(self) -> None:
         """Initialize MemoryStore and middleware chain if feature flag is set."""
         try:
-            from stock_datasource.modules.memory.store import is_memory_store_enabled, get_memory_store
-            from stock_datasource.agents.middlewares import build_default_middleware_chain
+            from stock_datasource.agents.middlewares import (
+                build_default_middleware_chain,
+            )
+            from stock_datasource.modules.memory.store import (
+                get_memory_store,
+                is_memory_store_enabled,
+            )
 
             if is_memory_store_enabled():
                 self._store = get_memory_store()
-                self._middleware_chain = build_default_middleware_chain(store=self._store)
+                self._middleware_chain = build_default_middleware_chain(
+                    store=self._store
+                )
                 logger.info(
                     "Memory store + middleware chain initialized (%d middlewares)",
                     len(self._middleware_chain),
@@ -257,14 +278,13 @@ class AgentRuntime:
     # Sub-Agent construction
     # ------------------------------------------------------------------
 
-    def _build_sub_agents(self) -> List:
+    def _build_sub_agents(self) -> list:
         """Build LangGraph sub-agents from registry descriptors.
 
         Each registered business agent is wrapped as a ``create_react_agent``
         graph, using the agent's existing tools and system prompt.
         """
         from stock_datasource.agents.base_agent import (
-            LangGraphAgent,
             get_langchain_model,
         )
 
@@ -285,9 +305,8 @@ class AgentRuntime:
 
                 # Extract tools and prompt from the existing agent
                 tools = agent_instance.get_tools()
-                system_prompt = (
-                    agent_instance.get_system_prompt()
-                    + getattr(agent_instance, "COMMON_OUTPUT_RULES", "")
+                system_prompt = agent_instance.get_system_prompt() + getattr(
+                    agent_instance, "COMMON_OUTPUT_RULES", ""
                 )
 
                 # Build a LangGraph react agent
@@ -312,8 +331,16 @@ class AgentRuntime:
         agent_descs = []
         for desc in self.registry.list_descriptors(role=AgentRole.AGENT):
             if desc.enabled:
-                markets = ", ".join(desc.capability.markets) if desc.capability.markets else "通用"
-                intents = ", ".join(desc.capability.intents) if desc.capability.intents else ""
+                markets = (
+                    ", ".join(desc.capability.markets)
+                    if desc.capability.markets
+                    else "通用"
+                )
+                intents = (
+                    ", ".join(desc.capability.intents)
+                    if desc.capability.intents
+                    else ""
+                )
                 agent_descs.append(
                     f"- **{desc.name}**: {desc.description} (市场: {markets})"
                 )
@@ -345,6 +372,7 @@ class AgentRuntime:
         handles all routing/handoff/state management internally.
         """
         from langgraph_supervisor import create_supervisor
+
         from stock_datasource.agents.base_agent import get_langchain_model
 
         t0 = time.time()
@@ -400,8 +428,8 @@ class AgentRuntime:
     async def execute_stream(
         self,
         query: str,
-        context: Dict[str, Any] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        context: dict[str, Any] = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a query via LangGraph Supervisor, yielding raw events.
 
         Uses ``astream_events(version="v2")`` for real-time streaming.
@@ -431,6 +459,7 @@ class AgentRuntime:
         # Add langfuse callbacks if available
         try:
             from stock_datasource.agents.base_agent import get_langfuse_handler
+
             handler = get_langfuse_handler()
             if handler:
                 config["callbacks"] = [handler]
@@ -446,7 +475,7 @@ class AgentRuntime:
                 version="v2",
             ):
                 yield event
-        except asyncio.TimeoutError:
+        except TimeoutError:
             yield {
                 "event": "error",
                 "data": {"error": f"执行超时 ({self.default_timeout}s)"},
@@ -461,8 +490,8 @@ class AgentRuntime:
     async def execute_stream_sse(
         self,
         query: str,
-        context: Dict[str, Any] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        context: dict[str, Any] = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute and yield legacy SSE-compatible events.
 
         Translates LangGraph ``astream_events`` into the frontend's
@@ -486,6 +515,7 @@ class AgentRuntime:
                     generate_middleware_trace_id,
                     middleware_trace_id_var,
                 )
+
                 mw_trace_id = generate_middleware_trace_id()
                 middleware_trace_id_var.set(mw_trace_id)
 
@@ -506,14 +536,17 @@ class AgentRuntime:
                     yield {
                         "type": "content",
                         "content": "抱歉，我是一个专业的股票分析助手，只能回答与金融投资相关的问题。\n\n"
-                                   "您可以试试以下问题：\n"
-                                   "- 查询某只股票的行情和走势\n"
-                                   "- 对股票进行技术面或基本面分析\n"
-                                   "- 筛选符合条件的股票\n"
-                                   "- 制定投资策略和回测\n\n"
-                                   f"您的问题：{query}",
+                        "您可以试试以下问题：\n"
+                        "- 查询某只股票的行情和走势\n"
+                        "- 对股票进行技术面或基本面分析\n"
+                        "- 筛选符合条件的股票\n"
+                        "- 制定投资策略和回测\n\n"
+                        f"您的问题：{query}",
                     }
-                    yield {"type": "done", "metadata": {"agent": "AgentRuntime", "redirected": True}}
+                    yield {
+                        "type": "done",
+                        "metadata": {"agent": "AgentRuntime", "redirected": True},
+                    }
                     return
             except Exception as exc:
                 logger.warning("Middleware before() chain failed: %s", exc)
@@ -521,6 +554,7 @@ class AgentRuntime:
 
         # Task 4.3: Create envelope for this invocation
         from .session_memory_service import SubAgentEnvelope, get_session_memory_service
+
         envelope = SubAgentEnvelope(
             agent_name="AgentRuntime",
             session_id=session_id,
@@ -547,7 +581,7 @@ class AgentRuntime:
 
         has_content = False
         has_error = False
-        content_parts: List[str] = []
+        content_parts: list[str] = []
 
         async for raw_event in self.execute_stream(query, context):
             # Handle error events from our own wrapper
@@ -594,6 +628,7 @@ class AgentRuntime:
         if self._middleware_chain and mw_context is not None:
             try:
                 from stock_datasource.agents.middlewares.base import AgentResponse
+
                 mw_response = AgentResponse(
                     content=envelope.response,
                     success=envelope.success,
@@ -602,7 +637,9 @@ class AgentRuntime:
                 )
                 for mw in reversed(self._middleware_chain):
                     if mw.enabled:
-                        mw_response = await mw.after_with_logging(mw_context, mw_response)
+                        mw_response = await mw.after_with_logging(
+                            mw_context, mw_response
+                        )
 
                 # Apply middleware modifications
                 if mw_response.warnings:
@@ -631,7 +668,10 @@ class AgentRuntime:
         # Reset middleware trace context
         if mw_trace_id != "-":
             try:
-                from stock_datasource.utils.request_context import middleware_trace_id_var
+                from stock_datasource.utils.request_context import (
+                    middleware_trace_id_var,
+                )
+
                 middleware_trace_id_var.set("-")
             except Exception:
                 pass
@@ -643,8 +683,8 @@ class AgentRuntime:
     async def execute(
         self,
         query: str,
-        context: Dict[str, Any] = None,
-    ) -> Dict[str, Any]:
+        context: dict[str, Any] = None,
+    ) -> dict[str, Any]:
         """Execute synchronously by collecting all SSE events."""
         content_parts = []
         metadata = {}
@@ -657,10 +697,12 @@ class AgentRuntime:
             elif etype == "done":
                 metadata = event.get("metadata", {})
             elif etype == "tool":
-                tool_calls.append({
-                    "name": event.get("tool", ""),
-                    "args": event.get("args", {}),
-                })
+                tool_calls.append(
+                    {
+                        "name": event.get("tool", ""),
+                        "args": event.get("args", {}),
+                    }
+                )
 
         return {
             "response": "".join(content_parts),
@@ -674,12 +716,12 @@ class AgentRuntime:
     # ------------------------------------------------------------------
 
     @property
-    def agent_names(self) -> Set[str]:
+    def agent_names(self) -> set[str]:
         """Names of agents available in the supervisor."""
         return set(self._sub_agents.keys())
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Task 5.2: Return observability snapshot."""
         return {
             "cold_start_ms": self._cold_start_ms,
@@ -688,7 +730,8 @@ class AgentRuntime:
             "concurrent_failures": self._concurrent_failures,
             "failure_rate": (
                 self._concurrent_failures / self._total_invocations
-                if self._total_invocations > 0 else 0.0
+                if self._total_invocations > 0
+                else 0.0
             ),
             "sub_agent_count": len(self._sub_agents),
         }
@@ -704,7 +747,7 @@ class AgentRuntime:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_runtime: Optional[AgentRuntime] = None
+_runtime: AgentRuntime | None = None
 
 
 def get_agent_runtime() -> AgentRuntime:

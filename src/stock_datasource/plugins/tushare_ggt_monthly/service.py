@@ -1,11 +1,9 @@
 """港股通每月成交统计查询服务"""
 
-from typing import Any, Optional
-
 import pandas as pd
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class GgtMonthlyService:

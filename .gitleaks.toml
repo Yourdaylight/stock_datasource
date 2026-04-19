@@ -1,0 +1,60 @@
+# Gitleaks 配置 - 密钥泄露扫描
+# 参考: https://gitleaks.io/
+
+[extend]
+# 使用默认规则集
+useDefault = true
+
+[[rules]]
+id = "tushare-token"
+description = "TuShare API Token"
+regex = '''tushare[_\-]?token\s*[=:]\s*['"]?[a-f0-9]{32,}['"]?'''
+tags = ["key", "tushare"]
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API Key"
+regex = '''sk-[a-zA-Z0-9]{20,}'''
+tags = ["key", "openai"]
+
+[[rules]]
+id = "redis-password-hardcoded"
+description = "Hardcoded Redis Password"
+regex = '''requirepass\s+\S{8,}'''
+tags = ["password", "redis"]
+
+[[allowlist]]
+description = "Global allow list - paths"
+paths = [
+  '''\.env\.example$''',
+  '''\.env\.docker$''',
+  '''\.env\.backend$''',
+  '''\.env\.frontend$''',
+  '''\.gitleaks\.toml$''',
+  '''docs/.*\.md$''',
+  '''docker/.*\.sql$''',
+  '''docker/.*\.backend$''',
+  '''docker/.*\.frontend$''',
+]
+
+[[allowlist]]
+description = "Allow placeholder values"
+regexes = [
+  '''your_.*_here''',
+  '''YOUR_.*_HERE''',
+  '''<.*>''',
+  '''changeme''',
+  '''placeholder''',
+  '''xxx+''',
+  '''TODO''',
+]
+
+[[allowlist]]
+description = "Allow example/mock tokens in config files"
+paths = [
+  '''\.env$''',
+]
+regexTarget = "line"
+regexes = [
+  '''TUSHARE_TOKEN\s*=\s*['"]?[a-f0-9]+['"]?''',
+]

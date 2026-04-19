@@ -8,10 +8,9 @@ Provides tools for:
 - Market sentiment
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-import math
 import logging
+import math
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +18,7 @@ logger = logging.getLogger(__name__)
 def _get_db():
     """Get database connection."""
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
@@ -29,37 +29,39 @@ def _sanitize_value(v):
     return v
 
 
-def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_row(row: dict[str, Any]) -> dict[str, Any]:
     """Sanitize a dict row to be JSON-serializable."""
     return {k: _sanitize_value(v) for k, v in row.items()}
 
 
-def _execute_query(query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _execute_query(
+    query: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Execute query and return results as list of dicts."""
     db = _get_db()
     try:
         df = db.execute_query(query, params or {})
         if df is None or df.empty:
             return []
-        return [_sanitize_row(r) for r in df.to_dict('records')]
+        return [_sanitize_row(r) for r in df.to_dict("records")]
     except Exception as e:
         logger.warning(f"ClickHouse query failed: {e}")
         return []
 
 
-def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> Optional[str]:
+def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> str | None:
     """Get latest trade date from table. Returns YYYYMMDD format string."""
     query = f"""
     SELECT max(trade_date) as latest_date
     FROM {table}
     """
     result = _execute_query(query)
-    if result and result[0].get('latest_date'):
-        latest = result[0]['latest_date']
-        if hasattr(latest, 'strftime'):
-            date_str = latest.strftime('%Y%m%d')
+    if result and result[0].get("latest_date"):
+        latest = result[0]["latest_date"]
+        if hasattr(latest, "strftime"):
+            date_str = latest.strftime("%Y%m%d")
         else:
-            date_str = str(latest).replace('-', '')
+            date_str = str(latest).replace("-", "")
         # ClickHouse max(Date) on empty table returns 1970-01-01
         if date_str in {"19700101", "1970-01-01"}:
             return None
@@ -67,7 +69,7 @@ def _get_latest_trade_date(table: str = "ods_idx_factor_pro") -> Optional[str]:
     return None
 
 
-def _get_best_available_trade_date() -> Optional[str]:
+def _get_best_available_trade_date() -> str | None:
     """Pick the freshest populated market date across overview data sources."""
     for table in ["ods_idx_factor_pro", "fact_daily_bar", "ods_etf_fund_daily"]:
         latest = _get_latest_trade_date(table)
@@ -78,7 +80,7 @@ def _get_best_available_trade_date() -> Optional[str]:
 
 def _to_ch_date(date_yyyymmdd: str) -> str:
     """Convert YYYYMMDD string to YYYY-MM-DD for ClickHouse Date comparison."""
-    if len(date_yyyymmdd) == 8 and '-' not in date_yyyymmdd:
+    if len(date_yyyymmdd) == 8 and "-" not in date_yyyymmdd:
         return f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:8]}"
     return date_yyyymmdd
 
@@ -96,7 +98,7 @@ MAJOR_INDICES = [
 ]
 
 
-def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
+def get_major_indices_status(date: str | None = None) -> dict[str, Any]:
     """获取主要指数状态。
 
     Args:
@@ -107,13 +109,13 @@ def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
     """
     if not date:
         date = _get_best_available_trade_date()
-    
+
     if not date:
         return {"error": "无法获取交易日期"}
-    
+
     indices_codes = [f"'{code}'" for code, _ in MAJOR_INDICES]
     indices_str = ", ".join(indices_codes)
-    
+
     ch_date = _to_ch_date(date)
     query = f"""
     SELECT 
@@ -129,36 +131,38 @@ def get_major_indices_status(date: Optional[str] = None) -> Dict[str, Any]:
     WHERE f.ts_code IN ({indices_str})
     AND f.trade_date = '{ch_date}'
     """
-    
+
     result = _execute_query(query)
-    
+
     # Sort by predefined order
     code_order = {code: i for i, (code, _) in enumerate(MAJOR_INDICES)}
-    result.sort(key=lambda x: code_order.get(x.get('ts_code', ''), 999))
-    
+    result.sort(key=lambda x: code_order.get(x.get("ts_code", ""), 999))
+
     # Generate summary
-    up_count = sum(1 for r in result if (r.get('pct_chg') or 0) > 0)
-    down_count = sum(1 for r in result if (r.get('pct_chg') or 0) < 0)
-    
+    up_count = sum(1 for r in result if (r.get("pct_chg") or 0) > 0)
+    down_count = sum(1 for r in result if (r.get("pct_chg") or 0) < 0)
+
     summary = f"主要指数{up_count}涨{down_count}跌"
-    
+
     # Find best and worst
     if result:
-        sorted_by_chg = sorted(result, key=lambda x: x.get('pct_chg') or 0, reverse=True)
+        sorted_by_chg = sorted(
+            result, key=lambda x: x.get("pct_chg") or 0, reverse=True
+        )
         best = sorted_by_chg[0]
         worst = sorted_by_chg[-1]
         summary += f"，{best.get('name')}表现最好({best.get('pct_chg')}%)，{worst.get('name')}表现最弱({worst.get('pct_chg')}%)"
-    
+
     return {
         "trade_date": date,
         "indices": result,
         "up_count": up_count,
         "down_count": down_count,
-        "summary": summary
+        "summary": summary,
     }
 
 
-def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
+def get_market_breadth(date: str | None = None) -> dict[str, Any]:
     """获取市场广度（涨跌家数、涨跌停数量）。
 
     Args:
@@ -169,10 +173,10 @@ def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
     """
     if not date:
         date = _get_latest_trade_date("fact_daily_bar")
-    
+
     if not date:
         return {"error": "无法获取交易日期"}
-    
+
     ch_date = _to_ch_date(date)
     query = f"""
     SELECT 
@@ -188,20 +192,20 @@ def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
     FROM fact_daily_bar
     WHERE trade_date = '{ch_date}'
     """
-    
+
     result = _execute_query(query)
-    
+
     if not result:
         return {"error": f"未找到{date}的市场数据"}
-    
+
     stats = result[0]
-    up = int(stats.get('up_count', 0) or 0)
-    down = int(stats.get('down_count', 0) or 0)
-    total = int(stats.get('total_count', 0) or 0)
-    
+    up = int(stats.get("up_count", 0) or 0)
+    down = int(stats.get("down_count", 0) or 0)
+    total = int(stats.get("total_count", 0) or 0)
+
     # Calculate up/down ratio (use None instead of inf for JSON compatibility)
     ratio = round(up / down, 2) if down > 0 else None
-    
+
     # Generate summary
     if ratio is None:
         sentiment = "市场无下跌个股数据"
@@ -213,24 +217,24 @@ def get_market_breadth(date: Optional[str] = None) -> Dict[str, Any]:
         sentiment = "市场情绪偏弱，下跌家数多于上涨"
     else:
         sentiment = "市场情绪偏空，下跌家数明显多于上涨"
-    
+
     return {
         "trade_date": date,
         "up_count": up,
         "down_count": down,
-        "flat_count": int(stats.get('flat_count', 0) or 0),
-        "limit_up_count": int(stats.get('limit_up_count', 0) or 0),
-        "limit_down_count": int(stats.get('limit_down_count', 0) or 0),
-        "limit_up_20_count": int(stats.get('limit_up_20_count', 0) or 0),
-        "limit_down_20_count": int(stats.get('limit_down_20_count', 0) or 0),
+        "flat_count": int(stats.get("flat_count", 0) or 0),
+        "limit_up_count": int(stats.get("limit_up_count", 0) or 0),
+        "limit_down_count": int(stats.get("limit_down_count", 0) or 0),
+        "limit_up_20_count": int(stats.get("limit_up_20_count", 0) or 0),
+        "limit_down_20_count": int(stats.get("limit_down_20_count", 0) or 0),
         "total_count": total,
         "up_down_ratio": ratio,
-        "total_amount_yi": stats.get('total_amount_yi'),
-        "summary": sentiment
+        "total_amount_yi": stats.get("total_amount_yi"),
+        "summary": sentiment,
     }
 
 
-def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[str, Any]:
+def get_sector_performance(date: str | None = None, limit: int = 10) -> dict[str, Any]:
     """获取板块表现排名。
 
     Args:
@@ -242,10 +246,10 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
     """
     if not date:
         date = _get_best_available_trade_date()
-    
+
     if not date:
         return {"error": "无法获取交易日期"}
-    
+
     ch_date = _to_ch_date(date)
     # Query sector indices (category contains '行业' or index_type is 'sector')
     query = f"""
@@ -264,9 +268,9 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
     ORDER BY pct_chg DESC
     LIMIT {limit * 2}
     """
-    
+
     result = _execute_query(query)
-    
+
     if not result:
         # Fallback: try theme indices
         query = f"""
@@ -286,11 +290,13 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
         LIMIT {limit * 2}
         """
         result = _execute_query(query)
-    
+
     # Get top gainers and losers
     top_gainers = result[:limit] if result else []
-    top_losers = sorted(result, key=lambda x: x.get('pct_chg') or 0)[:limit] if result else []
-    
+    top_losers = (
+        sorted(result, key=lambda x: x.get("pct_chg") or 0)[:limit] if result else []
+    )
+
     return {
         "trade_date": date,
         "top_gainers": top_gainers,
@@ -298,7 +304,9 @@ def get_sector_performance(date: Optional[str] = None, limit: int = 10) -> Dict[
     }
 
 
-def get_hot_etfs_analysis(date: Optional[str] = None, sort_by: str = "amount", limit: int = 10) -> Dict[str, Any]:
+def get_hot_etfs_analysis(
+    date: str | None = None, sort_by: str = "amount", limit: int = 10
+) -> dict[str, Any]:
     """获取热门ETF分析。
 
     Args:
@@ -311,14 +319,14 @@ def get_hot_etfs_analysis(date: Optional[str] = None, sort_by: str = "amount", l
     """
     if not date:
         date = _get_latest_trade_date("ods_etf_fund_daily")
-    
+
     if not date:
         return {"error": "无法获取交易日期"}
-    
+
     order_field = "amount" if sort_by == "amount" else "pct_chg"
     order_dir = "DESC"
     ch_date = _to_ch_date(date)
-    
+
     query = f"""
     SELECT 
         d.ts_code,
@@ -335,43 +343,57 @@ def get_hot_etfs_analysis(date: Optional[str] = None, sort_by: str = "amount", l
     ORDER BY d.{order_field} {order_dir}
     LIMIT {limit}
     """
-    
+
     result = _execute_query(query)
-    
+
     # Generate analysis
     analysis = []
     if result:
         if sort_by == "amount":
             top_etf = result[0]
-            analysis.append(f"成交额最高的ETF是{top_etf.get('name')}({top_etf.get('ts_code')})，成交额{round(top_etf.get('amount', 0) / 10000, 2)}亿元")
+            analysis.append(
+                f"成交额最高的ETF是{top_etf.get('name')}({top_etf.get('ts_code')})，成交额{round(top_etf.get('amount', 0) / 10000, 2)}亿元"
+            )
         else:
             top_etf = result[0]
-            analysis.append(f"涨幅最大的ETF是{top_etf.get('name')}({top_etf.get('ts_code')})，涨幅{top_etf.get('pct_chg')}%")
-        
+            analysis.append(
+                f"涨幅最大的ETF是{top_etf.get('name')}({top_etf.get('ts_code')})，涨幅{top_etf.get('pct_chg')}%"
+            )
+
         # Check for theme concentration
-        benchmarks = [r.get('benchmark', '') for r in result if r.get('benchmark')]
+        benchmarks = [r.get("benchmark", "") for r in result if r.get("benchmark")]
         if benchmarks:
             # Simple theme detection
             themes = {}
             for bm in benchmarks:
-                for theme in ['科技', '新能源', '医药', '消费', '金融', '半导体', '军工']:
+                for theme in [
+                    "科技",
+                    "新能源",
+                    "医药",
+                    "消费",
+                    "金融",
+                    "半导体",
+                    "军工",
+                ]:
                     if theme in str(bm):
                         themes[theme] = themes.get(theme, 0) + 1
-            
+
             if themes:
                 top_theme = max(themes.items(), key=lambda x: x[1])
                 if top_theme[1] >= 2:
-                    analysis.append(f"热门ETF中{top_theme[0]}主题较为集中（{top_theme[1]}只）")
-    
+                    analysis.append(
+                        f"热门ETF中{top_theme[0]}主题较为集中（{top_theme[1]}只）"
+                    )
+
     return {
         "trade_date": date,
         "sort_by": sort_by,
         "etfs": result,
-        "analysis": analysis
+        "analysis": analysis,
     }
 
 
-def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
+def get_market_sentiment(date: str | None = None) -> dict[str, Any]:
     """获取市场情绪指标。
 
     Args:
@@ -382,19 +404,19 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
     """
     if not date:
         date = _get_best_available_trade_date()
-    
+
     if not date:
         return {"error": "无法获取交易日期"}
-    
+
     # Get market breadth
     breadth = get_market_breadth(date)
-    
+
     # Get index status
     indices = get_major_indices_status(date)
-    
+
     # Calculate sentiment score (0-100)
     score = 50  # Neutral baseline
-    
+
     # Adjust by up/down ratio
     if "up_down_ratio" in breadth:
         ratio = breadth["up_down_ratio"]
@@ -411,7 +433,7 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
                 score -= 15
             elif ratio < 1:
                 score -= 5
-    
+
     # Adjust by limit up/down
     limit_up = breadth.get("limit_up_count", 0)
     limit_down = breadth.get("limit_down_count", 0)
@@ -419,7 +441,7 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
         score += 10
     elif limit_down > limit_up * 2:
         score -= 10
-    
+
     # Adjust by major indices
     if "indices" in indices:
         idx_up = sum(1 for i in indices["indices"] if (i.get("pct_chg") or 0) > 0)
@@ -428,10 +450,10 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
             score += 5
         elif idx_down > idx_up:
             score -= 5
-    
+
     # Clamp score
     score = max(0, min(100, score))
-    
+
     # Generate sentiment label
     if score >= 70:
         label = "乐观"
@@ -448,7 +470,7 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
     else:
         label = "悲观"
         description = "市场情绪低迷，空头占优"
-    
+
     return {
         "trade_date": date,
         "sentiment_score": score,
@@ -460,11 +482,11 @@ def get_market_sentiment(date: Optional[str] = None) -> Dict[str, Any]:
             "limit_down_count": breadth.get("limit_down_count"),
             "indices_up": indices.get("up_count"),
             "indices_down": indices.get("down_count"),
-        }
+        },
     }
 
 
-def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
+def get_market_daily_summary(date: str | None = None) -> dict[str, Any]:
     """获取市场每日综合摘要（快速分析用）。
 
     Args:
@@ -475,7 +497,7 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
     """
     if not date:
         date = _get_best_available_trade_date()
-    
+
     # Empty-data defaults (stable structure for frontend)
     empty_sentiment = {"score": 50, "label": "中性", "description": "暂无数据"}
     empty_breadth = {
@@ -497,7 +519,7 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
             "hot_etfs": [],
             "signals": [],
         }
-    
+
     # Collect all data (resilient: if error dict, treat as empty)
     indices = get_major_indices_status(date)
     if "error" in indices:
@@ -509,15 +531,19 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
 
     sentiment = get_market_sentiment(date)
     if "error" in sentiment:
-        sentiment = {"sentiment_score": 50, "sentiment_label": "中性", "sentiment_description": "暂无情绪数据"}
+        sentiment = {
+            "sentiment_score": 50,
+            "sentiment_label": "中性",
+            "sentiment_description": "暂无情绪数据",
+        }
 
     hot_etfs = get_hot_etfs_analysis(date, sort_by="amount", limit=5)
     if "error" in hot_etfs:
         hot_etfs = {"etfs": []}
-    
+
     # Generate signals
     signals = []
-    
+
     # Index signals
     if "indices" in indices:
         for idx in indices["indices"][:3]:  # Top 3 indices
@@ -526,13 +552,13 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
             if pct and abs(pct) >= 1:
                 direction = "上涨" if pct > 0 else "下跌"
                 signals.append(f"{name}{direction}{abs(pct)}%")
-    
+
     # Breadth signals
     if breadth.get("limit_up_count", 0) > 50:
         signals.append(f"涨停家数{breadth['limit_up_count']}家，市场活跃")
     if breadth.get("limit_down_count", 0) > 50:
         signals.append(f"⚠️ 跌停家数{breadth['limit_down_count']}家，注意风险")
-    
+
     # Volume signals
     if breadth.get("total_amount_yi"):
         amount = breadth["total_amount_yi"]
@@ -540,24 +566,24 @@ def get_market_daily_summary(date: Optional[str] = None) -> Dict[str, Any]:
             signals.append(f"两市成交额{amount}亿元，交投活跃")
         elif amount < 5000:
             signals.append(f"两市成交额{amount}亿元，交投清淡")
-    
+
     # Generate summary text
     summary_parts = []
-    
+
     # Index summary
     if indices.get("summary"):
         summary_parts.append(indices["summary"])
-    
+
     # Breadth summary
     if breadth.get("summary"):
         summary_parts.append(breadth["summary"])
-    
+
     # Sentiment
     if sentiment.get("sentiment_description"):
         summary_parts.append(sentiment["sentiment_description"])
-    
+
     market_summary = "。".join(summary_parts) + "。" if summary_parts else "暂无数据"
-    
+
     return {
         "trade_date": date,
         "market_summary": market_summary,

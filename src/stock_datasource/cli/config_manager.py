@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import click
 
@@ -21,41 +20,91 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 
 # Keys that should be masked when displayed
 _SECRET_KEYS = {
-    "TUSHARE_TOKEN", "OPENAI_API_KEY", "FINNHUB_API_KEY",
-    "LANGFUSE_SECRET_KEY", "LANGFUSE_PUBLIC_KEY",
-    "CLICKHOUSE_PASSWORD", "REDIS_PASSWORD",
-    "HTTP_PROXY_PASSWORD", "WEKNORA_API_KEY",
+    "TUSHARE_TOKEN",
+    "OPENAI_API_KEY",
+    "FINNHUB_API_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_PUBLIC_KEY",
+    "CLICKHOUSE_PASSWORD",
+    "REDIS_PASSWORD",
+    "HTTP_PROXY_PASSWORD",
+    "WEKNORA_API_KEY",
     "MCP_USAGE_REPORT_KEY",
 }
 
 # Configuration groups for display
-_CONFIG_GROUPS: List[Tuple[str, List[str]]] = [
-    ("API Keys", [
-        "TUSHARE_TOKEN", "FINNHUB_API_KEY",
-    ]),
-    ("LLM / OpenAI", [
-        "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
-    ]),
-    ("ClickHouse", [
-        "CLICKHOUSE_HOST", "CLICKHOUSE_PORT", "CLICKHOUSE_HTTP_PORT",
-        "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DATABASE",
-    ]),
-    ("Redis", [
-        "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB",
-    ]),
-    ("Langfuse", [
-        "LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
-    ]),
-    ("HTTP Proxy", [
-        "HTTP_PROXY_ENABLED", "HTTP_PROXY_HOST", "HTTP_PROXY_PORT",
-    ]),
-    ("WeKnora", [
-        "WEKNORA_ENABLED", "WEKNORA_BASE_URL", "WEKNORA_API_KEY", "WEKNORA_KB_IDS",
-    ]),
-    ("Application", [
-        "APP_PORT", "DEBUG", "LOG_LEVEL", "DATA_START_DATE",
-        "DAILY_UPDATE_TIME", "TIMEZONE",
-    ]),
+_CONFIG_GROUPS: list[tuple[str, list[str]]] = [
+    (
+        "API Keys",
+        [
+            "TUSHARE_TOKEN",
+            "FINNHUB_API_KEY",
+        ],
+    ),
+    (
+        "LLM / OpenAI",
+        [
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_MODEL",
+        ],
+    ),
+    (
+        "ClickHouse",
+        [
+            "CLICKHOUSE_HOST",
+            "CLICKHOUSE_PORT",
+            "CLICKHOUSE_HTTP_PORT",
+            "CLICKHOUSE_USER",
+            "CLICKHOUSE_PASSWORD",
+            "CLICKHOUSE_DATABASE",
+        ],
+    ),
+    (
+        "Redis",
+        [
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_PASSWORD",
+            "REDIS_DB",
+        ],
+    ),
+    (
+        "Langfuse",
+        [
+            "LANGFUSE_HOST",
+            "LANGFUSE_PUBLIC_KEY",
+            "LANGFUSE_SECRET_KEY",
+        ],
+    ),
+    (
+        "HTTP Proxy",
+        [
+            "HTTP_PROXY_ENABLED",
+            "HTTP_PROXY_HOST",
+            "HTTP_PROXY_PORT",
+        ],
+    ),
+    (
+        "WeKnora",
+        [
+            "WEKNORA_ENABLED",
+            "WEKNORA_BASE_URL",
+            "WEKNORA_API_KEY",
+            "WEKNORA_KB_IDS",
+        ],
+    ),
+    (
+        "Application",
+        [
+            "APP_PORT",
+            "DEBUG",
+            "LOG_LEVEL",
+            "DATA_START_DATE",
+            "DAILY_UPDATE_TIME",
+            "TIMEZONE",
+        ],
+    ),
 ]
 
 
@@ -68,9 +117,9 @@ def _mask(value: str, visible: int = 4) -> str:
     return value[:visible] + "****"
 
 
-def _read_env() -> Dict[str, str]:
+def _read_env() -> dict[str, str]:
     """Read .env file into a dict."""
-    env: Dict[str, str] = {}
+    env: dict[str, str] = {}
     if not _ENV_FILE.exists():
         return env
     for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -121,6 +170,7 @@ def _set_env_value(key: str, value: str) -> bool:
 # Commands
 # ---------------------------------------------------------------------------
 
+
 @click.group("config")
 def config():
     """View and modify project configuration.
@@ -132,8 +182,18 @@ def config():
 
 
 @config.command("show")
-@click.option("--reveal", is_flag=True, default=False, help="Show secrets in plain text (use with caution)")
-@click.option("--group", "group_filter", default=None, help="Show only a specific group (e.g. 'ClickHouse', 'Redis')")
+@click.option(
+    "--reveal",
+    is_flag=True,
+    default=False,
+    help="Show secrets in plain text (use with caution)",
+)
+@click.option(
+    "--group",
+    "group_filter",
+    default=None,
+    help="Show only a specific group (e.g. 'ClickHouse', 'Redis')",
+)
 def show(reveal: bool, group_filter: str):
     """Display current configuration (secrets are masked by default).
 
@@ -151,9 +211,13 @@ def show(reveal: bool, group_filter: str):
         return
 
     click.echo("")
-    click.secho("╔══════════════════════════════════════════════════╗", fg="bright_blue")
+    click.secho(
+        "╔══════════════════════════════════════════════════╗", fg="bright_blue"
+    )
     click.secho("║     Current Configuration                       ║", fg="bright_blue")
-    click.secho("╚══════════════════════════════════════════════════╝", fg="bright_blue")
+    click.secho(
+        "╚══════════════════════════════════════════════════╝", fg="bright_blue"
+    )
 
     for group_name, keys in _CONFIG_GROUPS:
         if group_filter and group_filter.lower() != group_name.lower():

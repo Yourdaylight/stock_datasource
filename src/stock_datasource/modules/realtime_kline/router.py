@@ -1,19 +1,18 @@
 """FastAPI router for Realtime Daily K-line module (decoupled architecture)."""
 
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from .schemas import (
-    LatestKlineResponse,
     BatchLatestResponse,
     CollectStatusResponse,
-    SyncStatusResponse,
-    TriggerResponse,
+    LatestKlineResponse,
+    MetricsResponse,
     PushSwitchRequest,
     PushSwitchResponse,
-    MetricsResponse,
+    SyncStatusResponse,
+    TriggerResponse,
 )
 from .service import get_realtime_kline_service
 
@@ -26,10 +25,13 @@ router = APIRouter()
 # Query endpoints
 # ---------------------------------------------------------------
 
-@router.get("/latest", response_model=LatestKlineResponse, summary="查询单只证券最新日线快照")
+
+@router.get(
+    "/latest", response_model=LatestKlineResponse, summary="查询单只证券最新日线快照"
+)
 async def get_latest(
     ts_code: str = Query(..., description="证券代码，如 000001.SZ"),
-    market: Optional[str] = Query(None, description="市场类型: a_stock/etf/index/hk"),
+    market: str | None = Query(None, description="市场类型: a_stock/etf/index/hk"),
 ):
     svc = get_realtime_kline_service()
     return svc.get_latest(ts_code, market)
@@ -37,7 +39,7 @@ async def get_latest(
 
 @router.get("/batch", response_model=BatchLatestResponse, summary="批量查询日线快照")
 async def get_batch_latest(
-    market: Optional[str] = Query(None, description="市场过滤: a_stock/etf/index/hk"),
+    market: str | None = Query(None, description="市场过滤: a_stock/etf/index/hk"),
     limit: int = Query(100, ge=1, le=5000, description="返回条数"),
 ):
     svc = get_realtime_kline_service()
@@ -64,6 +66,7 @@ async def get_daily(
 # Status & health
 # ---------------------------------------------------------------
 
+
 @router.get("/status", response_model=CollectStatusResponse, summary="获取采集状态")
 async def get_collect_status():
     svc = get_realtime_kline_service()
@@ -73,6 +76,7 @@ async def get_collect_status():
 @router.get("/runtime/health", summary="运行时健康检查")
 async def runtime_health():
     from .scheduler import get_runtime
+
     rt = get_runtime()
     return {
         "is_running": rt.is_running,
@@ -84,9 +88,10 @@ async def runtime_health():
 # Manual trigger
 # ---------------------------------------------------------------
 
+
 @router.post("/trigger", response_model=TriggerResponse, summary="手动触发采集")
 async def trigger_collection(
-    markets: Optional[str] = Query(None, description="逗号分隔的市场列表，默认全部"),
+    markets: str | None = Query(None, description="逗号分隔的市场列表，默认全部"),
 ):
     try:
         from .scheduler import run_collection
@@ -108,10 +113,13 @@ async def trigger_collection(
         return TriggerResponse(success=False, message=str(e), markets_collected={})
 
 
-@router.post("/sync", response_model=SyncStatusResponse, summary="手动触发同步到 ClickHouse")
+@router.post(
+    "/sync", response_model=SyncStatusResponse, summary="手动触发同步到 ClickHouse"
+)
 async def trigger_sync():
     try:
         from .scheduler import run_sink_tick
+
         result = run_sink_tick()
         return SyncStatusResponse(
             all_ok=result.get("all_ok", False),
@@ -126,7 +134,10 @@ async def trigger_sync():
 # Cloud push switch (hidden feature)
 # ---------------------------------------------------------------
 
-@router.post("/push/switch", response_model=PushSwitchResponse, summary="切换云端推送开关")
+
+@router.post(
+    "/push/switch", response_model=PushSwitchResponse, summary="切换云端推送开关"
+)
 async def set_push_switch(req: PushSwitchRequest):
     try:
         from .cache import get_cache_store
@@ -156,9 +167,12 @@ async def set_push_switch(req: PushSwitchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/push/switch", response_model=PushSwitchResponse, summary="查询云端推送开关状态")
+@router.get(
+    "/push/switch", response_model=PushSwitchResponse, summary="查询云端推送开关状态"
+)
 async def get_push_switch():
     from .cloud_push import _is_push_enabled
+
     enabled = _is_push_enabled()
     return PushSwitchResponse(success=True, enabled=enabled, message="")
 
@@ -167,9 +181,11 @@ async def get_push_switch():
 # Observability
 # ---------------------------------------------------------------
 
+
 @router.get("/metrics", response_model=MetricsResponse, summary="获取运行时指标")
 async def get_metrics():
     from .metrics import metrics
+
     snap = metrics.snapshot()
     return MetricsResponse(
         counters=snap.get("counters", {}),
@@ -181,10 +197,12 @@ async def get_metrics():
 # Cleanup (manual)
 # ---------------------------------------------------------------
 
+
 @router.post("/cleanup", summary="手动触发清理（Stream/latest/push state）")
 async def trigger_cleanup():
     try:
         from .scheduler import run_cleanup
+
         result = run_cleanup()
         return {"success": True, **result}
     except Exception as e:

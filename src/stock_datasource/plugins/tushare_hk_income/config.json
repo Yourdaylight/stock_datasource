@@ -5,7 +5,7 @@
   "retry_attempts": 3,
   "description": "TuShare HK income statement data plugin (EAV model)",
   "schedule": {
-    "frequency": "quarterly",
+    "frequency": "monthly",
     "time": "21:30"
   },
   "parameters_schema": {

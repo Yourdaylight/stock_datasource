@@ -8,7 +8,6 @@ to a profile. Every user automatically gets a default profile.
 import logging
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -27,6 +26,7 @@ class ProfileService:
         if self._db is None:
             try:
                 from stock_datasource.models.database import db_client
+
                 self._db = db_client
             except Exception as e:
                 logger.warning("Failed to get DB client: %s", e)
@@ -68,7 +68,7 @@ class ProfileService:
         name: str,
         broker: str = "",
         is_default: bool = False,
-    ) -> Dict:
+    ) -> dict:
         """Create a new profile for a user."""
         self.ensure_table()
 
@@ -102,13 +102,15 @@ class ProfileService:
                         "updated_at": now,
                     },
                 )
-                logger.info("Profile %s created for user %s: %s", profile_id, user_id, name)
+                logger.info(
+                    "Profile %s created for user %s: %s", profile_id, user_id, name
+                )
             except Exception as e:
                 logger.warning("Failed to save profile to database: %s", e)
 
         return profile
 
-    def list_profiles(self, user_id: str) -> List[Dict]:
+    def list_profiles(self, user_id: str) -> list[dict]:
         """List all active profiles for a user."""
         self.ensure_table()
 
@@ -130,7 +132,7 @@ class ProfileService:
             logger.warning("Failed to list profiles: %s", e)
             return []
 
-    def get_profile(self, profile_id: str, user_id: str) -> Optional[Dict]:
+    def get_profile(self, profile_id: str, user_id: str) -> dict | None:
         """Get a single profile by id (owned by user)."""
         self.ensure_table()
 
@@ -157,9 +159,9 @@ class ProfileService:
         self,
         profile_id: str,
         user_id: str,
-        name: Optional[str] = None,
-        broker: Optional[str] = None,
-    ) -> Optional[Dict]:
+        name: str | None = None,
+        broker: str | None = None,
+    ) -> dict | None:
         """Update a profile's name and/or broker."""
         profile = self.get_profile(profile_id, user_id)
         if profile is None:
@@ -230,7 +232,7 @@ class ProfileService:
 
         return True
 
-    def ensure_default_profile(self, user_id: str) -> Dict:
+    def ensure_default_profile(self, user_id: str) -> dict:
         """Ensure user has a default profile. Create one if missing."""
         profiles = self.list_profiles(user_id)
         defaults = [p for p in profiles if p.get("is_default")]
@@ -249,24 +251,32 @@ class ProfileService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _df_to_profiles(df: pd.DataFrame) -> List[Dict]:
+    def _df_to_profiles(df: pd.DataFrame) -> list[dict]:
         """Convert DataFrame to list of profile dicts."""
         profiles = []
         for _, row in df.iterrows():
-            profiles.append({
-                "id": str(row["id"]),
-                "user_id": str(row["user_id"]),
-                "name": str(row["name"]),
-                "broker": str(row["broker"]) if pd.notna(row["broker"]) else "",
-                "is_default": bool(row["is_default"]) if pd.notna(row.get("is_default")) else False,
-                "created_at": str(row["created_at"]) if pd.notna(row.get("created_at")) else "",
-                "updated_at": str(row["updated_at"]) if pd.notna(row.get("updated_at")) else "",
-            })
+            profiles.append(
+                {
+                    "id": str(row["id"]),
+                    "user_id": str(row["user_id"]),
+                    "name": str(row["name"]),
+                    "broker": str(row["broker"]) if pd.notna(row["broker"]) else "",
+                    "is_default": bool(row["is_default"])
+                    if pd.notna(row.get("is_default"))
+                    else False,
+                    "created_at": str(row["created_at"])
+                    if pd.notna(row.get("created_at"))
+                    else "",
+                    "updated_at": str(row["updated_at"])
+                    if pd.notna(row.get("updated_at"))
+                    else "",
+                }
+            )
         return profiles
 
 
 # Singleton
-_profile_service: Optional[ProfileService] = None
+_profile_service: ProfileService | None = None
 
 
 def get_profile_service() -> ProfileService:

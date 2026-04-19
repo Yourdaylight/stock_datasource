@@ -1,9 +1,9 @@
 """Plugin system for stock data source."""
 
-from typing import Dict, List, Any, Optional
 import importlib
 import pkgutil
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # Import BasePlugin from core module
 from stock_datasource.core.base_plugin import BasePlugin
@@ -12,11 +12,11 @@ from stock_datasource.utils.logger import logger
 
 class PluginManager:
     """Manages data plugins."""
-    
+
     def __init__(self):
-        self.plugins: Dict[str, BasePlugin] = {}
+        self.plugins: dict[str, BasePlugin] = {}
         self.logger = logger.bind(component="PluginManager")
-    
+
     def discover_plugins(self, package_path: str = "stock_datasource.plugins"):
         """Discover and load plugins from package."""
         try:
@@ -24,76 +24,81 @@ class PluginManager:
             package_path_obj = Path(package.__file__).parent
             discovered = 0
             failed = 0
-            
+
             for finder, name, ispkg in pkgutil.iter_modules([str(package_path_obj)]):
-                if name.startswith('_'):
+                if name.startswith("_"):
                     continue
-                
+
                 try:
                     module = importlib.import_module(f"{package_path}.{name}")
-                    
+
                     # Look for plugin classes
                     for attr_name in dir(module):
                         attr = getattr(module, attr_name)
-                        if (isinstance(attr, type) and 
-                            issubclass(attr, BasePlugin) and 
-                            attr != BasePlugin):
-                            
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, BasePlugin)
+                            and attr != BasePlugin
+                        ):
                             plugin_instance = attr()
                             self.register_plugin(plugin_instance)
                             discovered += 1
-                            self.logger.debug(f"Discovered plugin: {plugin_instance.name}")
-                            
+                            self.logger.debug(
+                                f"Discovered plugin: {plugin_instance.name}"
+                            )
+
                 except Exception as e:
                     failed += 1
                     self.logger.error(f"Failed to load plugin module {name}: {e}")
-            
+
             self.logger.info(
                 f"Plugin discovery completed: {discovered} discovered, {len(self.plugins)} registered, {failed} failed"
             )
-                    
+
         except Exception as e:
             self.logger.error(f"Failed to discover plugins: {e}")
-    
+
     def register_plugin(self, plugin: BasePlugin):
         """Register a plugin."""
         if plugin.name in self.plugins:
             self.logger.warning(f"Plugin {plugin.name} already registered, overwriting")
-        
+
         self.plugins[plugin.name] = plugin
         self.logger.debug(f"Registered plugin: {plugin.name}")
-    
-    def get_plugin(self, name: str) -> Optional[BasePlugin]:
+
+    def get_plugin(self, name: str) -> BasePlugin | None:
         """Get plugin by name."""
         return self.plugins.get(name)
-    
-    def list_plugins(self) -> List[str]:
+
+    def list_plugins(self) -> list[str]:
         """List all registered plugin names."""
         return list(self.plugins.keys())
-    
-    def get_plugin_info(self) -> List[Dict[str, Any]]:
+
+    def get_plugin_info(self) -> list[dict[str, Any]]:
         """Get information about all plugins."""
         info = []
         for plugin in self.plugins.values():
-            info.append({
-                "name": plugin.name,
-                "version": plugin.version,
-                "description": plugin.description,
-                "rate_limit": plugin.api_rate_limit,
-                "dependencies": plugin.get_dependencies()
-            })
+            info.append(
+                {
+                    "name": plugin.name,
+                    "version": plugin.version,
+                    "description": plugin.description,
+                    "rate_limit": plugin.api_rate_limit,
+                    "dependencies": plugin.get_dependencies(),
+                }
+            )
         return info
-    
+
     def execute_plugin(self, plugin_name: str, **kwargs) -> Any:
         """Execute a plugin."""
         plugin = self.get_plugin(plugin_name)
         if not plugin:
             raise ValueError(f"Plugin {plugin_name} not found")
-        
+
         try:
             self.logger.info(f"Executing plugin: {plugin_name}")
             data = plugin.extract_data(**kwargs)
-            
+
             if plugin.validate_data(data):
                 transformed_data = plugin.transform_data(data)
                 self.logger.info(f"Plugin {plugin_name} executed successfully")
@@ -101,7 +106,7 @@ class PluginManager:
             else:
                 self.logger.error(f"Plugin {plugin_name} data validation failed")
                 return None
-                
+
         except Exception as e:
             self.logger.error(f"Plugin {plugin_name} execution failed: {e}")
             raise

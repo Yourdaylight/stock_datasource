@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class HsgtTop10Service:
@@ -18,7 +18,7 @@ class HsgtTop10Service:
                 user=settings.BACKUP_CLICKHOUSE_USER,
                 password=settings.BACKUP_CLICKHOUSE_PASSWORD,
                 database=settings.BACKUP_CLICKHOUSE_DATABASE,
-                name="backup"
+                name="backup",
             )
         else:
             self.client = db_client.primary
@@ -49,7 +49,7 @@ class HsgtTop10Service:
         query = f"""
             SELECT *
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY market_type, rank
         """
 
@@ -88,7 +88,7 @@ class HsgtTop10Service:
         query = f"""
             SELECT *
             FROM {self.table}
-            WHERE {' AND '.join(conditions)}
+            WHERE {" AND ".join(conditions)}
             ORDER BY trade_date DESC
             LIMIT %(limit)s
         """
@@ -120,7 +120,9 @@ class HsgtTop10Service:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"trade_date": trade_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"trade_date": trade_date, "limit": limit}
+        )
         return df.to_dict(orient="records")
 
     def get_top_net_sell(
@@ -147,7 +149,9 @@ class HsgtTop10Service:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"trade_date": trade_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"trade_date": trade_date, "limit": limit}
+        )
         return df.to_dict(orient="records")
 
     def get_frequent_stocks(
@@ -182,5 +186,7 @@ class HsgtTop10Service:
             LIMIT %(limit)s
         """
 
-        df = self.client.execute_query(query, {"start_date": start_date, "end_date": end_date, "limit": limit})
+        df = self.client.execute_query(
+            query, {"start_date": start_date, "end_date": end_date, "limit": limit}
+        )
         return df.to_dict(orient="records")

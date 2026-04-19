@@ -7,7 +7,6 @@ the system operates without knowledge base features.
 
 import logging
 import time
-from typing import Optional
 
 import httpx
 
@@ -29,17 +28,17 @@ class WeKnoraClient:
         base_url: str,
         api_key: str,
         timeout: int = 10,
-        default_kb_ids: Optional[list[str]] = None,
+        default_kb_ids: list[str] | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.default_kb_ids = default_kb_ids or []
-        self._healthy: Optional[bool] = None
+        self._healthy: bool | None = None
         self._health_checked_at: float = 0
         self._health_cache_ttl = 60
         # Persistent sync HTTP client
-        self._client: Optional[httpx.Client] = None
+        self._client: httpx.Client | None = None
 
     def _get_client(self) -> httpx.Client:
         """Return the persistent Client, creating it on first use."""
@@ -92,7 +91,11 @@ class WeKnoraClient:
     def is_healthy(self, force: bool = False) -> bool:
         """Check if WeKnora service is reachable. Results are cached."""
         now = time.time()
-        if not force and self._healthy is not None and (now - self._health_checked_at) < self._health_cache_ttl:
+        if (
+            not force
+            and self._healthy is not None
+            and (now - self._health_checked_at) < self._health_cache_ttl
+        ):
             return self._healthy
 
         try:
@@ -109,8 +112,8 @@ class WeKnoraClient:
     def knowledge_search(
         self,
         query: str,
-        kb_ids: Optional[list[str]] = None,
-        knowledge_ids: Optional[list[str]] = None,
+        kb_ids: list[str] | None = None,
+        knowledge_ids: list[str] | None = None,
     ) -> list[dict]:
         """Search knowledge base, return ranked chunks with scores."""
         effective_kb_ids = kb_ids or self.default_kb_ids
@@ -131,7 +134,9 @@ class WeKnoraClient:
             results = data.get("data", [])
             return results if isinstance(results, list) else []
         except Exception as e:
-            logger.warning(f"[WeKnora] knowledge_search failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] knowledge_search failed: {type(e).__name__}: {e}"
+            )
             return []
 
     def list_knowledge_bases(self) -> list[dict]:
@@ -144,7 +149,9 @@ class WeKnoraClient:
             results = data.get("data", [])
             return results if isinstance(results, list) else []
         except Exception as e:
-            logger.warning(f"[WeKnora] list_knowledge_bases failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] list_knowledge_bases failed: {type(e).__name__}: {e}"
+            )
             return []
 
     # ------------------------------------------------------------------
@@ -157,7 +164,7 @@ class WeKnoraClient:
         title: str,
         content: str,
         status: str = "publish",
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Create a manual knowledge document in the specified knowledge base."""
         url = f"{self.base_url}/knowledge-bases/{kb_id}/knowledge/manual"
         content_len = len(content.encode("utf-8")) if content else 0
@@ -167,7 +174,9 @@ class WeKnoraClient:
             resp = client.post(
                 url,
                 json={"title": title, "content": content, "status": status},
-                timeout=httpx.Timeout(connect=10.0, read=read_timeout, write=30.0, pool=10.0),
+                timeout=httpx.Timeout(
+                    connect=10.0, read=read_timeout, write=30.0, pool=10.0
+                ),
             )
             if resp.status_code >= 400:
                 logger.warning(
@@ -184,16 +193,18 @@ class WeKnoraClient:
             )
             return None
         except Exception as e:
-            logger.warning(f"[WeKnora] create_manual_knowledge failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] create_manual_knowledge failed: {type(e).__name__}: {e}"
+            )
             return None
 
     def update_manual_knowledge(
         self,
         knowledge_id: str,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-        status: Optional[str] = None,
-    ) -> Optional[dict]:
+        title: str | None = None,
+        content: str | None = None,
+        status: str | None = None,
+    ) -> dict | None:
         """Update an existing manual knowledge document."""
         payload: dict = {}
         if title is not None:
@@ -213,7 +224,9 @@ class WeKnoraClient:
             resp = client.put(
                 f"{self.base_url}/knowledge/manual/{knowledge_id}",
                 json=payload,
-                timeout=httpx.Timeout(connect=10.0, read=read_timeout, write=30.0, pool=10.0),
+                timeout=httpx.Timeout(
+                    connect=10.0, read=read_timeout, write=30.0, pool=10.0
+                ),
             )
             if resp.status_code >= 400:
                 logger.warning(
@@ -253,7 +266,9 @@ class WeKnoraClient:
             logger.warning(f"[WeKnora] delete_knowledge({knowledge_id}) timeout")
             return False
         except Exception as e:
-            logger.warning(f"[WeKnora] delete_knowledge({knowledge_id}) failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] delete_knowledge({knowledge_id}) failed: {type(e).__name__}: {e}"
+            )
             return False
 
     def list_knowledges(
@@ -261,7 +276,7 @@ class WeKnoraClient:
         kb_id: str,
         page: int = 1,
         page_size: int = 20,
-        keyword: Optional[str] = None,
+        keyword: str | None = None,
     ) -> dict:
         """List knowledge documents in a knowledge base."""
         params: dict = {"page": page, "page_size": page_size}
@@ -289,10 +304,12 @@ class WeKnoraClient:
             logger.warning(f"[WeKnora] list_knowledges({kb_id}) timeout")
             return {"data": [], "total": 0}
         except Exception as e:
-            logger.warning(f"[WeKnora] list_knowledges({kb_id}) failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] list_knowledges({kb_id}) failed: {type(e).__name__}: {e}"
+            )
             return {"data": [], "total": 0}
 
-    def get_knowledge(self, knowledge_id: str) -> Optional[dict]:
+    def get_knowledge(self, knowledge_id: str) -> dict | None:
         """Get a single knowledge document by ID."""
         try:
             client = self._get_client()
@@ -311,7 +328,9 @@ class WeKnoraClient:
             logger.warning(f"[WeKnora] get_knowledge({knowledge_id}) timeout")
             return None
         except Exception as e:
-            logger.warning(f"[WeKnora] get_knowledge({knowledge_id}) failed: {type(e).__name__}: {e}")
+            logger.warning(
+                f"[WeKnora] get_knowledge({knowledge_id}) failed: {type(e).__name__}: {e}"
+            )
             return None
 
     def get_status(self) -> dict:
@@ -380,10 +399,10 @@ def _quick_deploy_info() -> dict:
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
-_weknora_client: Optional[WeKnoraClient] = None
+_weknora_client: WeKnoraClient | None = None
 
 
-def get_weknora_client() -> Optional[WeKnoraClient]:
+def get_weknora_client() -> WeKnoraClient | None:
     """Get the global WeKnora client singleton.
 
     Returns None when WEKNORA_ENABLED is False or API key is missing.
@@ -397,7 +416,9 @@ def get_weknora_client() -> Optional[WeKnoraClient]:
 
     api_key = settings.WEKNORA_API_KEY
     if not api_key:
-        logger.warning("[WeKnora] WEKNORA_ENABLED=true but WEKNORA_API_KEY is empty, skipping")
+        logger.warning(
+            "[WeKnora] WEKNORA_ENABLED=true but WEKNORA_API_KEY is empty, skipping"
+        )
         return None
 
     kb_ids_str = settings.WEKNORA_KB_IDS or ""

@@ -1,7 +1,7 @@
 """Tushare 业绩快报查询服务"""
 
-from typing import Optional, List, Dict, Any
 from datetime import date
+from typing import Any
 
 from stock_datasource.core.base_service import BaseService
 
@@ -15,12 +15,12 @@ class TuShareExpressService(BaseService):
 
     def get_express(
         self,
-        ts_code: Optional[str] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-        period: Optional[str] = None,
+        ts_code: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        period: str | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取业绩快报数据
 
@@ -85,7 +85,7 @@ class TuShareExpressService(BaseService):
     def get_latest_express(
         self,
         ts_code: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         获取股票最新业绩快报
 
@@ -132,7 +132,7 @@ class TuShareExpressService(BaseService):
         metric: str = "yoy_net_profit",
         order: str = "DESC",
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取业绩快报增长排行
 
@@ -146,15 +146,22 @@ class TuShareExpressService(BaseService):
             业绩快报增长排行数据
         """
         # 验证 metric 参数
-        allowed_metrics = {"yoy_net_profit", "yoy_sales", "yoy_eps", "yoy_op", "yoy_tp", "yoy_roe"}
+        allowed_metrics = {
+            "yoy_net_profit",
+            "yoy_sales",
+            "yoy_eps",
+            "yoy_op",
+            "yoy_tp",
+            "yoy_roe",
+        }
         if metric not in allowed_metrics:
             raise ValueError(f"Invalid metric: {metric}. Allowed: {allowed_metrics}")
-        
+
         # 验证 order 参数
         order = order.upper()
         if order not in {"ASC", "DESC"}:
             raise ValueError(f"Invalid order: {order}. Allowed: ASC, DESC")
-        
+
         period_date = f"{period[:4]}-{period[4:6]}-{period[6:]}"
 
         query = f"""
@@ -185,7 +192,7 @@ class TuShareExpressService(BaseService):
         self,
         ts_code: str,
         periods: int = 4,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         获取股票多期业绩快报对比
 

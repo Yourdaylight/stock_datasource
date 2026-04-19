@@ -3,9 +3,9 @@
 Provides THS sector index data services including listing, daily data, and ranking.
 """
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any
 
 import pandas as pd
 
@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 def _get_db():
     """Get database connection."""
     from stock_datasource.models.database import db_client
+
     return db_client
 
 
-def _execute_query(query: str, params: Optional[Dict] = None) -> List[Dict[str, Any]]:
+def _execute_query(query: str, params: dict | None = None) -> list[dict[str, Any]]:
     """Execute query and return results as list of dicts.
 
     Be resilient to ClickHouse initialization / missing tables.
@@ -32,7 +33,7 @@ def _execute_query(query: str, params: Optional[Dict] = None) -> List[Dict[str, 
 
     if df is None or df.empty:
         return []
-    return df.to_dict('records')
+    return df.to_dict("records")
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
@@ -57,23 +58,23 @@ VALID_ORDER_VALUES = {"desc", "asc"}
 
 class THSIndexService:
     """Service for THS sector index operations."""
-    
+
     def __init__(self):
         self.db = _get_db()
-    
-    def _get_latest_trade_date(self) -> Optional[str]:
+
+    def _get_latest_trade_date(self) -> str | None:
         """Get latest trade date from ods_ths_daily."""
         query = """
         SELECT max(trade_date) as latest_date
         FROM ods_ths_daily
         """
         result = _execute_query(query)
-        if result and result[0].get('latest_date'):
-            latest = result[0]['latest_date']
-            if hasattr(latest, 'strftime'):
-                date_str = latest.strftime('%Y%m%d')
+        if result and result[0].get("latest_date"):
+            latest = result[0]["latest_date"]
+            if hasattr(latest, "strftime"):
+                date_str = latest.strftime("%Y%m%d")
             else:
-                date_str = str(latest).replace('-', '')
+                date_str = str(latest).replace("-", "")
 
             # ClickHouse max(Date) on empty table returns 1970-01-01
             if date_str in {"19700101", "1970-01-01"}:
@@ -81,38 +82,38 @@ class THSIndexService:
 
             return date_str
         return None
-    
+
     def get_index_list(
         self,
-        exchange: Optional[str] = None,
-        index_type: Optional[str] = None,
+        exchange: str | None = None,
+        index_type: str | None = None,
         limit: int = 1000,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get THS index list with filters.
-        
+
         Args:
             exchange: Market filter (A/HK/US)
             index_type: Type filter (N-概念/I-行业/R-地域/S-特色/ST-风格/TH-主题/BB-宽基)
             limit: Max records to return
             offset: Pagination offset
-            
+
         Returns:
             Dict with data, total, and filter info
         """
         conditions = ["1=1"]
-        params: Dict[str, Any] = {"limit": limit, "offset": offset}
-        
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+
         if exchange:
             conditions.append("exchange = %(exchange)s")
             params["exchange"] = exchange
-        
+
         if index_type:
             conditions.append("type = %(index_type)s")
             params["index_type"] = index_type
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         # Get total count
         count_query = f"""
         SELECT COUNT(*) as total
@@ -120,8 +121,8 @@ class THSIndexService:
         WHERE {where_clause}
         """
         count_result = _execute_query(count_query, params)
-        total = count_result[0].get('total', 0) if count_result else 0
-        
+        total = count_result[0].get("total", 0) if count_result else 0
+
         # Get data
         data_query = f"""
         SELECT
@@ -137,23 +138,23 @@ class THSIndexService:
         LIMIT %(limit)s
         OFFSET %(offset)s
         """
-        
+
         data = _execute_query(data_query, params)
         data = [_convert_to_json_serializable(item) for item in data]
-        
+
         return {
             "data": data,
             "total": total,
             "exchange": exchange,
             "index_type": index_type,
         }
-    
-    def get_index_by_code(self, ts_code: str) -> Optional[Dict[str, Any]]:
+
+    def get_index_by_code(self, ts_code: str) -> dict[str, Any] | None:
         """Get THS index details by code.
-        
+
         Args:
             ts_code: Index code (e.g., 885001.TI)
-            
+
         Returns:
             Index details or None if not found
         """
@@ -169,52 +170,52 @@ class THSIndexService:
         WHERE ts_code = %(ts_code)s
         LIMIT 1
         """
-        
+
         result = _execute_query(query, {"ts_code": ts_code})
         if not result:
             return None
         return _convert_to_json_serializable(result[0])
-    
+
     def get_daily_data(
         self,
         ts_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         limit: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get THS index daily data.
-        
+
         Args:
             ts_code: Index code
             start_date: Start date (YYYYMMDD)
             end_date: End date (YYYYMMDD)
             limit: Max records if no date range specified
-            
+
         Returns:
             Dict with ts_code, name, and data
         """
         # Get index info
         index_info = self.get_index_by_code(ts_code)
         name = index_info.get("name") if index_info else None
-        
-        params: Dict[str, Any] = {"ts_code": ts_code}
+
+        params: dict[str, Any] = {"ts_code": ts_code}
         conditions = ["ts_code = %(ts_code)s"]
-        
+
         if start_date:
             start_dt = datetime.strptime(start_date, "%Y%m%d").date()
             conditions.append("trade_date >= %(start_date)s")
             params["start_date"] = start_dt
-        
+
         if end_date:
             end_dt = datetime.strptime(end_date, "%Y%m%d").date()
             conditions.append("trade_date <= %(end_date)s")
             params["end_date"] = end_dt
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         # If no date range, use limit
         limit_clause = "" if (start_date and end_date) else f"LIMIT {limit}"
-        
+
         query = f"""
         SELECT
             ts_code,
@@ -234,36 +235,36 @@ class THSIndexService:
         ORDER BY trade_date DESC
         {limit_clause}
         """
-        
+
         data = _execute_query(query, params)
         data = [_convert_to_json_serializable(item) for item in data]
-        
+
         # Sort by date ascending for charts
-        data.sort(key=lambda x: x.get('trade_date', ''))
-        
+        data.sort(key=lambda x: x.get("trade_date", ""))
+
         return {
             "ts_code": ts_code,
             "name": name,
             "data": data,
         }
-    
+
     def get_ranking(
         self,
-        date: Optional[str] = None,
-        index_type: Optional[str] = None,
+        date: str | None = None,
+        index_type: str | None = None,
         sort_by: str = "pct_change",
         order: str = "desc",
         limit: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get THS index ranking by various metrics.
-        
+
         Args:
             date: Trade date (YYYYMMDD), defaults to latest
             index_type: Filter by type (N/I/R/S/ST/TH/BB)
             sort_by: Sort field (pct_change/vol/turnover_rate)
             order: Sort order (desc/asc)
             limit: Max records to return
-            
+
         Returns:
             Dict with trade_date, sort_by, order, and data
         """
@@ -272,10 +273,10 @@ class THSIndexService:
             sort_by = "pct_change"
         if order.lower() not in VALID_ORDER_VALUES:
             order = "desc"
-        
+
         if not date:
             date = self._get_latest_trade_date()
-        
+
         if not date:
             return {
                 "trade_date": None,
@@ -284,25 +285,25 @@ class THSIndexService:
                 "index_type": index_type,
                 "data": [],
             }
-        
+
         # Convert date
         trade_date = datetime.strptime(date, "%Y%m%d").date()
-        
+
         conditions = ["d.trade_date = %(trade_date)s"]
-        params: Dict[str, Any] = {"trade_date": trade_date, "limit": limit}
-        
+        params: dict[str, Any] = {"trade_date": trade_date, "limit": limit}
+
         if index_type:
             conditions.append("i.type = %(index_type)s")
             params["index_type"] = index_type
-        
+
         # Default to A-share market
         conditions.append("i.exchange = 'A'")
-        
+
         where_clause = " AND ".join(conditions)
-        
+
         # Build order clause safely using validated values
         order_clause = f"d.{sort_by} {order.upper()} NULLS LAST"
-        
+
         query = f"""
         SELECT
             d.ts_code,
@@ -319,10 +320,10 @@ class THSIndexService:
         ORDER BY {order_clause}
         LIMIT %(limit)s
         """
-        
+
         data = _execute_query(query, params)
         data = [_convert_to_json_serializable(item) for item in data]
-        
+
         return {
             "trade_date": date,
             "sort_by": sort_by,
@@ -330,18 +331,18 @@ class THSIndexService:
             "index_type": index_type,
             "data": data,
         }
-    
+
     def search_index(
         self,
         keyword: str,
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Search THS index by name keyword.
-        
+
         Args:
             keyword: Search keyword
             limit: Max records to return
-            
+
         Returns:
             Dict with keyword and data
         """
@@ -358,21 +359,24 @@ class THSIndexService:
         ORDER BY count DESC NULLS LAST
         LIMIT %(limit)s
         """
-        
-        data = _execute_query(query, {
-            "pattern": f"%{keyword}%",
-            "limit": limit,
-        })
+
+        data = _execute_query(
+            query,
+            {
+                "pattern": f"%{keyword}%",
+                "limit": limit,
+            },
+        )
         data = [_convert_to_json_serializable(item) for item in data]
-        
+
         return {
             "keyword": keyword,
             "data": data,
         }
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """Get THS index statistics by type.
-        
+
         Returns:
             Dict with statistics grouped by type and exchange
         """
@@ -387,15 +391,15 @@ class THSIndexService:
         GROUP BY type, exchange
         ORDER BY index_count DESC
         """
-        
+
         data = _execute_query(query)
         data = [_convert_to_json_serializable(item) for item in data]
-        
+
         return {"data": data}
 
 
 # Singleton instance
-_ths_index_service: Optional[THSIndexService] = None
+_ths_index_service: THSIndexService | None = None
 
 
 def get_ths_index_service() -> THSIndexService:

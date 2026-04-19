@@ -309,12 +309,23 @@ export const useNewsStore = defineStore('news', () => {
   const loadMoreNews = async () => {
     if (!hasMore.value || loading.value) return
     if (activeStockCode.value) return
-    
+
     currentPage.value += 1
     await fetchMarketNews({
       page: currentPage.value,
       reset: false
     })
+  }
+
+  const goToPage = async (page: number) => {
+    currentPage.value = page
+    await fetchMarketNews({ page, reset: true })
+  }
+
+  const setPageSize = async (size: number) => {
+    pageSize.value = size
+    currentPage.value = 1
+    await fetchMarketNews({ page: 1, page_size: size, reset: true })
   }
   
   const refreshNews = async () => {
@@ -528,6 +539,8 @@ export const useNewsStore = defineStore('news', () => {
     searchNews,
     analyzeSentiment,
     loadMoreNews,
+    goToPage,
+    setPageSize,
     refreshNews,
     applyFilters,
     clearFilters,

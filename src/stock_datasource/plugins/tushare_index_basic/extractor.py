@@ -1,13 +1,14 @@
 """TuShare index basic info extractor - independent implementation."""
 
-import logging
 import json
+import logging
 import time
-import pandas as pd
-from typing import Optional
 from pathlib import Path
+
+import pandas as pd
 import tushare as ts
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from stock_datasource.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -15,20 +16,20 @@ logger = logging.getLogger(__name__)
 
 class IndexBasicExtractor:
     """Independent extractor for TuShare index basic info data."""
-    
+
     def __init__(self):
         self.token = settings.TUSHARE_TOKEN
-        
+
         # Load rate_limit from config.json
         config_file = Path(__file__).parent / "config.json"
-        with open(config_file, 'r', encoding='utf-8') as f:
+        with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
         self.rate_limit = config.get("rate_limit", 500)
         self.timeout = config.get("timeout", 30)
-        
+
         if not self.token:
             raise ValueError("TUSHARE_TOKEN not configured in settings")
-        
+
         ts.set_token(self.token)
         try:
             self.pro = ts.pro_api(timeout=self.timeout)
@@ -40,71 +41,80 @@ class IndexBasicExtractor:
                     self.pro.timeout = self.timeout
                 except Exception:
                     pass
-        
+
         # Rate limiting
         self._last_call_time = 0
         self._min_interval = 60.0 / self.rate_limit
-    
+
     def _rate_limit(self):
         """Apply rate limiting."""
         current_time = time.time()
         time_since_last = current_time - self._last_call_time
-        
+
         if time_since_last < self._min_interval:
             sleep_time = self._min_interval - time_since_last
             time.sleep(sleep_time)
-        
+
         self._last_call_time = time.time()
-    
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
     def _call_api(self, api_func, **kwargs) -> pd.DataFrame:
         """Call TuShare API with rate limiting and retry."""
         self._rate_limit()
-        
+
         try:
             result = api_func(**kwargs)
             if result is None or result.empty:
-                logger.warning(f"API returned empty data")
+                logger.warning("API returned empty data")
                 return pd.DataFrame()
-            
+
             logger.info(f"API call successful, records: {len(result)}")
             return result
-            
+
         except Exception as e:
             logger.error(f"API call failed: {e}")
             raise
-    
-    def extract(self, market: Optional[str] = None, ts_code: Optional[str] = None,
-               name: Optional[str] = None, publisher: Optional[str] = None,
-               category: Optional[str] = None) -> pd.DataFrame:
+
+    def extract(
+        self,
+        market: str | None = None,
+        ts_code: str | None = None,
+        name: str | None = None,
+        publisher: str | None = None,
+        category: str | None = None,
+    ) -> pd.DataFrame:
         """Extract index basic information.
-        
+
         Args:
             market: Market code (SSE/SZSE/CSI/CICC/SW)
             ts_code: Index code
             name: Index name
             publisher: Publisher name
             category: Index category
-        
+
         Returns:
             DataFrame with index basic information
         """
         kwargs = {}
-        
+
         if market:
-            kwargs['market'] = market
+            kwargs["market"] = market
         if ts_code:
-            kwargs['ts_code'] = ts_code
+            kwargs["ts_code"] = ts_code
         if name:
-            kwargs['name'] = name
+            kwargs["name"] = name
         if publisher:
-            kwargs['publisher'] = publisher
+            kwargs["publisher"] = publisher
         if category:
-            kwargs['category'] = category
-        
+            kwargs["category"] = category
+
         # 必须明确指定 fields 参数，否则 TuShare 只返回部分字段
-        kwargs['fields'] = 'ts_code,name,fullname,market,publisher,index_type,category,base_date,base_point,list_date,weight_rule,desc,exp_date'
-        
+        kwargs["fields"] = (
+            "ts_code,name,fullname,market,publisher,index_type,category,base_date,base_point,list_date,weight_rule,desc,exp_date"
+        )
+
         return self._call_api(self.pro.index_basic, **kwargs)
 
 

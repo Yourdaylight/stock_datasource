@@ -9,8 +9,7 @@ Covers:
 
 import sys
 from pathlib import Path
-from datetime import date, datetime
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_schedule_config(**overrides):
     """Return a scheduler config dict with sane defaults, merged with *overrides*."""
@@ -44,12 +44,14 @@ def _make_schedule_config(**overrides):
 # UnifiedScheduler tests
 # ---------------------------------------------------------------------------
 
+
 class TestUnifiedSchedulerLifecycle:
     """Test start / stop / get_status."""
 
     def setup_method(self):
         """Reset the singleton before each test."""
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
@@ -126,6 +128,7 @@ class TestUnifiedSchedulerReschedule:
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
@@ -176,9 +179,13 @@ class TestUnifiedSchedulerDailySyncJob:
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=True)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=True,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_daily_sync_calls_trigger_now(self, mock_load, mock_trading):
         """On a trading day, daily sync should call schedule_service.trigger_now."""
@@ -194,7 +201,9 @@ class TestUnifiedSchedulerDailySyncJob:
             "total_plugins": 0,
         }
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.schedule_service") as mock_svc:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.schedule_service"
+        ) as mock_svc:
             mock_svc.trigger_now = MagicMock(return_value=mock_record)
             sched._daily_sync_job()
             mock_svc.trigger_now.assert_called_once_with(
@@ -206,7 +215,10 @@ class TestUnifiedSchedulerDailySyncJob:
         assert sched._last_sync_report is not None
         assert sched._last_sync_report["job_type"] == "daily_sync"
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=False)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=False,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_daily_sync_skipped_non_trading(self, mock_load, mock_trading):
         """On a non-trading day, daily sync should be skipped."""
@@ -215,7 +227,9 @@ class TestUnifiedSchedulerDailySyncJob:
         sched = UnifiedScheduler()
         sched._config = _make_schedule_config(enabled=True)
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.schedule_service") as mock_svc:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.schedule_service"
+        ) as mock_svc:
             mock_svc.trigger_now = MagicMock()
             sched._daily_sync_job()
             mock_svc.trigger_now.assert_not_called()
@@ -230,6 +244,7 @@ class TestUnifiedSchedulerMissingCheckJob:
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
@@ -245,10 +260,14 @@ class TestUnifiedSchedulerMissingCheckJob:
         mock_summary.total_plugins = 5
         mock_summary.plugins = []
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
             mock_dms.detect_missing_data = MagicMock(return_value=mock_summary)
             sched._missing_check_job()
-            mock_dms.detect_missing_data.assert_called_once_with(days=30, force_refresh=True)
+            mock_dms.detect_missing_data.assert_called_once_with(
+                days=30, force_refresh=True
+            )
         # Report should have been generated
         assert sched._last_missing_report is not None
         assert sched._last_missing_report["job_type"] == "missing_check"
@@ -273,11 +292,15 @@ class TestUnifiedSchedulerMissingCheckJob:
         mock_plugin.missing_count = 3
         mock_summary.plugins = [mock_plugin]
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
             mock_dms.detect_missing_data = MagicMock(return_value=mock_summary)
             sched._missing_check_job()
             # Should still be called even if today is a non-trading day
-            mock_dms.detect_missing_data.assert_called_once_with(days=30, force_refresh=True)
+            mock_dms.detect_missing_data.assert_called_once_with(
+                days=30, force_refresh=True
+            )
         # Report should show the missing data
         assert sched._last_missing_report is not None
         assert sched._last_missing_report["data_quality"]["plugins_with_missing"] == 2
@@ -287,6 +310,7 @@ class TestUnifiedSchedulerMissingCheckJob:
 # ---------------------------------------------------------------------------
 # Smart backfill tests (ScheduleService.trigger_now)
 # ---------------------------------------------------------------------------
+
 
 class TestSmartBackfill:
     """Test the smart backfill logic in ScheduleService.trigger_now()."""
@@ -311,27 +335,42 @@ class TestSmartBackfill:
         return mock_summary
 
     @patch("stock_datasource.modules.datamanage.schedule_service.get_schedule_config")
-    @patch("stock_datasource.modules.datamanage.schedule_service.add_schedule_execution")
-    @patch("stock_datasource.modules.datamanage.schedule_service.update_schedule_execution")
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.add_schedule_execution"
+    )
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.update_schedule_execution"
+    )
     @patch("stock_datasource.modules.datamanage.schedule_service.save_runtime_config")
     @patch("stock_datasource.modules.datamanage.schedule_service.plugin_manager")
     def test_no_missing_creates_incremental(
         self, mock_pm, mock_save, mock_update, mock_add, mock_get_config
     ):
         """When no data is missing, incremental tasks are created."""
-        mock_get_config.return_value = _make_schedule_config(skip_non_trading_days=False)
+        mock_get_config.return_value = _make_schedule_config(
+            skip_non_trading_days=False
+        )
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
 
         # Mock get_plugin_configs
-        svc.get_plugin_configs = MagicMock(return_value=[
-            {"plugin_name": "tushare_daily", "schedule_enabled": True, "full_scan_enabled": False},
-        ])
-        svc.get_config = MagicMock(return_value=_make_schedule_config(skip_non_trading_days=False))
+        svc.get_plugin_configs = MagicMock(
+            return_value=[
+                {
+                    "plugin_name": "tushare_daily",
+                    "schedule_enabled": True,
+                    "full_scan_enabled": False,
+                },
+            ]
+        )
+        svc.get_config = MagicMock(
+            return_value=_make_schedule_config(skip_non_trading_days=False)
+        )
 
         mock_pm.batch_trigger_sync.return_value = [{"plugin_name": "tushare_daily"}]
 
@@ -346,10 +385,16 @@ class TestSmartBackfill:
         # No missing data
         mock_summary = self._make_mock_summary({"tushare_daily": []})
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.modules.datamanage.service.data_manage_service"
+            ) as mock_dms:
                 mock_dms.detect_missing_data.return_value = mock_summary
-                with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+                with patch(
+                    "stock_datasource.modules.datamanage.service.sync_task_manager"
+                ) as mock_stm:
                     mock_stm.create_task.return_value = mock_task
 
                     result = svc.trigger_now(
@@ -361,30 +406,48 @@ class TestSmartBackfill:
                     # Should create incremental task (no backfill needed)
                     call_args = mock_stm.create_task.call_args
                     from stock_datasource.modules.datamanage.schemas import TaskType
-                    assert call_args.kwargs.get("task_type") == TaskType.INCREMENTAL or \
-                           call_args[1].get("task_type") == TaskType.INCREMENTAL
+
+                    assert (
+                        call_args.kwargs.get("task_type") == TaskType.INCREMENTAL
+                        or call_args[1].get("task_type") == TaskType.INCREMENTAL
+                    )
 
     @patch("stock_datasource.modules.datamanage.schedule_service.get_schedule_config")
-    @patch("stock_datasource.modules.datamanage.schedule_service.add_schedule_execution")
-    @patch("stock_datasource.modules.datamanage.schedule_service.update_schedule_execution")
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.add_schedule_execution"
+    )
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.update_schedule_execution"
+    )
     @patch("stock_datasource.modules.datamanage.schedule_service.save_runtime_config")
     @patch("stock_datasource.modules.datamanage.schedule_service.plugin_manager")
     def test_few_missing_creates_backfill(
         self, mock_pm, mock_save, mock_update, mock_add, mock_get_config
     ):
         """When missing days ≤ threshold, backfill tasks are created."""
-        mock_get_config.return_value = _make_schedule_config(skip_non_trading_days=False)
+        mock_get_config.return_value = _make_schedule_config(
+            skip_non_trading_days=False
+        )
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
 
-        svc.get_plugin_configs = MagicMock(return_value=[
-            {"plugin_name": "tushare_daily", "schedule_enabled": True, "full_scan_enabled": False},
-        ])
-        svc.get_config = MagicMock(return_value=_make_schedule_config(skip_non_trading_days=False))
+        svc.get_plugin_configs = MagicMock(
+            return_value=[
+                {
+                    "plugin_name": "tushare_daily",
+                    "schedule_enabled": True,
+                    "full_scan_enabled": False,
+                },
+            ]
+        )
+        svc.get_config = MagicMock(
+            return_value=_make_schedule_config(skip_non_trading_days=False)
+        )
 
         mock_pm.batch_trigger_sync.return_value = [{"plugin_name": "tushare_daily"}]
 
@@ -397,14 +460,20 @@ class TestSmartBackfill:
         mock_task.task_id = "task-002"
 
         # 2 missing days (within threshold of 3)
-        mock_summary = self._make_mock_summary({
-            "tushare_daily": ["2026-01-05", "2026-01-06"]
-        })
+        mock_summary = self._make_mock_summary(
+            {"tushare_daily": ["2026-01-05", "2026-01-06"]}
+        )
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.modules.datamanage.service.data_manage_service"
+            ) as mock_dms:
                 mock_dms.detect_missing_data.return_value = mock_summary
-                with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+                with patch(
+                    "stock_datasource.modules.datamanage.service.sync_task_manager"
+                ) as mock_stm:
                     mock_stm.create_task.return_value = mock_task
 
                     result = svc.trigger_now(
@@ -415,35 +484,55 @@ class TestSmartBackfill:
 
                     call_args = mock_stm.create_task.call_args
                     from stock_datasource.modules.datamanage.schemas import TaskType
-                    assert call_args.kwargs.get("task_type") == TaskType.BACKFILL or \
-                           call_args[1].get("task_type") == TaskType.BACKFILL
+
+                    assert (
+                        call_args.kwargs.get("task_type") == TaskType.BACKFILL
+                        or call_args[1].get("task_type") == TaskType.BACKFILL
+                    )
                     # trade_dates should contain the missing dates
-                    trade_dates = call_args.kwargs.get("trade_dates") or call_args[1].get("trade_dates")
+                    trade_dates = call_args.kwargs.get("trade_dates") or call_args[
+                        1
+                    ].get("trade_dates")
                     assert trade_dates is not None
                     assert "2026-01-05" in trade_dates
                     assert "2026-01-06" in trade_dates
 
     @patch("stock_datasource.modules.datamanage.schedule_service.get_schedule_config")
-    @patch("stock_datasource.modules.datamanage.schedule_service.add_schedule_execution")
-    @patch("stock_datasource.modules.datamanage.schedule_service.update_schedule_execution")
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.add_schedule_execution"
+    )
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.update_schedule_execution"
+    )
     @patch("stock_datasource.modules.datamanage.schedule_service.save_runtime_config")
     @patch("stock_datasource.modules.datamanage.schedule_service.plugin_manager")
     def test_excessive_missing_skipped(
         self, mock_pm, mock_save, mock_update, mock_add, mock_get_config
     ):
         """When missing days > threshold, plugin is skipped."""
-        mock_get_config.return_value = _make_schedule_config(skip_non_trading_days=False)
+        mock_get_config.return_value = _make_schedule_config(
+            skip_non_trading_days=False
+        )
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
 
-        svc.get_plugin_configs = MagicMock(return_value=[
-            {"plugin_name": "tushare_daily", "schedule_enabled": True, "full_scan_enabled": False},
-        ])
-        svc.get_config = MagicMock(return_value=_make_schedule_config(skip_non_trading_days=False))
+        svc.get_plugin_configs = MagicMock(
+            return_value=[
+                {
+                    "plugin_name": "tushare_daily",
+                    "schedule_enabled": True,
+                    "full_scan_enabled": False,
+                },
+            ]
+        )
+        svc.get_config = MagicMock(
+            return_value=_make_schedule_config(skip_non_trading_days=False)
+        )
 
         mock_pm.batch_trigger_sync.return_value = [{"plugin_name": "tushare_daily"}]
 
@@ -454,14 +543,18 @@ class TestSmartBackfill:
 
         # 10 missing days (exceeds threshold of 3)
         missing_dates = [f"2026-01-{d:02d}" for d in range(1, 11)]
-        mock_summary = self._make_mock_summary({
-            "tushare_daily": missing_dates
-        })
+        mock_summary = self._make_mock_summary({"tushare_daily": missing_dates})
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.modules.datamanage.service.data_manage_service"
+            ) as mock_dms:
                 mock_dms.detect_missing_data.return_value = mock_summary
-                with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+                with patch(
+                    "stock_datasource.modules.datamanage.service.sync_task_manager"
+                ) as mock_stm:
                     mock_stm.create_task.return_value = MagicMock(task_id="t")
 
                     result = svc.trigger_now(
@@ -473,29 +566,46 @@ class TestSmartBackfill:
                     # create_task should NOT be called for the skipped plugin
                     mock_stm.create_task.assert_not_called()
                     # Record should note the skipped plugins
-                    assert "tushare_daily" in result.get("skipped_excessive_missing", [])
+                    assert "tushare_daily" in result.get(
+                        "skipped_excessive_missing", []
+                    )
 
     @patch("stock_datasource.modules.datamanage.schedule_service.get_schedule_config")
-    @patch("stock_datasource.modules.datamanage.schedule_service.add_schedule_execution")
-    @patch("stock_datasource.modules.datamanage.schedule_service.update_schedule_execution")
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.add_schedule_execution"
+    )
+    @patch(
+        "stock_datasource.modules.datamanage.schedule_service.update_schedule_execution"
+    )
     @patch("stock_datasource.modules.datamanage.schedule_service.save_runtime_config")
     @patch("stock_datasource.modules.datamanage.schedule_service.plugin_manager")
     def test_smart_backfill_disabled_fallback(
         self, mock_pm, mock_save, mock_update, mock_add, mock_get_config
     ):
         """When smart_backfill=False, always creates incremental tasks."""
-        mock_get_config.return_value = _make_schedule_config(skip_non_trading_days=False)
+        mock_get_config.return_value = _make_schedule_config(
+            skip_non_trading_days=False
+        )
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
 
-        svc.get_plugin_configs = MagicMock(return_value=[
-            {"plugin_name": "tushare_daily", "schedule_enabled": True, "full_scan_enabled": False},
-        ])
-        svc.get_config = MagicMock(return_value=_make_schedule_config(skip_non_trading_days=False))
+        svc.get_plugin_configs = MagicMock(
+            return_value=[
+                {
+                    "plugin_name": "tushare_daily",
+                    "schedule_enabled": True,
+                    "full_scan_enabled": False,
+                },
+            ]
+        )
+        svc.get_config = MagicMock(
+            return_value=_make_schedule_config(skip_non_trading_days=False)
+        )
 
         mock_pm.batch_trigger_sync.return_value = [{"plugin_name": "tushare_daily"}]
 
@@ -507,8 +617,12 @@ class TestSmartBackfill:
         mock_task = MagicMock()
         mock_task.task_id = "task-004"
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.modules.datamanage.service.sync_task_manager"
+            ) as mock_stm:
                 mock_stm.create_task.return_value = mock_task
 
                 result = svc.trigger_now(
@@ -519,13 +633,17 @@ class TestSmartBackfill:
 
                 call_args = mock_stm.create_task.call_args
                 from stock_datasource.modules.datamanage.schemas import TaskType
-                assert call_args.kwargs.get("task_type") == TaskType.INCREMENTAL or \
-                       call_args[1].get("task_type") == TaskType.INCREMENTAL
+
+                assert (
+                    call_args.kwargs.get("task_type") == TaskType.INCREMENTAL
+                    or call_args[1].get("task_type") == TaskType.INCREMENTAL
+                )
 
 
 # ---------------------------------------------------------------------------
 # Config update tests
 # ---------------------------------------------------------------------------
+
 
 class TestConfigUpdateNotifiesScheduler:
     """Verify that ScheduleService.update_config notifies UnifiedScheduler."""
@@ -537,14 +655,19 @@ class TestConfigUpdateNotifiesScheduler:
         mock_get_config.return_value = _make_schedule_config()
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
         svc.get_config = MagicMock(return_value=_make_schedule_config())
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.tasks.unified_scheduler.get_unified_scheduler") as mock_get_us:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.tasks.unified_scheduler.get_unified_scheduler"
+            ) as mock_get_us:
                 mock_scheduler = MagicMock()
                 mock_scheduler._running = True
                 mock_get_us.return_value = mock_scheduler
@@ -560,14 +683,19 @@ class TestConfigUpdateNotifiesScheduler:
         mock_get_config.return_value = _make_schedule_config()
 
         from stock_datasource.modules.datamanage.schedule_service import ScheduleService
+
         svc = ScheduleService.__new__(ScheduleService)
         svc._initialized = True
         svc._executor_thread = None
         svc._stop_event = MagicMock()
         svc.get_config = MagicMock(return_value=_make_schedule_config())
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"):
-            with patch("stock_datasource.tasks.unified_scheduler.get_unified_scheduler") as mock_get_us:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.ScheduleService._mark_interrupted_executions"
+        ):
+            with patch(
+                "stock_datasource.tasks.unified_scheduler.get_unified_scheduler"
+            ) as mock_get_us:
                 mock_scheduler = MagicMock()
                 mock_scheduler._running = False
                 mock_get_us.return_value = mock_scheduler
@@ -580,7 +708,9 @@ class TestConfigUpdateNotifiesScheduler:
 
                 # Verify save_runtime_config was called with the new fields
                 call_kwargs = mock_save.call_args
-                schedule_updates = call_kwargs.kwargs.get("schedule") or call_kwargs[1].get("schedule", {})
+                schedule_updates = call_kwargs.kwargs.get("schedule") or call_kwargs[
+                    1
+                ].get("schedule", {})
                 assert schedule_updates["missing_check_time"] == "15:00"
                 assert schedule_updates["smart_backfill_enabled"] is False
                 assert schedule_updates["auto_backfill_max_days"] == 5
@@ -590,19 +720,25 @@ class TestConfigUpdateNotifiesScheduler:
 # Old scheduler compatibility tests
 # ---------------------------------------------------------------------------
 
+
 class TestLegacyCompatibility:
     """Test the deprecated DataSyncScheduler wrapper."""
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     def test_get_data_sync_scheduler_returns_instance(self):
         """get_data_sync_scheduler should return a DataSyncScheduler."""
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            from stock_datasource.tasks.data_sync_scheduler import get_data_sync_scheduler
+            from stock_datasource.tasks.data_sync_scheduler import (
+                get_data_sync_scheduler,
+            )
+
             scheduler = get_data_sync_scheduler()
             assert scheduler is not None
             assert hasattr(scheduler, "start")
@@ -612,11 +748,16 @@ class TestLegacyCompatibility:
     def test_get_status_returns_old_format(self):
         """get_status() should return a dict with the old field names."""
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            from stock_datasource.tasks.data_sync_scheduler import get_data_sync_scheduler
+            from stock_datasource.tasks.data_sync_scheduler import (
+                get_data_sync_scheduler,
+            )
 
-        with patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config"):
+        with patch(
+            "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config"
+        ):
             scheduler = get_data_sync_scheduler()
             # Initialize the unified scheduler mock
             unified = scheduler._get_unified()
@@ -635,6 +776,7 @@ class TestLegacyCompatibility:
 # ---------------------------------------------------------------------------
 # Runtime config defaults test
 # ---------------------------------------------------------------------------
+
 
 class TestRuntimeConfigDefaults:
     """Verify new default fields are present in the runtime_config module."""
@@ -656,14 +798,19 @@ class TestRuntimeConfigDefaults:
 # Execution report tests
 # ---------------------------------------------------------------------------
 
+
 class TestDailySyncReport:
     """Test that _daily_sync_job generates structured execution reports."""
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=True)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=True,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_report_generated_on_success(self, mock_load, mock_trading):
         """Sync report should be generated after successful sync."""
@@ -697,9 +844,13 @@ class TestDailySyncReport:
                 return mock_task_completed
             return mock_task_failed
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.schedule_service") as mock_svc:
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.schedule_service"
+        ) as mock_svc:
             mock_svc.trigger_now = MagicMock(return_value=mock_record)
-            with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+            with patch(
+                "stock_datasource.modules.datamanage.service.sync_task_manager"
+            ) as mock_stm:
                 mock_stm.get_task = MagicMock(side_effect=get_task_side_effect)
                 sched._daily_sync_job()
 
@@ -717,7 +868,10 @@ class TestDailySyncReport:
         assert report["failures"][0]["plugin"] == "tushare_adj"
         assert report["failures"][0]["error_type"] == "Timeout"
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=False)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=False,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_report_generated_on_skip(self, mock_load, mock_trading):
         """When skipped due to non-trading day, report should reflect skip reason."""
@@ -734,7 +888,10 @@ class TestDailySyncReport:
         assert report["skipped"] is True
         assert report["skip_reason"] == "non-trading day"
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=True)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=True,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_report_generated_on_error(self, mock_load, mock_trading):
         """When an exception occurs, report should capture the error."""
@@ -743,8 +900,12 @@ class TestDailySyncReport:
         sched = UnifiedScheduler()
         sched._config = _make_schedule_config(enabled=True)
 
-        with patch("stock_datasource.modules.datamanage.schedule_service.schedule_service") as mock_svc:
-            mock_svc.trigger_now = MagicMock(side_effect=RuntimeError("Redis unavailable"))
+        with patch(
+            "stock_datasource.modules.datamanage.schedule_service.schedule_service"
+        ) as mock_svc:
+            mock_svc.trigger_now = MagicMock(
+                side_effect=RuntimeError("Redis unavailable")
+            )
             sched._daily_sync_job()
 
         report = sched._last_sync_report
@@ -752,7 +913,10 @@ class TestDailySyncReport:
         assert report["error"] is not None
         assert "Redis unavailable" in report["error"]
 
-    @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today", return_value=False)
+    @patch(
+        "stock_datasource.tasks.unified_scheduler.UnifiedScheduler._should_run_today",
+        return_value=False,
+    )
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
     def test_report_available_in_get_status(self, mock_load, mock_trading):
         """The last sync report should be accessible via get_status()."""
@@ -777,6 +941,7 @@ class TestMissingCheckReport:
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
@@ -792,7 +957,9 @@ class TestMissingCheckReport:
         mock_summary.total_plugins = 5
         mock_summary.plugins = []
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
             mock_dms.detect_missing_data = MagicMock(return_value=mock_summary)
             sched._missing_check_job()
 
@@ -825,7 +992,9 @@ class TestMissingCheckReport:
         mock_summary.total_plugins = 2
         mock_summary.plugins = [mock_plugin_1, mock_plugin_2]
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
             mock_dms.detect_missing_data = MagicMock(return_value=mock_summary)
             sched._missing_check_job()
 
@@ -845,8 +1014,12 @@ class TestMissingCheckReport:
         sched = UnifiedScheduler()
         sched._config = _make_schedule_config(enabled=True)
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
-            mock_dms.detect_missing_data = MagicMock(side_effect=RuntimeError("DB offline"))
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
+            mock_dms.detect_missing_data = MagicMock(
+                side_effect=RuntimeError("DB offline")
+            )
             sched._missing_check_job()
 
         report = sched._last_missing_report
@@ -867,7 +1040,9 @@ class TestMissingCheckReport:
         mock_summary.total_plugins = 3
         mock_summary.plugins = []
 
-        with patch("stock_datasource.modules.datamanage.service.data_manage_service") as mock_dms:
+        with patch(
+            "stock_datasource.modules.datamanage.service.data_manage_service"
+        ) as mock_dms:
             mock_dms.detect_missing_data = MagicMock(return_value=mock_summary)
             sched._missing_check_job()
 
@@ -884,29 +1059,56 @@ class TestErrorClassification:
 
     def test_rate_limit(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("Rate limit exceeded for API") == "Rate limit exceeded"
-        assert UnifiedScheduler._classify_error("HTTP 429 Too Many Requests") == "Rate limit exceeded"
+
+        assert (
+            UnifiedScheduler._classify_error("Rate limit exceeded for API")
+            == "Rate limit exceeded"
+        )
+        assert (
+            UnifiedScheduler._classify_error("HTTP 429 Too Many Requests")
+            == "Rate limit exceeded"
+        )
 
     def test_timeout(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("Connection timed out after 30s") == "Timeout"
+
+        assert (
+            UnifiedScheduler._classify_error("Connection timed out after 30s")
+            == "Timeout"
+        )
         assert UnifiedScheduler._classify_error("Read timed out") == "Timeout"
 
     def test_connection_error(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("Connection refused by host") == "Connection error"
+
+        assert (
+            UnifiedScheduler._classify_error("Connection refused by host")
+            == "Connection error"
+        )
 
     def test_auth_error(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("HTTP 401 Unauthorized") == "Authentication error"
+
+        assert (
+            UnifiedScheduler._classify_error("HTTP 401 Unauthorized")
+            == "Authentication error"
+        )
 
     def test_not_found(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("No data found for given date range") == "Data not found"
+
+        assert (
+            UnifiedScheduler._classify_error("No data found for given date range")
+            == "Data not found"
+        )
 
     def test_unknown_error(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
-        assert UnifiedScheduler._classify_error("Something weird happened") == "Execution error"
+
+        assert (
+            UnifiedScheduler._classify_error("Something weird happened")
+            == "Execution error"
+        )
         assert UnifiedScheduler._classify_error("") == "Unknown"
 
 
@@ -915,6 +1117,7 @@ class TestWaitForTasks:
 
     def setup_method(self):
         from stock_datasource.tasks.unified_scheduler import UnifiedScheduler
+
         UnifiedScheduler._instance = None
 
     @patch("stock_datasource.tasks.unified_scheduler.UnifiedScheduler._load_config")
@@ -940,7 +1143,9 @@ class TestWaitForTasks:
         mock_task.error_message = None
         mock_task.records_processed = 500
 
-        with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+        with patch(
+            "stock_datasource.modules.datamanage.service.sync_task_manager"
+        ) as mock_stm:
             mock_stm.get_task = MagicMock(return_value=mock_task)
             results = sched._wait_for_tasks(["t1"], poll_interval=1, timeout=5)
 
@@ -956,7 +1161,9 @@ class TestWaitForTasks:
         sched = UnifiedScheduler()
         sched._config = _make_schedule_config(enabled=True)
 
-        with patch("stock_datasource.modules.datamanage.service.sync_task_manager") as mock_stm:
+        with patch(
+            "stock_datasource.modules.datamanage.service.sync_task_manager"
+        ) as mock_stm:
             mock_stm.get_task = MagicMock(return_value=None)
             results = sched._wait_for_tasks(["t-missing"], poll_interval=1, timeout=5)
 

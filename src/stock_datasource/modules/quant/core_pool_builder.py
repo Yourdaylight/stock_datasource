@@ -8,7 +8,6 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -37,7 +36,7 @@ class CorePoolBuilder:
     - Tracks pool changes (entries/exits)
     """
 
-    def __init__(self, weights: Optional[FactorWeight] = None):
+    def __init__(self, weights: FactorWeight | None = None):
         self.weights = weights or FactorWeight()
         self.readiness_checker = get_data_readiness_checker()
         self.factor_scorer = get_factor_scorer(weights)
@@ -48,7 +47,7 @@ class CorePoolBuilder:
     async def build_core_pool(
         self,
         screened_stocks: list[str],
-        update_date: Optional[str] = None,
+        update_date: str | None = None,
     ) -> CorePoolResult:
         """Build core pool from screening results.
 
@@ -81,7 +80,9 @@ class CorePoolBuilder:
         supplement_stocks = await self._get_rps_supplement(core_codes, update_date)
 
         # Detect pool changes
-        pool_changes = await self._detect_changes(core_stocks, supplement_stocks, update_date)
+        pool_changes = await self._detect_changes(
+            core_stocks, supplement_stocks, update_date
+        )
 
         # Calculate factor distribution
         all_pool = core_stocks + supplement_stocks
@@ -120,7 +121,9 @@ class CorePoolBuilder:
             passed = self._quick_financial_check(candidates)
 
             # Score the passed ones
-            supplement = await self.factor_scorer.score_stocks(passed[: self.supplement_size * 2])
+            supplement = await self.factor_scorer.score_stocks(
+                passed[: self.supplement_size * 2]
+            )
             supplement = supplement[: self.supplement_size]
             for s in supplement:
                 s.pool_type = "rps_supplement"
@@ -148,7 +151,7 @@ class CorePoolBuilder:
             )
             return df["ts_code"].tolist() if len(df) > 0 else []
         except Exception:
-            return ts_codes[:self.supplement_size]
+            return ts_codes[: self.supplement_size]
 
     async def _detect_changes(
         self,
@@ -175,42 +178,50 @@ class CorePoolBuilder:
             # New entries
             for stock in core_stocks + supplement_stocks:
                 if stock.ts_code not in prev_codes:
-                    changes.append(PoolChange(
-                        ts_code=stock.ts_code,
-                        stock_name=stock.stock_name,
-                        change_type="new_entry",
-                        change_date=update_date,
-                        new_rank=stock.rank,
-                        total_score=stock.total_score,
-                        reason=f"新入{stock.pool_type}池，总分{stock.total_score}",
-                    ))
+                    changes.append(
+                        PoolChange(
+                            ts_code=stock.ts_code,
+                            stock_name=stock.stock_name,
+                            change_type="new_entry",
+                            change_date=update_date,
+                            new_rank=stock.rank,
+                            total_score=stock.total_score,
+                            reason=f"新入{stock.pool_type}池，总分{stock.total_score}",
+                        )
+                    )
 
             # Exits
             for _, row in prev_df.iterrows() if len(prev_df) > 0 else []:
                 if row["ts_code"] not in current_codes:
-                    changes.append(PoolChange(
-                        ts_code=row["ts_code"],
-                        stock_name=row.get("stock_name", ""),
-                        change_type="exit",
-                        change_date=update_date,
-                        old_rank=int(row.get("rank", 0)),
-                        reason="调出池",
-                    ))
+                    changes.append(
+                        PoolChange(
+                            ts_code=row["ts_code"],
+                            stock_name=row.get("stock_name", ""),
+                            change_type="exit",
+                            change_date=update_date,
+                            old_rank=int(row.get("rank", 0)),
+                            reason="调出池",
+                        )
+                    )
 
         except Exception as e:
             logger.debug(f"No previous pool data for comparison: {e}")
 
         return changes
 
-    def _calc_factor_distribution(
-        self, stocks: list[FactorScoreDetail]
-    ) -> dict:
+    def _calc_factor_distribution(self, stocks: list[FactorScoreDetail]) -> dict:
         """Calculate factor score distribution stats."""
         if not stocks:
             return {}
 
         result = {}
-        for factor in ["quality_score", "growth_score", "value_score", "momentum_score", "total_score"]:
+        for factor in [
+            "quality_score",
+            "growth_score",
+            "value_score",
+            "momentum_score",
+            "total_score",
+        ]:
             values = [getattr(s, factor) for s in stocks]
             result[factor] = {
                 "min": round(min(values), 2),
@@ -232,26 +243,31 @@ class CorePoolBuilder:
         try:
             rows = []
             for stock in core_stocks + supplement_stocks:
-                rows.append({
-                    "update_date": update_date,
-                    "pool_type": stock.pool_type,
-                    "ts_code": stock.ts_code,
-                    "stock_name": stock.stock_name,
-                    "quality_score": stock.quality_score,
-                    "growth_score": stock.growth_score,
-                    "value_score": stock.value_score,
-                    "momentum_score": stock.momentum_score,
-                    "total_score": stock.total_score,
-                    "factor_details": json.dumps({
-                        "quality": stock.quality_breakdown,
-                        "growth": stock.growth_breakdown,
-                        "value": stock.value_breakdown,
-                        "momentum": stock.momentum_breakdown,
-                    }, ensure_ascii=False),
-                    "rank": stock.rank,
-                    "rps_250": stock.rps_250,
-                    "change_type": "",
-                })
+                rows.append(
+                    {
+                        "update_date": update_date,
+                        "pool_type": stock.pool_type,
+                        "ts_code": stock.ts_code,
+                        "stock_name": stock.stock_name,
+                        "quality_score": stock.quality_score,
+                        "growth_score": stock.growth_score,
+                        "value_score": stock.value_score,
+                        "momentum_score": stock.momentum_score,
+                        "total_score": stock.total_score,
+                        "factor_details": json.dumps(
+                            {
+                                "quality": stock.quality_breakdown,
+                                "growth": stock.growth_breakdown,
+                                "value": stock.value_breakdown,
+                                "momentum": stock.momentum_breakdown,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "rank": stock.rank,
+                        "rps_250": stock.rps_250,
+                        "change_type": "",
+                    }
+                )
 
             if rows:
                 df = pd.DataFrame(rows)
@@ -263,10 +279,10 @@ class CorePoolBuilder:
 
 
 # Singleton
-_builder: Optional[CorePoolBuilder] = None
+_builder: CorePoolBuilder | None = None
 
 
-def get_core_pool_builder(weights: Optional[FactorWeight] = None) -> CorePoolBuilder:
+def get_core_pool_builder(weights: FactorWeight | None = None) -> CorePoolBuilder:
     global _builder
     if _builder is None:
         _builder = CorePoolBuilder(weights)

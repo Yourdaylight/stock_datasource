@@ -4,29 +4,34 @@ All endpoints require authentication via JWT token.
 User isolation is enforced by extracting user_id from the authenticated token.
 """
 
-from fastapi import APIRouter, Query, HTTPException, Depends, Path, Body
-from typing import List, Optional
-from pydantic import BaseModel, Field
 import logging
-from .service import get_portfolio_service
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, Field
+
 from ..auth.dependencies import get_current_user
+from .service import get_portfolio_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 # Initialize services lazily to avoid import issues
 def get_enhanced_portfolio_service():
     try:
         from .enhanced_service import EnhancedPortfolioService
+
         return EnhancedPortfolioService()
     except ImportError as e:
         logger.warning(f"Enhanced portfolio service not available: {e}")
         return None
 
+
 def get_daily_analysis_service():
     try:
         from ...services.daily_analysis_service import DailyAnalysisService
+
         return DailyAnalysisService()
     except ImportError as e:
         logger.warning(f"Daily analysis service not available: {e}")
@@ -44,11 +49,11 @@ class Position(BaseModel):
     market_value: float = None
     profit_loss: float = None
     profit_rate: float = None
-    daily_change: Optional[float] = None
-    daily_pct_chg: Optional[float] = None
-    prev_close: Optional[float] = None
-    notes: Optional[str] = None
-    price_update_time: Optional[str] = None
+    daily_change: float | None = None
+    daily_pct_chg: float | None = None
+    prev_close: float | None = None
+    notes: str | None = None
+    price_update_time: str | None = None
 
 
 class AddPositionRequest(BaseModel):
@@ -61,9 +66,10 @@ class AddPositionRequest(BaseModel):
 
 class UpdatePositionRequest(BaseModel):
     """Request model for updating a position."""
-    quantity: Optional[int] = Field(None, gt=0, description="持仓数量")
-    cost_price: Optional[float] = Field(None, gt=0, description="成本价")
-    notes: Optional[str] = Field(None, description="备注")
+
+    quantity: int | None = Field(None, gt=0, description="持仓数量")
+    cost_price: float | None = Field(None, gt=0, description="成本价")
+    notes: str | None = Field(None, description="备注")
 
 
 class PortfolioSummary(BaseModel):
@@ -80,22 +86,22 @@ class DailyAnalysis(BaseModel):
     analysis_date: str
     analysis_summary: str
     stock_analyses: dict = {}
-    risk_alerts: List[str] = []
-    recommendations: List[str] = []
+    risk_alerts: list[str] = []
+    recommendations: list[str] = []
 
 
-@router.get("/positions", response_model=List[Position])
+@router.get("/positions", response_model=list[Position])
 async def get_positions(
     include_inactive: bool = Query(False, description="是否包含已删除的持仓"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Get user positions.
-    
+
     User isolation: Only returns positions belonging to the authenticated user.
     """
     service = get_portfolio_service()
     positions = await service.get_positions(user_id=current_user["id"])
-    
+
     # Convert to Pydantic models
     return [
         Position(
@@ -109,23 +115,26 @@ async def get_positions(
             market_value=p.market_value,
             profit_loss=p.profit_loss,
             profit_rate=p.profit_rate,
-            daily_change=getattr(p, 'daily_change', None),
-            daily_pct_chg=getattr(p, 'daily_pct_chg', None),
-            prev_close=getattr(p, 'prev_close', None),
+            daily_change=getattr(p, "daily_change", None),
+            daily_pct_chg=getattr(p, "daily_pct_chg", None),
+            prev_close=getattr(p, "prev_close", None),
             notes=p.notes,
-            price_update_time=p.price_update_time
-        ) for p in positions
+            price_update_time=p.price_update_time,
+        )
+        for p in positions
     ]
 
 
 @router.post("/positions", response_model=Position)
-async def add_position(request: AddPositionRequest, current_user: dict = Depends(get_current_user)):
+async def add_position(
+    request: AddPositionRequest, current_user: dict = Depends(get_current_user)
+):
     """Add a new position.
-    
+
     User isolation: Position is created under the authenticated user's account.
     """
     service = get_portfolio_service()
-    
+
     try:
         position = await service.add_position(
             ts_code=request.ts_code,
@@ -133,9 +142,9 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
             cost_price=request.cost_price,
             buy_date=request.buy_date,
             notes=request.notes,
-            user_id=current_user["id"]
+            user_id=current_user["id"],
         )
-        
+
         return Position(
             id=position.id,
             ts_code=position.ts_code,
@@ -147,11 +156,11 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
             market_value=position.market_value,
             profit_loss=position.profit_loss,
             profit_rate=position.profit_rate,
-            daily_change=getattr(position, 'daily_change', None),
-            daily_pct_chg=getattr(position, 'daily_pct_chg', None),
-            prev_close=getattr(position, 'prev_close', None),
+            daily_change=getattr(position, "daily_change", None),
+            daily_pct_chg=getattr(position, "daily_pct_chg", None),
+            prev_close=getattr(position, "prev_close", None),
             notes=position.notes,
-            price_update_time=position.price_update_time
+            price_update_time=position.price_update_time,
         )
     except Exception as e:
         logger.error(f"Failed to add position: {e}")
@@ -162,10 +171,10 @@ async def add_position(request: AddPositionRequest, current_user: dict = Depends
 async def update_position(
     position_id: str = Path(..., description="持仓ID"),
     request: UpdatePositionRequest = Body(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Update a position.
-    
+
     User isolation: Only updates position if it belongs to the authenticated user.
     """
     try:
@@ -174,21 +183,23 @@ async def update_position(
             # Build update dict from request
             updates = {}
             if request.quantity is not None:
-                updates['quantity'] = request.quantity
+                updates["quantity"] = request.quantity
             if request.cost_price is not None:
-                updates['cost_price'] = request.cost_price
+                updates["cost_price"] = request.cost_price
             if request.notes is not None:
-                updates['notes'] = request.notes
-            
+                updates["notes"] = request.notes
+
             position = await enhanced_service.update_position(
-                position_id, 
+                position_id,
                 current_user["id"],  # Ensure user owns the position
-                **updates
+                **updates,
             )
-            
+
             if not position:
-                raise HTTPException(status_code=404, detail="Position not found or not owned by user")
-            
+                raise HTTPException(
+                    status_code=404, detail="Position not found or not owned by user"
+                )
+
             return Position(
                 id=position.id,
                 ts_code=position.ts_code,
@@ -200,14 +211,24 @@ async def update_position(
                 market_value=position.market_value,
                 profit_loss=position.profit_loss,
                 profit_rate=position.profit_rate,
-                daily_change=getattr(position, 'daily_change', None),
-                daily_pct_chg=getattr(position, 'daily_pct_chg', None),
-                prev_close=getattr(position, 'prev_close', None),
+                daily_change=getattr(position, "daily_change", None),
+                daily_pct_chg=getattr(position, "daily_pct_chg", None),
+                prev_close=getattr(position, "prev_close", None),
                 notes=position.notes,
-                price_update_time=position.last_price_update.strftime("%Y-%m-%d %H:%M:%S") if hasattr(position, 'last_price_update') and position.last_price_update else (position.price_update_time if hasattr(position, 'price_update_time') else None)
+                price_update_time=position.last_price_update.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                if hasattr(position, "last_price_update") and position.last_price_update
+                else (
+                    position.price_update_time
+                    if hasattr(position, "price_update_time")
+                    else None
+                ),
             )
         else:
-            raise HTTPException(status_code=503, detail="Enhanced service not available")
+            raise HTTPException(
+                status_code=503, detail="Enhanced service not available"
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -216,19 +237,23 @@ async def update_position(
 
 
 @router.delete("/positions/{position_id}")
-async def delete_position(position_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_position(
+    position_id: str, current_user: dict = Depends(get_current_user)
+):
     """Delete a position.
-    
+
     User isolation: Only deletes position if it belongs to the authenticated user.
     """
     service = get_portfolio_service()
-    
+
     try:
         success = await service.delete_position(position_id, user_id=current_user["id"])
         if success:
             return {"success": True, "message": "Position deleted successfully"}
         else:
-            raise HTTPException(status_code=404, detail="Position not found or not owned by user")
+            raise HTTPException(
+                status_code=404, detail="Position not found or not owned by user"
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -239,12 +264,12 @@ async def delete_position(position_id: str, current_user: dict = Depends(get_cur
 @router.get("/summary")
 async def get_summary(current_user: dict = Depends(get_current_user)):
     """Get portfolio summary.
-    
+
     User isolation: Only calculates summary for the authenticated user's positions.
     """
     service = get_portfolio_service()
     summary = await service.get_summary(user_id=current_user["id"])
-    
+
     return {
         "total_value": summary.total_value,
         "total_cost": summary.total_cost,
@@ -252,20 +277,28 @@ async def get_summary(current_user: dict = Depends(get_current_user)):
         "profit_rate": summary.profit_rate,
         "daily_change": summary.daily_change,
         "daily_change_rate": summary.daily_change_rate,
-        "position_count": summary.position_count
+        "position_count": summary.position_count,
     }
 
 
 @router.get("/profit-history")
-async def get_profit_history(days: int = Query(default=30), current_user: dict = Depends(get_current_user)):
+async def get_profit_history(
+    days: int = Query(default=30), current_user: dict = Depends(get_current_user)
+):
     """Get profit history."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            history = await enhanced_service.get_profit_history(days=days, user_id=current_user["id"])
+            history = await enhanced_service.get_profit_history(
+                days=days, user_id=current_user["id"]
+            )
             return {"data": history, "success": True}
         else:
-            return {"data": [], "success": True, "message": "Enhanced service not available"}
+            return {
+                "data": [],
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to get profit history: {e}")
         return {"data": [], "success": False, "error": str(e)}
@@ -277,17 +310,25 @@ async def trigger_daily_analysis(current_user: dict = Depends(get_current_user))
     try:
         analysis_service = get_daily_analysis_service()
         if analysis_service:
-            task_id = await analysis_service.trigger_analysis(user_id=current_user["id"])
+            task_id = await analysis_service.trigger_analysis(
+                user_id=current_user["id"]
+            )
             return {"task_id": task_id, "success": True}
         else:
-            return {"task_id": "mock_001", "success": True, "message": "Analysis service not available"}
+            return {
+                "task_id": "mock_001",
+                "success": True,
+                "message": "Analysis service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to trigger analysis: {e}")
         return {"task_id": None, "success": False, "error": str(e)}
 
 
 @router.get("/analysis", response_model=DailyAnalysis)
-async def get_analysis(date: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+async def get_analysis(
+    date: str | None = None, current_user: dict = Depends(get_current_user)
+):
     """Get daily analysis."""
     try:
         analysis_service = get_daily_analysis_service()
@@ -295,54 +336,60 @@ async def get_analysis(date: Optional[str] = None, current_user: dict = Depends(
             analysis = await analysis_service.get_analysis(date=date)
             if analysis:
                 return DailyAnalysis(
-                    analysis_date=analysis.get('analysis_date', ''),
-                    analysis_summary=analysis.get('analysis_summary', ''),
-                    stock_analyses=analysis.get('stock_analyses', {}),
-                    risk_alerts=analysis.get('risk_alerts', []),
-                    recommendations=analysis.get('recommendations', [])
+                    analysis_date=analysis.get("analysis_date", ""),
+                    analysis_summary=analysis.get("analysis_summary", ""),
+                    stock_analyses=analysis.get("stock_analyses", {}),
+                    risk_alerts=analysis.get("risk_alerts", []),
+                    recommendations=analysis.get("recommendations", []),
                 )
-        
+
         # Fallback to mock data
         from datetime import datetime
+
         return DailyAnalysis(
             analysis_date=date or str(datetime.now().date()),
             analysis_summary="您的持仓整体表现良好，建议继续关注市场动态。",
             stock_analyses={
-                '600519.SH': {
-                    'stock_name': '贵州茅台',
-                    'current_price': 1800.0,
-                    'profit_rate': 5.88,
-                    'recommendation': 'hold',
-                    'key_points': ['当前盈利5.9%，表现良好', '技术面表现强势']
+                "600519.SH": {
+                    "stock_name": "贵州茅台",
+                    "current_price": 1800.0,
+                    "profit_rate": 5.88,
+                    "recommendation": "hold",
+                    "key_points": ["当前盈利5.9%，表现良好", "技术面表现强势"],
                 }
             },
             risk_alerts=["市场波动较大，请注意风险控制"],
-            recommendations=["建议分散投资，降低单一股票风险"]
+            recommendations=["建议分散投资，降低单一股票风险"],
         )
     except Exception as e:
         logger.error(f"Failed to get analysis: {e}")
         # Return mock data on error
         from datetime import datetime
+
         return DailyAnalysis(
             analysis_date=date or str(datetime.now().date()),
             analysis_summary="您的持仓整体表现良好，建议继续关注市场动态。",
             stock_analyses={
-                '600519.SH': {
-                    'stock_name': '贵州茅台',
-                    'current_price': 1800.0,
-                    'profit_rate': 5.88,
-                    'recommendation': 'hold',
-                    'key_points': ['当前盈利5.9%，表现良好', '技术面表现强势']
+                "600519.SH": {
+                    "stock_name": "贵州茅台",
+                    "current_price": 1800.0,
+                    "profit_rate": 5.88,
+                    "recommendation": "hold",
+                    "key_points": ["当前盈利5.9%，表现良好", "技术面表现强势"],
                 }
             },
             risk_alerts=["市场波动较大，请注意风险控制"],
-            recommendations=["建议分散投资，降低单一股票风险", "关注市场政策变化"]
+            recommendations=["建议分散投资，降低单一股票风险", "关注市场政策变化"],
         )
 
 
 # Additional enhanced endpoints
 @router.get("/technical-indicators/{ts_code}")
-async def get_technical_indicators(ts_code: str, days: int = Query(default=30), current_user: dict = Depends(get_current_user)):
+async def get_technical_indicators(
+    ts_code: str,
+    days: int = Query(default=30),
+    current_user: dict = Depends(get_current_user),
+):
     """Get technical indicators for a stock."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
@@ -350,7 +397,11 @@ async def get_technical_indicators(ts_code: str, days: int = Query(default=30), 
             indicators = await enhanced_service.get_technical_indicators(ts_code, days)
             return {"data": indicators, "success": True}
         else:
-            return {"data": {}, "success": True, "message": "Enhanced service not available"}
+            return {
+                "data": {},
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to get technical indicators: {e}")
         return {"data": {}, "success": False, "error": str(e)}
@@ -362,17 +413,25 @@ async def get_risk_metrics(current_user: dict = Depends(get_current_user)):
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            metrics = await enhanced_service.get_risk_metrics(user_id=current_user["id"])
+            metrics = await enhanced_service.get_risk_metrics(
+                user_id=current_user["id"]
+            )
             return {"data": metrics, "success": True}
         else:
-            return {"data": {}, "success": True, "message": "Enhanced service not available"}
+            return {
+                "data": {},
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to get risk metrics: {e}")
         return {"data": {}, "success": False, "error": str(e)}
 
 
 @router.post("/alerts")
-async def create_alert(alert_data: dict, current_user: dict = Depends(get_current_user)):
+async def create_alert(
+    alert_data: dict, current_user: dict = Depends(get_current_user)
+):
     """Create position alert."""
     try:
         enhanced_service = get_enhanced_portfolio_service()
@@ -381,7 +440,11 @@ async def create_alert(alert_data: dict, current_user: dict = Depends(get_curren
             alert = await enhanced_service.create_alert(alert_data)
             return {"data": alert, "success": True}
         else:
-            return {"data": None, "success": True, "message": "Enhanced service not available"}
+            return {
+                "data": None,
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to create alert: {e}")
         return {"data": None, "success": False, "error": str(e)}
@@ -390,7 +453,7 @@ async def create_alert(alert_data: dict, current_user: dict = Depends(get_curren
 @router.get("/alerts")
 async def get_alerts(current_user: dict = Depends(get_current_user)):
     """Get position alerts.
-    
+
     User isolation: Only returns alerts belonging to the authenticated user.
     """
     try:
@@ -399,7 +462,11 @@ async def get_alerts(current_user: dict = Depends(get_current_user)):
             alerts = await enhanced_service.get_alerts(user_id=current_user["id"])
             return {"data": alerts, "success": True}
         else:
-            return {"data": [], "success": True, "message": "Enhanced service not available"}
+            return {
+                "data": [],
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to get alerts: {e}")
         return {"data": [], "success": False, "error": str(e)}
@@ -408,13 +475,15 @@ async def get_alerts(current_user: dict = Depends(get_current_user)):
 @router.get("/alerts/check")
 async def check_alerts(current_user: dict = Depends(get_current_user)):
     """Check for triggered alerts.
-    
+
     User isolation: Only checks alerts belonging to the authenticated user.
     """
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            triggered_alerts = await enhanced_service.check_alerts(user_id=current_user["id"])
+            triggered_alerts = await enhanced_service.check_alerts(
+                user_id=current_user["id"]
+            )
             return {
                 "triggered_count": len(triggered_alerts) if triggered_alerts else 0,
                 "alerts": [
@@ -424,14 +493,19 @@ async def check_alerts(current_user: dict = Depends(get_current_user)):
                         "alert_type": alert.alert_type,
                         "condition_value": alert.condition_value,
                         "current_value": alert.current_value,
-                        "message": alert.message
+                        "message": alert.message,
                     }
                     for alert in (triggered_alerts or [])
                 ],
-                "success": True
+                "success": True,
             }
         else:
-            return {"triggered_count": 0, "alerts": [], "success": True, "message": "Enhanced service not available"}
+            return {
+                "triggered_count": 0,
+                "alerts": [],
+                "success": True,
+                "message": "Enhanced service not available",
+            }
     except Exception as e:
         logger.error(f"Failed to check alerts: {e}")
         return {"triggered_count": 0, "alerts": [], "success": False, "error": str(e)}
@@ -440,20 +514,31 @@ async def check_alerts(current_user: dict = Depends(get_current_user)):
 @router.post("/batch/update-prices")
 async def batch_update_prices(current_user: dict = Depends(get_current_user)):
     """Batch update position prices.
-    
+
     User isolation: Only updates prices for the authenticated user's positions.
     """
     try:
         enhanced_service = get_enhanced_portfolio_service()
         if enhanced_service:
-            updated_count = await enhanced_service.batch_update_prices(user_id=current_user["id"])
+            updated_count = await enhanced_service.batch_update_prices(
+                user_id=current_user["id"]
+            )
             return {
                 "message": f"Updated prices for {updated_count} positions",
                 "updated_count": updated_count,
-                "success": True
+                "success": True,
             }
         else:
-            return {"message": "Enhanced service not available", "updated_count": 0, "success": True}
+            return {
+                "message": "Enhanced service not available",
+                "updated_count": 0,
+                "success": True,
+            }
     except Exception as e:
         logger.error(f"Failed to batch update prices: {e}")
-        return {"message": str(e), "updated_count": 0, "success": False, "error": str(e)}
+        return {
+            "message": str(e),
+            "updated_count": 0,
+            "success": False,
+            "error": str(e),
+        }

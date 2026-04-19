@@ -14,10 +14,8 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import click
 
@@ -69,12 +67,13 @@ ALL_SERVICE_NAMES = list(_SERVICES.keys())
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ensure_dirs():
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     _PID_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _read_pid(name: str) -> Optional[int]:
+def _read_pid(name: str) -> int | None:
     pid_file = _PID_DIR / _SERVICES[name]["pid"]
     if not pid_file.exists():
         return None
@@ -138,6 +137,7 @@ def _wait_for_health(service_name: str, pid: int) -> bool:
 
     if health_url:
         import requests
+
         for i in range(timeout):
             time.sleep(1)
             if not _is_running(pid):
@@ -152,6 +152,7 @@ def _wait_for_health(service_name: str, pid: int) -> bool:
     else:
         # For frontend, check if port is listening
         import socket
+
         port = svc["port"]
         for i in range(timeout):
             time.sleep(1)
@@ -170,7 +171,7 @@ def _wait_for_health(service_name: str, pid: int) -> bool:
         return False
 
 
-def _get_service_status(name: str) -> Dict:
+def _get_service_status(name: str) -> dict:
     """Get status info for a single service."""
     pid = _read_pid(name)
     svc = _SERVICES[name]
@@ -190,6 +191,7 @@ def _get_service_status(name: str) -> Dict:
 # Docker compose helpers
 # ---------------------------------------------------------------------------
 
+
 def _has_docker() -> bool:
     """Check if docker and docker compose are available."""
     try:
@@ -204,16 +206,18 @@ def _has_docker() -> bool:
         return False
 
 
-def _docker_compose_cmd() -> List[str]:
+def _docker_compose_cmd() -> list[str]:
     """Return the appropriate docker compose command."""
     try:
-        subprocess.run(["docker", "compose", "version"], capture_output=True, timeout=5, check=True)
+        subprocess.run(
+            ["docker", "compose", "version"], capture_output=True, timeout=5, check=True
+        )
         return ["docker", "compose"]
     except Exception:
         return ["docker-compose"]
 
 
-def _docker_compose_files(include_infra: bool = False) -> List[str]:
+def _docker_compose_files(include_infra: bool = False) -> list[str]:
     """Build the list of -f flags for docker compose."""
     files = ["-f", str(_PROJECT_ROOT / "docker-compose.yml")]
     if include_infra:
@@ -227,6 +231,7 @@ def _docker_compose_files(include_infra: bool = False) -> List[str]:
 # Click commands
 # ---------------------------------------------------------------------------
 
+
 @click.group("server")
 def server():
     """Manage application services (start/stop/restart/status).
@@ -239,12 +244,27 @@ def server():
 
 
 @server.command("start")
-@click.option("--service", "-s", multiple=True, type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
-              default=["all"], help="Service(s) to start (default: all)")
-@click.option("--docker", "use_docker", is_flag=True, default=False,
-              help="Use Docker Compose instead of local processes")
-@click.option("--with-infra", is_flag=True, default=False,
-              help="(Docker mode) Also start infrastructure (ClickHouse, Redis)")
+@click.option(
+    "--service",
+    "-s",
+    multiple=True,
+    type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
+    default=["all"],
+    help="Service(s) to start (default: all)",
+)
+@click.option(
+    "--docker",
+    "use_docker",
+    is_flag=True,
+    default=False,
+    help="Use Docker Compose instead of local processes",
+)
+@click.option(
+    "--with-infra",
+    is_flag=True,
+    default=False,
+    help="(Docker mode) Also start infrastructure (ClickHouse, Redis)",
+)
 def start(service, use_docker, with_infra):
     """Start application services.
 
@@ -308,10 +328,16 @@ def start(service, use_docker, with_infra):
         # Wait for health
         if _wait_for_health(name, proc.pid):
             actual_port = svc.get("_actual_port", svc["port"])
-            click.secho(f"  ✓ {svc['label']} started (http://localhost:{actual_port})", fg="green")
+            click.secho(
+                f"  ✓ {svc['label']} started (http://localhost:{actual_port})",
+                fg="green",
+            )
         else:
             if _is_running(proc.pid):
-                click.secho(f"  ⚠ {svc['label']} started but health check timed out", fg="yellow")
+                click.secho(
+                    f"  ⚠ {svc['label']} started but health check timed out",
+                    fg="yellow",
+                )
                 click.echo(f"    Check logs: tail -f {log_file}")
             else:
                 click.secho(f"  ✗ {svc['label']} process exited unexpectedly", fg="red")
@@ -323,10 +349,21 @@ def start(service, use_docker, with_infra):
 
 
 @server.command("stop")
-@click.option("--service", "-s", multiple=True, type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
-              default=["all"], help="Service(s) to stop (default: all)")
-@click.option("--docker", "use_docker", is_flag=True, default=False,
-              help="Use Docker Compose instead of local processes")
+@click.option(
+    "--service",
+    "-s",
+    multiple=True,
+    type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
+    default=["all"],
+    help="Service(s) to stop (default: all)",
+)
+@click.option(
+    "--docker",
+    "use_docker",
+    is_flag=True,
+    default=False,
+    help="Use Docker Compose instead of local processes",
+)
 def stop(service, use_docker):
     """Stop application services.
 
@@ -369,12 +406,27 @@ def stop(service, use_docker):
 
 
 @server.command("restart")
-@click.option("--service", "-s", multiple=True, type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
-              default=["all"], help="Service(s) to restart (default: all)")
-@click.option("--docker", "use_docker", is_flag=True, default=False,
-              help="Use Docker Compose instead of local processes")
-@click.option("--with-infra", is_flag=True, default=False,
-              help="(Docker mode) Also restart infrastructure")
+@click.option(
+    "--service",
+    "-s",
+    multiple=True,
+    type=click.Choice(ALL_SERVICE_NAMES + ["all"]),
+    default=["all"],
+    help="Service(s) to restart (default: all)",
+)
+@click.option(
+    "--docker",
+    "use_docker",
+    is_flag=True,
+    default=False,
+    help="Use Docker Compose instead of local processes",
+)
+@click.option(
+    "--with-infra",
+    is_flag=True,
+    default=False,
+    help="(Docker mode) Also restart infrastructure",
+)
 def restart(service, use_docker, with_infra):
     """Restart application services (stop then start).
 
@@ -394,8 +446,13 @@ def restart(service, use_docker, with_infra):
 
 
 @server.command("status")
-@click.option("--docker", "use_docker", is_flag=True, default=False,
-              help="Show Docker Compose status instead")
+@click.option(
+    "--docker",
+    "use_docker",
+    is_flag=True,
+    default=False,
+    help="Show Docker Compose status instead",
+)
 def status(use_docker):
     """Show service status.
 
@@ -410,9 +467,13 @@ def status(use_docker):
         return
 
     click.echo("")
-    click.secho("╔══════════════════════════════════════════════════╗", fg="bright_blue")
+    click.secho(
+        "╔══════════════════════════════════════════════════╗", fg="bright_blue"
+    )
     click.secho("║     Service Status                              ║", fg="bright_blue")
-    click.secho("╚══════════════════════════════════════════════════╝", fg="bright_blue")
+    click.secho(
+        "╚══════════════════════════════════════════════════╝", fg="bright_blue"
+    )
     click.echo("")
 
     _print_status_summary()
@@ -424,7 +485,9 @@ def status(use_docker):
             try:
                 result = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.Status}}", container],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 state = result.stdout.strip() if result.returncode == 0 else "not found"
                 if state == "running":
@@ -459,11 +522,18 @@ def _print_status_summary():
 # Docker helpers
 # ---------------------------------------------------------------------------
 
+
 def _docker_start(with_infra: bool):
     click.echo("")
-    click.secho("  Starting services via Docker Compose...", fg="bright_blue", bold=True)
+    click.secho(
+        "  Starting services via Docker Compose...", fg="bright_blue", bold=True
+    )
     click.echo("")
-    cmd = _docker_compose_cmd() + _docker_compose_files(include_infra=with_infra) + ["up", "-d"]
+    cmd = (
+        _docker_compose_cmd()
+        + _docker_compose_files(include_infra=with_infra)
+        + ["up", "-d"]
+    )
     click.echo(f"  $ {' '.join(cmd)}")
     click.echo("")
     result = subprocess.run(cmd, cwd=str(_PROJECT_ROOT))
@@ -478,7 +548,11 @@ def _docker_stop():
     click.echo("")
     click.secho("  Stopping Docker Compose services...", fg="bright_blue", bold=True)
     click.echo("")
-    cmd = _docker_compose_cmd() + ["-f", str(_PROJECT_ROOT / "docker-compose.yml"), "down"]
+    cmd = _docker_compose_cmd() + [
+        "-f",
+        str(_PROJECT_ROOT / "docker-compose.yml"),
+        "down",
+    ]
     click.echo(f"  $ {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=str(_PROJECT_ROOT))
     if result.returncode == 0:
@@ -492,6 +566,10 @@ def _docker_status():
     click.echo("")
     click.secho("  Docker Compose Status:", fg="bright_blue", bold=True)
     click.echo("")
-    cmd = _docker_compose_cmd() + ["-f", str(_PROJECT_ROOT / "docker-compose.yml"), "ps"]
+    cmd = _docker_compose_cmd() + [
+        "-f",
+        str(_PROJECT_ROOT / "docker-compose.yml"),
+        "ps",
+    ]
     subprocess.run(cmd, cwd=str(_PROJECT_ROOT))
     click.echo("")

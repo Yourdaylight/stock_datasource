@@ -5,8 +5,10 @@ import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from .ai_diagnosis_service import get_log_ai_diagnosis_service
+from .log_parser import LogFileReader
 from .schemas import (
     ErrorClusterItem,
     ErrorClusterResponse,
@@ -24,8 +26,6 @@ from .schemas import (
     OperationTimelineItem,
     OperationTimelineResponse,
 )
-from .ai_diagnosis_service import get_log_ai_diagnosis_service
-from .log_parser import LogFileReader
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ class LogService:
         """Lazy-access ClickHouse client."""
         try:
             from stock_datasource.models.database import db_client
+
             return db_client
         except Exception:
             return None
@@ -87,7 +88,7 @@ class LogService:
             page_size=filters.page_size,
         )
 
-    def _get_logs_from_clickhouse(self, filters: LogFilter) -> Optional[LogListResponse]:
+    def _get_logs_from_clickhouse(self, filters: LogFilter) -> LogListResponse | None:
         """Query logs from ClickHouse system_structured_logs table.
 
         Returns None if ClickHouse is unavailable (caller should fall back).
@@ -97,7 +98,7 @@ class LogService:
             return None
         try:
             conditions = []
-            params: Dict[str, Any] = {}
+            params: dict[str, Any] = {}
 
             if filters.start_time:
                 conditions.append("timestamp >= %(start_time)s")
@@ -114,7 +115,10 @@ class LogService:
             if filters.request_id and filters.request_id != "-":
                 conditions.append("request_id = %(request_id)s")
                 params["request_id"] = filters.request_id
-            if getattr(filters, 'middleware_trace_id', None) and filters.middleware_trace_id != "-":
+            if (
+                getattr(filters, "middleware_trace_id", None)
+                and filters.middleware_trace_id != "-"
+            ):
                 conditions.append("middleware_trace_id = %(middleware_trace_id)s")
                 params["middleware_trace_id"] = filters.middleware_trace_id
 
@@ -140,16 +144,18 @@ class LogService:
             log_entries = []
             for row in rows:
                 ts, level, req_id, uid, mw_id, module, func, line_no, msg, exc = row
-                log_entries.append(LogEntry(
-                    timestamp=ts if isinstance(ts, datetime) else datetime.now(),
-                    level=str(level),
-                    module=str(module),
-                    message=str(msg),
-                    raw_line=f"{ts} | {level} | {req_id} | {uid} | {mw_id} | {module}:{func}:{line_no} - {msg}",
-                    request_id=str(req_id),
-                    user_id=str(uid),
-                    middleware_trace_id=str(mw_id),
-                ))
+                log_entries.append(
+                    LogEntry(
+                        timestamp=ts if isinstance(ts, datetime) else datetime.now(),
+                        level=str(level),
+                        module=str(module),
+                        message=str(msg),
+                        raw_line=f"{ts} | {level} | {req_id} | {uid} | {mw_id} | {module}:{func}:{line_no} - {msg}",
+                        request_id=str(req_id),
+                        user_id=str(uid),
+                        middleware_trace_id=str(mw_id),
+                    )
+                )
 
             return LogListResponse(
                 logs=log_entries,
@@ -181,15 +187,15 @@ class LogService:
             offset=0,
         )
 
-        level_counter = Counter(log.get('level', 'INFO').upper() for log in logs)
-        trend_bucket: Dict[datetime, Counter] = defaultdict(Counter)
+        level_counter = Counter(log.get("level", "INFO").upper() for log in logs)
+        trend_bucket: dict[datetime, Counter] = defaultdict(Counter)
 
         for log in logs:
-            timestamp = log.get('timestamp')
+            timestamp = log.get("timestamp")
             if not isinstance(timestamp, datetime):
                 continue
             bucket = timestamp.replace(minute=0, second=0, microsecond=0)
-            lvl = str(log.get('level', 'INFO')).upper()
+            lvl = str(log.get("level", "INFO")).upper()
             trend_bucket[bucket][lvl] += 1
 
         trend = []
@@ -199,24 +205,26 @@ class LogService:
                 LogStatsTrendPoint(
                     timestamp=bucket,
                     total=sum(counter.values()),
-                    error=counter.get('ERROR', 0),
-                    warning=counter.get('WARNING', 0),
-                    info=counter.get('INFO', 0),
-                    debug=counter.get('DEBUG', 0),
+                    error=counter.get("ERROR", 0),
+                    warning=counter.get("WARNING", 0),
+                    info=counter.get("INFO", 0),
+                    debug=counter.get("DEBUG", 0),
                 )
             )
 
         return LogStatsResponse(
             total=len(logs),
-            error=level_counter.get('ERROR', 0),
-            warning=level_counter.get('WARNING', 0),
-            info=level_counter.get('INFO', 0),
-            debug=level_counter.get('DEBUG', 0),
+            error=level_counter.get("ERROR", 0),
+            warning=level_counter.get("WARNING", 0),
+            info=level_counter.get("INFO", 0),
+            debug=level_counter.get("DEBUG", 0),
             by_level=dict(level_counter),
             trend=trend,
         )
 
-    def _get_stats_from_clickhouse(self, filters: LogInsightFilter) -> Optional[LogStatsResponse]:
+    def _get_stats_from_clickhouse(
+        self, filters: LogInsightFilter
+    ) -> LogStatsResponse | None:
         """Query stats from ClickHouse. Returns None on failure."""
         ch = self._ch_client
         if ch is None:
@@ -227,7 +235,7 @@ class LogService:
                 "timestamp >= %(start_time)s",
                 "timestamp <= %(end_time)s",
             ]
-            params: Dict[str, Any] = {
+            params: dict[str, Any] = {
                 "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -258,7 +266,7 @@ class LogService:
                 f"GROUP BY bucket, level ORDER BY bucket"
             )
             trend_rows = ch.execute(trend_sql, params)
-            trend_bucket: Dict[datetime, Counter] = defaultdict(Counter)
+            trend_bucket: dict[datetime, Counter] = defaultdict(Counter)
             for row in trend_rows:
                 bucket_dt = row[0] if isinstance(row[0], datetime) else start_time
                 lvl = str(row[1])
@@ -268,22 +276,24 @@ class LogService:
             trend = []
             for bucket in sorted(trend_bucket.keys()):
                 counter = trend_bucket[bucket]
-                trend.append(LogStatsTrendPoint(
-                    timestamp=bucket,
-                    total=sum(counter.values()),
-                    error=counter.get('ERROR', 0),
-                    warning=counter.get('WARNING', 0),
-                    info=counter.get('INFO', 0),
-                    debug=counter.get('DEBUG', 0),
-                ))
+                trend.append(
+                    LogStatsTrendPoint(
+                        timestamp=bucket,
+                        total=sum(counter.values()),
+                        error=counter.get("ERROR", 0),
+                        warning=counter.get("WARNING", 0),
+                        info=counter.get("INFO", 0),
+                        debug=counter.get("DEBUG", 0),
+                    )
+                )
 
             total = sum(level_counter.values())
             return LogStatsResponse(
                 total=total,
-                error=level_counter.get('ERROR', 0),
-                warning=level_counter.get('WARNING', 0),
-                info=level_counter.get('INFO', 0),
-                debug=level_counter.get('DEBUG', 0),
+                error=level_counter.get("ERROR", 0),
+                warning=level_counter.get("WARNING", 0),
+                info=level_counter.get("INFO", 0),
+                debug=level_counter.get("DEBUG", 0),
                 by_level=level_counter,
                 trend=trend,
             )
@@ -296,7 +306,9 @@ class LogService:
         start_time, end_time = self._resolve_time_window(filters)
 
         # Try ClickHouse path
-        ch_result = self._get_error_clusters_from_clickhouse(filters, start_time, end_time)
+        ch_result = self._get_error_clusters_from_clickhouse(
+            filters, start_time, end_time
+        )
         if ch_result is not None:
             return ch_result
 
@@ -312,42 +324,47 @@ class LogService:
             offset=0,
         )
 
-        grouped: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
         for log in logs:
-            level = str(log.get('level', '')).upper()
-            if level not in ('ERROR', 'WARNING'):
+            level = str(log.get("level", "")).upper()
+            if level not in ("ERROR", "WARNING"):
                 continue
             if filters.level and filters.level.upper() != level:
                 continue
 
-            message = str(log.get('message', ''))
+            message = str(log.get("message", ""))
             signature = self.reader.parser.extract_error_signature(message)
-            module = str(log.get('module', 'unknown'))
+            module = str(log.get("module", "unknown"))
             key = (signature, module)
 
             if key not in grouped:
                 grouped[key] = {
-                    'signature': signature,
-                    'count': 0,
-                    'level': level,
-                    'module': module,
-                    'latest_time': log.get('timestamp') or datetime.now(),
-                    'sample_message': message[:200],
+                    "signature": signature,
+                    "count": 0,
+                    "level": level,
+                    "module": module,
+                    "latest_time": log.get("timestamp") or datetime.now(),
+                    "sample_message": message[:200],
                 }
 
-            grouped[key]['count'] += 1
-            if (log.get('timestamp') or datetime.min) > grouped[key]['latest_time']:
-                grouped[key]['latest_time'] = log.get('timestamp')
-                grouped[key]['sample_message'] = message[:200]
+            grouped[key]["count"] += 1
+            if (log.get("timestamp") or datetime.min) > grouped[key]["latest_time"]:
+                grouped[key]["latest_time"] = log.get("timestamp")
+                grouped[key]["sample_message"] = message[:200]
 
-            if level == 'ERROR':
-                grouped[key]['level'] = 'ERROR'
+            if level == "ERROR":
+                grouped[key]["level"] = "ERROR"
 
         clusters = [ErrorClusterItem(**item) for item in grouped.values()]
-        clusters.sort(key=lambda item: (item.level != 'ERROR', -item.count, item.latest_time), reverse=False)
-        return ErrorClusterResponse(clusters=clusters[:filters.limit])
+        clusters.sort(
+            key=lambda item: (item.level != "ERROR", -item.count, item.latest_time),
+            reverse=False,
+        )
+        return ErrorClusterResponse(clusters=clusters[: filters.limit])
 
-    def _get_error_clusters_from_clickhouse(self, filters: LogInsightFilter, start_time: datetime, end_time: datetime) -> Optional[ErrorClusterResponse]:
+    def _get_error_clusters_from_clickhouse(
+        self, filters: LogInsightFilter, start_time: datetime, end_time: datetime
+    ) -> ErrorClusterResponse | None:
         """Query error clusters from ClickHouse. Returns None on failure."""
         ch = self._ch_client
         if ch is None:
@@ -364,7 +381,7 @@ class LogService:
                 "timestamp >= %(start_time)s",
                 "timestamp <= %(end_time)s",
             ]
-            params: Dict[str, Any] = {
+            params: dict[str, Any] = {
                 "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -397,20 +414,26 @@ class LogService:
             clusters = []
             for row in rows:
                 level, module, signature, count, latest, sample = row
-                clusters.append(ErrorClusterItem(
-                    signature=str(signature),
-                    count=int(count),
-                    level=str(level),
-                    module=str(module),
-                    latest_time=latest if isinstance(latest, datetime) else datetime.now(),
-                    sample_message=str(sample)[:200],
-                ))
+                clusters.append(
+                    ErrorClusterItem(
+                        signature=str(signature),
+                        count=int(count),
+                        level=str(level),
+                        module=str(module),
+                        latest_time=latest
+                        if isinstance(latest, datetime)
+                        else datetime.now(),
+                        sample_message=str(sample)[:200],
+                    )
+                )
             return ErrorClusterResponse(clusters=clusters)
         except Exception as e:
             logger.warning(f"ClickHouse error clusters query failed, falling back: {e}")
             return None
 
-    def get_operation_timeline(self, filters: LogInsightFilter) -> OperationTimelineResponse:
+    def get_operation_timeline(
+        self, filters: LogInsightFilter
+    ) -> OperationTimelineResponse:
         """Build a mixed timeline from logs and schedule execution history."""
         start_time, end_time = self._resolve_time_window(filters)
 
@@ -419,10 +442,12 @@ class LogService:
 
         if ch_items is not None:
             # Merge with schedule items
-            schedule_items = self._build_schedule_timeline_items(start_time=start_time, end_time=end_time)
+            schedule_items = self._build_schedule_timeline_items(
+                start_time=start_time, end_time=end_time
+            )
             ch_items.extend(schedule_items)
             ch_items.sort(key=lambda item: item.timestamp, reverse=True)
-            return OperationTimelineResponse(items=ch_items[:filters.limit])
+            return OperationTimelineResponse(items=ch_items[: filters.limit])
 
         # Fallback: file parsing
         logs = self.reader.read_logs(
@@ -436,29 +461,33 @@ class LogService:
             offset=0,
         )
 
-        items: List[OperationTimelineItem] = []
+        items: list[OperationTimelineItem] = []
         for log in logs[: max(filters.limit * 4, 120)]:
-            message = str(log.get('message', '')).strip()
+            message = str(log.get("message", "")).strip()
             # Classify event type: middleware.* → 'middleware', otherwise 'log'
-            event_type = 'middleware' if message.startswith('middleware.') else 'log'
+            event_type = "middleware" if message.startswith("middleware.") else "log"
             items.append(
                 OperationTimelineItem(
-                    timestamp=log.get('timestamp') or datetime.now(),
+                    timestamp=log.get("timestamp") or datetime.now(),
                     event_type=event_type,
-                    level=str(log.get('level', 'INFO')).upper(),
-                    module=str(log.get('module', 'unknown')),
+                    level=str(log.get("level", "INFO")).upper(),
+                    module=str(log.get("module", "unknown")),
                     summary=message[:140],
                     detail=message[:500],
-                    request_id=str(log.get('request_id', '-') or '-'),
+                    request_id=str(log.get("request_id", "-") or "-"),
                 )
             )
 
-        schedule_items = self._build_schedule_timeline_items(start_time=start_time, end_time=end_time)
+        schedule_items = self._build_schedule_timeline_items(
+            start_time=start_time, end_time=end_time
+        )
         items.extend(schedule_items)
         items.sort(key=lambda item: item.timestamp, reverse=True)
-        return OperationTimelineResponse(items=items[:filters.limit])
+        return OperationTimelineResponse(items=items[: filters.limit])
 
-    def _get_timeline_from_clickhouse(self, filters: LogInsightFilter, start_time: datetime, end_time: datetime) -> Optional[List[OperationTimelineItem]]:
+    def _get_timeline_from_clickhouse(
+        self, filters: LogInsightFilter, start_time: datetime, end_time: datetime
+    ) -> list[OperationTimelineItem] | None:
         """Query timeline items from ClickHouse. Returns None on failure."""
         ch = self._ch_client
         if ch is None:
@@ -468,7 +497,7 @@ class LogService:
                 "timestamp >= %(start_time)s",
                 "timestamp <= %(end_time)s",
             ]
-            params: Dict[str, Any] = {
+            params: dict[str, Any] = {
                 "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -496,22 +525,26 @@ class LogService:
             for row in rows:
                 ts, level, module, msg, request_id = row
                 message = str(msg).strip()
-                event_type = 'middleware' if message.startswith('middleware.') else 'log'
-                items.append(OperationTimelineItem(
-                    timestamp=ts if isinstance(ts, datetime) else datetime.now(),
-                    event_type=event_type,
-                    level=str(level),
-                    module=str(module),
-                    summary=message[:140],
-                    detail=message[:500],
-                    request_id=str(request_id or '-'),
-                ))
+                event_type = (
+                    "middleware" if message.startswith("middleware.") else "log"
+                )
+                items.append(
+                    OperationTimelineItem(
+                        timestamp=ts if isinstance(ts, datetime) else datetime.now(),
+                        event_type=event_type,
+                        level=str(level),
+                        module=str(module),
+                        summary=message[:140],
+                        detail=message[:500],
+                        request_id=str(request_id or "-"),
+                    )
+                )
             return items
         except Exception as e:
             logger.warning(f"ClickHouse timeline query failed, falling back: {e}")
             return None
 
-    def get_log_files(self) -> List[LogFileInfo]:
+    def get_log_files(self) -> list[LogFileInfo]:
         """Get list of all log files.
 
         Returns:
@@ -521,17 +554,19 @@ class LogService:
 
         return [
             LogFileInfo(
-                name=f['name'],
-                size=f['size'],
-                modified_time=f['modified_time'],
-                line_count=f['line_count']
+                name=f["name"],
+                size=f["size"],
+                modified_time=f["modified_time"],
+                line_count=f["line_count"],
             )
             for f in files
         ]
 
-    async def analyze_logs(self, request: LogAnalysisRequest, user_id: Optional[str] = None) -> LogAnalysisResponse:
+    async def analyze_logs(
+        self, request: LogAnalysisRequest, user_id: str | None = None
+    ) -> LogAnalysisResponse:
         """Analyze logs with AI first and fallback to rule-based diagnosis."""
-        source_entries: List[LogEntry] = request.log_entries
+        source_entries: list[LogEntry] = request.log_entries
 
         if not source_entries:
             insight_filters = LogInsightFilter(
@@ -581,62 +616,81 @@ class LogService:
             logger.error(f"AI diagnosis failed, fallback to rule-based analysis: {e}")
             return self._analyze_rule_based(source_entries)
 
-    def _merge_ai_result(self, source_entries: List[LogEntry], ai_result: Dict[str, Any]) -> LogAnalysisResponse:
+    def _merge_ai_result(
+        self, source_entries: list[LogEntry], ai_result: dict[str, Any]
+    ) -> LogAnalysisResponse:
         """Normalize AI output into response schema."""
         base = self._analyze_rule_based(source_entries)
 
-        root_causes_raw = ai_result.get('root_causes', [])
+        root_causes_raw = ai_result.get("root_causes", [])
         root_causes = []
         for item in root_causes_raw:
             if isinstance(item, dict):
                 root_causes.append(
                     LogRootCause(
-                        title=str(item.get('title', '未命名根因')),
-                        module=item.get('module'),
-                        function=item.get('function'),
-                        evidence=[str(v) for v in item.get('evidence', [])[:6]],
-                        confidence=float(item.get('confidence', 0.5)),
+                        title=str(item.get("title", "未命名根因")),
+                        module=item.get("module"),
+                        function=item.get("function"),
+                        evidence=[str(v) for v in item.get("evidence", [])[:6]],
+                        confidence=float(item.get("confidence", 0.5)),
                     )
                 )
 
-        fix_suggestions_raw = ai_result.get('fix_suggestions', [])
+        fix_suggestions_raw = ai_result.get("fix_suggestions", [])
         fix_suggestions = []
         for item in fix_suggestions_raw:
             if isinstance(item, dict):
-                priority = str(item.get('priority', 'medium')).lower()
-                if priority not in ('low', 'medium', 'high'):
-                    priority = 'medium'
+                priority = str(item.get("priority", "medium")).lower()
+                if priority not in ("low", "medium", "high"):
+                    priority = "medium"
                 fix_suggestions.append(
                     LogFixSuggestion(
-                        title=str(item.get('title', '修复建议')),
-                        steps=[str(v) for v in item.get('steps', [])[:10]],
+                        title=str(item.get("title", "修复建议")),
+                        steps=[str(v) for v in item.get("steps", [])[:10]],
                         priority=priority,
                     )
                 )
 
-        risk_level = str(ai_result.get('risk_level', base.risk_level)).lower()
-        if risk_level not in ('low', 'medium', 'high', 'critical'):
+        risk_level = str(ai_result.get("risk_level", base.risk_level)).lower()
+        if risk_level not in ("low", "medium", "high", "critical"):
             risk_level = base.risk_level
 
         return LogAnalysisResponse(
-            error_type=str(ai_result.get('error_type', base.error_type)),
-            possible_causes=[str(v) for v in ai_result.get('possible_causes', base.possible_causes)[:10]],
-            suggested_fixes=[str(v) for v in ai_result.get('suggested_fixes', base.suggested_fixes)[:10]],
-            confidence=float(ai_result.get('confidence', base.confidence)),
-            related_logs=[str(v) for v in ai_result.get('related_logs', base.related_logs)[:10]] or base.related_logs,
-            summary=str(ai_result.get('summary', base.summary)),
-            analysis_source='hybrid',
+            error_type=str(ai_result.get("error_type", base.error_type)),
+            possible_causes=[
+                str(v)
+                for v in ai_result.get("possible_causes", base.possible_causes)[:10]
+            ],
+            suggested_fixes=[
+                str(v)
+                for v in ai_result.get("suggested_fixes", base.suggested_fixes)[:10]
+            ],
+            confidence=float(ai_result.get("confidence", base.confidence)),
+            related_logs=[
+                str(v) for v in ai_result.get("related_logs", base.related_logs)[:10]
+            ]
+            or base.related_logs,
+            summary=str(ai_result.get("summary", base.summary)),
+            analysis_source="hybrid",
             root_causes=root_causes or base.root_causes,
-            recent_operations=ai_result.get('recent_operations', base.recent_operations),
+            recent_operations=ai_result.get(
+                "recent_operations", base.recent_operations
+            ),
             fix_suggestions=fix_suggestions or base.fix_suggestions,
             risk_level=risk_level,
-            impact_scope=str(ai_result.get('impact_scope', base.impact_scope)),
+            impact_scope=str(ai_result.get("impact_scope", base.impact_scope)),
         )
 
-    def _analyze_rule_based(self, source_entries: List[LogEntry]) -> LogAnalysisResponse:
+    def _analyze_rule_based(
+        self, source_entries: list[LogEntry]
+    ) -> LogAnalysisResponse:
         """Rule-based diagnosis used as primary fallback."""
-        error_logs = [log for log in source_entries if str(log.level).upper() == 'ERROR']
-        warning_logs = [log for log in source_entries if str(log.level).upper() == 'WARNING']
+        error_logs = [
+            log for log in source_entries if str(log.level).upper() == "ERROR"
+        ]
+        warning_logs = [
+            log for log in source_entries if str(log.level).upper() == "WARNING"
+        ]
 
         if not error_logs and not warning_logs:
             return LogAnalysisResponse(
@@ -703,7 +757,9 @@ class LogService:
                 "修复后观察同类错误频次是否下降",
             ],
             confidence=0.62,
-            related_logs=[log.message[:120] for log in (error_logs or warning_logs)[:8]],
+            related_logs=[
+                log.message[:120] for log in (error_logs or warning_logs)[:8]
+            ],
             summary=f"最近窗口发现 {len(error_logs)} 条错误、{len(warning_logs)} 条告警，重点关注 {first_error.module} 模块。",
             analysis_source="rule_based",
             root_causes=[root_cause],
@@ -742,8 +798,8 @@ class LogService:
                         archive_path = archive_dir / archive_name
 
                         # Compress file
-                        with open(filepath, 'rb') as f_in:
-                            with gzip.open(archive_path, 'wb') as f_out:
+                        with open(filepath, "rb") as f_in:
+                            with gzip.open(archive_path, "wb") as f_out:
                                 f_out.writelines(f_in)
 
                         # Delete original file
@@ -756,12 +812,12 @@ class LogService:
                     logger.error(f"Error archiving {filepath}: {e}")
 
         return {
-            'status': 'success',
-            'archived_count': len(archived_files),
-            'archived_files': archived_files
+            "status": "success",
+            "archived_count": len(archived_files),
+            "archived_files": archived_files,
         }
 
-    def get_archives(self) -> List[LogFileInfo]:
+    def get_archives(self) -> list[LogFileInfo]:
         """Get list of archived log files.
 
         Returns:
@@ -771,19 +827,15 @@ class LogService:
 
         return [
             LogFileInfo(
-                name=f['name'],
-                size=f['size'],
-                modified_time=f['modified_time'],
-                line_count=f['line_count']
+                name=f["name"],
+                size=f["size"],
+                modified_time=f["modified_time"],
+                line_count=f["line_count"],
             )
             for f in archives
         ]
 
-    def export_logs(
-        self,
-        filters: LogFilter,
-        format: str = "csv"
-    ) -> str:
+    def export_logs(self, filters: LogFilter, format: str = "csv") -> str:
         """Export filtered logs to file.
 
         Args:
@@ -800,7 +852,7 @@ class LogService:
             end_time=filters.end_time,
             level=filters.level,
             keyword=filters.keyword,
-            limit=100000  # Get all matching logs
+            limit=100000,  # Get all matching logs
         )
 
         # Create export directory
@@ -823,7 +875,7 @@ class LogService:
         logger.info(f"Exported logs to {filepath}")
         return str(filepath)
 
-    def _export_csv(self, logs: List[dict], filepath: Path):
+    def _export_csv(self, logs: list[dict], filepath: Path):
         """Export logs to CSV format.
 
         Args:
@@ -832,19 +884,21 @@ class LogService:
         """
         import csv
 
-        with open(filepath, 'w', newline='', encoding='utf-8') as f:
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(['timestamp', 'level', 'module', 'message'])
+            writer.writerow(["timestamp", "level", "module", "message"])
 
             for log in logs:
-                writer.writerow([
-                    log['timestamp'].isoformat(),
-                    log['level'],
-                    log['module'],
-                    log['message'].replace('\n', ' ')  # Remove newlines
-                ])
+                writer.writerow(
+                    [
+                        log["timestamp"].isoformat(),
+                        log["level"],
+                        log["module"],
+                        log["message"].replace("\n", " "),  # Remove newlines
+                    ]
+                )
 
-    def _export_json(self, logs: List[dict], filepath: Path):
+    def _export_json(self, logs: list[dict], filepath: Path):
         """Export logs to JSON format.
 
         Args:
@@ -853,13 +907,17 @@ class LogService:
         """
         import json
 
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(logs, f, indent=2, default=str)
 
-    def _resolve_time_window(self, filters: LogInsightFilter) -> Tuple[datetime, datetime]:
+    def _resolve_time_window(
+        self, filters: LogInsightFilter
+    ) -> tuple[datetime, datetime]:
         """Resolve query window with fallback default window hours."""
         end_time = filters.end_time or datetime.now()
-        start_time = filters.start_time or (end_time - timedelta(hours=filters.window_hours))
+        start_time = filters.start_time or (
+            end_time - timedelta(hours=filters.window_hours)
+        )
         if start_time > end_time:
             start_time, end_time = end_time, start_time
         return start_time, end_time
@@ -868,20 +926,22 @@ class LogService:
         self,
         start_time: datetime,
         end_time: datetime,
-    ) -> List[OperationTimelineItem]:
+    ) -> list[OperationTimelineItem]:
         """Build timeline events from schedule execution history."""
         try:
-            from stock_datasource.modules.datamanage.schedule_service import schedule_service
+            from stock_datasource.modules.datamanage.schedule_service import (
+                schedule_service,
+            )
         except Exception as e:
             logger.warning(f"Failed to import schedule_service for timeline: {e}")
             return []
 
         total_days = max(1, min(30, (end_time.date() - start_time.date()).days + 1))
         history = schedule_service.get_history(days=total_days, limit=200)
-        timeline: List[OperationTimelineItem] = []
+        timeline: list[OperationTimelineItem] = []
 
         for record in history:
-            started_at = record.get('started_at')
+            started_at = record.get("started_at")
             if isinstance(started_at, str):
                 try:
                     started_at = datetime.fromisoformat(started_at)
@@ -893,13 +953,13 @@ class LogService:
             if started_at < start_time or started_at > end_time:
                 continue
 
-            status = str(record.get('status', 'unknown')).lower()
-            trigger_type = str(record.get('trigger_type', 'scheduled'))
-            level = 'INFO'
-            if status in ('failed', 'interrupted'):
-                level = 'ERROR'
-            elif status in ('skipped', 'stopping'):
-                level = 'WARNING'
+            status = str(record.get("status", "unknown")).lower()
+            trigger_type = str(record.get("trigger_type", "scheduled"))
+            level = "INFO"
+            if status in ("failed", "interrupted"):
+                level = "ERROR"
+            elif status in ("skipped", "stopping"):
+                level = "WARNING"
 
             summary = f"调度任务 {status}（{trigger_type}）"
             detail = (
@@ -910,9 +970,9 @@ class LogService:
             timeline.append(
                 OperationTimelineItem(
                     timestamp=started_at,
-                    event_type='schedule',
+                    event_type="schedule",
                     level=level,
-                    module='scheduler',
+                    module="scheduler",
                     summary=summary,
                     detail=detail,
                 )
@@ -932,20 +992,20 @@ class LogService:
         # Simple heuristic: extract first line or common patterns
         message_lower = error_message.lower()
 
-        if 'connection' in message_lower or 'timeout' in message_lower:
+        if "connection" in message_lower or "timeout" in message_lower:
             return "ConnectionError"
-        elif 'permission' in message_lower or 'access' in message_lower:
+        elif "permission" in message_lower or "access" in message_lower:
             return "AccessError"
-        elif 'not found' in message_lower or 'missing' in message_lower:
+        elif "not found" in message_lower or "missing" in message_lower:
             return "NotFoundError"
-        elif 'value' in message_lower or 'type' in message_lower:
+        elif "value" in message_lower or "type" in message_lower:
             return "ValueError"
         else:
             return "GeneralError"
 
 
 # Global log service instance
-_log_service: Optional[LogService] = None
+_log_service: LogService | None = None
 
 
 def get_log_service(log_dir: str = "logs") -> LogService:

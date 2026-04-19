@@ -1,11 +1,9 @@
 """港股通每日成交统计查询服务"""
 
-from typing import Any, Optional
-
 import pandas as pd
 
-from stock_datasource.models.database import db_client, ClickHouseClient
 from stock_datasource.config.settings import settings
+from stock_datasource.models.database import ClickHouseClient, db_client
 
 
 class GgtDailyService:
@@ -83,9 +81,7 @@ class GgtDailyService:
         """
         return self.client.execute_query(sql, {"limit": limit})
 
-    def get_statistics(
-        self, start_date: str, end_date: str
-    ) -> pd.DataFrame:
+    def get_statistics(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
         获取日期范围内港股通成交统计汇总
 

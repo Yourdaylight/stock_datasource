@@ -7,10 +7,8 @@ Each stage checks data readiness before execution and records status.
 import json
 import logging
 import re
-import time
 import uuid
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -48,13 +46,13 @@ def _validate_run_id(run_id: str) -> bool:
     return bool(_RUN_ID_RE.match(run_id or ""))
 
 
-def _validate_trade_date(date_str: Optional[str]) -> bool:
+def _validate_trade_date(date_str: str | None) -> bool:
     if not date_str:
         return True
     return bool(_DATE_RE.match(date_str))
 
 
-def _validate_config_type(config_type: Optional[str]) -> bool:
+def _validate_config_type(config_type: str | None) -> bool:
     if not config_type:
         return True
     return bool(_CONFIG_TYPE_RE.match(config_type))
@@ -105,7 +103,9 @@ class QuantService:
             stage.start_time = datetime.now().isoformat()
             self._save_pipeline_run(status)
 
-            screening_result = await self.run_screening(ScreeningRunRequest(trade_date=run_date))
+            screening_result = await self.run_screening(
+                ScreeningRunRequest(trade_date=run_date)
+            )
 
             if screening_result.status == "data_missing":
                 stage.status = "data_missing"
@@ -159,7 +159,10 @@ class QuantService:
             stage.start_time = datetime.now().isoformat()
             self._save_pipeline_run(status)
 
-            all_pool = [s.ts_code for s in pool_result.core_stocks + pool_result.supplement_stocks]
+            all_pool = [
+                s.ts_code
+                for s in pool_result.core_stocks + pool_result.supplement_stocks
+            ]
             # Only analyze top 10 in pipeline to keep it fast
             analyzer = get_deep_analyzer()
             batch_status = await analyzer.batch_analyze(all_pool[:10])
@@ -182,7 +185,10 @@ class QuantService:
 
             signal_result = await self.generate_signals(all_pool, run_date)
 
-            if signal_result.data_readiness and not signal_result.data_readiness.is_ready:
+            if (
+                signal_result.data_readiness
+                and not signal_result.data_readiness.is_ready
+            ):
                 stage.status = "data_missing"
                 stage.data_readiness = signal_result.data_readiness
                 stage.end_time = datetime.now().isoformat()
@@ -194,7 +200,9 @@ class QuantService:
             stage.end_time = datetime.now().isoformat()
             stage.result_summary = {
                 "signals": len(signal_result.signals),
-                "market_risk": signal_result.market_risk.risk_level if signal_result.market_risk else "unknown",
+                "market_risk": signal_result.market_risk.risk_level
+                if signal_result.market_risk
+                else "unknown",
             }
 
             status.overall_status = "completed"
@@ -218,14 +226,14 @@ class QuantService:
         return await engine.run_screening(request.trade_date)
 
     async def build_core_pool(
-        self, screened_stocks: list[str], update_date: Optional[str] = None
+        self, screened_stocks: list[str], update_date: str | None = None
     ) -> CorePoolResult:
         self._ensure_init()
         builder = get_core_pool_builder()
         return await builder.build_core_pool(screened_stocks, update_date)
 
     async def generate_signals(
-        self, pool_stocks: list[str], signal_date: Optional[str] = None
+        self, pool_stocks: list[str], signal_date: str | None = None
     ) -> SignalResult:
         self._ensure_init()
         generator = get_signal_generator()
@@ -240,7 +248,7 @@ class QuantService:
     # Data Readiness
     # =========================================================================
 
-    async def check_data_readiness(self, stage: Optional[str] = None):
+    async def check_data_readiness(self, stage: str | None = None):
         self._ensure_init()
         checker = get_data_readiness_checker()
         if stage:
@@ -256,7 +264,9 @@ class QuantService:
     # Query Methods
     # =========================================================================
 
-    async def get_screening_result(self, run_date: Optional[str] = None) -> Optional[ScreeningResult]:
+    async def get_screening_result(
+        self, run_date: str | None = None
+    ) -> ScreeningResult | None:
         """Get latest or specific screening result."""
         self._ensure_init()
         try:
@@ -277,7 +287,9 @@ class QuantService:
                 return None
 
             row = stats_df.iloc[0]
-            rule_stats = json.loads(row.get("rule_stats", "[]")) if row.get("rule_stats") else []
+            rule_stats = (
+                json.loads(row.get("rule_stats", "[]")) if row.get("rule_stats") else []
+            )
 
             return ScreeningResult(
                 run_date=str(row.get("run_date", "")),
@@ -306,6 +318,7 @@ class QuantService:
                 return CorePoolResult()
 
             from .schemas import FactorScoreDetail
+
             core_stocks = []
             supplement_stocks = []
 
@@ -354,7 +367,7 @@ class QuantService:
             return []
 
     async def get_signals(
-        self, signal_date: Optional[str] = None, limit: int = 50
+        self, signal_date: str | None = None, limit: int = 50
     ) -> list[TradingSignal]:
         """Get trading signals."""
         self._ensure_init()
@@ -385,21 +398,23 @@ class QuantService:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-                signals.append(TradingSignal(
-                    signal_date=str(row.get("signal_date", "")),
-                    ts_code=row["ts_code"],
-                    stock_name=row.get("stock_name", ""),
-                    signal_type=row.get("signal_type", ""),
-                    signal_source=row.get("signal_source", ""),
-                    price=float(row.get("price", 0)),
-                    target_position=float(row.get("target_position", 0)),
-                    confidence=float(row.get("confidence", 0)),
-                    reason=row.get("reason", ""),
-                    pool_type=row.get("pool_type", ""),
-                    ma25=float(row.get("ma25", 0)),
-                    ma120=float(row.get("ma120", 0)),
-                    signal_context=ctx,
-                ))
+                signals.append(
+                    TradingSignal(
+                        signal_date=str(row.get("signal_date", "")),
+                        ts_code=row["ts_code"],
+                        stock_name=row.get("stock_name", ""),
+                        signal_type=row.get("signal_type", ""),
+                        signal_source=row.get("signal_source", ""),
+                        price=float(row.get("price", 0)),
+                        target_position=float(row.get("target_position", 0)),
+                        confidence=float(row.get("confidence", 0)),
+                        reason=row.get("reason", ""),
+                        pool_type=row.get("pool_type", ""),
+                        ma25=float(row.get("ma25", 0)),
+                        ma120=float(row.get("ma120", 0)),
+                        signal_context=ctx,
+                    )
+                )
 
             return signals
         except Exception as e:
@@ -423,7 +438,7 @@ class QuantService:
             logger.error(f"Failed to get rps: {e}")
             return []
 
-    async def get_pipeline_status(self, run_id: str) -> Optional[PipelineRunStatus]:
+    async def get_pipeline_status(self, run_id: str) -> PipelineRunStatus | None:
         """Get pipeline run status."""
         self._ensure_init()
         if not _validate_run_id(run_id):
@@ -454,7 +469,7 @@ class QuantService:
             logger.error(f"Failed to get pipeline status: {e}")
             return None
 
-    async def get_latest_pipeline(self) -> Optional[PipelineRunStatus]:
+    async def get_latest_pipeline(self) -> PipelineRunStatus | None:
         """Get the latest pipeline run."""
         self._ensure_init()
         try:
@@ -471,7 +486,7 @@ class QuantService:
     # Config
     # =========================================================================
 
-    async def get_config(self, config_type: Optional[str] = None) -> list[QuantConfig]:
+    async def get_config(self, config_type: str | None = None) -> list[QuantConfig]:
         self._ensure_init()
         if not _validate_config_type(config_type):
             logger.warning(f"Invalid config_type: {config_type}")
@@ -496,14 +511,16 @@ class QuantService:
                     data = json.loads(row.get("config_data", "{}"))
                 except (json.JSONDecodeError, TypeError):
                     pass
-                configs.append(QuantConfig(
-                    config_id=row.get("config_id", ""),
-                    config_name=row.get("config_name", ""),
-                    config_type=row.get("config_type", ""),
-                    config_data=data,
-                    is_active=bool(row.get("is_active", 1)),
-                    updated_at=str(row.get("updated_at", "")),
-                ))
+                configs.append(
+                    QuantConfig(
+                        config_id=row.get("config_id", ""),
+                        config_name=row.get("config_name", ""),
+                        config_type=row.get("config_type", ""),
+                        config_data=data,
+                        is_active=bool(row.get("is_active", 1)),
+                        updated_at=str(row.get("updated_at", "")),
+                    )
+                )
             return configs
         except Exception:
             return self._default_configs()
@@ -519,14 +536,20 @@ class QuantService:
             updated_at=datetime.now().isoformat(),
         )
         try:
-            df = pd.DataFrame([{
-                "config_id": config.config_id,
-                "config_name": config.config_name,
-                "config_type": config.config_type,
-                "config_data": json.dumps(config.config_data, ensure_ascii=False),
-                "is_active": 1,
-                "updated_at": datetime.now(),
-            }])
+            df = pd.DataFrame(
+                [
+                    {
+                        "config_id": config.config_id,
+                        "config_name": config.config_name,
+                        "config_type": config.config_type,
+                        "config_data": json.dumps(
+                            config.config_data, ensure_ascii=False
+                        ),
+                        "is_active": 1,
+                        "updated_at": datetime.now(),
+                    }
+                ]
+            )
             db_client.insert_dataframe("quant_model_config", df)
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
@@ -534,12 +557,15 @@ class QuantService:
 
     def _default_configs(self) -> list[QuantConfig]:
         from .screening_engine import default_screening_rules
+
         return [
             QuantConfig(
                 config_id="screening_rules_active",
                 config_name="默认筛选规则",
                 config_type="screening_rules",
-                config_data={"rules": [r.model_dump() for r in default_screening_rules()]},
+                config_data={
+                    "rules": [r.model_dump() for r in default_screening_rules()]
+                },
             ),
             QuantConfig(
                 config_id="factor_weights_active",
@@ -561,24 +587,30 @@ class QuantService:
 
     def _save_pipeline_run(self, status: PipelineRunStatus) -> None:
         try:
-            df = pd.DataFrame([{
-                "run_id": status.run_id,
-                "run_date": status.run_date,
-                "pipeline_type": status.pipeline_type,
-                "stages": json.dumps(
-                    [s.model_dump() for s in status.stages], ensure_ascii=False, default=str
-                ),
-                "overall_status": status.overall_status,
-                "triggered_by": status.triggered_by,
-                "updated_at": datetime.now(),
-            }])
+            df = pd.DataFrame(
+                [
+                    {
+                        "run_id": status.run_id,
+                        "run_date": status.run_date,
+                        "pipeline_type": status.pipeline_type,
+                        "stages": json.dumps(
+                            [s.model_dump() for s in status.stages],
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                        "overall_status": status.overall_status,
+                        "triggered_by": status.triggered_by,
+                        "updated_at": datetime.now(),
+                    }
+                ]
+            )
             db_client.insert_dataframe("quant_pipeline_run", df)
         except Exception as e:
             logger.error(f"Failed to save pipeline run: {e}")
 
 
 # Singleton
-_quant_service: Optional[QuantService] = None
+_quant_service: QuantService | None = None
 
 
 def get_quant_service() -> QuantService:
