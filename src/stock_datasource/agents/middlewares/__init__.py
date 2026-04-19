@@ -7,6 +7,7 @@ Execution order:
 3. GuardrailMiddleware - input/output safety checks
 4. MemoryInjectionMiddleware - inject memory from Store
 5. CrossValidationMiddleware - cross-validate agent conclusions
+6. SignalExtractionMiddleware - extract signal facts from agent responses
 """
 
 from stock_datasource.modules.memory.models import ContextSize
@@ -17,6 +18,7 @@ from .cross_validation import CrossValidationMiddleware
 from .guardrail import GuardrailMiddleware
 from .loop_detection import LoopDetectionMiddleware
 from .memory_injection import MemoryInjectionMiddleware
+from .signal_extraction import SignalExtractionMiddleware
 from .summarization import SummarizationMiddleware
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "GuardrailMiddleware",
     "MemoryInjectionMiddleware",
     "CrossValidationMiddleware",
+    "SignalExtractionMiddleware",
     # Helpers
     "ContextSize",
     "MemoryStore",
@@ -63,4 +66,5 @@ def build_default_middleware_chain(
         GuardrailMiddleware(hallucination_check_enabled=False),
         MemoryInjectionMiddleware(store=store),
         CrossValidationMiddleware(store=store),
+        SignalExtractionMiddleware(store=store),
     ]

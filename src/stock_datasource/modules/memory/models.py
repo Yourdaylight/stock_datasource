@@ -62,6 +62,8 @@ FactCategory = Literal[
     "stock_opinion",
     "trading_style",
     "conclusion",
+    "market_signal",
+    "capital_flow",
 ]
 
 

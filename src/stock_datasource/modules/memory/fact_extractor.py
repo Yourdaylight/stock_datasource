@@ -203,13 +203,15 @@ _FACT_EXTRACTION_PROMPT = """从以下对话中提取关于用户的事实。只
 - 个股观点（关注/持有/回避哪些股票）
 - 交易风格（短线/中线/长线）
 - 分析结论（对某只股票的判断）
+- 消息面信号（新闻情绪、利好/利空消息对个股的影响）
+- 资金面信号（机构/游资/北向资金流向、席位集中度等）
 
 对话内容:
 {conversation}
 
 {correction_hint}
 
-输出JSON数组: [{{"content": "...", "category": "risk_preference|sector_focus|stock_opinion|trading_style|conclusion", "confidence": 0.7}}]
+输出JSON数组: [{{"content": "...", "category": "risk_preference|sector_focus|stock_opinion|trading_style|conclusion|market_signal|capital_flow", "confidence": 0.7}}]
 如果无可提取事实，返回空数组 []"""
 
 
@@ -310,6 +312,8 @@ class FactExtractor:
                     "stock_opinion",
                     "trading_style",
                     "conclusion",
+                    "market_signal",
+                    "capital_flow",
                 ):
                     category = "conclusion"
 

@@ -5,7 +5,7 @@ import subprocess
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_user, require_admin
 from .schemas import ActionResponse, PicoclawStatus
 from .service import (
     generate_config,
@@ -35,7 +35,7 @@ def get_config_status(current_user: dict = Depends(get_current_user)):
 @router.post("/generate-config", response_model=ActionResponse)
 def api_generate_config(
     mcp_token: str | None = None,
-    current_user: dict = Depends(get_current_user),
+    _admin: dict = Depends(require_admin),
 ):
     """Generate (or regenerate) picoclaw config from .env."""
     try:
@@ -54,7 +54,7 @@ def api_start_bridge(
     mcp_token: str | None = None,
     symbols: str | None = None,
     no_rt: bool = False,
-    current_user: dict = Depends(get_current_user),
+    _admin: dict = Depends(require_admin),
 ):
     """Start picoclaw gateway + wechat channel + realtime subscription."""
     try:
@@ -70,7 +70,7 @@ def api_start_bridge(
 
 
 @router.post("/stop", response_model=ActionResponse)
-def api_stop_bridge(current_user: dict = Depends(get_current_user)):
+def api_stop_bridge(_admin: dict = Depends(require_admin)):
     """Stop all picoclaw-related processes."""
     try:
         result = stop_bridge()
