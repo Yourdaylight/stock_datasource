@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, onDeactivated } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { usePortfolioStore } from '@/stores/portfolio'
 import { useMemoryStore } from '@/stores/memory'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -101,10 +101,14 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const startAutoRefresh = () => {
   if (refreshTimer) return
+  // Don't start timer if not trading hours — save resources
+  if (!isTradingTime()) return
   refreshTimer = setInterval(() => {
-    // Only poll during trading hours to avoid unnecessary API calls during market closure
     if (isTradingTime()) {
       portfolioStore.fetchPositions()
+    } else {
+      // Trading hours ended — stop polling
+      stopAutoRefresh()
     }
   }, 30000)
 }
@@ -367,6 +371,10 @@ onActivated(() => {
 })
 
 onDeactivated(() => {
+  stopAutoRefresh()
+})
+
+onUnmounted(() => {
   stopAutoRefresh()
 })
 </script>
