@@ -80,7 +80,7 @@ def api_stop_bridge(_admin: dict = Depends(require_admin)):
 
 
 @router.get("/weixin-qr")
-def get_wechat_qr(current_user: dict = Depends(get_current_user)):
+def get_wechat_qr(_admin: dict = Depends(require_admin)):
     """Trigger WeChat QR code login and return QR code link for frontend rendering."""
     import os
     import re

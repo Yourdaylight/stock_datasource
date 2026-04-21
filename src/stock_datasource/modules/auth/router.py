@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .dependencies import get_current_user
+from .dependencies import get_current_user, require_admin
 from .schemas import (
     MessageResponse,
     RegisterResponse,
@@ -100,6 +100,7 @@ async def get_me(
         username=current_user["username"],
         is_active=current_user["is_active"],
         is_admin=current_user.get("is_admin", False),
+        subscription_tier=current_user.get("subscription_tier", "free"),
         created_at=current_user["created_at"],
     )
 
@@ -178,3 +179,102 @@ async def add_to_whitelist(
         is_active=entry["is_active"],
         created_at=entry["created_at"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/users", summary="获取用户列表（管理员）")
+async def list_users(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """获取所有用户列表。仅管理员。"""
+    auth_service._ensure_tables()
+    query = """
+        SELECT id, email, username, is_active, is_admin, subscription_tier, created_at
+        FROM users FINAL
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+        LIMIT %(limit)s OFFSET %(offset)s
+    """
+    result = auth_service.client.execute(query, {"limit": limit, "offset": offset})
+    return [
+        {
+            "id": row[0],
+            "email": row[1],
+            "username": row[2],
+            "is_active": bool(row[3]),
+            "is_admin": bool(row[4]),
+            "subscription_tier": row[5] if len(row) > 5 else "free",
+            "created_at": row[6] if len(row) > 6 else None,
+        }
+        for row in result
+    ]
+
+
+@router.put("/admin/users/{user_id}/tier", summary="修改用户等级（管理员）")
+async def update_user_tier(
+    user_id: str,
+    tier: str,
+    current_user: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """修改用户的订阅等级。仅管理员。"""
+    from .service import TIER_QUOTAS, get_tier_quota
+
+    if tier not in TIER_QUOTAS:
+        raise HTTPException(400, f"无效的等级: {tier}，可选: {list(TIER_QUOTAS.keys())}")
+
+    user = auth_service.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
+    # Update tier in ClickHouse (insert new version for ReplacingMergeTree)
+    from datetime import datetime
+    auth_service.client.execute(
+        "INSERT INTO users (id, email, username, password_hash, is_active, is_admin, subscription_tier, created_at, updated_at) "
+        "VALUES (%(id)s, %(email)s, %(username)s, %(password_hash)s, %(is_active)s, %(is_admin)s, %(tier)s, %(created_at)s, %(updated_at)s)",
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "username": user["username"],
+            "password_hash": user["password_hash"],
+            "is_active": 1 if user["is_active"] else 0,
+            "is_admin": 1 if user["is_admin"] else 0,
+            "tier": tier,
+            "created_at": user["created_at"],
+            "updated_at": datetime.now(),
+        },
+    )
+
+    return {"success": True, "message": f"用户 {user['email']} 等级已更新为 {tier}"}
+
+
+@router.post("/admin/users/{user_id}/reset-quota", summary="重置用户配额（管理员）")
+async def reset_user_quota(
+    user_id: str,
+    quota: int | None = None,
+    current_user: dict = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """重置用户的 token 配额。仅管理员。"""
+    from .service import get_tier_quota
+
+    user = auth_service.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
+    tier = user.get("subscription_tier", "free")
+    new_quota = quota if quota is not None else get_tier_quota(tier)
+
+    try:
+        from stock_datasource.modules.token_usage.service import TokenUsageService
+        await TokenUsageService.initialize_quota(user_id, new_quota)
+        return {"success": True, "message": f"用户 {user['email']} 配额已重置为 {new_quota}"}
+    except Exception as e:
+        raise HTTPException(500, f"重置配额失败: {e}")

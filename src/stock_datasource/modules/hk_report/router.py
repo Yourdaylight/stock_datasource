@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..auth.dependencies import get_current_user
 from pydantic import BaseModel, Field
 
 from stock_datasource.services.hk_financial_report_service import (
@@ -74,7 +76,7 @@ class HKIndicatorListRequest(BaseModel):
 
 
 @router.post("/financial")
-async def get_hk_financial(request: HKFinancialRequest):
+async def get_hk_financial(request: HKFinancialRequest, current_user: dict = Depends(get_current_user)):
     """获取港股综合财务分析"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -90,7 +92,7 @@ async def get_hk_financial(request: HKFinancialRequest):
 
 
 @router.post("/indicators")
-async def get_hk_indicators(request: HKFinancialRequest):
+async def get_hk_indicators(request: HKFinancialRequest, current_user: dict = Depends(get_current_user)):
     """获取港股财务指标数据（宽表）"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -106,7 +108,7 @@ async def get_hk_indicators(request: HKFinancialRequest):
 
 
 @router.post("/income")
-async def get_hk_income(request: HKStatementRequest):
+async def get_hk_income(request: HKStatementRequest, current_user: dict = Depends(get_current_user)):
     """获取港股利润表数据（PIVOT 宽表格式）"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -124,7 +126,7 @@ async def get_hk_income(request: HKStatementRequest):
 
 
 @router.post("/balance")
-async def get_hk_balance(request: HKStatementRequest):
+async def get_hk_balance(request: HKStatementRequest, current_user: dict = Depends(get_current_user)):
     """获取港股资产负债表数据（PIVOT 宽表格式）"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -142,7 +144,7 @@ async def get_hk_balance(request: HKStatementRequest):
 
 
 @router.post("/cashflow")
-async def get_hk_cashflow(request: HKStatementRequest):
+async def get_hk_cashflow(request: HKStatementRequest, current_user: dict = Depends(get_current_user)):
     """获取港股现金流量表数据（PIVOT 宽表格式）"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -160,7 +162,7 @@ async def get_hk_cashflow(request: HKStatementRequest):
 
 
 @router.post("/statements")
-async def get_hk_statements(request: HKFinancialRequest):
+async def get_hk_statements(request: HKFinancialRequest, current_user: dict = Depends(get_current_user)):
     """获取港股完整三大财务报表（利润表+资产负债表+现金流量表）"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -181,7 +183,7 @@ async def get_hk_statements(request: HKFinancialRequest):
 
 
 @router.post("/income/raw")
-async def get_hk_income_raw(request: HKRawRequest):
+async def get_hk_income_raw(request: HKRawRequest, current_user: dict = Depends(get_current_user)):
     """获取港股利润表原始 EAV 数据"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -199,7 +201,7 @@ async def get_hk_income_raw(request: HKRawRequest):
 
 
 @router.post("/balance/raw")
-async def get_hk_balance_raw(request: HKRawRequest):
+async def get_hk_balance_raw(request: HKRawRequest, current_user: dict = Depends(get_current_user)):
     """获取港股资产负债表原始 EAV 数据"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -217,7 +219,7 @@ async def get_hk_balance_raw(request: HKRawRequest):
 
 
 @router.post("/cashflow/raw")
-async def get_hk_cashflow_raw(request: HKRawRequest):
+async def get_hk_cashflow_raw(request: HKRawRequest, current_user: dict = Depends(get_current_user)):
     """获取港股现金流量表原始 EAV 数据"""
     try:
         code = _validate_hk_stock_code(request.code)
@@ -238,7 +240,7 @@ async def get_hk_cashflow_raw(request: HKRawRequest):
 
 
 @router.post("/indicators/income")
-async def list_hk_income_indicators(request: HKIndicatorListRequest):
+async def list_hk_income_indicators(request: HKIndicatorListRequest, current_user: dict = Depends(get_current_user)):
     """列出港股利润表所有可用指标"""
     try:
         code = _validate_hk_stock_code(request.code) if request.code else None
@@ -252,7 +254,7 @@ async def list_hk_income_indicators(request: HKIndicatorListRequest):
 
 
 @router.post("/indicators/balance")
-async def list_hk_balance_indicators(request: HKIndicatorListRequest):
+async def list_hk_balance_indicators(request: HKIndicatorListRequest, current_user: dict = Depends(get_current_user)):
     """列出港股资产负债表所有可用指标"""
     try:
         code = _validate_hk_stock_code(request.code) if request.code else None
@@ -266,7 +268,7 @@ async def list_hk_balance_indicators(request: HKIndicatorListRequest):
 
 
 @router.post("/indicators/cashflow")
-async def list_hk_cashflow_indicators(request: HKIndicatorListRequest):
+async def list_hk_cashflow_indicators(request: HKIndicatorListRequest, current_user: dict = Depends(get_current_user)):
     """列出港股现金流量表所有可用指标"""
     try:
         code = _validate_hk_stock_code(request.code) if request.code else None
@@ -280,13 +282,13 @@ async def list_hk_cashflow_indicators(request: HKIndicatorListRequest):
 
 
 @router.get("/health")
-async def health_check():
+async def health_check(current_user: dict = Depends(get_current_user)):
     """Health check endpoint."""
     return {"status": "healthy", "service": "hk_financial_report"}
 
 
 @router.post("/analysis")
-async def get_hk_ai_analysis(request: HKAnalysisRequest):
+async def get_hk_ai_analysis(request: HKAnalysisRequest, current_user: dict = Depends(get_current_user)):
     """获取港股AI智能分析"""
     try:
         code = _validate_hk_stock_code(request.code)

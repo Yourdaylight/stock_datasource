@@ -3,7 +3,9 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..auth.dependencies import get_current_user
 from pydantic import BaseModel, Field, field_validator
 
 from stock_datasource.agents.report_agent import ReportAgent
@@ -146,7 +148,7 @@ def _normalize_stock_code(code: str) -> str:
 
 
 @router.post("/financial", response_model=FinancialResponse)
-async def get_financial(request: FinancialRequest):
+async def get_financial(request: FinancialRequest, current_user: dict = Depends(get_current_user)):
     """Get comprehensive financial data and analysis."""
     try:
         # Normalize stock code
@@ -331,7 +333,7 @@ async def get_financial(request: FinancialRequest):
 
 
 @router.post("/compare", response_model=CompareResponse)
-async def compare_financials(request: CompareRequest):
+async def compare_financials(request: CompareRequest, current_user: dict = Depends(get_current_user)):
     """Get peer comparison analysis."""
     try:
         # Normalize stock code
@@ -366,7 +368,7 @@ async def compare_financials(request: CompareRequest):
 
 
 @router.post("/analysis", response_model=AnalysisResponse)
-async def get_ai_analysis(request: AnalysisRequest):
+async def get_ai_analysis(request: AnalysisRequest, current_user: dict = Depends(get_current_user)):
     """Get AI-powered financial analysis and insights."""
     try:
         # Normalize stock code
@@ -446,7 +448,7 @@ async def get_ai_analysis(request: AnalysisRequest):
 
 
 @router.get("/health")
-async def health_check():
+async def health_check(current_user: dict = Depends(get_current_user)):
     """Health check endpoint."""
     return {"status": "healthy", "service": "financial_report"}
 
@@ -475,7 +477,7 @@ class ForecastRequest(BaseModel):
 
 
 @router.post("/income")
-async def get_income_statement(request: StatementRequest):
+async def get_income_statement(request: StatementRequest, current_user: dict = Depends(get_current_user)):
     """获取利润表数据"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -493,7 +495,7 @@ async def get_income_statement(request: StatementRequest):
 
 
 @router.post("/balance")
-async def get_balance_sheet(request: StatementRequest):
+async def get_balance_sheet(request: StatementRequest, current_user: dict = Depends(get_current_user)):
     """获取资产负债表数据"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -511,7 +513,7 @@ async def get_balance_sheet(request: StatementRequest):
 
 
 @router.post("/cashflow")
-async def get_cash_flow(request: StatementRequest):
+async def get_cash_flow(request: StatementRequest, current_user: dict = Depends(get_current_user)):
     """获取现金流量表数据"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -529,7 +531,7 @@ async def get_cash_flow(request: StatementRequest):
 
 
 @router.post("/statements")
-async def get_full_statements(request: StatementRequest):
+async def get_full_statements(request: StatementRequest, current_user: dict = Depends(get_current_user)):
     """获取完整三大财务报表（利润表+资产负债表+现金流量表）"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -547,7 +549,7 @@ async def get_full_statements(request: StatementRequest):
 
 
 @router.post("/forecast")
-async def get_forecast(request: ForecastRequest):
+async def get_forecast(request: ForecastRequest, current_user: dict = Depends(get_current_user)):
     """获取业绩预告数据"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -563,7 +565,7 @@ async def get_forecast(request: ForecastRequest):
 
 
 @router.post("/express")
-async def get_express(request: ForecastRequest):
+async def get_express(request: ForecastRequest, current_user: dict = Depends(get_current_user)):
     """获取业绩快报数据"""
     try:
         normalized_code = _normalize_stock_code(request.code)
@@ -580,7 +582,7 @@ async def get_express(request: ForecastRequest):
 
 # Legacy endpoint for backward compatibility
 @router.post("/financial_legacy")
-async def get_financial_legacy(request: FinancialRequest):
+async def get_financial_legacy(request: FinancialRequest, current_user: dict = Depends(get_current_user)):
     """Legacy financial endpoint (deprecated)."""
     # Mock implementation for backward compatibility
     return {

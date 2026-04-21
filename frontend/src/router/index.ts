@@ -93,13 +93,13 @@ const routes: RouteRecordRaw[] = [
     path: '/strategy',
     name: 'Strategy',
     component: () => import('@/views/StrategyWorkbench.vue'),
-    meta: { title: '策略工具台', icon: 'tools', requiresAuth: true }
+    meta: { title: '策略工具台', icon: 'tools', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/backtest',
     name: 'Backtest',
     component: () => import('@/views/backtest/BacktestView.vue'),
-    meta: { title: '策略回测', icon: 'chart-bubble', requiresAuth: true }
+    meta: { title: '策略回测', icon: 'chart-bubble', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/memory',
@@ -109,7 +109,7 @@ const routes: RouteRecordRaw[] = [
     path: '/datamanage',
     name: 'DataManage',
     component: () => import('@/views/datamanage/DataManageView.vue'),
-    meta: { title: '数据管理', icon: 'server', requiresAuth: true }
+    meta: { title: '数据管理', icon: 'server', requiresAuth: true, requiresAdmin: true }
   },
   {
     path: '/datamanage/explorer',
@@ -151,7 +151,7 @@ const routes: RouteRecordRaw[] = [
     path: '/workflow',
     name: 'Workflow',
     component: () => import('@/views/workflow/WorkflowList.vue'),
-    meta: { title: 'AI工作流', icon: 'cpu', requiresAuth: true }
+    meta: { title: 'AI工作流', icon: 'cpu', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/workflow/create',
@@ -188,14 +188,14 @@ const routes: RouteRecordRaw[] = [
     path: '/quant',
     name: 'Quant',
     component: () => import('@/views/quant/QuantView.vue'),
-    meta: { title: '量化选股', icon: 'chart-analytics', requiresAuth: true }
+    meta: { title: '量化选股', icon: 'chart-analytics', requiresAuth: true, requiresTier: 'pro' }
   },
   // Signal Observatory
   {
     path: '/signal',
     name: 'Signal',
     component: () => import('@/views/signal/SignalDashboard.vue'),
-    meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true }
+    meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/quant/screening',
@@ -245,7 +245,7 @@ const routes: RouteRecordRaw[] = [
     path: '/wechat-bridge',
     name: 'WechatBridge',
     component: () => import('@/views/wechatBridge/WechatBridgeView.vue'),
-    meta: { title: '微信联动', icon: 'wechat', requiresAuth: true }
+    meta: { title: '微信联动', icon: 'wechat', requiresAuth: true, requiresAdmin: true }
   },
   {
     path: '/user/llm-config',
@@ -271,6 +271,13 @@ const router = createRouter({
   routes
 })
 
+// Tier hierarchy: admin > pro > free
+const TIER_LEVELS: Record<string, number> = { free: 0, pro: 1, admin: 2 }
+
+function hasRequiredTier(userTier: string, requiredTier: string): boolean {
+  return (TIER_LEVELS[userTier] ?? 0) >= (TIER_LEVELS[requiredTier] ?? 0)
+}
+
 // Navigation guard for authentication
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
@@ -278,6 +285,7 @@ router.beforeEach(async (to, from, next) => {
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth === true
   const requiresAdmin = to.meta.requiresAdmin === true
+  const requiresTier = to.meta.requiresTier as string | undefined
   const isPublic = to.meta.public === true || isPublicPath(to.path)
 
   // If route is public, allow access
@@ -304,6 +312,16 @@ router.beforeEach(async (to, from, next) => {
     if (requiresAdmin && !authStore.user?.is_admin) {
       next('/market')
       return
+    }
+
+    // Check subscription tier if required
+    if (requiresTier) {
+      const userTier = authStore.user?.subscription_tier || 'free'
+      if (!hasRequiredTier(userTier, requiresTier)) {
+        // Redirect to market with a hint — the user doesn't have the required tier
+        next('/market')
+        return
+      }
     }
   }
 

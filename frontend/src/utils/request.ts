@@ -57,16 +57,33 @@ instance.interceptors.response.use(
       // Clear auth state
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      
+
       // Show message
       MessagePlugin.warning(detail || '登录已过期，请重新登录')
-      
+
       // Redirect to login page if not already there
       const currentPath = window.location.pathname
       if (currentPath !== '/login') {
         window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
       }
-      
+
+      return Promise.reject(error)
+    }
+
+    // Handle 429 Too Many Requests (rate limit)
+    if (status === 429) {
+      MessagePlugin.warning(detail || '请求太频繁，请稍后再试')
+      return Promise.reject(error)
+    }
+
+    // Handle 403 Forbidden (quota exhausted or insufficient tier)
+    if (status === 403) {
+      const isQuotaExhausted = error.response?.headers?.['x-quota-exhausted'] === 'true'
+      if (isQuotaExhausted) {
+        MessagePlugin.error('Token 配额已用完，请联系管理员升级账户')
+      } else {
+        MessagePlugin.warning(detail || '权限不足')
+      }
       return Promise.reject(error)
     }
     

@@ -175,4 +175,11 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .akinator.router import router as akinator_router
+
+        routers.append(("/akinator", akinator_router, ["猜你所想"]))
+    except ImportError:
+        pass
+
     return routers

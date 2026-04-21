@@ -27,8 +27,8 @@ export const portfolioApi = {
   },
 
   // Portfolio summary
-  getSummary() {
-    return request.get<PortfolioSummary>('/api/portfolio/summary')
+  getSummary(params?: { profile_id?: string }) {
+    return request.get<PortfolioSummary>('/api/portfolio/summary', { params })
   },
 
   getProfitHistory(days: number = 30) {

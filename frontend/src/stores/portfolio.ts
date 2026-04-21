@@ -58,7 +58,11 @@ export const usePortfolioStore = defineStore('portfolio', () => {
 
   const fetchSummary = async () => {
     try {
-      const response = await portfolioApi.getSummary()
+      const params: Record<string, string> = {}
+      if (activeProfileId.value) {
+        params.profile_id = activeProfileId.value
+      }
+      const response = await portfolioApi.getSummary(params)
       summary.value = response || null
     } catch (e) {
       // Error handled by interceptor
@@ -102,10 +106,9 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
-  const setActiveProfile = (profileId: string) => {
+  const setActiveProfile = async (profileId: string) => {
     activeProfileId.value = profileId
-    fetchPositions()
-    fetchSummary()
+    await Promise.all([fetchPositions(), fetchSummary()])
   }
 
   const createProfile = async (data: { name: string; broker?: string; is_default?: boolean }) => {

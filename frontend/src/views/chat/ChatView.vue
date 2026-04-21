@@ -7,6 +7,7 @@ import { useWorkflowStore } from '@/stores/workflow'
 import MessageList from './components/MessageList.vue'
 import InputBox from './components/InputBox.vue'
 import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
+import AkinatorPanel from './components/AkinatorPanel.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -16,6 +17,8 @@ const showWorkflowPanel = ref(false)
 const showSessionsSidebar = ref(false)
 const editingSessionId = ref('')
 const editingTitle = ref('')
+
+const activeTab = ref<'chat' | 'akinator'>('chat')
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -219,7 +222,22 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="chat-view">
+  <div class="chat-root">
+    <div class="chat-tabs-bar">
+      <t-tabs v-model="activeTab" size="medium">
+        <t-tab-panel value="chat" label="智能对话" />
+        <t-tab-panel value="akinator" label="🔮 猜你所想" />
+      </t-tabs>
+    </div>
+
+    <!-- Akinator Tab -->
+    <div v-show="activeTab === 'akinator'" class="chat-tab-content">
+      <AkinatorPanel />
+    </div>
+
+    <!-- Chat Tab (原有内容) -->
+    <div v-show="activeTab === 'chat'" class="chat-tab-content">
+    <div class="chat-view">
     <!-- Sessions Sidebar -->
     <div :class="['sessions-sidebar', { expanded: showSessionsSidebar }]">
       <div class="sidebar-header">
@@ -482,10 +500,36 @@ onMounted(async () => {
 
     <!-- Debug Sidebar -->
     <AgentDebugSidebar />
+    </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.chat-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-tabs-bar {
+  flex-shrink: 0;
+  padding: 0 16px;
+  background: var(--td-bg-color-container);
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.chat-tabs-bar :deep(.t-tabs__content) {
+  display: none;
+}
+
+.chat-tab-content {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .chat-view {
   height: 100%;
   display: flex;

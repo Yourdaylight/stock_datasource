@@ -4,7 +4,9 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth.dependencies import get_current_user
 from pydantic import BaseModel
 
 from ...backtest.models import TradeStatus, TradeType
@@ -165,7 +167,7 @@ class BacktestResult(BaseModel):
 
 
 @router.get("/strategies", response_model=list[Strategy])
-async def get_strategies():
+async def get_strategies(current_user: dict = Depends(get_current_user)):
     """Get available strategies."""
     try:
         # 导入策略注册表
@@ -304,7 +306,7 @@ async def get_strategies():
 
 
 @router.get("/strategies/{strategy_id}", response_model=Strategy)
-async def get_strategy(strategy_id: str):
+async def get_strategy(strategy_id: str, current_user: dict = Depends(get_current_user)):
     """Get strategy details."""
     strategies = await get_strategies()
     for s in strategies:
@@ -314,7 +316,7 @@ async def get_strategy(strategy_id: str):
 
 
 @router.post("/run", response_model=BacktestResult)
-async def run_backtest(request: BacktestRequest):
+async def run_backtest(request: BacktestRequest, current_user: dict = Depends(get_current_user)):
     """Run backtest."""
     if not request.ts_codes:
         raise HTTPException(status_code=400, detail="回测标的不能为空")
@@ -454,14 +456,14 @@ async def run_backtest(request: BacktestRequest):
 
 
 @router.get("/results", response_model=list[BacktestResult])
-async def get_results(limit: int = Query(default=20)):
+async def get_results(limit: int = Query(default=20), current_user: dict = Depends(get_current_user)):
     """Get backtest history."""
     safe_limit = max(1, min(limit, _MAX_HISTORY_SIZE))
     return _BACKTEST_HISTORY[:safe_limit]
 
 
 @router.get("/results/{task_id}", response_model=BacktestResult)
-async def get_result(task_id: str):
+async def get_result(task_id: str, current_user: dict = Depends(get_current_user)):
     """Get backtest result details."""
     for item in _BACKTEST_HISTORY:
         if item.task_id == task_id:

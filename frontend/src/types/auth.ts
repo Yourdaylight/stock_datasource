@@ -5,6 +5,7 @@ export interface User {
   username: string
   is_active: boolean
   is_admin: boolean
+  subscription_tier: 'free' | 'pro' | 'admin'
   created_at: string
 }
 

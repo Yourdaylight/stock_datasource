@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
+import QuotaIndicator from '@/components/QuotaIndicator.vue'
 import {
   ChatIcon,
   ChartLineIcon,
@@ -45,6 +46,7 @@ interface MenuItem {
   public?: boolean
   requiresAuth?: boolean
   requiresAdmin?: boolean
+  requiresTier?: 'pro' | 'admin'
   children?: MenuItem[]
 }
 
@@ -62,9 +64,10 @@ const menuItems: MenuItem[] = [
     title: '策略系统',
     icon: ToolsIcon,
     requiresAuth: true,
+    requiresTier: 'pro',
     children: [
-      { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true },
-      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true }
+      { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
   {
@@ -72,18 +75,19 @@ const menuItems: MenuItem[] = [
     title: '量化选股',
     icon: PreciseMonitorIcon,
     requiresAuth: true,
+    requiresTier: 'pro',
     children: [
-      { path: '/quant', title: '模型总览', icon: PreciseMonitorIcon, requiresAuth: true },
-      { path: '/quant/screening', title: '全市场初筛', icon: FilterIcon, requiresAuth: true },
-      { path: '/quant/pool', title: '核心目标池', icon: DataDisplayIcon, requiresAuth: true },
-      { path: '/quant/rps', title: 'RPS排名', icon: TrendingUpIcon, requiresAuth: true },
-      { path: '/quant/analysis', title: '深度分析', icon: FileSearchIcon, requiresAuth: true },
-      { path: '/quant/signals', title: '交易信号', icon: NotificationIcon, requiresAuth: true },
-      { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true }
+      { path: '/quant', title: '模型总览', icon: PreciseMonitorIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/screening', title: '全市场初筛', icon: FilterIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/pool', title: '核心目标池', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/rps', title: 'RPS排名', icon: TrendingUpIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/analysis', title: '深度分析', icon: FileSearchIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/signals', title: '交易信号', icon: NotificationIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
-  { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true },
-  { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true },
+  { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true, requiresTier: 'pro' },
+  { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true, requiresAdmin: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
   {
     path: '/system-logs',
@@ -104,15 +108,37 @@ const menuItems: MenuItem[] = [
     title: '数据管理',
     icon: ServerIcon,
     requiresAuth: true,
+    requiresAdmin: true,
     children: [
-      { path: '/datamanage', title: '数据概览', icon: ServerIcon, requiresAuth: true },
-      { path: '/datamanage/explorer', title: '数据浏览器', icon: SearchIcon, requiresAuth: true },
-      { path: '/datamanage/tasks', title: '同步任务', icon: TimeIcon, requiresAuth: true },
-      { path: '/datamanage/knowledge', title: '知识库', icon: BookOpenIcon, requiresAuth: true },
-      { path: '/datamanage/config', title: '数据配置', icon: SettingIcon, requiresAuth: true }
+      { path: '/datamanage', title: '数据概览', icon: ServerIcon, requiresAuth: true, requiresAdmin: true },
+      { path: '/datamanage/explorer', title: '数据浏览器', icon: SearchIcon, requiresAuth: true, requiresAdmin: true },
+      { path: '/datamanage/tasks', title: '同步任务', icon: TimeIcon, requiresAuth: true, requiresAdmin: true },
+      { path: '/datamanage/knowledge', title: '知识库', icon: BookOpenIcon, requiresAuth: true, requiresAdmin: true },
+      { path: '/datamanage/config', title: '数据配置', icon: SettingIcon, requiresAuth: true, requiresAdmin: true }
     ]
   }
 ]
+
+// Tier hierarchy for menu visibility
+const TIER_LEVELS: Record<string, number> = { free: 0, pro: 1, admin: 2 }
+
+// Filter menu items based on user's tier and role
+const visibleMenuItems = computed(() => {
+  const userTier = authStore.user?.subscription_tier || 'free'
+  const userLevel = TIER_LEVELS[userTier] ?? 0
+  const isAdmin = authStore.isAdmin
+
+  const canSee = (item: MenuItem): boolean => {
+    if (item.requiresAdmin && !isAdmin) return false
+    if (item.requiresTier) {
+      const requiredLevel = TIER_LEVELS[item.requiresTier] ?? 0
+      if (userLevel < requiredLevel && !isAdmin) return false
+    }
+    return true
+  }
+
+  return menuItems.filter(canSee)
+})
 
 const activeMenu = computed(() => route.path)
 const isLoginPage = computed(() => route.path === '/login')
@@ -189,7 +215,7 @@ onMounted(async () => {
         theme="light"
         @change="handleMenuChange"
       >
-        <template v-for="item in menuItems" :key="item.path">
+        <template v-for="item in visibleMenuItems" :key="item.path">
           <!-- Item with submenu -->
           <t-submenu v-if="item.children" :value="item.path">
             <template #icon>
@@ -237,6 +263,7 @@ onMounted(async () => {
         <h2>{{ currentTitle }}</h2>
         <t-space>
           <template v-if="authStore.isAuthenticated">
+            <QuotaIndicator />
             <t-dropdown :options="[{ content: '个人中心', value: 'user' }, { content: '退出登录', value: 'logout' }]" @click="handleUserAction">
               <t-button variant="text">
                 <template #icon><UserIcon /></template>
