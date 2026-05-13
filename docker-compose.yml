@@ -30,13 +30,13 @@ services:
       CLICKHOUSE_HOST: ${DOCKER_CLICKHOUSE_HOST:-stock-clickhouse}
       CLICKHOUSE_PORT: ${DOCKER_CLICKHOUSE_PORT:-9000}
       CLICKHOUSE_HTTP_PORT: ${DOCKER_CLICKHOUSE_HTTP_PORT:-8123}
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-stock_datasource}
       # Redis (compose deployment uses redis over docker network)
       REDIS_HOST: ${DOCKER_REDIS_HOST:-stock-redis}
       REDIS_PORT: ${DOCKER_REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-Stock_datasource666}
       REDIS_DB: ${REDIS_DB:-1}
       # Langfuse (默认用宿主机)
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
@@ -51,7 +51,7 @@ services:
       AUTH_EMAIL_WHITELIST_ENABLED: ${AUTH_EMAIL_WHITELIST_ENABLED:-false}
       AUTH_EMAIL_WHITELIST_FILE: ${AUTH_EMAIL_WHITELIST_FILE:-data/email.txt}
       # MCP auth / usage reconciliation
-      MCP_JWT_PUBLIC_KEY_PATH: /run/secrets/mcp_jwt_public.pem
+      MCP_JWT_PUBLIC_KEY_PATH: ${MCP_JWT_PUBLIC_KEY_PATH:-}
       MCP_USAGE_REPORT_KEY: ${MCP_USAGE_REPORT_KEY:-}
       MCP_INTERNAL_BEARER: ${MCP_INTERNAL_BEARER:-stock-datasource-internal}
       # WeKnora Knowledge Base (optional)
@@ -66,10 +66,11 @@ services:
       - ./.local:/app/.local
       - ./logs:/app/logs
       - ./data:/app/data
-      - ${MCP_JWT_PUBLIC_KEY_HOST_PATH:-/home/jq/code/nps_enhanced/conf/jwt_public.pem}:/run/secrets/mcp_jwt_public.pem:ro
+      # MCP JWT public key mount (optional - only needed if MCP auth is enabled)
+      # To enable: set MCP_JWT_PUBLIC_KEY_HOST_PATH in .env to your public key path
+      # - ${MCP_JWT_PUBLIC_KEY_HOST_PATH}:/run/secrets/mcp_jwt_public.pem:ro
     networks:
       - stock_network
-      - langfuse_default
     command: ["uv", "run", "--no-sync", "python", "-m", "stock_datasource.services.backend_container"]
     healthcheck:
       test: curl -f http://localhost:6666/health && curl -f http://localhost:8001/health || exit 1
@@ -114,13 +115,13 @@ services:
       CLICKHOUSE_HOST: ${DOCKER_CLICKHOUSE_HOST:-stock-clickhouse}
       CLICKHOUSE_PORT: ${DOCKER_CLICKHOUSE_PORT:-9000}
       CLICKHOUSE_HTTP_PORT: ${DOCKER_CLICKHOUSE_HTTP_PORT:-8123}
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-stock_datasource}
       # Redis (compose deployment uses redis over docker network)
       REDIS_HOST: ${DOCKER_REDIS_HOST:-stock-redis}
       REDIS_PORT: ${DOCKER_REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-Stock_datasource666}
       REDIS_DB: ${REDIS_DB:-1}
       # API Keys
       TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
@@ -130,7 +131,6 @@ services:
       - ./data:/app/data
     networks:
       - stock_network
-      - langfuse_default
     depends_on:
       backend:
         condition: service_healthy
@@ -141,5 +141,3 @@ networks:
   stock_network:
     name: stock_network
     driver: bridge
-  langfuse_default:
-    external: true
