@@ -144,10 +144,8 @@ def init_db(table, timeout):
             click.echo("Creating portfolio module tables...")
             try:
                 from stock_datasource.modules.portfolio.init import ensure_portfolio_tables
-                if ensure_portfolio_tables():
-                    click.echo("✓ Portfolio tables created successfully")
-                else:
-                    click.echo("✗ Failed to create portfolio tables", err=True)
+                ensure_portfolio_tables()
+                click.echo("✓ Portfolio tables created successfully")
             except Exception as e:
                 click.echo(f"✗ Failed to create portfolio tables: {e}", err=True)
             
