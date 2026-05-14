@@ -118,6 +118,11 @@ class StockCompanyExtractor:
         for col in string_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("")
+                # Replace tab/newline characters that would break
+                # ClickHouse TabSeparated format on insert.
+                df[col] = df[col].str.replace("\t", " ", regex=False)
+                df[col] = df[col].str.replace("\n", " ", regex=False)
+                df[col] = df[col].str.replace("\r", " ", regex=False)
 
         return df
 

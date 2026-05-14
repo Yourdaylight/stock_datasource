@@ -432,12 +432,14 @@ class DataManageService:
             for _, row in col_df.iterrows():
                 existing_cols.add((row["table"], row["name"]))
 
-            # Step 2: Build UNION ALL only for validated (table, date_column) pairs
+            # Step 2: Build UNION ALL only for validated (table, date_column) pairs.
+            # Use toString() on max() so that Date, DateTime, and String columns
+            # all produce compatible types (ClickHouse Code 386: no common supertype).
             union_parts = []
             for table_name, date_col in table_date_map.items():
                 if (table_name, date_col) in existing_cols:
                     union_parts.append(
-                        f"SELECT '{table_name}' AS tbl, max({date_col}) AS latest_date FROM {table_name}"
+                        f"SELECT '{table_name}' AS tbl, toString(max({date_col})) AS latest_date FROM {table_name}"
                     )
 
             if not union_parts:
