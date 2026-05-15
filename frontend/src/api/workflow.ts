@@ -193,7 +193,7 @@ export async function executeWorkflowStream(
   onDone?: () => void,
   onError?: (error: string) => void
 ): Promise<void> {
-  const response = await fetch(`/api/workflows/${workflowId}/execute`, {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/workflows/${workflowId}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -277,7 +277,7 @@ export async function generateWorkflowStream(
   onDone?: () => void,
   onError?: (error: string) => void
 ): Promise<void> {
-  const response = await fetch('/api/workflows/generate', {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/workflows/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

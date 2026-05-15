@@ -9,19 +9,13 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  define: {
+    // 让浏览器端的axios直接请求后端地址
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://9.135.79.139:6688')
+  },
   server: {
-    host: '0.0.0.0', // 允许外部IP访问
+    host: '0.0.0.0',
     port: 3000,
-    strictPort: false, // 允许使用其他端口
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => {
-          console.log('Proxy rewrite:', path)
-          return path
-        }
-      }
-    }
+    strictPort: false
   }
 })

@@ -60,7 +60,7 @@ export const akinatorApi = {
     signal?: AbortSignal,
   ): Promise<void> {
     const token = localStorage.getItem('token') || ''
-    const resp = await fetch('/api/akinator/answer/stream', {
+    const resp = await fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/akinator/answer/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

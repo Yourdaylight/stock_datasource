@@ -51,15 +51,22 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
+  { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
+  {
+    path: '/market-center',
+    title: '行情中心',
+    icon: ChartLineIcon,
+    public: true,
+    children: [
+      { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
+      { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
+      { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true }
+    ]
+  },
   { path: '/research', title: '财报分析', icon: FileSearchIcon, public: true },
   { path: '/news', title: '资讯中心', icon: NotificationIcon, requiresAuth: true },
-  { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
   { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
-  { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
-  { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true },
-  { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
   {
     path: '/strategy',
     title: '策略系统',
@@ -87,7 +94,18 @@ const menuItems: MenuItem[] = [
       { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
-  { path: '/workflow', title: 'AI工作流', icon: QueueIcon, requiresAuth: true, requiresTier: 'pro' },
+  {
+    path: '/agent-center',
+    title: 'Agent中心',
+    icon: SettingIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/agents', title: 'Agent管理', icon: SettingIcon, requiresAuth: true },
+      { path: '/orchestration', title: 'Agent Teams', icon: QueueIcon, requiresAuth: true },
+      { path: '/runtimes', title: 'Runtime', icon: ControlPlatformIcon, requiresAuth: true },
+      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true }
+    ]
+  },
   { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true, requiresAdmin: true },
   { path: '/memory', title: '用户记忆', icon: UserIcon, requiresAuth: true },
   {

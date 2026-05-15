@@ -635,13 +635,11 @@ def _register_toplist_routes(app: FastAPI) -> None:
 
 
 def _register_workflow_routes(app: FastAPI) -> None:
-    """Register workflow management routes."""
-    try:
-        from stock_datasource.api.workflow_routes import router as workflow_router
-        app.include_router(workflow_router)
-        logger.info("Registered workflow routes")
-    except Exception as e:
-        logger.warning(f"Failed to register workflow routes: {e}")
+    """DEPRECATED: Workflow routes replaced by /api/orchestrations/."""
+    # Old workflow routes are no longer registered.
+    # The frontend /workflow path redirects to /orchestration.
+    # Pipeline orchestration is handled by modules/orchestration/router.py
+    pass
 
 
 def _register_cache_routes(app: FastAPI) -> None:

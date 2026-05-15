@@ -189,4 +189,18 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .agent_management.router import router as agent_mgmt_router
+
+        routers.append(("/agents", agent_mgmt_router, ["Agent管理"]))
+    except ImportError:
+        pass
+
+    try:
+        from .orchestration.router import router as orchestration_router
+
+        routers.append(("/orchestrations", orchestration_router, ["Agent编排"]))
+    except ImportError:
+        pass
+
     return routers
