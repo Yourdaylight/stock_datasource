@@ -197,6 +197,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/signal/SignalDashboard.vue'),
     meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true, requiresTier: 'pro' }
   },
+  // Sentinel System (哨兵选股)
+  {
+    path: '/sentinel',
+    name: 'Sentinel',
+    component: () => import('@/views/sentinel/SentinelView.vue'),
+    meta: { title: '哨兵选股', icon: 'alarm-clock', requiresAuth: true }
+  },
   {
     path: '/quant/screening',
     name: 'QuantScreening',

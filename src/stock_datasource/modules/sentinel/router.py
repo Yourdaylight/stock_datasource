@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/sentinel", tags=["sentinel"])
+router = APIRouter(tags=["sentinel"])
 
 
 @router.post("/scan")

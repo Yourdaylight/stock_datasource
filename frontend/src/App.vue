@@ -56,6 +56,7 @@ const menuItems: MenuItem[] = [
   { path: '/news', title: '资讯中心', icon: NotificationIcon, requiresAuth: true },
   { path: '/chat', title: '智能对话', icon: ChatIcon, requiresAuth: true },
   { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
+  { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
   { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true },
   { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },

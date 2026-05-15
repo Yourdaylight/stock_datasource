@@ -182,4 +182,11 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .sentinel.router import router as sentinel_router
+
+        routers.append(("/sentinel", sentinel_router, ["哨兵选股"]))
+    except ImportError:
+        pass
+
     return routers
