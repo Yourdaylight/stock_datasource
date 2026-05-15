@@ -12,7 +12,7 @@ function isPublicPath(path: string): boolean {
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/market'
+    redirect: '/chat'
   },
   {
     path: '/login',
@@ -149,21 +149,37 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/workflow',
-    name: 'Workflow',
-    component: () => import('@/views/workflow/WorkflowList.vue'),
-    meta: { title: 'AI工作流', icon: 'cpu', requiresAuth: true, requiresTier: 'pro' }
+    redirect: '/orchestration'
   },
   {
-    path: '/workflow/create',
-    name: 'WorkflowCreate',
-    component: () => import('@/views/workflow/WorkflowEditor.vue'),
-    meta: { title: '创建工作流', requiresAuth: true }
+    path: '/orchestration',
+    name: 'OrchestrationList',
+    component: () => import('@/views/orchestration/OrchestrationList.vue'),
+    meta: { title: 'Agent编排', icon: 'flow', requiresAuth: true, requiresTier: 'pro' }
   },
   {
-    path: '/workflow/:id/edit',
-    name: 'WorkflowEdit',
-    component: () => import('@/views/workflow/WorkflowEditor.vue'),
-    meta: { title: '编辑工作流', requiresAuth: true }
+    path: '/orchestration/:id',
+    name: 'OrchestrationEditor',
+    component: () => import('@/views/orchestration/OrchestrationEditor.vue'),
+    meta: { title: '编排编辑器', requiresAuth: true, requiresTier: 'pro' }
+  },
+  {
+    path: '/agents',
+    name: 'AgentManagement',
+    component: () => import('@/views/agent-management/AgentList.vue'),
+    meta: { title: 'Agent管理', icon: 'user-setting', requiresAuth: true }
+  },
+  {
+    path: '/runtimes',
+    name: 'RuntimeManagement',
+    component: () => import('@/views/agent-management/RuntimeManagement.vue'),
+    meta: { title: 'Runtime管理', requiresAuth: true }
+  },
+  {
+    path: '/agents/:id/edit',
+    name: 'AgentEditor',
+    component: () => import('@/views/agent-management/AgentEditor.vue'),
+    meta: { title: '编辑Agent', requiresAuth: true }
   },
   {
     path: '/arena',
@@ -196,6 +212,13 @@ const routes: RouteRecordRaw[] = [
     name: 'Signal',
     component: () => import('@/views/signal/SignalDashboard.vue'),
     meta: { title: '信号可观测', icon: 'chart-radar', requiresAuth: true, requiresTier: 'pro' }
+  },
+  // Sentinel System (哨兵选股)
+  {
+    path: '/sentinel',
+    name: 'Sentinel',
+    component: () => import('@/views/sentinel/SentinelView.vue'),
+    meta: { title: '哨兵选股', icon: 'alarm-clock', requiresAuth: true }
   },
   {
     path: '/quant/screening',

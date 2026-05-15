@@ -3,7 +3,6 @@ import { ref, nextTick, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useChatStore } from '@/stores/chat'
-import { useWorkflowStore } from '@/stores/workflow'
 import MessageList from './components/MessageList.vue'
 import InputBox from './components/InputBox.vue'
 import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
@@ -11,9 +10,26 @@ import AkinatorPanel from './components/AkinatorPanel.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
-const workflowStore = useWorkflowStore()
+// Agent teams loaded on mount
 const messageListRef = ref<HTMLElement | null>(null)
-const showWorkflowPanel = ref(false)
+const showTeamPanel = ref(false)
+const agentTeams = ref<any[]>([])
+
+// Load agent teams from orchestration pipelines
+const loadTeams = async () => {
+  try {
+    const { listPipelines } = await import('@/api/orchestration')
+    const res = await listPipelines()
+    agentTeams.value = Array.isArray(res) ? res : (res as any).data || []
+  } catch { /* ignore */ }
+}
+
+const handleTeamChat = (team: any) => {
+  // Send team name as message to trigger multi-agent collaboration
+  const msg = `请使用"${team.name}"团队模式来协作处理我的下一个问题`
+  showTeamPanel.value = false
+  handleSend(msg)
+}
 const showSessionsSidebar = ref(false)
 const editingSessionId = ref('')
 const editingTitle = ref('')
@@ -149,20 +165,7 @@ const handleClearConversation = () => {
   })
 }
 
-// Execute workflow
-const handleExecuteWorkflow = async (workflow: any) => {
-  showWorkflowPanel.value = false
-  const varNames = workflow.variables?.map((v: any) => v.label).join('、') || ''
-  const prompt = varNames 
-    ? `执行工作流"${workflow.name}"，需要填写：${varNames}`
-    : `执行工作流"${workflow.name}"`
-  await chatStore.sendMessage(prompt)
-}
-
-// Go to workflow page
-const goToWorkflow = () => {
-  router.push('/workflow')
-}
+// deprecated workflow handlers removed
 
 // Computed: grouped sessions by date
 const groupedSessions = computed(() => {
@@ -207,17 +210,8 @@ onMounted(async () => {
     MessagePlugin.error('加载历史对话失败，请重新登录后重试')
   }
   
-  // Preload workflows
-  try {
-    if (workflowStore.workflows.length === 0) {
-      await workflowStore.loadWorkflows()
-    }
-    if (workflowStore.templates.length === 0) {
-      await workflowStore.loadTemplates()
-    }
-  } catch (e) {
-    console.warn('Failed to preload workflows:', e)
-  }
+  // 加载Agent Teams
+  loadTeams()
 })
 </script>
 
@@ -450,46 +444,37 @@ onMounted(async () => {
               {{ suggestion }}
             </t-tag>
           </div>
-          <t-button 
-            size="small" 
+          <t-button
+            size="small"
             variant="outline"
-            @click="showWorkflowPanel = !showWorkflowPanel"
+            @click="showTeamPanel = !showTeamPanel"
           >
-            <template #icon><t-icon name="queue" /></template>
-            工作流
+            <template #icon><t-icon name="usergroup" /></template>
+            Agent Teams
           </t-button>
         </div>
-        
-        <!-- Workflow Panel -->
-        <div v-if="showWorkflowPanel" class="workflow-panel">
+
+        <!-- Agent Teams Panel -->
+        <div v-if="showTeamPanel" class="workflow-panel">
           <div class="workflow-panel-header">
-            <span>快捷执行工作流</span>
-            <t-button size="small" variant="text" @click="goToWorkflow">管理工作流</t-button>
+            <span>Agent 团队</span>
+            <t-button size="small" variant="text" @click="router.push('/orchestration')">管理团队</t-button>
           </div>
           <div class="workflow-list">
-            <div 
-              v-for="workflow in workflowStore.templates.slice(0, 5)" 
-              :key="workflow.id"
+            <div
+              v-for="team in agentTeams"
+              :key="team.id"
               class="workflow-item"
-              @click="handleExecuteWorkflow(workflow)"
+              @click="handleTeamChat(team)"
             >
-              <t-icon name="play-circle" />
+              <t-icon name="usergroup" />
               <div class="workflow-info">
-                <span class="workflow-name">{{ workflow.name }}</span>
-                <span class="workflow-desc">{{ workflow.description }}</span>
+                <span class="workflow-name">{{ team.name }}</span>
+                <span class="workflow-desc">{{ team.description || '多Agent协作' }}</span>
               </div>
             </div>
-            <div 
-              v-for="workflow in workflowStore.userWorkflows.slice(0, 3)" 
-              :key="workflow.id"
-              class="workflow-item"
-              @click="handleExecuteWorkflow(workflow)"
-            >
-              <t-icon name="play-circle" />
-              <div class="workflow-info">
-                <span class="workflow-name">{{ workflow.name }}</span>
-                <span class="workflow-desc">{{ workflow.description || '自定义工作流' }}</span>
-              </div>
+            <div v-if="agentTeams.length === 0" class="workflow-item" style="color:#bbb;justify-content:center">
+              暂无团队，去Agent中心创建
             </div>
           </div>
         </div>

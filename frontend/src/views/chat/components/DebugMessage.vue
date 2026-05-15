@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { DebugMessage } from '@/stores/chat'
 import { useChatStore } from '@/stores/chat'
 
@@ -7,8 +8,33 @@ const props = defineProps<{
   message: DebugMessage
 }>()
 
+const router = useRouter()
 const chatStore = useChatStore()
 const expanded = ref(false)
+
+// Agent code name to DB agent mapping
+const AGENT_DB_MAP: Record<string, string> = {
+  'MarketAgent': '行情分析师',
+  'ScreenerAgent': '选股专家',
+  'ReportAgent': '财报分析师',
+  'PortfolioAgent': '持仓管理',
+  'ChatAgent': '通用对话助手',
+  'IndexAgent': '指数分析师',
+  'EtfAgent': 'ETF分析师',
+  'OverviewAgent': '行情分析师',
+  'TopListAgent': '板块轮动分析师',
+  'NewsAnalystAgent': '新闻分析师',
+  'BacktestAgent': '技术面专家',
+}
+
+const navigateToAgent = (agentCodeName: string) => {
+  const dbName = AGENT_DB_MAP[agentCodeName]
+  if (dbName) {
+    router.push({ path: '/agents', query: { highlight: dbName } })
+  } else {
+    router.push('/agents')
+  }
+}
 
 const roleConfig = computed(() => {
   const configs: Record<string, { icon: string; color: string; label: string }> = {
@@ -88,7 +114,12 @@ const formatJson = (obj: any): string => {
     </div>
     <div class="debug-msg__body">
       <div class="debug-msg__header">
-        <span class="debug-msg__agent" :style="{ color: roleConfig.color }">{{ agentName }}</span>
+        <span
+          class="debug-msg__agent debug-msg__agent--clickable"
+          :style="{ color: roleConfig.color }"
+          @click="navigateToAgent(message.agent)"
+          :title="`点击查看 ${agentName} 详情`"
+        >{{ agentName }}</span>
         <span class="debug-msg__time">{{ timeStr }}</span>
       </div>
       <div class="debug-msg__title">{{ title }}</div>
@@ -185,6 +216,16 @@ const formatJson = (obj: any): string => {
 .debug-msg__agent {
   font-size: 12px;
   font-weight: 600;
+}
+
+.debug-msg__agent--clickable {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.debug-msg__agent--clickable:hover {
+  opacity: 0.8;
+  text-decoration: underline solid;
 }
 
 .debug-msg__time {

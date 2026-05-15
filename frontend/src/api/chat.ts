@@ -1,5 +1,7 @@
 import { request } from '@/utils/request'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -162,7 +164,7 @@ export const chatApi = {
   // Stream message via EventSource (GET)
   streamMessageGet(sessionId: string, content: string): EventSource {
     const params = new URLSearchParams({ session_id: sessionId, content })
-    return new EventSource(`/api/chat/stream?${params}`)
+    return new EventSource(`${API_BASE}/api/chat/stream?${params}`)
   },
 
   // Stream message via fetch (POST) - better for longer messages
@@ -184,7 +186,7 @@ export const chatApi = {
         headers['Authorization'] = `Bearer ${token}`
       }
       
-      const response = await fetch('/api/chat/stream', {
+      const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

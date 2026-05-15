@@ -21,33 +21,86 @@
 
 ## 🧠 AI 原生能力
 
-### 多智能体协作架构
+### Agent 中心 — 可配置化 AI 平台
 
-系统采用 **LangGraph** 构建的多智能体架构，由 **OrchestratorAgent（编排器）** 统一协调 **18 个专业 Agent**，配合 **5 个安全中间件**，实现智能意图识别和任务分发：
+系统已从硬编码Agent架构升级为**可配置化Agent平台**。所有Agent通过数据库管理，用户可自定义Agent的提示词、技能和执行引擎。
+
+#### 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| **Agent** | 一个可配置的AI单元，由系统提示词 + 技能 + 模型配置 + Runtime定义 |
+| **Agent Team** | 多个Agent组成的协作团队，支持最多3层汇报层级 |
+| **Runtime** | Agent的执行引擎：LangGraph（本地）/ Claude CLI / CodeBuddy CLI |
+| **Skill** | Agent可使用的能力：平台MCP工具 / 用户Skills / 项目Skills |
+
+#### Agent Team 层级架构（以哨兵智能选股为例）
 
 ```
-用户输入 → OrchestratorAgent → 意图识别 → 路由到专业Agent → 工具调用 → 自然语言回复
-                                                    ↕
-                                        Agent Middlewares（安全/记忆/摘要）
+┌─────────────────────────────────────────────────┐
+│ Tier 3 · 决策层                                  │
+│   [技术面专家]  [价值投资专家]                     │
+│         综合研判 → 输出选股结果                    │
+└─────────────────────▲───────────────────────────┘
+                      │ 汇报
+┌─────────────────────┴───────────────────────────┐
+│ Tier 2 · 分析层                                  │
+│   [选股专家]                                     │
+│         结合大盘+板块信号筛选标的                   │
+└─────────────────────▲───────────────────────────┘
+                      │ 汇报
+┌─────────────────────┴───────────────────────────┐
+│ Tier 1 · 执行层                                  │
+│   [行情分析师]  [板块轮动分析师]                   │
+│         并行采集大盘趋势 + 热门板块                │
+└─────────────────────▲───────────────────────────┘
+                      │
+                  用户指令
 ```
 
-| Agent                     | 功能定位   | 典型场景                                        |
-| ------------------------- | ---------- | ----------------------------------------------- |
-| **OverviewAgent**         | 市场概览   | "今日大盘走势"、"市场情绪如何"                |
-| **MarketAgent**           | 技术分析   | "分析贵州茅台走势"、"600519 估值如何"         |
-| **ScreenerAgent**         | 智能选股   | "找出低估值高成长股票"、"筛选股息率>5%的股票" |
-| **ReportAgent**           | 财报分析   | "分析宁德时代财务状况"、"比较茅台和五粮液财报"|
-| **HKReportAgent**         | 港股财报   | "分析腾讯财报"、"00700 财务健康度"            |
-| **PortfolioAgent**        | 持仓管理   | "查看我的持仓"、"分析投资组合风险"            |
-| **EnhancedPortfolioAgent**| 增强持仓   | 深度组合分析、AI 持仓诊断                      |
-| **BacktestAgent**         | 策略回测   | "回测双均线策略"、"测试选股条件历史收益"      |
-| **IndexAgent**            | 指数分析   | "分析沪深300走势"、"创业板指技术形态"         |
-| **EtfAgent**              | ETF 分析   | "分析科创50ETF"、"对比各行业ETF表现"          |
-| **TopListAgent**          | 龙虎榜     | "今日龙虎榜"、"查看机构席位动向"              |
-| **NewsAnalystAgent**      | 新闻分析   | "今天有什么热点新闻"、"分析市场情绪"          |
-| **KnowledgeAgent**        | 知识库     | "搜索相关研报"、"查找财报公告"（RAG）        |
-| **MemoryAgent**           | 用户记忆   | "记住我的自选股"、"我的投资偏好是什么"        |
-| **DataManageAgent**       | 数据管理   | "更新今日数据"、"检查数据质量"                |
+#### 内置 Agent（10个，全局可见）
+
+![Agent配置管理](screenshot/agent_config.png)
+
+| Agent | 职责 | 技能 |
+|-------|------|------|
+| 💬 通用对话助手 | 一般问答 | — |
+| 📈 行情分析师 | K线/技术指标/趋势 | 日线行情、最新行情 |
+| 🔍 选股专家 | 多维度条件筛选 | 估值数据、行情数据 |
+| 📊 财报分析师 | 财务报表深度分析 | 估值数据 |
+| 📐 技术面专家 | 技术指标与形态 | 日线数据 |
+| 💎 价值投资专家 | 巴菲特式价值分析 | 估值+行情 |
+| 🔄 板块轮动分析师 | 行业轮动判断 | 行情+估值 |
+| 📰 新闻分析师 | 财经新闻解读 | — |
+| 📉 指数分析师 | 大盘指数分析 | 最新行情 |
+| 🏦 ETF分析师 | ETF选择与配置 | — |
+
+#### 内置 Agent Team（6个）
+
+| Team | Agent链路 | 用途 |
+|------|----------|------|
+| **哨兵智能选股** | 行情分析师→板块轮动→选股专家→技术面+价值投资→综合 | 完整选股链路 |
+| **个股全面体检** | 财报+技术面+价值+新闻 → 综合诊断 | 4维并行分析个股 |
+| **行业深度研究** | 行情+板块轮动 → 新闻分析 | 板块趋势研判 |
+| **单股深度分析** | 财报分析师 → 技术面专家 | 基本面+技术面 |
+| **价值投资筛选** | 选股专家 → 价值投资专家 | 低估值筛选 |
+| **板块轮动扫描** | 板块轮动分析师 | 单Agent快速扫描 |
+
+#### Runtime 支持
+
+![Runtime管理](screenshot/runtime.png)
+
+| Runtime | 说明 | 自动探测 |
+|---------|------|---------|
+| LangGraph | 本地框架，调用LLM API + MCP工具 | 内置 |
+| Claude Code | Anthropic CLI Agent | 探测 `claude` 命令 |
+| CodeBuddy | 腾讯AI编程助手 | 探测 `codebuddy` 命令 |
+
+#### 技能来源
+
+- **平台工具** (54个)：MCP Server自动发现的TuShare数据工具
+- **用户Skills** (220+)：`~/.claude/skills/` + `~/.codebuddy/skills/` 自动扫描
+- **项目Skills** (5个)：`skills/` 目录下的SKILL.md定义
 | **DeepAgent**             | 深度研究   | 多轮深度分析、复杂研究任务                     |
 | **WorkflowAgent**         | 工作流执行 | 编排多步骤工作流任务                           |
 | **WorkflowGeneratorAgent**| 工作流生成 | AI 自动生成工作流定义                           |
@@ -147,20 +200,13 @@ uv run scripts/fetch_hk_daily_from_akshare.py \
 
 详细文档请参考 [港股日线数据迁移总结](HK_DAILY_MIGRATION_SUMMARY.md)。
 
-### AI 工作流引擎
+### 哨兵选股系统
 
-支持自定义 AI 工作流，串联多个 Agent 完成复杂任务：
+基于Agent Team的异常驱动选股，支持SSE流式可观测：
 
-```yaml
-# 示例：每日复盘工作流
-steps:
-  - agent: OverviewAgent
-    action: 获取市场概览
-  - agent: ScreenerAgent  
-    action: 筛选涨停股票
-  - agent: ReportAgent
-    action: 分析龙头股财务
-```
+- **执行扫描**：实时展示9个数据哨兵逐个扫描进度
+- **分层汇报**：哨兵告警 → 分析师研判 → LLM综合决策
+- **完整链路**：大盘研判→板块轮动→智能筛选→技术确认→价值把关
 
 ---
 
@@ -447,57 +493,54 @@ curl http://localhost:18080/api/open/docs \
 ## 🏗️ 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     前端 (Vue 3 + TypeScript + TDesign)                 │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────┐     │
-│  │ 智能对话 │ │ 智能选股 │ │ 行情分析 │ │ 持仓管理 │ │ 财报分析  │     │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘     │
-│  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌────┴─────┐     │
-│  │量化选股 │ │新闻资讯 │ │策略工具台│ │多Agent场│ │ 开放API  │     │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘     │
-│  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐                              │
-│  │实时行情 │ │微信桥接 │ │系统日志 │                              │
-│  └────┬────┘ └────┬────┘ └────┬────┘                              │
-└───────┼──────────┼──────────┼──────────┼──────────┼──────────┼────────┼────────┼────────┘
-        │          │          │          │          │          │        │        │
-        ▼          ▼          ▼          ▼          ▼          ▼        ▼        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      API Layer (FastAPI)                         │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  OrchestratorAgent (18 Agents)               │   │
-│  │    ┌──────────────────────────────────────────────┐      │   │
-│  │    │      意图识别 → 并发路由 → Agent交接 → 聚合    │      │   │
-│  │    └──────────────────────────────────────────────┘      │   │
-│  │         │         │         │         │         │         │   │
-│  │    ┌────▼───┐ ┌───▼────┐ ┌──▼───┐ ┌──▼───┐ ┌───▼────┐   │   │
-│  │    │Overview│ │Screener│ │Report│ │Market│ │Backtest│   │   │
-│  │    │ Agent  │ │ Agent  │ │Agent │ │Agent │ │ Agent  │   │   │
-│  │    └────────┘ └────────┘ └──────┘ └──────┘ └────────┘   │   │
-│  │    + IndexAgent, EtfAgent, PortfolioAgent, MemoryAgent      │   │
-│    + TopListAgent, NewsAnalystAgent, KnowledgeAgent         │   │
-│    + DataManageAgent, ChatAgent, WorkflowAgent              │   │
-│    + DeepAgent, EnhancedPortfolioAgent, WorkflowGenerator   │   │
-│  │  ┌──────────────────────────────────────────────────────┐   │   │
-│  │  │  Agent Middlewares (安全护栏/循环检测/记忆注入/摘要)  │   │   │
-│  │  └──────────────────────────────────────────────────────┘   │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │            Open API Gateway (/api/open/v1/*)               │   │
-│  │      API Key 认证 → 速率限制 → Plugin数据查询 → 用量追踪  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-        │                                  │                │
-        ▼                                  ▼                ▼
-┌───────────────────┐    ┌─────────────┐   ┌────────────────────┐
-│   LLM Provider    │    │    Redis    │   │     Task Worker    │
-│ OpenAI / 国产大模型│    │ 队列 & 缓存 │   │ 任务调度/采集执行    │
-└───────────────────┘    └─────────────┘   └────────────────────┘
-        │                                  │
-        ▼                                  ▼
-┌───────────────────┐    ┌───────────────────┐
-│     Langfuse      │    │  ClickHouse DB    │
-│   AI 可观测平台    │    │  A股/港股全量数据   │
-└───────────────────┘    └───────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                    前端 (Vue 3 + TypeScript + TDesign)                   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐   │
+│  │ 智能对话  │ │ 行情中心  │ │Agent中心 │ │ 量化选股  │ │  数据管理  │   │
+│  │ (Chat)   │ │(行情/指数 │ │ Agent管理│ │ (Quant)  │ │           │   │
+│  │          │ │ /ETF)    │ │Agent Teams│ │          │ │           │   │
+│  │          │ │          │ │ Runtime  │ │          │ │           │   │
+│  │          │ │          │ │ 哨兵选股  │ │          │ │           │   │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────┬─────┘   │
+└───────┼────────────┼────────────┼────────────┼─────────────┼──────────┘
+        │            │            │            │             │
+        ▼            ▼            ▼            ▼             ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        API Layer (FastAPI)                              │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                    Agent 执行引擎                                  │  │
+│  │                                                                    │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │  │
+│  │  │  LangGraph  │  │ Claude CLI  │  │    CodeBuddy CLI        │  │  │
+│  │  │(本地LLM+MCP)│  │ (subprocess)│  │    (subprocess)         │  │  │
+│  │  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │  │
+│  │         │                │                      │                │  │
+│  │         └────────────────┴──────────────────────┘                │  │
+│  │                          │                                        │  │
+│  │         ┌────────────────▼────────────────┐                      │  │
+│  │         │   Agent Configs (ClickHouse)     │                      │  │
+│  │         │   10 内置 + 用户自定义            │                      │  │
+│  │         └────────────────┬────────────────┘                      │  │
+│  │                          │                                        │  │
+│  │         ┌────────────────▼────────────────┐                      │  │
+│  │         │   Agent Teams (层级编排)         │                      │  │
+│  │         │   Tier1→Tier2→Tier3 汇报链路     │                      │  │
+│  │         └─────────────────────────────────┘                      │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                        │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │
+│  │  Skills (MCP)   │  │  Sentinel System │  │  Open API Gateway   │  │
+│  │  54平台工具      │  │  哨兵扫描(SSE)   │  │  /api/open/v1/*    │  │
+│  │  220用户Skills   │  │  9哨兵+4分析师    │  │                    │  │
+│  └─────────────────┘  └──────────────────┘  └─────────────────────┘  │
+└─────────────────┬──────────────────┬──────────────────┬───────────────┘
+                  │                  │                  │
+                  ▼                  ▼                  ▼
+┌───────────────────┐  ┌─────────────────┐  ┌────────────────────┐
+│   LLM Provider    │  │   ClickHouse    │  │      Redis         │
+│  DeepSeek/GPT/..  │  │  A股全量数据     │  │   缓存 & 队列      │
+└───────────────────┘  └─────────────────┘  └────────────────────┘
 ```
 
 ### 技术栈
@@ -505,13 +548,14 @@ curl http://localhost:18080/api/open/docs \
 | 层级       | 技术                                                    |
 | ---------- | ------------------------------------------------------- |
 | **前端**   | Vue 3, TypeScript, TDesign, ECharts, Pinia              |
-| **后端**   | Python 3.11+, FastAPI, LangGraph, DeepAgents            |
-| **数据库** | ClickHouse（列式存储，高性能分析）                      |
+| **后端**   | Python 3.12, FastAPI, LangGraph, uv                     |
+| **Agent**  | 可配置Agent + 层级Team编排 + 多Runtime支持              |
+| **数据库** | ClickHouse（列式存储，Agent配置+金融数据）              |
 | **缓存**   | Redis（会话缓存、数据缓存）                             |
-| **数据源** | TuShare Pro（A股）、AKShare（港股/实时）、同花顺指数   |
-| **AI**     | OpenAI GPT-4 / Kimi / 国产大模型，Function Calling      |
-| **可观测** | Langfuse（AI 调用链路追踪）                             |
-| **开放接口** | Open API Gateway + MCP Server（外部数据查询）          |
+| **数据源** | TuShare Pro（A股）、AKShare（港股/实时）、同花顺指数    |
+| **AI**     | DeepSeek V4 Pro / GPT-4o，Function Calling              |
+| **Runtime**| LangGraph + Claude CLI + CodeBuddy CLI                  |
+| **可观测** | Langfuse + 哨兵扫描SSE流式                              |
 
 ---
 
@@ -520,80 +564,49 @@ curl http://localhost:18080/api/open/docs \
 ```
 stock_datasource/
 ├── src/stock_datasource/
-│   ├── agents/                # AI Agent 层（18个专业Agent + 5个中间件）
-│   │   ├── orchestrator.py    # 编排器（意图路由、并发执行、Agent交接）
-│   │   ├── base_agent.py      # Agent 基类
-│   │   ├── overview_agent.py  # 市场概览
-│   │   ├── market_agent.py    # 技术分析
-│   │   ├── screener_agent.py  # 智能选股
-│   │   ├── report_agent.py    # A股财报分析
-│   │   ├── hk_report_agent.py # 港股财报分析
-│   │   ├── portfolio_agent.py # 持仓管理
-│   │   ├── enhanced_portfolio_agent.py # 增强持仓分析
-│   │   ├── backtest_agent.py  # 策略回测
-│   │   ├── index_agent.py     # 指数分析
-│   │   ├── etf_agent.py       # ETF分析
-│   │   ├── toplist_agent.py   # 龙虎榜分析
-│   │   ├── news_analyst_agent.py # 新闻分析
-│   │   ├── knowledge_agent.py # 知识库（RAG）
-│   │   ├── memory_agent.py    # 用户记忆
-│   │   ├── datamanage_agent.py # 数据管理
-│   │   ├── deep_agent.py      # 深度研究
-│   │   ├── chat_agent.py      # 通用对话
-│   │   ├── workflow_agent.py  # 工作流执行
-│   │   ├── workflow_generator_agent.py # 工作流生成
-│   │   ├── middlewares/       # Agent 安全中间件
-│   │   │   ├── cross_validation.py  # 交叉验证
-│   │   │   ├── guardrail.py         # 安全护栏
-│   │   │   ├── loop_detection.py    # 循环检测
-│   │   │   ├── memory_injection.py  # 记忆注入
-│   │   │   └── summarization.py     # 自动摘要
-│   │   └── *_tools.py         # Agent 工具集
-│   ├── plugins/               # 数据采集插件（77个）
-│   ├── modules/               # 功能模块（28个）
-│   │   ├── auth/              # 认证模块
-│   │   ├── chat/              # 对话交互
-│   │   ├── market/            # 行情分析
-│   │   ├── screener/          # 选股模块
-│   │   ├── report/            # 财报研读
-│   │   ├── hk_report/         # 港股财报
-│   │   ├── financial_analysis/ # 财务分析中心
-│   │   ├── overview/          # 市场概览
-│   │   ├── news/              # 新闻资讯
-│   │   ├── etf/               # ETF基金
-│   │   ├── index/             # 指数选股
-│   │   ├── portfolio/         # 持仓管理
-│   │   ├── backtest/          # 策略回测
-│   │   ├── arena/             # 多Agent竞技场
-│   │   ├── quant/             # 量化选股
-│   │   ├── memory/            # 用户记忆
-│   │   ├── datamanage/        # 数据管理
-│   │   ├── open_api/          # 开放API网关
-│   │   ├── mcp_api_key/       # MCP API Key 管理
-│   │   ├── token_usage/       # Token用量统计
-│   │   ├── mcp_usage/         # MCP调用统计
-│   │   ├── realtime_minute/   # 实时分钟线
-│   │   ├── realtime_kline/    # 实时K线推送
-│   │   ├── system_logs/       # 系统日志
-│   │   ├── ths_index/         # 同花顺指数
-│   │   ├── toplist/           # 龙虎榜
-│   │   ├── user_llm_config/   # 用户LLM配置
-│   │   └── wechat_bridge/     # 微信桥接(PicoClaw)
-│   ├── services/              # HTTP / MCP / 任务队列等核心服务
-│   ├── tasks/                 # 定时任务与调度
-│   ├── core/                  # 核心组件（插件管理、服务生成器等）
-├── skills/                   # 技能包（tushare-plugin-builder、stock-rt-subscribe等）
-├── frontend/                  # Vue 3 前端
-├── scripts/                   # 数据采集脚本
-├── docker/                    # Docker 配置
-│   └── migrations/            # 数据库迁移脚本
-├── docs/                      # 文档
-├── cli.py                     # 命令行工具
-├── docker-compose.yml         # 应用服务
-├── docker-compose.infra.yml   # 基础设施
-└── tests/                     # 测试
+│   ├── models/
+│   │   ├── agent_config.py        # Agent配置Pydantic模型（含Runtime/ModelConfig）
+│   │   ├── orchestration.py       # Agent Team/Pipeline模型
+│   │   └── database.py            # ClickHouse客户端
+│   ├── services/
+│   │   ├── agent_config_service.py    # Agent CRUD (ClickHouse持久化)
+│   │   ├── orchestration_service.py   # Team/Pipeline CRUD
+│   │   ├── orchestration_engine.py    # DAG执行引擎（多Runtime分发）
+│   │   ├── skill_registry.py         # 技能注册中心
+│   │   ├── mcp_server.py             # MCP工具服务
+│   │   └── http_server.py            # FastAPI入口
+│   ├── modules/                   # 功能模块（28个）
+│   │   ├── agent_management/      # Agent管理API（CRUD+Skills+Runtime探测）
+│   │   ├── orchestration/         # Agent Team编排API
+│   │   ├── sentinel/              # 哨兵系统（SSE流式扫描）
+│   │   ├── chat/                  # 智能对话
+│   │   ├── auth/                  # 认证
+│   │   ├── market/                # 行情
+│   │   ├── screener/              # 选股
+│   │   ├── portfolio/             # 持仓
+│   │   ├── quant/                 # 量化
+│   │   └── ...
+│   ├── agents/                    # Agent执行层（LangGraph集成）
+│   │   ├── orchestrator.py        # OrchestratorAgent（Chat调度）
+│   │   ├── base_agent.py          # Agent基类
+│   │   └── middlewares/           # 安全中间件
+│   └── plugins/                   # TuShare数据采集插件（77个）
+├── frontend/src/
+│   ├── views/
+│   │   ├── chat/                  # 智能对话（含Agent Teams快捷入口）
+│   │   ├── agent-management/      # Agent管理 + Runtime管理
+│   │   ├── orchestration/         # Agent Teams编辑器（3层层级）
+│   │   ├── sentinel/              # 哨兵选股（SSE可观测）
+│   │   ├── market/                # 行情分析
+│   │   └── ...
+│   ├── api/
+│   │   ├── agent.ts               # Agent API客户端
+│   │   ├── orchestration.ts       # Team API客户端
+│   │   └── sentinel.ts            # 哨兵API客户端
+│   └── App.vue                    # 菜单布局（Agent中心二级菜单）
+├── skills/                        # 项目级SKILL.md定义
+└── data/                          # 运行时数据
 ```
-
 ---
 
 ## 🧪 测试
@@ -602,19 +615,21 @@ stock_datasource/
 # 运行所有测试
 uv run pytest tests/
 
-# 测试 AI Agent
-uv run python -c "
-from dotenv import load_dotenv; load_dotenv()
-from stock_datasource.agents import get_orchestrator
-import asyncio
+# 测试 Chat对话
+curl -X POST http://localhost:6688/api/chat/stream \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "test", "content": "今日大盘走势如何"}'
 
-async def test():
-    orch = get_orchestrator()
-    result = await orch.execute('今日大盘走势如何')
-    print(result.response)
+# 测试 Agent Team执行
+curl -X POST http://localhost:6688/api/orchestrations/{team_id}/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input_data": {"message": "帮我选3只低估值成长股"}}'
 
-asyncio.run(test())
-"
+# 测试哨兵扫描（SSE流式）
+curl -N -X POST http://localhost:6688/api/sentinel/scan/stream \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -648,10 +663,12 @@ docker-compose build backend && docker-compose up -d backend
 修改 `.env` 中的配置：
 
 ```env
-OPENAI_BASE_URL=https://your-provider-url/v1
-OPENAI_MODEL=your-model-name
+OPENAI_BASE_URL=https://api.model.haihub.cn/v1
+OPENAI_MODEL=DeepSeek-V4-Pro
 OPENAI_API_KEY=your-api-key
 ```
+
+支持的模型：DeepSeek-V4-Pro, DeepSeek-V3, DeepSeek-R1, GPT-4o, GPT-4o-mini 等。
 
 ### Q: 数据采集失败？
 
