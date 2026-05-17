@@ -83,8 +83,9 @@ export interface DebugMessage {
   targetAgent?: string
   parentAgent?: string
   laneId?: string
+  arenaId?: string
   // Display role
-  role: 'orchestrator' | 'agent' | 'tool' | 'system' | 'handoff'
+  role: 'orchestrator' | 'agent' | 'tool' | 'system' | 'handoff' | 'discussion'
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -127,6 +128,17 @@ export const useChatStore = defineStore('chat', () => {
   const messageVisualizations = ref<Record<string, VisualizationEvent['visualization'][]>>({})
   // Accumulator for current streaming message's visualizations
   let pendingVisualizations: VisualizationEvent['visualization'][] = []
+
+  // Decision Summary state (from arena discussions)
+  const decisionSummary = ref<{
+    signal: 'BUY' | 'SELL' | 'HOLD' | 'NONE'
+    confidence: number
+    bull_count: number
+    bear_count: number
+    neutral_count: number
+    suggested_action: string
+  } | null>(null)
+  const decisionSidebarOpen = ref(false)
 
   // AbortController for cancelling in-flight streams on session switch
   let streamAbortController: AbortController | null = null
@@ -441,6 +453,8 @@ export const useChatStore = defineStore('chat', () => {
       role = 'handoff'
     } else if (debugType === 'data_sharing') {
       role = 'system'
+    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'arena_error') {
+      role = 'discussion'
     }
 
     // Determine laneId for parallel routing
@@ -467,10 +481,25 @@ export const useChatStore = defineStore('chat', () => {
       targetAgent: data.to_agent,
       parentAgent: data.parent_agent,
       laneId,
+      arenaId: event.arena_id,
       role,
     }
 
     debugMessages.value.push(msg)
+
+    // Special handling for decision_summary: update decision state
+    if (debugType === 'decision_summary' && data.signal) {
+      decisionSummary.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD' | 'NONE',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        suggested_action: data.suggested_action || '',
+      }
+      decisionSidebarOpen.value = true
+      console.log('[Chat] Decision summary received:', decisionSummary.value)
+    }
   }
 
   // Save debug messages snapshot for a completed message (for history playback)
@@ -790,6 +819,9 @@ export const useChatStore = defineStore('chat', () => {
     messageDebugMap,
     // Visualization state
     messageVisualizations,
+    // Decision summary state
+    decisionSummary,
+    decisionSidebarOpen,
     // Actions
     initSession,
     restoreOrInitSession,

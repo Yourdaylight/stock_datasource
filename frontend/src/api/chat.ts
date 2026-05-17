@@ -85,7 +85,7 @@ export interface ErrorEvent {
 
 export interface DebugEvent {
   type: 'debug'
-  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing'
+  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'arena_error'
   agent: string
   timestamp: number
   data: {
@@ -116,8 +116,20 @@ export interface DebugEvent {
     data_summary?: Record<string, string>
     // handoff
     shared_data_summary?: Record<string, string>
+    // arena discussion_argument
+    agent_role?: string
+    round_id?: string
+    message_type?: string
+    // decision_summary (arena)
+    signal?: 'BUY' | 'SELL' | 'HOLD' | 'NONE'
+    confidence?: number
+    bull_count?: number
+    bear_count?: number
+    neutral_count?: number
+    suggested_action?: string
     [key: string]: any
   }
+  arena_id?: string
 }
 
 export interface VisualizationEvent {

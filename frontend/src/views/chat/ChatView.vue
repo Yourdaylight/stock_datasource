@@ -8,6 +8,8 @@ import InputBox from './components/InputBox.vue'
 import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
 import AgentDiscussionSidebar from './components/AgentDiscussionSidebar.vue'
 import AkinatorPanel from './components/AkinatorPanel.vue'
+import DecisionSignalPanel from '@/components/chat/DecisionSignalPanel.vue'
+import DiscussionEventsViewer from '@/components/chat/DiscussionEventsViewer.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()
@@ -455,12 +457,30 @@ onMounted(async () => {
         </div>
       </div>
       
-      <div ref="messageListRef" class="message-area">
-        <MessageList 
-          :messages="chatStore.messages" 
-          :loading="chatStore.loading" 
-          @quick-action="handleSend"
-        />
+      <div class="main-content-area">
+        <div ref="messageListRef" class="message-area">
+          <MessageList 
+            :messages="chatStore.messages" 
+            :loading="chatStore.loading" 
+            @quick-action="handleSend"
+          />
+        </div>
+        
+        <!-- Decision Signal Panel -->
+        <div v-if="chatStore.decisionSummary" class="decision-signal-container">
+          <DecisionSignalPanel 
+            :summary="chatStore.decisionSummary"
+            @close="chatStore.decisionSummary = null"
+          />
+        </div>
+        
+        <!-- Discussion Events Viewer -->
+        <div v-if="chatStore.debugSidebarOpen && chatStore.debugMessages.length > 0" class="discussion-viewer-container">
+          <DiscussionEventsViewer 
+            :debug-messages="chatStore.debugMessages"
+            @close="chatStore.debugSidebarOpen = false"
+          />
+        </div>
       </div>
       
       <div class="input-area">
@@ -801,4 +821,49 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Main Content Area */
+.main-content-area {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--td-bg-color, #ffffff);
+}
+
+.message-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.decision-signal-container {
+  flex-shrink: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.discussion-viewer-container {
+  flex-shrink: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 </style>
