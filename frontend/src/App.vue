@@ -75,7 +75,8 @@ const menuItems: MenuItem[] = [
     requiresTier: 'pro',
     children: [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true, requiresTier: 'pro' },
-      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
+      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/decision', title: '决策看板', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
   {

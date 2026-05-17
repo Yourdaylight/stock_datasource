@@ -12,10 +12,12 @@ from datetime import datetime
 from typing import Any
 
 from .agents import ArenaAgentBase, create_agent_from_config
+from .decision_summarizer import get_decision_summarizer
 from .exceptions import DiscussionError
 from .models import (
     Arena,
     ArenaStrategy,
+    DecisionSummary,
     DiscussionMode,
     DiscussionRound,
     MessageType,
@@ -109,6 +111,34 @@ class AgentDiscussionOrchestrator:
 
             # Complete round
             discussion_round.completed_at = datetime.now()
+
+            # Generate decision summary (hybrid: rule-based + LLM)
+            decision_summary = await self._generate_decision_summary(
+                discussion_round=discussion_round,
+                strategies=strategies,
+                market_context=market_context,
+            )
+
+            # Publish decision summary via SSE
+            if decision_summary:
+                await self.stream_processor.publish_system(
+                    f"## 决策信号: {decision_summary.signal.upper()}\n"
+                    f"- 置信度: {decision_summary.confidence:.0%}\n"
+                    f"- 看多: {decision_summary.bull_count} | "
+                    f"看空: {decision_summary.bear_count} | "
+                    f"中性: {decision_summary.neutral_count}\n"
+                    f"- 建议: {decision_summary.suggested_action}",
+                    metadata={
+                        "type": "decision_summary",
+                        "signal": decision_summary.signal,
+                        "confidence": decision_summary.confidence,
+                        "decision_id": decision_summary.id,
+                    },
+                )
+                # Store on the round for retrieval
+                discussion_round.conclusions["_decision_summary"] = (
+                    decision_summary.id
+                )
 
             # Announce round completion
             await self.stream_processor.publish_system(
@@ -282,6 +312,50 @@ class AgentDiscussionOrchestrator:
             scores = review_scores[strategy.id]
             avg_score = sum(scores) / len(scores) if scores else 0
             discussion_round.conclusions[strategy.id] = f"平均评分: {avg_score:.1f}/100"
+
+    async def _generate_decision_summary(
+        self,
+        discussion_round: DiscussionRound,
+        strategies: list[ArenaStrategy],
+        market_context: dict[str, Any] = None,
+    ) -> DecisionSummary | None:
+        """Generate a decision summary after discussion completes.
+
+        Uses the DecisionSummarizer to produce buy/sell/hold signals
+        from the discussion messages.
+        """
+        try:
+            summarizer = get_decision_summarizer()
+
+            # Determine target stock code from strategies
+            stock_code = ""
+            if strategies:
+                symbols = strategies[0].symbols
+                if symbols:
+                    stock_code = symbols[0]
+
+            summary = await summarizer.generate_summary(
+                discussion_round=discussion_round,
+                stock_code=stock_code,
+                market_context=market_context,
+                arena_id=self.arena.id,
+                user_id=self.arena.user_id,
+            )
+
+            # Store the summary for later retrieval
+            if not hasattr(self.arena, "_decision_summaries"):
+                self.arena._decision_summaries = []
+            self.arena._decision_summaries.append(summary)
+
+            logger.info(
+                f"Generated decision summary: signal={summary.signal}, "
+                f"confidence={summary.confidence:.2f}"
+            )
+            return summary
+
+        except Exception as e:
+            logger.warning(f"Failed to generate decision summary: {e}")
+            return None
 
     async def refine_strategies(
         self,

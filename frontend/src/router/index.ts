@@ -199,6 +199,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/arena/ArenaStrategyDetail.vue'),
     meta: { title: '策略详情', requiresAuth: true }
   },
+  // Decision Dashboard
+  {
+    path: '/decision',
+    name: 'DecisionDashboard',
+    component: () => import('@/views/decision/DecisionDashboard.vue'),
+    meta: { title: '决策看板', icon: 'chart-analytics', requiresAuth: true }
+  },
   // Quant model routes
   {
     path: '/quant',

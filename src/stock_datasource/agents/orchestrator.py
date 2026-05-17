@@ -33,6 +33,10 @@ from stock_datasource.services.execution_planner import (
     can_run_concurrently,
 )
 from stock_datasource.services.mcp_client import MCPClient
+from stock_datasource.services.chat_arena_adapter import (
+    get_chat_arena_adapter,
+)
+
 
 from .base_agent import (
     AgentResult,
@@ -1349,6 +1353,52 @@ Action Input: {{}}
         # Pass parent_agent to sub-agent context
         context["parent_agent"] = "OrchestratorAgent"
 
+        # Phase 2: Initialize arena discussion for multi-agent scenarios
+        # This allows decision signals to be displayed in the chat "决策" sidebar
+        arena_task = None
+        arena_adapter = None
+        try:
+            session_id = context.get("session_id", "")
+            user_id = context.get("user_id", "")
+            if session_id and user_id and len(plan) > 1:
+                arena_adapter = get_chat_arena_adapter()
+                # Create arena for this multi-agent discussion
+                arena_id = await arena_adapter.create_arena_for_chat_session(
+                    session_id=session_id,
+                    user_id=user_id,
+                    stock_codes=stock_codes,
+                    agents_in_plan=plan,
+                    market_context={
+                        "intent": intent,
+                        "query": query,
+                        "timestamp": time.time(),
+                    },
+                )
+                logger.info(f"Created arena {arena_id} for chat session {session_id}")
+                
+                # Launch arena discussion task in background (non-blocking)
+                async def _run_arena_discussion():
+                    """Run arena discussion in parallel with agent execution."""
+                    try:
+                        async for arena_event in arena_adapter.run_discussion_and_collect_signals(
+                            arena_id=arena_id,
+                            discussion_mode="debate",
+                        ):
+                            if not hasattr(self, "_arena_events"):
+                                self._arena_events = []
+                            self._arena_events.append(arena_event)
+                            logger.debug(f"Collected arena event: {arena_event.get('debug_type')}")
+                    except Exception as e:
+                        logger.warning(f"Arena discussion failed (non-blocking): {e}")
+                        # Don't raise - arena is non-blocking, chat must continue
+                
+                arena_task = asyncio.create_task(_run_arena_discussion())
+                logger.info(f"Launched arena discussion task for arena {arena_id}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize arena (non-blocking): {e}")
+            # Gracefully degrade - arena setup failure should not break chat
+
+
         tool_calls = []
         sub_metadata = []
         queue: asyncio.Queue = asyncio.Queue()
@@ -1442,6 +1492,28 @@ Action Input: {{}}
         for task in tasks:
             if not task.done():
                 task.cancel()
+
+        # Collect arena discussion events if available (non-blocking)
+        if arena_task and not arena_task.done():
+            try:
+                # Wait briefly for arena task to complete (with timeout to avoid blocking)
+                await asyncio.wait_for(arena_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning("Arena discussion task did not complete in time, cancelling")
+                arena_task.cancel()
+            except Exception as e:
+                logger.debug(f"Arena task error (non-blocking): {e}")
+        
+        # Emit collected arena events to frontend
+        if hasattr(self, "_arena_events") and self._arena_events:
+            for arena_event in self._arena_events:
+                try:
+                    yield arena_event
+                except Exception as e:
+                    logger.debug(f"Failed to yield arena event: {e}")
+            # Clean up
+            self._arena_events = []
+
 
         # Flush any pending debug events (e.g., data_sharing)
         if hasattr(self, "_pending_debug_events"):

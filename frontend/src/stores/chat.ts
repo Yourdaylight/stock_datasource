@@ -128,6 +128,9 @@ export const useChatStore = defineStore('chat', () => {
   // Accumulator for current streaming message's visualizations
   let pendingVisualizations: VisualizationEvent['visualization'][] = []
 
+  // AbortController for cancelling in-flight streams on session switch
+  let streamAbortController: AbortController | null = null
+
   // ============ LocalStorage Persistence Functions ============
   
   // Save messages to localStorage for current session
@@ -293,14 +296,29 @@ export const useChatStore = defineStore('chat', () => {
   const switchSession = async (newSessionId: string) => {
     if (newSessionId === sessionId.value) return
 
+    // CRITICAL: Abort any in-flight stream BEFORE changing session
+    // This prevents the old stream's callbacks from writing into the new session
+    if (streamAbortController) {
+      streamAbortController.abort()
+      streamAbortController = null
+    }
+
     const previousSessionId = sessionId.value
     const previousMessages = [...messages.value]
     const previousTitle = currentSessionTitle.value
     const session = sessions.value.find(s => s.session_id === newSessionId)
 
+    // Reset all streaming state immediately
+    loading.value = false
+    thinking.value = false
+    streamingContent.value = ''
+    currentAgent.value = ''
+    currentIntent.value = ''
+    currentTool.value = ''
+    currentStatus.value = ''
+
     applyActiveSession(newSessionId, session?.title || '')
     messages.value = []
-    streamingContent.value = ''
 
     const localMessages = loadMessagesFromStorage()
     if (localMessages.length > 0) {
@@ -511,14 +529,30 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(assistantMessage)
 
+    // Capture the session ID at the time of sending — used as a guard
+    // to prevent stale callbacks from writing into a different session
+    const sendingSessionId = sessionId.value
+
+    // Create AbortController for this stream
+    if (streamAbortController) {
+      streamAbortController.abort()
+    }
+    streamAbortController = new AbortController()
+    const currentController = streamAbortController
+
     try {
       await chatApi.streamMessagePost(
-        sessionId.value,
+        sendingSessionId,
         content,
         (event: StreamEvent) => {
+          // SESSION GUARD: If user switched sessions, discard stale events
+          if (sessionId.value !== sendingSessionId) {
+            return
+          }
+
           // Debug log for event tracking
           console.debug('[Chat] Received event:', event.type, event)
-          
+
           switch (event.type) {
             case 'thinking':
               thinking.value = true
@@ -552,7 +586,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
               break
-              
+
             case 'tool':
               thinking.value = true
               if (event.agent) {
@@ -607,7 +641,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
               }
               break
-              
+
             case 'done':
               thinking.value = false
               loading.value = false
@@ -624,9 +658,11 @@ export const useChatStore = defineStore('chat', () => {
               }
               // Save debug snapshot for this message
               saveDebugSnapshot(assistantMessageId)
+              // Auto-generate session title after first assistant response
+              autoGenerateTitle(sendingSessionId, content)
               console.debug('[Chat] Stream completed with metadata:', event.metadata)
               break
-              
+
             case 'error':
               thinking.value = false
               loading.value = false
@@ -640,12 +676,16 @@ export const useChatStore = defineStore('chat', () => {
                 errorMsg.content = `抱歉，处理请求时出现错误: ${errorDetail}`
               }
               break
-              
+
             default:
               console.warn('[Chat] Unknown event type:', (event as any).type)
           }
         },
         (error: Error) => {
+          // SESSION GUARD: Ignore errors from aborted/stale streams
+          if (sessionId.value !== sendingSessionId) {
+            return
+          }
           console.error('[Chat] Stream connection error:', error)
           thinking.value = false
           loading.value = false
@@ -659,9 +699,12 @@ export const useChatStore = defineStore('chat', () => {
               errorMsg.content = `抱歉，处理您的请求时出现了问题: ${error.message}`
             }
           }
-        }
+        },
+        currentController
       )
     } catch (e) {
+      // SESSION GUARD
+      if (sessionId.value !== sendingSessionId) return
       console.error('[Chat] Unexpected error:', e)
       thinking.value = false
       loading.value = false
@@ -670,6 +713,31 @@ export const useChatStore = defineStore('chat', () => {
       if (errorMsg) {
         errorMsg.content = '抱歉，处理您的请求时出现了问题，请稍后重试。'
       }
+    }
+  }
+
+  // Auto-generate session title using LLM after first assistant response
+  const autoGenerateTitle = async (targetSessionId: string, userMessage: string) => {
+    // Only generate title for sessions that don't have one yet
+    const session = sessions.value.find(s => s.session_id === targetSessionId)
+    if (!session) return
+    if (session.title && session.title.trim() !== '') return
+
+    // Only trigger on first exchange (message_count ≤ 2 means first user + first assistant)
+    if (session.message_count > 2) return
+
+    try {
+      const result = await chatApi.generateSessionTitle(targetSessionId)
+      if (result.title) {
+        // Update in sessions list
+        session.title = result.title
+        // Update current title if it's the active session
+        if (targetSessionId === sessionId.value) {
+          currentSessionTitle.value = result.title
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to auto-generate session title:', e)
     }
   }
 

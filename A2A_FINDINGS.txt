@@ -1,0 +1,205 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║              AGENT-TO-AGENT (A2A) COMMUNICATION ARCHITECTURE                   ║
+║                         INVESTIGATION SUMMARY                                  ║
+║                        Stock Datasource Project                                ║
+║                         Investigation Date: 2026-05-17                         ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+CRITICAL FINDING:
+═════════════════════════════════════════════════════════════════════════════════
+Three completely SEPARATE, UNCONNECTED agent systems exist in parallel:
+
+1. SYSTEM A: CHAT ORCHESTRATION (/src/stock_datasource/agents/)
+   - OrchestratorAgent → LLM-based intent routing
+   - Routes to: MarketAgent, ReportAgent, HKReportAgent, etc.
+   - Events: type="thinking", debug_type="classification|routing|agent_start|..."
+   - SSE Endpoint: /chat/stream
+
+2. SYSTEM B: ORCHESTRATION PIPELINES (/src/stock_datasource/services/orchestration_*.py)
+   - NEW in commit 032d83f (feat: Agent中心 — 可配置化Agent平台)
+   - DAG-based execution: topological sort → sequential agent nodes
+   - AgentConfig stored in ClickHouse (configurable agents)
+   - Events: type="node_start|node_end|node_error"
+   - SSE Endpoint: /api/orchestrations/{id}/execute
+
+3. SYSTEM C: ARENA DISCUSSIONS (/src/stock_datasource/arena/)
+   - Multi-agent debate/collaboration/review mode
+   - ArenaAgentBase agents
+   - Publishes: DecisionSummary with signal (BUY/SELL/HOLD) + confidence
+   - SSE Endpoint: /api/arena/{arena_id}/thinking-stream
+   - ISOLATED: Only runs if explicitly created
+
+
+WHY CHAT "决策" (DECISIONS) SIDEBAR IS EMPTY:
+═════════════════════════════════════════════════════════════════════════════════
+
+Problem:
+--------
+The chat page's "决策" sidebar is designed to show agent discussions and decision
+signals (BUY/SELL/HOLD voting), but it always appears EMPTY.
+
+Root Cause:
+-----------
+1. Chat system (System A) does NOT invoke Arena (System C)
+2. Chat system emits "debug events" (tool calls, thinking), NOT decision signals
+3. Arena system is completely isolated - only runs if explicitly created
+4. NO bridge exists to cross-publish events between systems
+5. Chat session has NO associated Arena instance
+
+Evidence:
+---------
+- /src/stock_datasource/modules/chat/router.py::_stream_response()
+  Line 249: orchestrator.execute_stream(content, context)
+  └─ Only calls OrchestratorAgent, not Arena
+  
+- /src/stock_datasource/services/execution_planner.py
+  AGENT_HANDOFF_MAP only defines handoffs WITHIN specialized agents:
+    MarketAgent → ReportAgent, HKReportAgent, BacktestAgent
+    ScreenerAgent → MarketAgent, ReportAgent
+  └─ NO handoffs to Arena agents or Orchestration agents
+
+- DecisionSummary only generated in:
+  /src/stock_datasource/arena/discussion_orchestrator.py::_generate_decision_summary()
+  └─ This is ONLY called in Arena, not in Chat flow
+
+
+ARCHITECTURAL DIFFERENCES:
+═════════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────┬──────────────────┬──────────────────┬──────────────────┐
+│ Aspect          │ System A (Chat)  │ System B (Orch.) │ System C (Arena) │
+├─────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Invocation      │ Chat message     │ User creates DAG │ User creates arena│
+│ Agent Selection │ LLM-based intent │ Fixed topology   │ Fixed participants
+│ Execution       │ Sequential + HO  │ Topological sort │ Round-based discuss
+│ Events          │ debug_type       │ node_type        │ message_type     │
+│ Persistence     │ chat_messages    │ orchestration_*  │ thinking_messages│
+│ Decision Signal │ ❌ None          │ ❌ None          │ ✅ Yes (isolated)│
+└─────────────────┴──────────────────┴──────────────────┴──────────────────┘
+
+HO = Handoffs (within-system only)
+
+
+MISSING A2A PROTOCOL:
+═════════════════════════════════════════════════════════════════════════════════
+
+1. ❌ NO AGENT DISCOVERY SERVICE
+   - Specialized agents hardcoded in /src/stock_datasource/agents/__init__.py
+   - Configurable agents in ClickHouse agent_configs table
+   - No registry to find agents across systems
+
+2. ❌ NO HANDOFF MECHANISM BETWEEN SYSTEMS
+   - Within System A: MarketAgent → ReportAgent (works)
+   - Between Systems: NO delegation (Chat → Orchestration, Chat → Arena)
+
+3. ❌ NO SHARED MESSAGE FORMAT
+   System A event:  {"type": "thinking", "debug_type": "agent_start", ...}
+   System B event:  {"type": "node_start", "node_type": "agent", ...}
+   System C event:  {"type": "message", "message_type": "thinking", ...}
+
+4. ❌ NO UNIFIED EVENT BUS
+   System A: events → memory + chat_messages table
+   System B: events → memory + orchestration_executions table
+   System C: events → ThinkingStreamProcessor + thinking_messages table
+   └─ No cross-system pub/sub
+
+5. ❌ NO DECISION SIGNAL BRIDGE
+   Only System C computes decision signals (DecisionSummary)
+   Chat cannot access them (separate Arena instance)
+
+
+KEY FILES & LINE NUMBERS:
+═════════════════════════════════════════════════════════════════════════════════
+
+SYSTEM A (Chat):
+├─ orchestrator.py (1477 lines)
+│  ├─ Line 147-240: _classify_with_llm() — intent detection
+│  ├─ Line 288-361: _build_multi_agent_plan() — agent routing
+│  ├─ Line 1134-1464: execute_stream() — main SSE generator
+│  └─ Line 1188: Emit classification event
+│     Line 1271: Emit routing event
+│
+├─ base_agent.py (1059 lines)
+│  ├─ Line 681-1036: execute_stream() — agent execution
+│  ├─ Line 742-750: Emit agent_start event
+│  ├─ Line 806-815: Emit tool_result event
+│  └─ Line 969-979: Emit agent_end event
+│
+├─ chat/router.py (427 lines)
+│  ├─ Line 196-426: _stream_response() — main handler
+│  ├─ Line 249: Call orchestrator.execute_stream()
+│  └─ Line 285-289: Forward debug events to frontend SSE
+│
+└─ execution_planner.py (186 lines)
+   ├─ Line 52-59: CONCURRENT_AGENT_GROUPS (safe to run concurrently)
+   └─ Line 62-68: AGENT_HANDOFF_MAP (within-system only!)
+
+
+SYSTEM B (Orchestration):
+├─ orchestration_service.py (352 lines)
+│  ├─ Line 150-171: create_pipeline() — DAG persistence
+│  └─ Line 289-315: create_execution() — execution tracking
+│
+├─ orchestration_engine.py (202 lines)
+│  ├─ Line 24-142: execute() — main DAG executor
+│  ├─ Line 56-107: Process nodes in topological order
+│  └─ Line 144-189: _run_agent_node() — invoke agent
+│
+├─ agent_config_service.py (295+ lines)
+│  ├─ Line 136-163: create_agent() — configurable agent
+│  └─ Line 165-192: get_agent() — fetch from ClickHouse
+│
+└─ orchestration/router.py (134 lines)
+   ├─ Line 84-123: execute_pipeline() — SSE streaming
+   └─ Line 113-114: engine.execute() main loop
+
+
+SYSTEM C (Arena):
+├─ discussion_orchestrator.py (451 lines)
+│  ├─ Line 64-150: run_discussion() — main orchestrator
+│  ├─ Line 116-137: Publish decision summary
+│  └─ Line 328: generate_decision_summary() — produces signal
+│
+├─ stream_processor.py (381 lines)
+│  ├─ Line 146-197: publish() — real-time message publishing
+│  └─ Line 199-209: publish_system() — system messages
+│
+└─ arena/router.py (500+ lines)
+   └─ Line 338-373: GET /{arena_id}/thinking-stream — SSE endpoint
+
+
+RECOMMENDED SOLUTIONS:
+═════════════════════════════════════════════════════════════════════════════════
+
+Option 1: EMBED ARENA IN CHAT FLOW (Comprehensive)
+  - When user sends chat message, also run parallel Arena discussion
+  - Capture decision signal from Arena → display in sidebar
+  - Cons: +2-3x latency, +2x compute
+
+Option 2: INTEGRATE ORCHESTRATION INTO CHAT (Moderate)
+  - Auto-generate pipeline from chat intent
+  - Execute pipeline for multi-step analysis
+  - Cons: Different UI paradigm, frontend refactor
+
+Option 3: CREATE A2A MESSAGE BUS (Architectural)
+  - Unified event bus (Redis pub/sub or ClickHouse log)
+  - Each system publishes to bus
+  - Frontend subscribes to multiple topics
+  - Cons: Most complex, biggest refactor
+
+
+CONCLUSION:
+═════════════════════════════════════════════════════════════════════════════════
+
+The stock_datasource project contains THREE ISOLATED AGENT SYSTEMS that do not
+communicate. The chat system (System A) does NOT invoke the Arena system (System C),
+which is why the "决策" sidebar remains empty.
+
+To enable "决策" in chat:
+  1. Choose resolution option above
+  2. Implement integration layer
+  3. Update frontend to consume decision signals
+
+No A2A protocol currently exists between the systems.
+
+═════════════════════════════════════════════════════════════════════════════════

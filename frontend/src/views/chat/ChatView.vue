@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/chat'
 import MessageList from './components/MessageList.vue'
 import InputBox from './components/InputBox.vue'
 import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
+import AgentDiscussionSidebar from './components/AgentDiscussionSidebar.vue'
 import AkinatorPanel from './components/AkinatorPanel.vue'
 
 const router = useRouter()
@@ -35,6 +36,29 @@ const editingSessionId = ref('')
 const editingTitle = ref('')
 
 const activeTab = ref<'chat' | 'akinator'>('chat')
+const showDiscussionSidebar = ref(false)
+const discussionStockCode = ref<string | null>(null)
+
+// Extract stock code from latest messages for discussion sidebar
+const extractStockFromMessages = () => {
+  const recentMessages = chatStore.messages.slice(-5)
+  const stockPattern = /(\d{6}\.(SH|SZ|HK)|\d{6})/
+  for (const msg of recentMessages.reverse()) {
+    const match = msg.content?.match(stockPattern)
+    if (match) {
+      return match[1]
+    }
+  }
+  return null
+}
+
+// Toggle discussion sidebar
+const toggleDiscussionSidebar = () => {
+  showDiscussionSidebar.value = !showDiscussionSidebar.value
+  if (showDiscussionSidebar.value) {
+    discussionStockCode.value = extractStockFromMessages()
+  }
+}
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -411,8 +435,17 @@ onMounted(async () => {
             <template #icon><t-icon name="bug-report" /></template>
             调试
           </t-button>
-          <t-button 
-            theme="primary" 
+          <t-button
+            :theme="showDiscussionSidebar ? 'primary' : 'default'"
+            variant="text"
+            @click="toggleDiscussionSidebar"
+            title="Agent 讨论决策"
+          >
+            <template #icon><t-icon name="user-talk" /></template>
+            决策
+          </t-button>
+          <t-button
+            theme="primary"
             variant="text"
             @click="handleNewConversation"
           >
@@ -485,6 +518,13 @@ onMounted(async () => {
 
     <!-- Debug Sidebar -->
     <AgentDebugSidebar />
+
+    <!-- Agent Discussion Sidebar -->
+    <AgentDiscussionSidebar
+      :visible="showDiscussionSidebar"
+      :stock-code="discussionStockCode"
+      @close="showDiscussionSidebar = false"
+    />
     </div>
     </div>
   </div>

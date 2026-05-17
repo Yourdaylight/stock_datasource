@@ -391,6 +391,88 @@ class ChatService:
             logger.error(f"Failed to update session title: {e}")
             return False
 
+    async def generate_session_title(self, session_id: str, user_id: str) -> str:
+        """Auto-generate a session title using LLM based on conversation content.
+
+        Takes the first user message and optionally the first assistant response
+        to generate a concise, descriptive title (8-15 chars).
+
+        Args:
+            session_id: Session ID
+            user_id: User ID
+
+        Returns:
+            Generated title string
+        """
+        # Get conversation messages (just the first few)
+        messages = self.get_session_history(session_id)
+        if not messages:
+            return ""
+
+        # Extract first user message and first assistant response
+        user_msg = ""
+        assistant_msg = ""
+        for msg in messages[:4]:
+            if msg["role"] == "user" and not user_msg:
+                user_msg = msg["content"][:200]
+            elif msg["role"] == "assistant" and not assistant_msg:
+                assistant_msg = msg["content"][:200]
+
+        if not user_msg:
+            return ""
+
+        # Try LLM title generation
+        try:
+            from stock_datasource.llm.client import get_llm_client
+
+            llm = get_llm_client()
+            prompt = (
+                f"请为以下对话生成一个简短的标题（8-15个字，不要标点符号）。\n\n"
+                f"用户: {user_msg}\n"
+            )
+            if assistant_msg:
+                prompt += f"助手: {assistant_msg[:100]}\n"
+            prompt += "\n只输出标题文本，不要其他内容。"
+
+            result = await llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+            title = (
+                result.get("content", "").strip()
+                if isinstance(result, dict)
+                else str(result).strip()
+            )
+
+            # Clean up: remove quotes, limit length
+            title = title.strip('"\'""''')
+            if len(title) > 30:
+                title = title[:30]
+            if not title:
+                title = self._fallback_title(user_msg)
+
+        except Exception as e:
+            logger.warning(f"LLM title generation failed, using fallback: {e}")
+            title = self._fallback_title(user_msg)
+
+        # Save the title
+        self.update_session_title(session_id, user_id, title)
+        return title
+
+    def _fallback_title(self, user_message: str) -> str:
+        """Generate a fallback title from the user message when LLM is unavailable."""
+        # Use first meaningful part of user message
+        msg = user_message.strip()
+        # Remove common prefixes
+        for prefix in ["请", "帮我", "我想", "能不能", "可以"]:
+            if msg.startswith(prefix):
+                msg = msg[len(prefix):]
+                break
+        # Truncate to reasonable length
+        if len(msg) > 20:
+            msg = msg[:20] + "..."
+        return msg or "新对话"
+
     async def process_message(
         self, session_id: str, user_id: str, content: str
     ) -> dict[str, Any]:

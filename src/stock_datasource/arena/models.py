@@ -506,6 +506,47 @@ class ArenaStrategy:
 
 
 @dataclass
+class DecisionSummary:
+    """Agent discussion decision summary for buy/sell signals."""
+
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    arena_id: str = ""
+    round_id: str = ""
+    user_id: str = ""
+    stock_code: str = ""
+    signal: str = "hold"  # "buy" | "sell" | "hold"
+    confidence: float = 0.0  # 0.0 ~ 1.0
+    consensus_ratio: float = 0.0  # Ratio of agents agreeing
+    bull_count: int = 0
+    bear_count: int = 0
+    neutral_count: int = 0
+    key_arguments: list[dict[str, Any]] = field(default_factory=list)
+    dissent_points: list[str] = field(default_factory=list)
+    suggested_action: str = ""
+    generated_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "arena_id": self.arena_id,
+            "round_id": self.round_id,
+            "user_id": self.user_id,
+            "stock_code": self.stock_code,
+            "signal": self.signal,
+            "confidence": self.confidence,
+            "consensus_ratio": self.consensus_ratio,
+            "bull_count": self.bull_count,
+            "bear_count": self.bear_count,
+            "neutral_count": self.neutral_count,
+            "key_arguments": self.key_arguments,
+            "dissent_points": self.dissent_points,
+            "suggested_action": self.suggested_action,
+            "generated_at": self.generated_at.isoformat(),
+        }
+
+
+@dataclass
 class Arena:
     """The main arena entity."""
 

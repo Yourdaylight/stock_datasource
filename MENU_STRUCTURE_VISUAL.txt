@@ -1,0 +1,235 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║              STOCK DATASOURCE - FRONTEND MENU STRUCTURE                        ║
+║                        Current & Proposed Layout                               ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+┌─ PUBLIC ITEMS (No Auth Required) ────────────────────────────────────────────┐
+│                                                                                 │
+│  1. 行情分析         (Market Analysis)           → /market                    │
+│     📊 ChartLineIcon   [Public]  [Free]                                       │
+│                                                                                 │
+│  2. 财报分析         (Financial Reports)        → /research                   │
+│     📄 FileSearchIcon  [Public]  [Free]                                       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ AUTH-REQUIRED ITEMS ─────────────────────────────────────────────────────────┐
+│                                                                                 │
+│  3. 资讯中心         (News Center)               → /news                      │
+│     📢 NotificationIcon [Auth]  [Free]                                        │
+│                                                                                 │
+│  4. 智能对话         (AI Chat)                   → /chat                      │
+│     💬 ChatIcon      [Auth]  [Free]                                           │
+│                                                                                 │
+│  5. 智能选股         (Stock Screener)            → /screener                  │
+│     🔍 FilterIcon    [Auth]  [Free]                                           │
+│                                                                                 │
+│  6. 哨兵选股         (Sentinel Screening)        → /sentinel                  │
+│     🎯 PreciseMonitorIcon [Auth]  [Free]                                      │
+│                                                                                 │
+│  7. 持仓管理         (Portfolio Management)      → /portfolio                 │
+│     💼 WalletIcon    [Auth]  [Free]                                           │
+│                                                                                 │
+│  8. 智能选ETF        (ETF Screener)              → /etf                       │
+│     ⚙️  ControlPlatformIcon [Auth]  [Free]                                    │
+│                                                                                 │
+│  9. 指数行情         (Index Quotes)              → /index                     │
+│     📈 TrendingUpIcon [Auth]  [Free]                                          │
+│                                                                                 │
+│  10. 用户记忆        (User Memory)               → /memory (→ /portfolio)     │
+│      👤 UserIcon     [Auth]  [Free]                                           │
+│                                                                                 │
+│  11. 微信联动        (WeChat Integration)        → /wechat-bridge             │
+│      🔗 RootListIcon  [Auth]  [ADMIN]                                         │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SUBMENU: 策略系统 (Strategy System) [Auth + Pro Tier] ──────────────────────┐
+│                                                                                 │
+│  ▼ 策略系统          (Strategy System)           → /strategy                  │
+│    🛠️  ToolsIcon     [Auth]  [PRO]                                            │
+│                                                                                 │
+│    ├─ 策略工具台     (Strategy Workbench)       → /strategy                   │
+│    │  🛠️  ToolsIcon                                                            │
+│    │                                                                            │
+│    └─ Agent竞技场    (Agent Arena)              → /arena                      │
+│       📊 DataDisplayIcon                                                      │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SUBMENU: 量化选股 (Quant Screening) [Auth + Pro Tier] ──────────────────────┐
+│                                                                                 │
+│  ▼ 量化选股          (Quant Screening)          → /quant                      │
+│    🎯 PreciseMonitorIcon [Auth]  [PRO]                                        │
+│                                                                                 │
+│    ├─ 模型总览       (Model Overview)           → /quant                      │
+│    ├─ 全市场初筛     (Market-Wide Pre-screen)   → /quant/screening            │
+│    ├─ 核心目标池     (Core Target Pool)         → /quant/pool                 │
+│    ├─ RPS排名        (RPS Ranking)              → /quant/rps                  │
+│    ├─ 深度分析       (Deep Analysis)            → /quant/analysis             │
+│    ├─ 交易信号       (Trading Signals)          → /quant/signals              │
+│    └─ 模型配置       (Model Configuration)      → /quant/config               │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SINGLE ITEM: AI工作流 (AI Workflow) [Auth + Pro Tier] ──────────────────────┐
+│                                                                                 │
+│  12. AI工作流        (AI Workflow)               → /workflow                   │
+│      📋 QueueIcon    [Auth]  [PRO]                                            │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ADMIN MENU: 数据管理 (Data Management) [Admin + Auth] ───────────────────────┐
+│                                                                                 │
+│  ▼ 数据管理          (Data Management)          → /datamanage                 │
+│    🖥️  ServerIcon    [Auth]  [ADMIN]                                          │
+│                                                                                 │
+│    ├─ 数据概览       (Data Overview)            → /datamanage                 │
+│    ├─ 数据浏览器     (Data Explorer)            → /datamanage/explorer        │
+│    ├─ 同步任务       (Sync Tasks)               → /datamanage/tasks           │
+│    ├─ 知识库         (Knowledge Base)           → /datamanage/knowledge       │
+│    └─ 数据配置       (Data Configuration)       → /datamanage/config          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ADMIN ITEMS ─────────────────────────────────────────────────────────────────┐
+│                                                                                 │
+│  13. 系统日志        (System Logs)               → /system-logs                │
+│      📋 FileIcon     [Auth]  [ADMIN]                                          │
+│                                                                                 │
+│  14. 开放API         (Open API)                  → /api-access                 │
+│      🔗 LinkIcon     [Auth]  [ADMIN]                                          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                    PROPOSED MARKET CONSOLIDATION                               ║
+║                          (Two-Level Submenu)                                   ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+BEFORE (Current - 9 top-level items):
+┌────────────────────────┐
+│ 行情分析    ────► /market    │
+│ 指数行情    ────► /index     │  ◄── Market-related items
+│ 智能选ETF   ────► /etf       │
+│ ... (6 other items)          │
+└────────────────────────┘
+
+AFTER (Proposed - 7 top-level items with grouped submenu):
+┌────────────────────────┐
+│ ▼ 行情中心   ────────────┐  ◄── NEW GROUPING
+│   ├─ 市场概览 ►/market  │
+│   ├─ 指数行情 ►/index   │
+│   └─ 智能选ETF ►/etf    │
+│ ... (6 other items)      │
+└────────────────────────┘
+
+BENEFITS:
+✓ Cleaner menu structure
+✓ Related functionality grouped together
+✓ Better UX organization
+✓ Easier to add future market-related pages
+✓ Clear visual hierarchy
+
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║              MARKET-RELATED VIEWS - DETAILED STRUCTURE                         ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+1. 行情分析 (Market Analysis) ─ `/market`
+   └─ Main Dashboard
+      ├─ Major Indices (实时/Real-time)
+      │  └─ 8 key indices: 上证/深证/创业板/沪深300/中证500等
+      │
+      ├─ Market Overview (4-column layout)
+      │  ├─ Market Sentiment (市场情绪)
+      │  │  ├─ Up/Down stocks count
+      │  │  ├─ Limit up/down count
+      │  │  ├─ Trading volume (100M RMB)
+      │  │  └─ Sentiment tag (Bullish/Bearish/Neutral)
+      │  │
+      │  ├─ Sector Heatmap (板块热力图)
+      │  │  └─ Click to drill-down
+      │  │
+      │  ├─ Hot Stocks (热门股票 - Top 10)
+      │  │  └─ By trading volume
+      │  │
+      │  └─ Hot ETFs (热门ETF - Top 10)
+      │     └─ By volume
+      │
+      └─ Main Section (2-column)
+         ├─ Sector Ranking (板块涨跌排行)
+         └─ Index Comparison Chart (指数走势对比)
+
+2. 指数行情 (Index Quotes) ─ `/index`
+   └─ Index Screener
+      ├─ Quick Access (Common Indices)
+      │  └─ 沪深300, 中证500, 上证50, etc.
+      │
+      ├─ Advanced Filters
+      │  ├─ Market (市场)
+      │  ├─ Category (类别)
+      │  ├─ Publisher (发布方)
+      │  ├─ Trade Date (交易日期)
+      │  └─ Pct Change Range (涨跌幅)
+      │
+      ├─ Data Table
+      │  ├─ Code, Name, Date, Close
+      │  ├─ % Change, Volume, Amount
+      │  ├─ Market, Category, Publisher
+      │  └─ Operations (View Detail)
+      │
+      └─ Detail Dialog + Analysis Panel
+
+3. 智能选ETF (ETF Screener) ─ `/etf`
+   └─ Two Main Tabs
+      ├─ ETF行情 (ETF Market Quotes)
+      │  ├─ Screener with filters
+      │  ├─ ETF data table
+      │  └─ Analysis panels
+      │
+      └─ 基准指数 (Benchmark Indices)
+         ├─ Benchmark comparison
+         └─ Historical performance
+
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                    DATABASE SCHEMA FOR AGENT CONFIG                            ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+CURRENT: File-based JSON storage
+  Location: /data/workflows/{workflow_id}.json
+  Limitation: Not queryable, poor audit trail
+
+RECOMMENDED: ClickHouse table
+  
+  Table: agent_configurations
+  
+  Columns:
+    - id (String) - UUID
+    - name (String)
+    - category (String) - "analysis", "comparison", "screening"
+    - description (String)
+    - system_prompt (String) - AI role definition
+    - user_prompt_template (String) - {{var}} substitution
+    - selected_tools (Array(String)) - MCP tool names
+    - variables (String) - JSON array of variables
+    - config_metadata (String) - JSON for extensibility
+    - is_active (Boolean)
+    - is_template (Boolean)
+    - created_by (String)
+    - created_at (DateTime)
+    - updated_at (DateTime)
+  
+  Ordering: (category, created_at)
+  Engine: MergeTree()
+  
+  BENEFITS:
+    ✓ Full audit trail
+    ✓ Query-able: Filter by category, creator, date, etc.
+    ✓ Better scalability
+    ✓ Integration with system_structured_logs
+    ✓ Version control support
+    ✓ Analytics on configuration usage
+
