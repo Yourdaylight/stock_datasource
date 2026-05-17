@@ -6,9 +6,11 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import yaml
 
 from stock_datasource.models.agent_config import (
     AgentConfigCreate,
@@ -281,6 +283,104 @@ class AgentConfigService:
         db_client.insert_dataframe("agent_configs", pd.DataFrame([row]))
         logger.info("Deleted agent %s (v%d)", agent_id, row["version"])
         return True
+
+
+# ---------------------------------------------------------------------------
+# Built-in agent seed data sync
+# ---------------------------------------------------------------------------
+
+_BUILTIN_YAML_PATH = Path(__file__).resolve().parent.parent / "config" / "builtin_agents.yaml"
+
+
+def sync_builtin_agents() -> int:
+    """Sync built-in agents from YAML to ClickHouse (idempotent).
+
+    Reads config/builtin_agents.yaml and inserts any missing system agents
+    into the agent_configs table.  Already-existing agents (matched by id
+    and user_id='system') are skipped.
+
+    Returns:
+        Number of newly inserted agents.
+    """
+    if not _BUILTIN_YAML_PATH.exists():
+        logger.warning("Builtin agents YAML not found: %s", _BUILTIN_YAML_PATH)
+        return 0
+
+    try:
+        with open(_BUILTIN_YAML_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        logger.warning("Failed to load builtin agents YAML: %s", e)
+        return 0
+
+    agents = data.get("builtin_agents", []) if isinstance(data, dict) else []
+    if not agents:
+        logger.warning("No builtin agents defined in YAML")
+        return 0
+
+    _ensure_table()
+
+    # Collect existing system agent IDs in one query
+    try:
+        df_existing = db_client.execute_query(
+            "SELECT DISTINCT id FROM agent_configs FINAL WHERE user_id = 'system'"
+        )
+        existing_ids = set(df_existing["id"].tolist()) if not df_existing.empty else set()
+    except Exception as e:
+        logger.warning("Failed to query existing builtin agents: %s", e)
+        existing_ids = set()
+
+    now = datetime.now()
+    rows_to_insert = []
+    skipped = 0
+
+    for agent in agents:
+        agent_id = str(agent.get("id", ""))
+        if not agent_id:
+            logger.warning("Skipping builtin agent with empty id: %s", agent.get("name"))
+            continue
+        if agent_id in existing_ids:
+            skipped += 1
+            continue
+
+        model_cfg = agent.get("model_config", {}) or {}
+        runtime_cfg = agent.get("runtime_config", {}) or {}
+
+        rows_to_insert.append({
+            "id": agent_id,
+            "user_id": "system",
+            "name": str(agent.get("name", "")),
+            "description": str(agent.get("description", "")),
+            "avatar": str(agent.get("avatar", "")),
+            "system_prompt": str(agent.get("system_prompt", "")),
+            "skills": agent.get("skills", []) or [],
+            "model_config": json.dumps({
+                "model": model_cfg.get("model", "DeepSeek-V4-Pro"),
+                "temperature": model_cfg.get("temperature", 0.7),
+                "max_tokens": model_cfg.get("max_tokens", 4096),
+                "min_tokens": model_cfg.get("min_tokens", 0),
+            }),
+            "tags": agent.get("tags", []) or [],
+            "is_public": 1,
+            "status": "active",
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        })
+
+    if rows_to_insert:
+        try:
+            db_client.insert_dataframe("agent_configs", pd.DataFrame(rows_to_insert))
+        except Exception as e:
+            logger.warning("Failed to insert builtin agents: %s", e)
+            return 0
+
+    inserted = len(rows_to_insert)
+    if inserted > 0:
+        logger.info("Synced %d built-in agents (skipped %d already exist)", inserted, skipped)
+    elif skipped > 0:
+        logger.info("Built-in agent sync: %d already exist, nothing to insert", skipped)
+    return inserted
 
 
 # Singleton

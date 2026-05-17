@@ -358,6 +358,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"ClickHouse migrations failed: {e}")
 
+    # Sync built-in agents from YAML to ClickHouse (idempotent)
+    try:
+        from stock_datasource.services.agent_config_service import sync_builtin_agents
+        sync_builtin_agents()
+    except Exception as e:
+        logger.warning(f"Built-in agent sync failed: {e}")
+
     # Start sync task manager（延迟启动，避免与初始化建表并发造成断连）
     try:
         from stock_datasource.modules.datamanage.service import sync_task_manager
