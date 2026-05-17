@@ -30,8 +30,8 @@ const close = () => {
   <div class="debug-sidebar" v-if="chatStore.debugSidebarOpen">
     <div class="debug-sidebar__header">
       <div class="header-title">
-        <t-icon name="bug-report" size="16px" />
-        <span>Agent 调试</span>
+        <t-icon name="flow" size="16px" />
+        <span>Agent 链路</span>
         <t-tag size="small" variant="light" theme="primary" v-if="hasMessages">
           {{ chatStore.debugMessages.length }}
         </t-tag>
@@ -55,7 +55,7 @@ const close = () => {
       </template>
       <div v-else class="debug-sidebar__empty">
         <t-icon name="info-circle" size="24px" />
-        <p>发送消息后，Agent 的思考过程将在这里展示</p>
+        <p>发送消息后，Agent 的调用链路将在这里展示</p>
       </div>
     </div>
   </div>

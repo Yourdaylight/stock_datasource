@@ -877,3 +877,125 @@ def _extract_strategy_signals(
         ))
 
     return signals
+
+
+# =============================================================================
+# Watchlist (自选股) Endpoints
+# =============================================================================
+
+
+@router.get("/watchlist")
+async def get_watchlist(current_user: dict = Depends(get_current_user)):
+    """Get user's watchlist (自选股)."""
+    from stock_datasource.models.database import db_client
+
+    try:
+        db_client.execute(
+            "CREATE TABLE IF NOT EXISTS user_watchlist ("
+            "user_id String, ts_code String, stock_name String DEFAULT '', "
+            "added_at DateTime DEFAULT now(), source String DEFAULT 'manual', "
+            "notes String DEFAULT ''"
+            ") ENGINE = ReplacingMergeTree(added_at) ORDER BY (user_id, ts_code)"
+        )
+        rows = db_client.execute(
+            "SELECT ts_code, stock_name, added_at, source, notes "
+            "FROM user_watchlist FINAL WHERE user_id = %(uid)s ORDER BY added_at DESC",
+            {"uid": current_user["id"]},
+        )
+        data = []
+        for r in rows:
+            try:
+                data.append({
+                    "ts_code": r[0] if len(r) > 0 else "",
+                    "stock_name": r[1] if len(r) > 1 else "",
+                    "added_at": str(r[2]) if len(r) > 2 else "",
+                    "source": r[3] if len(r) > 3 else "",
+                    "notes": r[4] if len(r) > 4 else "",
+                })
+            except (IndexError, TypeError):
+                continue
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.error(f"Failed to get watchlist: {e}")
+        return {"success": False, "data": [], "error": str(e)}
+
+
+@router.post("/watchlist")
+async def add_to_watchlist(
+    ts_code: str = Query(..., description="股票代码"),
+    stock_name: str = Query("", description="股票名称"),
+    source: str = Query("chat", description="来源"),
+    notes: str = Query("", description="备注"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add stock to watchlist (加入自选). Idempotent."""
+    from datetime import datetime as dt
+
+    from stock_datasource.models.database import db_client
+
+    try:
+        db_client.execute(
+            "CREATE TABLE IF NOT EXISTS user_watchlist ("
+            "user_id String, ts_code String, stock_name String DEFAULT '', "
+            "added_at DateTime DEFAULT now(), source String DEFAULT 'manual', "
+            "notes String DEFAULT ''"
+            ") ENGINE = ReplacingMergeTree(added_at) ORDER BY (user_id, ts_code)"
+        )
+        db_client.execute(
+            "INSERT INTO user_watchlist (user_id, ts_code, stock_name, added_at, source, notes) "
+            "VALUES (%(uid)s, %(code)s, %(name)s, %(at)s, %(src)s, %(notes)s)",
+            {"uid": current_user["id"], "code": ts_code, "name": stock_name,
+             "at": dt.now(), "src": source, "notes": notes},
+        )
+        return {"success": True, "message": f"已加入自选: {ts_code}"}
+    except Exception as e:
+        logger.error(f"Failed to add to watchlist: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/watchlist/{ts_code}")
+async def remove_from_watchlist(ts_code: str, current_user: dict = Depends(get_current_user)):
+    """Remove stock from watchlist."""
+    from stock_datasource.models.database import db_client
+
+    try:
+        db_client.execute(
+            "ALTER TABLE user_watchlist DELETE WHERE user_id = %(uid)s AND ts_code = %(code)s",
+            {"uid": current_user["id"], "code": ts_code},
+        )
+        return {"success": True, "message": f"已移出自选: {ts_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/alerts/quick")
+async def quick_create_alert(
+    ts_code: str = Query(..., description="股票代码"),
+    alert_type: str = Query("price", description="price/profit_loss/volume/technical"),
+    condition_type: str = Query("greater_than", description="greater_than/less_than"),
+    threshold_value: float = Query(0, description="阈值"),
+    message: str = Query("", description="自定义消息"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Quick-create a stock alert from chat (轻量版设置提醒)."""
+    import uuid
+    from datetime import datetime as dt
+
+    from stock_datasource.models.database import db_client
+
+    try:
+        aid = f"alert_{uuid.uuid4().hex[:8]}"
+        db_client.execute(
+            "INSERT INTO position_alerts "
+            "(id, user_id, ts_code, alert_type, condition_type, threshold_value, "
+            "is_active, message, created_at, updated_at) "
+            "VALUES (%(id)s, %(uid)s, %(code)s, %(atype)s, %(ctype)s, %(val)s, "
+            "1, %(msg)s, %(now)s, %(now)s)",
+            {"id": aid, "uid": current_user["id"], "code": ts_code, "atype": alert_type,
+             "ctype": condition_type, "val": threshold_value,
+             "msg": message or f"{ts_code} 异动提醒", "now": dt.now()},
+        )
+        return {"success": True, "alert_id": aid, "message": f"已设置提醒: {ts_code}"}
+    except Exception as e:
+        logger.error(f"Failed to quick-create alert: {e}")
+        return {"success": False, "error": str(e)}

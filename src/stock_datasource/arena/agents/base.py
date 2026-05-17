@@ -158,6 +158,9 @@ class ArenaAgentBase(ABC):
     ) -> ThinkingMessage:
         """Publish an argument in the discussion.
 
+        Automatically extracts directional opinion (bullish/bearish/neutral)
+        from the content and attaches it as metadata for real-time signal tracking.
+
         Args:
             content: Argument content
             round_id: Discussion round ID
@@ -170,6 +173,11 @@ class ArenaAgentBase(ABC):
         meta = metadata or {}
         if target_strategy_id:
             meta["target_strategy_id"] = target_strategy_id
+
+        # Auto-extract direction from content if not already provided
+        if "direction" not in meta:
+            direction_meta = self._extract_direction_metadata(content)
+            meta.update(direction_meta)
 
         return await self.stream_processor.publish(
             agent_id=self.agent_id,
@@ -190,6 +198,8 @@ class ArenaAgentBase(ABC):
     ) -> ThinkingMessage:
         """Publish a conclusion.
 
+        Automatically extracts directional opinion from the content.
+
         Args:
             content: Conclusion content
             round_id: Discussion round ID
@@ -198,6 +208,13 @@ class ArenaAgentBase(ABC):
         Returns:
             Published ThinkingMessage
         """
+        meta = metadata or {}
+
+        # Auto-extract direction from content if not already provided
+        if "direction" not in meta:
+            direction_meta = self._extract_direction_metadata(content)
+            meta.update(direction_meta)
+
         return await self.stream_processor.publish(
             agent_id=self.agent_id,
             agent_role=self.role.value
@@ -206,7 +223,7 @@ class ArenaAgentBase(ABC):
             content=content,
             message_type=MessageType.CONCLUSION,
             round_id=round_id,
-            metadata=metadata or {},
+            metadata=meta,
         )
 
     async def _get_llm_client(self):
@@ -286,6 +303,56 @@ class ArenaAgentBase(ABC):
             await self.think(buffer, round_id=round_id)
 
         return full_response
+
+    def _extract_direction_metadata(self, content: str) -> dict[str, Any]:
+        """Extract directional opinion from message content using rules.
+
+        Analyzes the content for bullish/bearish signals based on keywords.
+        This provides real-time direction tagging without requiring LLM calls.
+
+        Args:
+            content: Message content to analyze
+
+        Returns:
+            Dict with direction, confidence, and key_point
+        """
+        content_lower = content.lower()
+
+        # Bullish keywords (Chinese)
+        bullish_keywords = [
+            "买入", "看多", "看涨", "利好", "突破", "加仓", "上涨",
+            "增长", "新高", "强势", "反弹", "机会", "推荐", "超预期",
+            "低估", "积极", "向好",
+        ]
+        # Bearish keywords (Chinese)
+        bearish_keywords = [
+            "卖出", "看空", "看跌", "利空", "下跌", "减仓", "回调",
+            "风险", "高估", "亏损", "下调", "悲观", "减持", "谨慎",
+            "警惕", "泡沫", "超买",
+        ]
+
+        bull_score = sum(1 for kw in bullish_keywords if kw in content_lower)
+        bear_score = sum(1 for kw in bearish_keywords if kw in content_lower)
+
+        total = bull_score + bear_score
+        if total == 0:
+            direction = "neutral"
+            confidence = 0.3
+        elif bull_score > bear_score:
+            direction = "bullish"
+            confidence = min(0.5 + (bull_score - bear_score) * 0.1, 0.95)
+        else:
+            direction = "bearish"
+            confidence = min(0.5 + (bear_score - bull_score) * 0.1, 0.95)
+
+        # Extract key point (first sentence or first 50 chars)
+        key_point = content.split("。")[0][:50] if "。" in content else content[:50]
+
+        return {
+            "direction": direction,
+            "confidence": round(confidence, 2),
+            "key_point": key_point,
+        }
 
     def get_agent_info(self) -> dict[str, Any]:
         """Get agent information."""

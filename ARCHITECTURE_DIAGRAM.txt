@@ -1,0 +1,177 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║        MULTI-AGENT ARCHITECTURE OVERVIEW - Stock Datasource Platform        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           USER INPUT LAYER                                   │
+│                                                                              │
+│  CLI Commands  │  HTTP API  │  WebChat  │  WeChat Bridge  │  MCP Tools     │
+└────────────────┬──────────────────────────────────────────────────────────┬──┘
+                 │                                                          │
+                 ▼                                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     TIER 1: ORCHESTRATION LAYER                              │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ OrchestratorAgent (LangGraph Supervisor)                            │   │
+│  │  ├─ Intent Classification                                           │   │
+│  │  ├─ Stock Code Extraction                                           │   │
+│  │  ├─ Agent Selection & Routing                                       │   │
+│  │  └─ Execution Plan Creation                                         │   │
+│  └────────────────┬──────────────────────────────────────────────────┬─┘   │
+│                   │                                                   │      │
+│         ┌─────────▼──────────┐                          ┌────────────▼──┐  │
+│         │ Middleware Chain   │                          │  Special      │  │
+│         │                    │                          │  Cases        │  │
+│         │ • Memory Injection │                          │               │  │
+│         │ • Loop Detection   │◄────────────────────────►│ • WorkflowAgent
+│         │ • Guardrails       │                          │ • MultiAgentArena
+│         │ • Signal Extract   │                          │               │  │
+│         │ • Validation       │                          │               │  │
+│         └────────────────────┘                          └────────────┬──┘  │
+└─────────────────────────────────────────────────────────────────────┬───────┘
+                                                                      │
+              ┌───────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   TIER 2: SPECIALIZED AGENT LAYER                            │
+│                                                                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
+│  │MarketAgent   │ │ReportAgent   │ │ScreenerAgent│ │PortfolioAgent│      │
+│  │(Technical)   │ │(Fundamental) │ │(Filtering)  │ │(Portfolio)   │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘       │
+│                                                                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
+│  │HKReportAgent │ │IndexAgent    │ │ETFAgent      │ │TopListAgent  │      │
+│  │(HK Stocks)   │ │(Index Analysis)│ │(ETF Analysis)│ │(Sentiment)   │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘       │
+│                                                                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
+│  │NewsAnalyst   │ │KnowledgeAgent│ │MemoryAgent   │ │DataManageAgent       │
+│  │(News)        │ │(RAG)         │ │(User Memory) │ │(Data Mgmt)   │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘       │
+│                                                                              │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                        │
+│  │BacktestAgent │ │DeepAgent     │ │ChatAgent     │  (+ 5 more)            │
+│  │(Backtesting) │ │(Deep Research)│ │(Fallback)    │                        │
+│  └──────────────┘ └──────────────┘ └──────────────┘                        │
+│                                                                              │
+│  Total: 18+ Specialized Agents                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                 │                                    │
+                 │                                    │
+    ┌────────────▼──────────────┐     ┌──────────────▼──────────┐
+    │   Tools Layer             │     │  Data Layer             │
+    │                           │     │                         │
+    │ • Technical Indicators    │     │ • ClickHouse DB         │
+    │ • Financial Data          │     │ • Redis Cache           │
+    │ • Market Data             │     │ • Plugin Data           │
+    │ • Backtest Engine         │     │ • Strategy Registry     │
+    │ • LLM APIs                │     │ • Portfolio DB          │
+    └───────────────────────────┘     └─────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TIER 3: ARENA SYSTEM (Competition)                       │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │ MultiAgentArena Manager                                              │   │
+│  │  ├─ Initialize: Create N agents with different roles                 │   │
+│  │  ├─ Discussion: DEBATE/COLLABORATION/REVIEW modes                   │   │
+│  │  ├─ Competition: Backtest → Simulate → Rank → Eliminate             │   │
+│  │  └─ Streaming: SSE real-time thinking output                         │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Arena Agents:                                                               │
+│  • StrategyGeneratorAgent (Generate trading strategies)                      │
+│  • StrategyReviewerAgent (Review & critique strategies)                      │
+│  • RiskAnalystAgent (Assess risk exposure)                                   │
+│  • MarketSentimentAgent (Analyze market sentiment)                           │
+│  • QuantResearcherAgent (Academic-based optimization)                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        CORE SERVICES BACKBONE                                │
+│                                                                              │
+│  ┌─────────────────────┐  ┌──────────────────┐  ┌────────────────────┐    │
+│  │ Agent Runtime       │  │ Execution Planner│  │ Agent Registry     │    │
+│  │                     │  │                  │  │                    │    │
+│  │ • LangGraph Super   │  │ • Routing Config │  │ • Agent Discovery  │    │
+│  │ • Event Streaming   │  │ • Concurrency    │  │ • Lazy Loading     │    │
+│  │ • SSE Adaptation    │  │ • Handoff Map    │  │ • Descriptors      │    │
+│  │ • Memory Store      │  │ • Expansion      │  │ • Priority         │    │
+│  └─────────────────────┘  └──────────────────┘  └────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────┐  ┌──────────────────┐  ┌────────────────────┐    │
+│  │ Session Memory      │  │ Skill Registry   │  │ Agent Cache        │    │
+│  │ Service             │  │                  │  │                    │    │
+│  │                     │  │ • Tool Descriptors│ │ • Shared State     │    │
+│  │ • Short-term (Chat)│  │ • MCP Tools     │  │ • Cross-turn Cache │    │
+│  │ • Long-term (Prefs)│  │ • Workspace      │  │ • TTL Management   │    │
+│  │ • Shared State      │  │ • Permissions    │  │                    │    │
+│  │ • Persistence       │  │                  │  │                    │    │
+│  └─────────────────────┘  └──────────────────┘  └────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          CONFIGURATION LAYERS                                │
+│                                                                              │
+│  Runtime Config (data/runtime_config.json)                                  │
+│  ├─ Proxy settings                                                          │
+│  ├─ Sync concurrency control                                                │
+│  ├─ Data scheduler (daily/weekly jobs)                                      │
+│  ├─ Real-time data collection                                               │
+│  └─ Plugin schedules                                                        │
+│                                                                              │
+│  Environment Config (config/settings.py)                                    │
+│  ├─ Database connections (ClickHouse)                                       │
+│  ├─ API keys (OpenAI, Tushare)                                              │
+│  ├─ Feature flags                                                           │
+│  └─ Path configurations                                                     │
+│                                                                              │
+│  Design Specs (openspec/)                                                   │
+│  ├─ add-multi-agent-strategy-arena (Active)                                 │
+│  ├─ refactor-agent-runtime-extensibility (Active)                           │
+│  └─ [40+ completed changes in archive]                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+KEY PATTERNS:
+
+1. REQUEST FLOW:
+   Input → Orchestrator → Middleware (before) → Specialist Agent(s) 
+        → Middleware (after) → SSE Stream → Frontend
+
+2. CONCURRENCY:
+   • Parallel: MarketAgent + ReportAgent (safe groups)
+   • Sequential: Handoff via Command(goto=...)
+   • Arena: N agents compete concurrently
+
+3. MEMORY:
+   • A: LangGraph MemorySaver (checkpoint)
+   • B: Tool result compression
+   • D: Shared state storage
+   • E: Long-term preferences
+
+4. EXTENSION:
+   • Plugin system (30+ modules)
+   • Skill registry (MCP + builtin + workspace)
+   • Strategy registry (AI-generated + builtin)
+   • Agent registry (explicit + scanning fallback)
+
+EVOLUTION ROADMAP:
+
+Phase 1 (In Progress): Unified Agent Runtime 
+  → Consolidate OrchestratorAgent, WorkflowAgent, MultiAgentArena
+
+Phase 2: Skill Registry Standardization
+  → Unified skill/tool descriptor and registration
+
+Phase 3: SubAgent Protocol
+  → Better sub-task isolation and coordination
+
+Phase 4: Resource Optimization
+  → Reduce redundant classification, context building, metadata
+

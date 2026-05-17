@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import QuotaIndicator from '@/components/QuotaIndicator.vue'
+import { useMenuTracking } from '@/composables/useMenuTracking'
 import {
   ChatIcon,
   ChartLineIcon,
@@ -34,6 +35,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const { trackClick } = useMenuTracking()
 
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/market', '/research']
@@ -59,14 +61,36 @@ const menuItems: MenuItem[] = [
     public: true,
     children: [
       { path: '/market', title: '行情分析', icon: ChartLineIcon, public: true },
+      { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
       { path: '/index', title: '指数行情', icon: TrendingUpIcon, requiresAuth: true },
       { path: '/etf', title: '智能选ETF', icon: ControlPlatformIcon, requiresAuth: true }
     ]
   },
-  { path: '/research', title: '财报分析', icon: FileSearchIcon, public: true },
-  { path: '/news', title: '资讯中心', icon: NotificationIcon, requiresAuth: true },
-  { path: '/screener', title: '智能选股', icon: FilterIcon, requiresAuth: true },
+  {
+    path: '/event-center',
+    title: '事件驱动',
+    icon: NotificationIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/news', title: '新闻快讯', icon: NotificationIcon, requiresAuth: true },
+      { path: '/report', title: '券商研报', icon: FileSearchIcon, requiresAuth: true },
+      { path: '/signal', title: '信号聚合', icon: ChartBubbleIcon, requiresAuth: true },
+      { path: '/research', title: '财报分析', icon: FileIcon, public: true }
+    ]
+  },
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
+  {
+    path: '/agent-center',
+    title: 'Agent中心',
+    icon: SettingIcon,
+    requiresAuth: true,
+    children: [
+      { path: '/agents', title: 'Agent管理', icon: SettingIcon, requiresAuth: true },
+      { path: '/orchestration', title: 'Agent Teams', icon: QueueIcon, requiresAuth: true },
+      { path: '/runtimes', title: 'Runtime', icon: ControlPlatformIcon, requiresAuth: true },
+      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true }
+    ]
+  },
   {
     path: '/strategy',
     title: '策略系统',
@@ -75,7 +99,8 @@ const menuItems: MenuItem[] = [
     requiresTier: 'pro',
     children: [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true, requiresTier: 'pro' },
-      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
+      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' },
+      { path: '/decision', title: '决策看板', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
   {
@@ -92,18 +117,6 @@ const menuItems: MenuItem[] = [
       { path: '/quant/analysis', title: '深度分析', icon: FileSearchIcon, requiresAuth: true, requiresTier: 'pro' },
       { path: '/quant/signals', title: '交易信号', icon: NotificationIcon, requiresAuth: true, requiresTier: 'pro' },
       { path: '/quant/config', title: '模型配置', icon: SettingIcon, requiresAuth: true, requiresTier: 'pro' }
-    ]
-  },
-  {
-    path: '/agent-center',
-    title: 'Agent中心',
-    icon: SettingIcon,
-    requiresAuth: true,
-    children: [
-      { path: '/agents', title: 'Agent管理', icon: SettingIcon, requiresAuth: true },
-      { path: '/orchestration', title: 'Agent Teams', icon: QueueIcon, requiresAuth: true },
-      { path: '/runtimes', title: 'Runtime', icon: ControlPlatformIcon, requiresAuth: true },
-      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true }
     ]
   },
   { path: '/wechat-bridge', title: '微信联动', icon: RootListIcon, requiresAuth: true, requiresAdmin: true },
@@ -185,6 +198,8 @@ const handleMenuChange = (value: string) => {
     MessagePlugin.warning('需要管理员权限')
     return
   }
+  // Track menu click for progressive disclosure analytics
+  trackClick(value)
   router.push(value)
 }
 

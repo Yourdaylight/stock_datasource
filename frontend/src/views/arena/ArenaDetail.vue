@@ -99,9 +99,19 @@
             :class="`message-${message.message_type}`"
           >
             <div class="message-header">
-              <t-tag :theme="getAgentTagTheme(message.agent_role)" size="small">
-                {{ getAgentLabel(message.agent_role) }}
-              </t-tag>
+              <div class="message-header-left">
+                <t-tag :theme="getAgentTagTheme(message.agent_role)" size="small">
+                  {{ getAgentLabel(message.agent_role) }}
+                </t-tag>
+                <t-tag
+                  v-if="message.metadata?.direction"
+                  :theme="getDirectionTagTheme(message.metadata.direction as string)"
+                  size="small"
+                  variant="light"
+                >
+                  {{ getDirectionLabel(message.metadata.direction as string) }}
+                </t-tag>
+              </div>
               <span class="message-time">{{ formatTime(message.timestamp) }}</span>
             </div>
             <div class="message-content" v-html="formatContent(message.content)"></div>
@@ -160,6 +170,11 @@
             <!-- Elimination Timeline Tab -->
             <t-tab-panel label="淘汰历史" value="elimination">
               <EliminationTimeline :events="eliminationEvents" />
+            </t-tab-panel>
+
+            <!-- Decision Signal Tab -->
+            <t-tab-panel label="决策信号" value="decision">
+              <DecisionSignalPanel :arena-id="arenaId" />
             </t-tab-panel>
           </t-tabs>
         </t-card>
@@ -285,6 +300,7 @@ import { marked } from 'marked';
 import ScoreRadarChart from './components/ScoreRadarChart.vue';
 import ReturnCurveChart from './components/ReturnCurveChart.vue';
 import EliminationTimeline from './components/EliminationTimeline.vue';
+import DecisionSignalPanel from './components/DecisionSignalPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -418,6 +434,21 @@ function getStageLabel(stage: string) {
     live: '实盘',
   };
   return labels[stage] || stage;
+}
+
+function getDirectionTagTheme(direction: string): 'success' | 'danger' | 'default' {
+  if (direction === 'bullish') return 'success';
+  if (direction === 'bearish') return 'danger';
+  return 'default';
+}
+
+function getDirectionLabel(direction: string): string {
+  const labels: Record<string, string> = {
+    bullish: '看多',
+    bearish: '看空',
+    neutral: '中性',
+  };
+  return labels[direction] || direction;
 }
 
 function formatDuration(seconds?: number) {
@@ -694,6 +725,12 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.message-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .message-time {

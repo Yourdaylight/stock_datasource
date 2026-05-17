@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import type { ChatMessage } from '@/api/chat'
 import { useChatStore } from '@/stores/chat'
+import PostAnalysisActions from './PostAnalysisActions.vue'
 import { datamanageApi } from '@/api/datamanage'
 import KLineChart from '@/components/charts/KLineChart.vue'
 import TrendChart from '@/components/report/TrendChart.vue'
@@ -41,20 +42,28 @@ onMounted(async () => {
 
 // Feature cards for welcome screen
 const featureCards = [
-  { icon: 'chart-line', title: '行情分析', desc: '分析A股/港股K线走势、技术指标', example: '分析贵州茅台的走势' },
-  { icon: 'search', title: '智能选股', desc: '根据条件筛选股票', example: '推荐低估值蓝筹股' },
-  { icon: 'file-paste', title: '财报解读', desc: '解读A股/港股公司财务数据', example: '解读腾讯控股 00700.HK 的财报' },
-  { icon: 'chart-pie', title: '持仓管理', desc: '分析持仓配置建议', example: '分析我的持仓' },
+  { icon: 'user-talk', title: 'AI分析师团队辩论', desc: '5个Agent实时辩论，看多看空理由全透明', example: '分析贵州茅台', highlight: true },
+  { icon: 'chart-line', title: '技术面+基本面全解', desc: 'K线、财务、估值一次出', example: '帮我分析一下 600519 的技术指标' },
+  { icon: 'notification', title: '消息面情绪扫描', desc: '新闻、研报、政策综合研判', example: '宁德时代最近有什么消息' },
+  { icon: 'search', title: '智能选股', desc: '多条件筛选+量化评分', example: '推荐低估值高ROE的股票' },
+]
+
+// Quick-try chips (the "whoa" triggers)
+const quickChips = [
+  { label: '分析茅台', icon: '🍶' },
+  { label: '分析比亚迪', icon: '🚗' },
+  { label: '推荐低估值股票', icon: '🔍' },
+  { label: '今日大盘走势', icon: '📊' },
 ]
 
 // Example queries for quick start
 const exampleQueries = [
-  '今日大盘走势如何？',
   '帮我分析一下 600519 的技术指标',
   '分析腾讯控股 00700.HK 的技术面和财务情况',
   '推荐一些低PE高ROE的股票',
+  '宁德时代最近有什么利好消息',
   '查看沪深300成分股',
-  '分析宁德时代的财务状况',
+  '分析我的持仓',
 ]
 
 // Render markdown to HTML
@@ -62,7 +71,12 @@ const renderMarkdown = (content: string): string => {
   if (!content) return ''
   try {
     let cleanContent = content
-    
+
+    // Fix double-escaped newlines from ClickHouse storage
+    // DB stores literal "\n" (two chars) instead of actual newline
+    cleanContent = cleanContent.replace(/\\n/g, '\n')
+    cleanContent = cleanContent.replace(/\\t/g, '\t')
+
     // Filter out obvious garbage/partial data (like incomplete JSON fragments)
     if (cleanContent.match(/^\s*\d+\s*[{\[]\s*$/)) {
       return '<span class="text-gray-400">正在生成回复...</span>'
@@ -98,6 +112,15 @@ const vizComponentMap: Record<string, any> = {
 // Handle quick action click
 const handleQuickAction = (query: string) => {
   emit('quickAction', query)
+}
+
+// Resume last session (for returning users)
+const resumeLastSession = async () => {
+  const ref = chatStore.lastSessionRef
+  if (ref) {
+    await chatStore.switchSession(ref.session_id)
+    chatStore.lastSessionRef = null
+  }
 }
 
 // Get agent tag color
@@ -146,21 +169,45 @@ const getThinkingStepIcon = (step: string): string => {
     <!-- Enhanced empty state with guidance -->
     <div v-if="messages.length === 0" class="welcome-state">
       <div class="welcome-header">
-        <div class="ai-avatar">
-          <t-avatar size="64px" style="background: linear-gradient(135deg, #0052d9 0%, #00a4ff 100%)">
-            <t-icon name="logo-qq" size="32px" />
-          </t-avatar>
-        </div>
-        <h2 class="welcome-title">👋 你好，我是智能股票分析助手</h2>
-        <p class="welcome-subtitle">我可以帮你分析行情、筛选股票、解读财报，让投资决策更智能</p>
+        <h2 class="welcome-title">A股AI投资助手</h2>
+        <p class="welcome-subtitle">多Agent实时辩论 + 买卖信号<br>输入任意股票，看AI分析师团队如何协作决策</p>
       </div>
-      
+
+      <!-- Quick-try chips (primary CTA) -->
+      <div class="quick-chips">
+        <div class="quick-chips-label">试试输入:</div>
+        <div class="quick-chips-row">
+          <!-- Resume last conversation chip (for returning users) -->
+          <button
+            v-if="chatStore.lastSessionRef"
+            class="quick-chip quick-chip--resume"
+            @click="resumeLastSession"
+          >
+            <span class="chip-icon">💬</span>
+            <span class="chip-text">继续上次: {{ chatStore.lastSessionRef.title }}</span>
+            <t-icon name="arrow-right" size="14px" class="chip-arrow" />
+          </button>
+
+          <button
+            v-for="chip in quickChips"
+            :key="chip.label"
+            class="quick-chip"
+            @click="handleQuickAction(chip.label)"
+          >
+            <span class="chip-icon">{{ chip.icon }}</span>
+            <span class="chip-text">{{ chip.label }}</span>
+            <t-icon name="arrow-right" size="14px" class="chip-arrow" />
+          </button>
+        </div>
+      </div>
+
       <!-- Feature cards -->
       <div class="feature-cards">
-        <div 
-          v-for="feature in featureCards" 
-          :key="feature.title" 
+        <div
+          v-for="feature in featureCards"
+          :key="feature.title"
           class="feature-card"
+          :class="{ 'feature-card--highlight': feature.highlight }"
           @click="handleQuickAction(feature.example)"
         >
           <div class="feature-icon">
@@ -285,7 +332,16 @@ const getThinkingStepIcon = (step: string): string => {
             </div>
           </div>
         </div>
-        
+
+        <!-- Post-analysis action buttons (after agent analysis with signal) -->
+        <PostAnalysisActions
+          v-if="msg.role === 'assistant' && !loading && (msg.metadata?.signal || msg.metadata?.stock_codes?.length)"
+          :signal="msg.metadata?.signal as string"
+          :stock-code="msg.metadata?.stock_codes?.[0] as string"
+          :confidence="msg.metadata?.confidence as number"
+          @follow-up="(query: string) => emit('quickAction', query)"
+        />
+
         <div class="message-time">
           {{ msg.timestamp }}
           <span
@@ -394,24 +450,108 @@ const getThinkingStepIcon = (step: string): string => {
 
 .welcome-header {
   text-align: center;
-  margin-bottom: 32px;
-}
-
-.ai-avatar {
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
 .welcome-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--td-text-color-primary);
   margin: 0 0 8px 0;
 }
 
 .welcome-subtitle {
-  font-size: 14px;
-  color: #666;
+  font-size: 15px;
+  color: var(--td-text-color-secondary);
   margin: 0;
+  line-height: 1.6;
+}
+
+/* Quick-try chips (primary CTA) */
+.quick-chips {
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: 28px;
+}
+
+.quick-chips-label {
+  font-size: 13px;
+  color: var(--td-text-color-placeholder);
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.quick-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.quick-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 20px;
+  border: 1px solid var(--td-brand-color);
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-chip:hover {
+  background: var(--td-brand-color);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 82, 217, 0.25);
+}
+
+.chip-icon {
+  font-size: 16px;
+}
+
+.chip-arrow {
+  opacity: 0;
+  margin-left: -4px;
+  transition: all 0.2s;
+}
+
+.quick-chip:hover .chip-arrow {
+  opacity: 1;
+  margin-left: 0;
+}
+
+.quick-chip--resume {
+  border-color: var(--td-success-color, #52c41a);
+  background: var(--td-success-color-light, #e8f8e8);
+  color: var(--td-success-color, #52c41a);
+}
+
+.quick-chip--resume:hover {
+  background: var(--td-success-color, #52c41a);
+  color: white;
+  box-shadow: 0 4px 12px rgba(82, 196, 26, 0.25);
+}
+
+.quick-chip--resume .chip-text {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .quick-chips-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .quick-chip {
+    justify-content: center;
+  }
 }
 
 /* Feature Cards */
@@ -440,6 +580,16 @@ const getThinkingStepIcon = (step: string): string => {
   background: #fff;
   border-color: #0052d9;
   box-shadow: 0 4px 12px rgba(0, 82, 217, 0.1);
+}
+
+.feature-card--highlight {
+  background: linear-gradient(135deg, #e8f0fe 0%, #f0e6ff 100%);
+  border-color: var(--td-brand-color);
+}
+
+.feature-card--highlight .feature-icon {
+  background: var(--td-brand-color);
+  color: white;
 }
 
 .feature-icon {

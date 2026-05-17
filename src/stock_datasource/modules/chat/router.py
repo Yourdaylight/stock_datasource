@@ -102,6 +102,29 @@ async def update_session_title(
     return {"success": True, "message": "标题已更新"}
 
 
+@router.post("/session/{session_id}/generate-title")
+async def generate_session_title(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Auto-generate session title using LLM based on conversation content."""
+    service = get_chat_service()
+
+    # Verify ownership
+    if not service.verify_session_ownership(session_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话",
+        )
+
+    try:
+        title = await service.generate_session_title(session_id, current_user["id"])
+        return {"success": True, "title": title}
+    except Exception as e:
+        logger.error(f"Failed to generate session title: {e}")
+        return {"success": False, "title": ""}
+
+
 @router.post("/message", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
@@ -316,12 +339,14 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     metadata.setdefault("tool_calls", tool_calls)
                     if tool_errors:
                         metadata["tool_errors"] = tool_errors
-                    # Task 3.4: Only persist lightweight counters, not full
-                    # debug payloads, to reduce ClickHouse write amplification.
+                    # Persist debug events for history playback (chain trace + decision signals)
+                    # Typical size: 5-15 events × ~200 bytes = <3KB, acceptable for ClickHouse String
                     if debug_events:
                         metadata["debug_event_count"] = len(debug_events)
+                        metadata["debug_events"] = debug_events
                     if visualizations:
                         metadata["visualization_count"] = len(visualizations)
+                        metadata["visualizations"] = visualizations
                     if full_response:
                         service.add_message(
                             session_id,
@@ -401,3 +426,62 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/session/{session_id}/decision-summary")
+async def get_decision_summary(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get the decision summary (if any) for a chat session.
+    
+    This endpoint retrieves the most recent arena discussion's decision summary
+    (buy/sell/hold signal) for the given chat session. This is used to populate
+    the "决策" (Decision) sidebar in the chat interface.
+    
+    Returns:
+        {
+            "session_id": str,
+            "has_summary": bool,
+            "summary": {
+                "signal": "BUY|SELL|HOLD",
+                "confidence": float,
+                "bull_count": int,
+                "bear_count": int,
+                "neutral_count": int,
+                "suggested_action": str,
+                "rationale": str
+            } or null
+        }
+    """
+    import json
+    from stock_datasource.services.chat_arena_adapter import (
+        get_chat_arena_adapter,
+    )
+    
+    service = get_chat_service()
+
+    # Verify session ownership
+    if not service.verify_session_ownership(session_id, current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此会话",
+        )
+
+    try:
+        adapter = get_chat_arena_adapter()
+        summary = await adapter.get_decision_summary_for_session(session_id)
+        
+        return {
+            "session_id": session_id,
+            "has_summary": summary is not None,
+            "summary": summary,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get decision summary for session {session_id}: {e}")
+        return {
+            "session_id": session_id,
+            "has_summary": False,
+            "summary": None,
+            "error": str(e),
+        }

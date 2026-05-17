@@ -1033,3 +1033,200 @@ async def get_strategy_score_breakdown(
     except Exception as e:
         logger.error(f"Failed to get score breakdown: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Decision Summary Endpoints
+# =============================================================================
+
+
+@router.get(
+    "/{arena_id}/decision-summary",
+    summary="获取竞技场决策摘要",
+)
+async def get_decision_summary(
+    arena_id: str,
+    round_id: str | None = Query(None, description="指定讨论轮次ID"),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取Agent讨论后的决策摘要（买入/卖出/持有信号）。
+
+    Args:
+        arena_id: 竞技场ID
+        round_id: 可选的讨论轮次ID
+    """
+    try:
+        arena = get_arena(arena_id)
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
+
+        # Get decision summaries from the arena
+        summaries = getattr(arena.arena, "_decision_summaries", [])
+        if not summaries:
+            return {
+                "id": "",
+                "arena_id": arena_id,
+                "round_id": "",
+                "stock_code": "",
+                "signal": "hold",
+                "confidence": 0.0,
+                "consensus_ratio": 0.0,
+                "bull_count": 0,
+                "bear_count": 0,
+                "neutral_count": 0,
+                "key_arguments": [],
+                "dissent_points": [],
+                "suggested_action": "暂无讨论数据",
+                "generated_at": datetime.now().isoformat(),
+            }
+
+        # Filter by round_id if provided
+        if round_id:
+            matching = [s for s in summaries if s.round_id == round_id]
+            if matching:
+                return matching[-1].to_dict()
+
+        # Return the latest summary
+        return summaries[-1].to_dict()
+
+    except ArenaNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get decision summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/{arena_id}/opinion-distribution",
+    summary="获取观点分布",
+)
+async def get_opinion_distribution(
+    arena_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """获取竞技场中Agent观点的多空分布。"""
+    try:
+        arena = get_arena(arena_id)
+        if (
+            arena.user_id
+            and arena.user_id != current_user["id"]
+            and not current_user.get("is_admin", False)
+        ):
+            raise HTTPException(status_code=403, detail="无权访问此竞技场")
+
+        # Get latest decision summary for detailed distribution
+        summaries = getattr(arena.arena, "_decision_summaries", [])
+        if not summaries:
+            return {
+                "arena_id": arena_id,
+                "round_id": "",
+                "bullish": [],
+                "bearish": [],
+                "neutral": [],
+                "total_agents": 0,
+            }
+
+        latest = summaries[-1]
+        bullish = [a for a in latest.key_arguments if a.get("direction") == "bullish"]
+        bearish = [a for a in latest.key_arguments if a.get("direction") == "bearish"]
+        neutral = [a for a in latest.key_arguments if a.get("direction") == "neutral"]
+
+        return {
+            "arena_id": arena_id,
+            "round_id": latest.round_id,
+            "bullish": bullish,
+            "bearish": bearish,
+            "neutral": neutral,
+            "total_agents": len(latest.key_arguments),
+        }
+
+    except ArenaNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Arena not found: {arena_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get opinion distribution: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/decisions/all",
+    summary="获取所有活跃竞技场的决策信号",
+)
+async def get_all_decisions(
+    current_user: dict = Depends(get_current_user),
+):
+    """获取所有活跃竞技场的最新决策信号，用于决策看板页面。"""
+    try:
+        user_arenas = list_arenas(user_id=current_user["id"])
+        decisions = []
+
+        for arena_status in user_arenas:
+            try:
+                arena = get_arena(arena_status["id"])
+                summaries = getattr(arena.arena, "_decision_summaries", [])
+                if summaries:
+                    decisions.append(summaries[-1].to_dict())
+            except Exception:
+                continue
+
+        return {
+            "total": len(decisions),
+            "decisions": decisions,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get all decisions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/decisions/stock/{stock_code}",
+    summary="获取指定股票的决策信号",
+)
+async def get_decision_by_stock(
+    stock_code: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """根据股票代码查找相关竞技场的最新决策信号。"""
+    try:
+        user_arenas = list_arenas(user_id=current_user["id"])
+
+        for arena_status in user_arenas:
+            try:
+                arena = get_arena(arena_status["id"])
+                # Check if this arena covers the stock
+                symbols = arena.arena.config.symbols
+                if stock_code in symbols:
+                    summaries = getattr(arena.arena, "_decision_summaries", [])
+                    if summaries:
+                        return summaries[-1].to_dict()
+            except Exception:
+                continue
+
+        return {
+            "id": "",
+            "arena_id": "",
+            "round_id": "",
+            "stock_code": stock_code,
+            "signal": "hold",
+            "confidence": 0.0,
+            "consensus_ratio": 0.0,
+            "bull_count": 0,
+            "bear_count": 0,
+            "neutral_count": 0,
+            "key_arguments": [],
+            "dissent_points": [],
+            "suggested_action": f"暂无{stock_code}的Agent讨论决策",
+            "generated_at": datetime.now().isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get decision by stock: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

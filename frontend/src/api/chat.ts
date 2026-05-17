@@ -85,7 +85,7 @@ export interface ErrorEvent {
 
 export interface DebugEvent {
   type: 'debug'
-  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing'
+  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'preview_signal' | 'arena_error'
   agent: string
   timestamp: number
   data: {
@@ -116,8 +116,20 @@ export interface DebugEvent {
     data_summary?: Record<string, string>
     // handoff
     shared_data_summary?: Record<string, string>
+    // arena discussion_argument
+    agent_role?: string
+    round_id?: string
+    message_type?: string
+    // decision_summary (arena)
+    signal?: 'BUY' | 'SELL' | 'HOLD' | 'NONE'
+    confidence?: number
+    bull_count?: number
+    bear_count?: number
+    neutral_count?: number
+    suggested_action?: string
     [key: string]: any
   }
+  arena_id?: string
 }
 
 export interface VisualizationEvent {
@@ -161,6 +173,11 @@ export const chatApi = {
     return request.put(`/api/chat/session/${sessionId}/title?title=${encodeURIComponent(title)}`)
   },
 
+  // Auto-generate session title using LLM
+  generateSessionTitle(sessionId: string): Promise<{ success: boolean; title: string }> {
+    return request.post(`/api/chat/session/${sessionId}/generate-title`)
+  },
+
   // Stream message via EventSource (GET)
   streamMessageGet(sessionId: string, content: string): EventSource {
     const params = new URLSearchParams({ session_id: sessionId, content })
@@ -168,15 +185,18 @@ export const chatApi = {
   },
 
   // Stream message via fetch (POST) - better for longer messages
+  // Returns an AbortController so the caller can cancel the stream
   async streamMessagePost(
-    sessionId: string, 
+    sessionId: string,
     content: string,
     onEvent: (event: StreamEvent) => void,
-    onError?: (error: Error) => void
+    onError?: (error: Error) => void,
+    abortController?: AbortController
   ): Promise<void> {
     let terminalReceived = false
     let jsonBuffer = '' // Buffer for incomplete JSON data
-    
+    const controller = abortController || new AbortController()
+
     try {
       const token = localStorage.getItem('token')
       const headers: Record<string, string> = {
@@ -185,14 +205,15 @@ export const chatApi = {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
       }
-      
+
       const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           session_id: sessionId,
           content: content
-        })
+        }),
+        signal: controller.signal
       })
 
       if (!response.ok) {
@@ -316,6 +337,11 @@ export const chatApi = {
         }
       }
     } catch (error) {
+      // AbortError is expected when user switches session — don't treat as error
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.debug('[SSE] Stream aborted (session switch)')
+        return
+      }
       console.error('[SSE] Stream error:', error)
       if (onError) {
         onError(error as Error)
