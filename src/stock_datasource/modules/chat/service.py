@@ -191,6 +191,22 @@ class ChatService:
             logger.error(f"Failed to count user sessions: {e}")
             return 0
 
+    def _format_timestamp(self, value: Any) -> str:
+        """Safely format a timestamp value from ClickHouse.
+
+        ClickHouse may return datetime objects or strings depending on
+        driver version and column type. Handle both.
+        """
+        if not value:
+            return ""
+        if hasattr(value, "strftime"):
+            return value.strftime("%H:%M:%S")
+        # It's a string — try to extract time part
+        s = str(value)
+        if " " in s:
+            return s.split(" ")[-1][:8]  # "2026-05-15 16:13:01" -> "16:13:01"
+        return s[:8]
+
     def get_session_history(self, session_id: str) -> list[dict[str, Any]]:
         """Get chat history for a session from database.
 
@@ -225,7 +241,7 @@ class ChatService:
                         "id": row[0],
                         "role": row[1],
                         "content": row[2],
-                        "timestamp": row[4].strftime("%H:%M:%S") if row[4] else "",
+                        "timestamp": self._format_timestamp(row[4]),
                         "metadata": metadata,
                     }
                 )

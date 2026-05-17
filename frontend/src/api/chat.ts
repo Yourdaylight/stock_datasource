@@ -85,7 +85,7 @@ export interface ErrorEvent {
 
 export interface DebugEvent {
   type: 'debug'
-  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'arena_error'
+  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'preview_signal' | 'arena_error'
   agent: string
   timestamp: number
   data: {

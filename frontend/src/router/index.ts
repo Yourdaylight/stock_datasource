@@ -60,7 +60,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '资讯中心', icon: 'notification', requiresAuth: true }
   },
   {
-    path: '/chat',
+    path: '/chat/:sessionId?',
     name: 'Chat',
     component: () => import('@/views/chat/ChatView.vue'),
     meta: { title: '智能对话', icon: 'chat', requiresAuth: true }

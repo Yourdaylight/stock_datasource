@@ -105,11 +105,11 @@
                 </t-tag>
                 <t-tag
                   v-if="message.metadata?.direction"
-                  :theme="getDirectionTagTheme(message.metadata.direction)"
+                  :theme="getDirectionTagTheme(message.metadata.direction as string)"
                   size="small"
                   variant="light"
                 >
-                  {{ getDirectionLabel(message.metadata.direction) }}
+                  {{ getDirectionLabel(message.metadata.direction as string) }}
                 </t-tag>
               </div>
               <span class="message-time">{{ formatTime(message.timestamp) }}</span>

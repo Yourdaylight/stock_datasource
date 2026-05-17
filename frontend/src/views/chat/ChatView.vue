@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, watch, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useChatStore } from '@/stores/chat'
 import MessageList from './components/MessageList.vue'
@@ -8,10 +8,10 @@ import InputBox from './components/InputBox.vue'
 import AgentDebugSidebar from './components/AgentDebugSidebar.vue'
 import AgentDiscussionSidebar from './components/AgentDiscussionSidebar.vue'
 import AkinatorPanel from './components/AkinatorPanel.vue'
-import DecisionSignalPanel from '@/components/chat/DecisionSignalPanel.vue'
-import DiscussionEventsViewer from '@/components/chat/DiscussionEventsViewer.vue'
+import WechatPushPrompt from './components/WechatPushPrompt.vue'
 
 const router = useRouter()
+const route = useRoute()
 const chatStore = useChatStore()
 // Agent teams loaded on mount
 const messageListRef = ref<HTMLElement | null>(null)
@@ -38,7 +38,12 @@ const editingSessionId = ref('')
 const editingTitle = ref('')
 
 const activeTab = ref<'chat' | 'akinator'>('chat')
-const showDiscussionSidebar = ref(false)
+
+// Discussion sidebar state — synced from store when arena events arrive
+const showDiscussionSidebar = computed({
+  get: () => chatStore.decisionSidebarOpen,
+  set: (val: boolean) => { chatStore.decisionSidebarOpen = val }
+})
 const discussionStockCode = ref<string | null>(null)
 
 // Extract stock code from latest messages for discussion sidebar
@@ -115,6 +120,10 @@ const getSessionTitle = (session: any) => {
 const handleNewConversation = async () => {
   try {
     await chatStore.newConversation()
+    // Update URL to new session
+    if (chatStore.sessionId) {
+      router.replace({ params: { sessionId: chatStore.sessionId } })
+    }
     MessagePlugin.success('已创建新对话')
   } catch (e) {
     console.error('Failed to create new conversation:', e)
@@ -128,6 +137,8 @@ const handleSwitchSession = async (sessionId: string) => {
   const success = await chatStore.switchSession(sessionId)
   if (success) {
     showSessionsSidebar.value = false
+    // Update URL to reflect current session
+    router.replace({ params: { sessionId } })
   } else {
     MessagePlugin.error('切换历史对话失败，请检查登录状态或会话权限')
   }
@@ -229,16 +240,45 @@ watch(
 )
 
 onMounted(async () => {
+  const urlSessionId = route.params.sessionId as string | undefined
+
   try {
-    await chatStore.restoreOrInitSession()
+    // Always load sessions list first
+    await chatStore.loadSessions()
+
+    if (urlSessionId && urlSessionId !== chatStore.sessionId) {
+      // URL has a session ID — check if it's valid before switching
+      const sessionExists = chatStore.sessions.some(s => s.session_id === urlSessionId)
+      if (sessionExists) {
+        await chatStore.switchSession(urlSessionId)
+      } else {
+        // Invalid session, silently fall back to normal init (no warning spam)
+        await chatStore.restoreOrInitSession()
+        syncUrlToSession()
+      }
+    } else if (!urlSessionId) {
+      // No session in URL — restore normally, then update URL once
+      await chatStore.restoreOrInitSession()
+      syncUrlToSession()
+    }
+    // If urlSessionId === chatStore.sessionId, do nothing (already there)
   } catch (e) {
     console.error('Failed to restore chat session:', e)
     MessagePlugin.error('加载历史对话失败，请重新登录后重试')
   }
-  
+
   // 加载Agent Teams
   loadTeams()
 })
+
+// Sync URL to current session (silent, no component remount)
+const syncUrlToSession = () => {
+  if (!chatStore.sessionId) return
+  const currentUrlSession = route.params.sessionId
+  if (currentUrlSession !== chatStore.sessionId) {
+    router.replace({ params: { sessionId: chatStore.sessionId } })
+  }
+}
 </script>
 
 <template>
@@ -274,16 +314,16 @@ onMounted(async () => {
           <!-- Today -->
           <div v-if="groupedSessions.today.length" class="session-group">
             <div class="group-label">今天</div>
-            <div 
-              v-for="session in groupedSessions.today" 
+            <div
+              v-for="session in groupedSessions.today"
               :key="session.session_id"
               :class="['session-item', { active: session.session_id === chatStore.sessionId }]"
               @click="handleSwitchSession(session.session_id)"
             >
               <div class="session-content">
                 <template v-if="editingSessionId === session.session_id">
-                  <t-input 
-                    v-model="editingTitle" 
+                  <t-input
+                    v-model="editingTitle"
                     size="small"
                     placeholder="输入标题"
                     @blur="saveSessionTitle"
@@ -302,97 +342,139 @@ onMounted(async () => {
                 </template>
               </div>
               <div class="session-actions" v-if="editingSessionId !== session.session_id">
-                <t-button 
-                  theme="default" 
-                  variant="text" 
-                  size="small"
-                  @click="startEditTitle(session, $event)"
-                >
+                <t-button theme="default" variant="text" size="small" @click="startEditTitle(session, $event)">
                   <t-icon name="edit" />
                 </t-button>
-                <t-button 
-                  theme="danger" 
-                  variant="text" 
-                  size="small"
-                  @click="handleDeleteSession(session.session_id, $event)"
-                >
+                <t-button theme="danger" variant="text" size="small" @click="handleDeleteSession(session.session_id, $event)">
                   <t-icon name="delete" />
                 </t-button>
               </div>
             </div>
           </div>
-          
+
           <!-- Yesterday -->
           <div v-if="groupedSessions.yesterday.length" class="session-group">
             <div class="group-label">昨天</div>
-            <div 
-              v-for="session in groupedSessions.yesterday" 
+            <div
+              v-for="session in groupedSessions.yesterday"
               :key="session.session_id"
               :class="['session-item', { active: session.session_id === chatStore.sessionId }]"
               @click="handleSwitchSession(session.session_id)"
             >
               <div class="session-content">
-                <div class="session-title">{{ getSessionTitle(session) }}</div>
-                <div class="session-meta">
-                  <span>{{ session.message_count }}条消息</span>
-                </div>
+                <template v-if="editingSessionId === session.session_id">
+                  <t-input
+                    v-model="editingTitle"
+                    size="small"
+                    placeholder="输入标题"
+                    @blur="saveSessionTitle"
+                    @keyup.enter="saveSessionTitle"
+                    @keyup.escape="cancelEditTitle"
+                    autofocus
+                    @click.stop
+                  />
+                </template>
+                <template v-else>
+                  <div class="session-title">{{ getSessionTitle(session) }}</div>
+                  <div class="session-meta">
+                    <span>{{ session.message_count }}条消息</span>
+                    <span>{{ formatSessionTime(session.last_message_at) }}</span>
+                  </div>
+                </template>
               </div>
-              <div class="session-actions">
+              <div class="session-actions" v-if="editingSessionId !== session.session_id">
+                <t-button theme="default" variant="text" size="small" @click="startEditTitle(session, $event)">
+                  <t-icon name="edit" />
+                </t-button>
                 <t-button theme="danger" variant="text" size="small" @click="handleDeleteSession(session.session_id, $event)">
                   <t-icon name="delete" />
                 </t-button>
               </div>
             </div>
           </div>
-          
+
           <!-- This Week -->
           <div v-if="groupedSessions.thisWeek.length" class="session-group">
             <div class="group-label">本周</div>
-            <div 
-              v-for="session in groupedSessions.thisWeek" 
+            <div
+              v-for="session in groupedSessions.thisWeek"
               :key="session.session_id"
               :class="['session-item', { active: session.session_id === chatStore.sessionId }]"
               @click="handleSwitchSession(session.session_id)"
             >
               <div class="session-content">
-                <div class="session-title">{{ getSessionTitle(session) }}</div>
-                <div class="session-meta">
-                  <span>{{ session.message_count }}条消息</span>
-                  <span>{{ formatSessionTime(session.last_message_at) }}</span>
-                </div>
+                <template v-if="editingSessionId === session.session_id">
+                  <t-input
+                    v-model="editingTitle"
+                    size="small"
+                    placeholder="输入标题"
+                    @blur="saveSessionTitle"
+                    @keyup.enter="saveSessionTitle"
+                    @keyup.escape="cancelEditTitle"
+                    autofocus
+                    @click.stop
+                  />
+                </template>
+                <template v-else>
+                  <div class="session-title">{{ getSessionTitle(session) }}</div>
+                  <div class="session-meta">
+                    <span>{{ session.message_count }}条消息</span>
+                    <span>{{ formatSessionTime(session.last_message_at) }}</span>
+                  </div>
+                </template>
               </div>
-              <div class="session-actions">
+              <div class="session-actions" v-if="editingSessionId !== session.session_id">
+                <t-button theme="default" variant="text" size="small" @click="startEditTitle(session, $event)">
+                  <t-icon name="edit" />
+                </t-button>
                 <t-button theme="danger" variant="text" size="small" @click="handleDeleteSession(session.session_id, $event)">
                   <t-icon name="delete" />
                 </t-button>
               </div>
             </div>
           </div>
-          
+
           <!-- Earlier -->
           <div v-if="groupedSessions.earlier.length" class="session-group">
             <div class="group-label">更早</div>
-            <div 
-              v-for="session in groupedSessions.earlier" 
+            <div
+              v-for="session in groupedSessions.earlier"
               :key="session.session_id"
               :class="['session-item', { active: session.session_id === chatStore.sessionId }]"
               @click="handleSwitchSession(session.session_id)"
             >
               <div class="session-content">
-                <div class="session-title">{{ getSessionTitle(session) }}</div>
-                <div class="session-meta">
-                  <span>{{ session.message_count }}条消息</span>
-                  <span>{{ formatSessionTime(session.last_message_at) }}</span>
-                </div>
+                <template v-if="editingSessionId === session.session_id">
+                  <t-input
+                    v-model="editingTitle"
+                    size="small"
+                    placeholder="输入标题"
+                    @blur="saveSessionTitle"
+                    @keyup.enter="saveSessionTitle"
+                    @keyup.escape="cancelEditTitle"
+                    autofocus
+                    @click.stop
+                  />
+                </template>
+                <template v-else>
+                  <div class="session-title">{{ getSessionTitle(session) }}</div>
+                  <div class="session-meta">
+                    <span>{{ session.message_count }}条消息</span>
+                    <span>{{ formatSessionTime(session.last_message_at) }}</span>
+                  </div>
+                </template>
               </div>
-              <div class="session-actions">
+              <div class="session-actions" v-if="editingSessionId !== session.session_id">
+                <t-button theme="default" variant="text" size="small" @click="startEditTitle(session, $event)">
+                  <t-icon name="edit" />
+                </t-button>
                 <t-button theme="danger" variant="text" size="small" @click="handleDeleteSession(session.session_id, $event)">
                   <t-icon name="delete" />
                 </t-button>
               </div>
             </div>
           </div>
-          
+
           <!-- Empty State -->
           <div v-if="chatStore.sessions.length === 0" class="empty-sessions">
             <t-icon name="chat" size="32px" />
@@ -432,16 +514,16 @@ onMounted(async () => {
             :theme="chatStore.debugSidebarOpen ? 'primary' : 'default'"
             variant="text"
             @click="chatStore.debugSidebarOpen = !chatStore.debugSidebarOpen"
-            title="Agent 调试面板"
+            title="Agent 链路追踪"
           >
-            <template #icon><t-icon name="bug-report" /></template>
-            调试
+            <template #icon><t-icon name="flow" /></template>
+            链路
           </t-button>
           <t-button
             :theme="showDiscussionSidebar ? 'primary' : 'default'"
             variant="text"
             @click="toggleDiscussionSidebar"
-            title="Agent 讨论决策"
+            title="多智能体决策"
           >
             <template #icon><t-icon name="user-talk" /></template>
             决策
@@ -459,26 +541,10 @@ onMounted(async () => {
       
       <div class="main-content-area">
         <div ref="messageListRef" class="message-area">
-          <MessageList 
-            :messages="chatStore.messages" 
-            :loading="chatStore.loading" 
+          <MessageList
+            :messages="chatStore.messages"
+            :loading="chatStore.loading"
             @quick-action="handleSend"
-          />
-        </div>
-        
-        <!-- Decision Signal Panel -->
-        <div v-if="chatStore.decisionSummary" class="decision-signal-container">
-          <DecisionSignalPanel 
-            :summary="chatStore.decisionSummary"
-            @close="chatStore.decisionSummary = null"
-          />
-        </div>
-        
-        <!-- Discussion Events Viewer -->
-        <div v-if="chatStore.debugSidebarOpen && chatStore.debugMessages.length > 0" class="discussion-viewer-container">
-          <DiscussionEventsViewer 
-            :debug-messages="chatStore.debugMessages"
-            @close="chatStore.debugSidebarOpen = false"
           />
         </div>
       </div>
@@ -545,6 +611,9 @@ onMounted(async () => {
       :stock-code="discussionStockCode"
       @close="showDiscussionSidebar = false"
     />
+
+    <!-- WeChat Push Prompt (shows after 3rd analysis) -->
+    <WechatPushPrompt />
     </div>
     </div>
   </div>
@@ -828,31 +897,14 @@ onMounted(async () => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
   background: var(--td-bg-color, #ffffff);
 }
 
 .message-area {
   flex: 1;
   overflow-y: auto;
+  padding: 20px;
   min-height: 0;
-}
-
-.decision-signal-container {
-  flex-shrink: 0;
-  max-height: 300px;
-  overflow-y: auto;
-  border-radius: 8px;
-  animation: slideIn 0.3s ease-out;
-}
-
-.discussion-viewer-container {
-  flex-shrink: 0;
-  max-height: 400px;
-  overflow-y: auto;
-  border-radius: 8px;
-  animation: slideIn 0.3s ease-out;
 }
 
 @keyframes slideIn {

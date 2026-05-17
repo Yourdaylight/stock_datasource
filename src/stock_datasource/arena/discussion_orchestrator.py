@@ -112,14 +112,22 @@ class AgentDiscussionOrchestrator:
             # Complete round
             discussion_round.completed_at = datetime.now()
 
-            # Generate decision summary (hybrid: rule-based + LLM)
+            # Phase 1: Emit instant preview signal from rule-based vote counting
+            # This gives the user a signal in <1s while the LLM synthesis runs
+            preview_signal = await self._emit_preview_signal(
+                discussion_round=discussion_round,
+                strategies=strategies,
+            )
+
+            # Phase 2: Generate full decision summary (hybrid: rule-based + LLM)
+            # This takes 10-30s but produces richer reasoning
             decision_summary = await self._generate_decision_summary(
                 discussion_round=discussion_round,
                 strategies=strategies,
                 market_context=market_context,
             )
 
-            # Publish decision summary via SSE
+            # Publish decision summary via SSE (upgrades the preview)
             if decision_summary:
                 await self.stream_processor.publish_system(
                     f"## 决策信号: {decision_summary.signal.upper()}\n"
@@ -355,6 +363,90 @@ class AgentDiscussionOrchestrator:
 
         except Exception as e:
             logger.warning(f"Failed to generate decision summary: {e}")
+            return None
+
+    async def _emit_preview_signal(
+        self,
+        discussion_round: DiscussionRound,
+        strategies: list[ArenaStrategy],
+    ) -> dict[str, Any] | None:
+        """Emit instant rule-based preview signal via SSE.
+
+        This runs in <100ms using only vote counting from metadata,
+        giving the user a fast "whoa" signal while the full LLM
+        synthesis runs in the background (10-30s).
+
+        The frontend shows this as a "预览信号" badge that upgrades
+        to the final signal when decision_summary arrives.
+        """
+        try:
+            summarizer = get_decision_summarizer()
+            vote_result = summarizer._count_votes(discussion_round.messages)
+            key_arguments = summarizer._extract_key_arguments(discussion_round.messages)
+
+            total = (
+                vote_result["bull_count"]
+                + vote_result["bear_count"]
+                + vote_result["neutral_count"]
+            )
+            if total == 0:
+                return None
+
+            # Determine preview signal from votes only
+            bull = vote_result["bull_count"]
+            bear = vote_result["bear_count"]
+
+            if bull > bear and bull / total >= 0.5:
+                signal = "buy"
+                confidence = min(bull / total, 0.8)
+            elif bear > bull and bear / total >= 0.5:
+                signal = "sell"
+                confidence = min(bear / total, 0.8)
+            else:
+                signal = "hold"
+                confidence = 0.4
+
+            preview = {
+                "signal": signal.upper(),
+                "confidence": round(confidence, 2),
+                "bull_count": bull,
+                "bear_count": bear,
+                "neutral_count": vote_result["neutral_count"],
+                "is_preview": True,
+            }
+
+            # Determine stock code
+            stock_code = ""
+            if strategies:
+                symbols = strategies[0].symbols
+                if symbols:
+                    stock_code = symbols[0]
+
+            await self.stream_processor.publish_system(
+                f"## 预览信号: {signal.upper()} ({stock_code})\n"
+                f"- 置信度: {confidence:.0%} (基于投票)\n"
+                f"- 看多: {bull} | 看空: {bear} | 中性: {vote_result['neutral_count']}\n"
+                f"- ⏳ 完整分析生成中...",
+                metadata={
+                    "type": "preview_signal",
+                    "signal": signal.upper(),
+                    "confidence": round(confidence, 2),
+                    "bull_count": bull,
+                    "bear_count": bear,
+                    "neutral_count": vote_result["neutral_count"],
+                    "is_preview": True,
+                    "stock_code": stock_code,
+                },
+            )
+
+            logger.info(
+                f"Emitted preview signal: {signal.upper()} "
+                f"(confidence={confidence:.2f}, votes={total})"
+            )
+            return preview
+
+        except Exception as e:
+            logger.warning(f"Failed to emit preview signal: {e}")
             return None
 
     async def refine_strategies(

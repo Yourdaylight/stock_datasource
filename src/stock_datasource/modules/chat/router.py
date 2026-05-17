@@ -339,12 +339,14 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
                     metadata.setdefault("tool_calls", tool_calls)
                     if tool_errors:
                         metadata["tool_errors"] = tool_errors
-                    # Task 3.4: Only persist lightweight counters, not full
-                    # debug payloads, to reduce ClickHouse write amplification.
+                    # Persist debug events for history playback (chain trace + decision signals)
+                    # Typical size: 5-15 events × ~200 bytes = <3KB, acceptable for ClickHouse String
                     if debug_events:
                         metadata["debug_event_count"] = len(debug_events)
+                        metadata["debug_events"] = debug_events
                     if visualizations:
                         metadata["visualization_count"] = len(visualizations)
+                        metadata["visualizations"] = visualizations
                     if full_response:
                         service.add_message(
                             session_id,

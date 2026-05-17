@@ -140,8 +140,22 @@ export const useChatStore = defineStore('chat', () => {
   } | null>(null)
   const decisionSidebarOpen = ref(false)
 
+  // Preview signal state (instant rule-based, before full LLM synthesis)
+  const previewSignal = ref<{
+    signal: 'BUY' | 'SELL' | 'HOLD'
+    confidence: number
+    bull_count: number
+    bear_count: number
+    neutral_count: number
+    stock_code: string
+    is_preview: true
+  } | null>(null)
+
   // AbortController for cancelling in-flight streams on session switch
   let streamAbortController: AbortController | null = null
+
+  // Last session reference for returning user "继续上次对话" chip
+  const lastSessionRef = ref<{ session_id: string; title: string } | null>(null)
 
   // ============ LocalStorage Persistence Functions ============
   
@@ -241,9 +255,31 @@ export const useChatStore = defineStore('chat', () => {
   }
   
   // Restore session from localStorage or create new one
+  // For returning users: start fresh with a "继续上次对话" chip
+  // For first-time users (or explicit URL): load that session
   const restoreOrInitSession = async () => {
     const savedSessionId = loadSessionFromStorage()
     await loadSessions()
+
+    // Record the last session for "继续上次对话" chip
+    if (sessions.value.length > 0) {
+      const latest = sessions.value[0]
+      if (latest.message_count > 0) {
+        lastSessionRef.value = {
+          session_id: latest.session_id,
+          title: latest.title || `会话 ${latest.session_id.slice(-6)}`,
+        }
+      }
+    }
+
+    // If user has sessions with messages, start fresh (new empty session)
+    // so they see the welcome screen + "继续上次对话"
+    const hasExistingSessions = sessions.value.some(s => s.message_count > 0)
+    if (hasExistingSessions && !savedSessionId) {
+      // No explicit saved session — returning user gets fresh start
+      await initSession()
+      return
+    }
 
     if (savedSessionId) {
       const savedSession = sessions.value.find(s => s.session_id === savedSessionId)
@@ -434,6 +470,9 @@ export const useChatStore = defineStore('chat', () => {
     parallelLaneCounter = 0
     // Reset visualization accumulator
     pendingVisualizations = []
+    // Reset decision/preview state
+    previewSignal.value = null
+    decisionSummary.value = null
   }
 
   // Convert a debug SSE event into a DebugMessage for sidebar display
@@ -453,7 +492,7 @@ export const useChatStore = defineStore('chat', () => {
       role = 'handoff'
     } else if (debugType === 'data_sharing') {
       role = 'system'
-    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'arena_error') {
+    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'preview_signal' || debugType === 'arena_error') {
       role = 'discussion'
     }
 
@@ -487,8 +526,25 @@ export const useChatStore = defineStore('chat', () => {
 
     debugMessages.value.push(msg)
 
-    // Special handling for decision_summary: update decision state
+    // Special handling for preview_signal: show fast preview before full LLM summary
+    if (debugType === 'preview_signal' && data.signal) {
+      previewSignal.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        stock_code: data.stock_code || '',
+        is_preview: true,
+      }
+      decisionSidebarOpen.value = true
+      console.log('[Chat] Preview signal received:', previewSignal.value)
+    }
+
+    // Special handling for decision_summary: update decision state (upgrades preview)
     if (debugType === 'decision_summary' && data.signal) {
+      // Clear preview signal — the full summary replaces it
+      previewSignal.value = null
       decisionSummary.value = {
         signal: data.signal as 'BUY' | 'SELL' | 'HOLD' | 'NONE',
         confidence: data.confidence || 0,
@@ -777,12 +833,32 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = result.messages
     messageVisualizations.value = {}
 
+    // Reset debug/decision state before restoring from history
+    debugMessages.value = []
+    debugMsgCounter = 0
+    parallelLaneCounter = 0
+    previewSignal.value = null
+    decisionSummary.value = null
+
     for (const msg of result.messages) {
-      if (msg.role === 'assistant' && msg.metadata?.visualizations) {
+      if (msg.role !== 'assistant') continue
+
+      // Restore visualizations
+      if (msg.metadata?.visualizations) {
         const vizList = msg.metadata.visualizations as VisualizationEvent['visualization'][]
         if (vizList.length > 0) {
           messageVisualizations.value[msg.id] = vizList
         }
+      }
+
+      // Restore debug events (chain trace + discussion + decision signals)
+      if (msg.metadata?.debug_events) {
+        const events = msg.metadata.debug_events as DebugEvent[]
+        for (const evt of events) {
+          processDebugEvent(evt)
+        }
+        // Save the snapshot for per-message "查看调试" button
+        saveDebugSnapshot(msg.id)
       }
     }
 
@@ -822,6 +898,8 @@ export const useChatStore = defineStore('chat', () => {
     // Decision summary state
     decisionSummary,
     decisionSidebarOpen,
+    previewSignal,
+    lastSessionRef,
     // Actions
     initSession,
     restoreOrInitSession,

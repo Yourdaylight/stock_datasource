@@ -32,8 +32,8 @@
               <span class="badge decision">💡 决策总结</span>
             </div>
             <div class="decision-content">
-              <div class="decision-signal" :class="signalClass(event.data.signal)">
-                {{ signalEmoji(event.data.signal) }} {{ event.data.signal }}
+              <div class="decision-signal" :class="signalClass(event.data.signal as string || '')">
+                {{ signalEmoji(event.data.signal as string || '') }} {{ event.data.signal }}
               </div>
               <div class="decision-stats">
                 <span>置信度: {{ ((event.data.confidence || 0) * 100).toFixed(0) }}%</span>

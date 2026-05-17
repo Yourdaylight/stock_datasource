@@ -1244,6 +1244,33 @@ Action Input: {{}}
             )
 
         plan = self._build_multi_agent_plan(agent_name, stock_codes, query)
+
+        # Force multi-agent + Arena debate for first-message stock queries
+        # This creates the "whoa" moment: user types "分析茅台" and sees 3 agents debate
+        # Guard: only for analysis intents, not info queries like "600519是什么公司"
+        analysis_intents = {
+            "market_analysis", "financial_report", "hk_financial_report",
+            "hk_market_analysis", "stock_screening", "news_analysis",
+        }
+        history = context.get("history", [])
+        is_first_query = len(history) <= 1
+        has_stock = bool(stock_codes)
+        is_analysis = intent in analysis_intents
+        if is_first_query and has_stock and is_analysis and len(plan) <= 1:
+            logger.info(
+                f"[Onboarding] First stock query detected, forcing multi-agent plan "
+                f"for whoa moment (was: {plan})"
+            )
+            forced_plan = []
+            if "MarketAgent" in self._agent_classes:
+                forced_plan.append("MarketAgent")
+            if "ReportAgent" in self._agent_classes:
+                forced_plan.append("ReportAgent")
+            if "NewsAnalystAgent" in self._agent_classes:
+                forced_plan.append("NewsAnalystAgent")
+            if len(forced_plan) >= 2:
+                plan = forced_plan
+
         if not plan:
             logger.info(f"No agent available for intent: {intent}, fallback to MCP")
             # Emit status about using ReAct mode with MCP
@@ -1357,12 +1384,12 @@ Action Input: {{}}
         # This allows decision signals to be displayed in the chat "决策" sidebar
         arena_task = None
         arena_adapter = None
+        arena_id = None
         try:
             session_id = context.get("session_id", "")
             user_id = context.get("user_id", "")
             if session_id and user_id and len(plan) > 1:
                 arena_adapter = get_chat_arena_adapter()
-                # Create arena for this multi-agent discussion
                 arena_id = await arena_adapter.create_arena_for_chat_session(
                     session_id=session_id,
                     user_id=user_id,
@@ -1375,28 +1402,8 @@ Action Input: {{}}
                     },
                 )
                 logger.info(f"Created arena {arena_id} for chat session {session_id}")
-                
-                # Launch arena discussion task in background (non-blocking)
-                async def _run_arena_discussion():
-                    """Run arena discussion in parallel with agent execution."""
-                    try:
-                        async for arena_event in arena_adapter.run_discussion_and_collect_signals(
-                            arena_id=arena_id,
-                            discussion_mode="debate",
-                        ):
-                            if not hasattr(self, "_arena_events"):
-                                self._arena_events = []
-                            self._arena_events.append(arena_event)
-                            logger.debug(f"Collected arena event: {arena_event.get('debug_type')}")
-                    except Exception as e:
-                        logger.warning(f"Arena discussion failed (non-blocking): {e}")
-                        # Don't raise - arena is non-blocking, chat must continue
-                
-                arena_task = asyncio.create_task(_run_arena_discussion())
-                logger.info(f"Launched arena discussion task for arena {arena_id}")
         except Exception as e:
             logger.warning(f"Failed to initialize arena (non-blocking): {e}")
-            # Gracefully degrade - arena setup failure should not break chat
 
 
         tool_calls = []
@@ -1404,6 +1411,23 @@ Action Input: {{}}
         queue: asyncio.Queue = asyncio.Queue()
         active = 0
         heading_sent: dict[str, bool] = {}
+
+        # Launch arena discussion AFTER queue is created, so events push to queue in real-time
+        if arena_adapter and arena_id:
+            async def _run_arena_discussion():
+                """Run arena discussion in parallel, push events to queue in real-time."""
+                try:
+                    async for arena_event in arena_adapter.run_discussion_and_collect_signals(
+                        arena_id=arena_id,
+                        discussion_mode="debate",
+                    ):
+                        await queue.put(("__arena__", arena_event))
+                        logger.debug(f"Pushed arena event to queue: {arena_event.get('debug_type')}")
+                except Exception as e:
+                    logger.warning(f"Arena discussion failed (non-blocking): {e}")
+
+            arena_task = asyncio.create_task(_run_arena_discussion())
+            logger.info(f"Launched arena discussion task for arena {arena_id}")
 
         async def _run_agent(agent_name: str):
             agent = self._get_agent(agent_name)
@@ -1456,6 +1480,10 @@ Action Input: {{}}
             if event is None:
                 active -= 1
                 continue
+            # Arena events arrive via "__arena__" sentinel — yield directly
+            if agent_name == "__arena__":
+                yield event
+                continue
             event_type = event.get("type")
             if event_type == "thinking":
                 event.setdefault("agent", agent_name)
@@ -1493,26 +1521,24 @@ Action Input: {{}}
             if not task.done():
                 task.cancel()
 
-        # Collect arena discussion events if available (non-blocking)
+        # Wait for arena discussion to finish and drain remaining events
         if arena_task and not arena_task.done():
             try:
-                # Wait briefly for arena task to complete (with timeout to avoid blocking)
-                await asyncio.wait_for(arena_task, timeout=2.0)
+                await asyncio.wait_for(arena_task, timeout=5.0)
             except asyncio.TimeoutError:
                 logger.warning("Arena discussion task did not complete in time, cancelling")
                 arena_task.cancel()
             except Exception as e:
                 logger.debug(f"Arena task error (non-blocking): {e}")
-        
-        # Emit collected arena events to frontend
-        if hasattr(self, "_arena_events") and self._arena_events:
-            for arena_event in self._arena_events:
-                try:
-                    yield arena_event
-                except Exception as e:
-                    logger.debug(f"Failed to yield arena event: {e}")
-            # Clean up
-            self._arena_events = []
+
+        # Drain any remaining arena events from queue
+        while not queue.empty():
+            try:
+                agent_name, event = queue.get_nowait()
+                if agent_name == "__arena__" and event:
+                    yield event
+            except asyncio.QueueEmpty:
+                break
 
 
         # Flush any pending debug events (e.g., data_sharing)
