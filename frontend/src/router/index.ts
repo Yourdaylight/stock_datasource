@@ -103,7 +103,9 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/memory',
-    redirect: '/portfolio'
+    name: 'Memory',
+    component: () => import('@/views/memory/MemoryView.vue'),
+    meta: { title: '用户记忆', icon: 'brain', requiresAuth: true }
   },
   {
     path: '/datamanage',
