@@ -52,3 +52,6 @@ src/stock_datasource/modules/auth/auth.db
 
 # Frontend build info (regenerated)
 frontend/tsconfig.tsbuildinfo
+
+# Redis dump
+dump.rdb
