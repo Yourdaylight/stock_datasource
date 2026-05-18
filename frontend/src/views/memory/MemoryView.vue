@@ -1,197 +1,172 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMemoryStore } from '@/stores/memory'
+import { MessagePlugin } from 'tdesign-vue-next'
+import ProfileHeader from './components/ProfileHeader.vue'
+import DailyMemory from './components/DailyMemory.vue'
+import LongTermMemory from './components/LongTermMemory.vue'
+import ScenarioMemory from './components/ScenarioMemory.vue'
+import PreferencePanel from './components/PreferencePanel.vue'
+import CreateFactDialog from './components/CreateFactDialog.vue'
 
 const memoryStore = useMemoryStore()
-const activeTab = ref('preference')
+const createFactRef = ref<InstanceType<typeof CreateFactDialog> | null>(null)
+const refreshing = ref(false)
 
-const riskLevelOptions = [
-  { value: 'conservative', label: '保守型' },
-  { value: 'moderate', label: '稳健型' },
-  { value: 'aggressive', label: '激进型' }
-]
-
-const styleOptions = [
-  { value: 'value', label: '价值投资' },
-  { value: 'growth', label: '成长投资' },
-  { value: 'balanced', label: '均衡投资' },
-  { value: 'momentum', label: '动量投资' }
-]
-
-const watchlistColumns = [
-  { colKey: 'ts_code', title: '代码', width: 100 },
-  { colKey: 'stock_name', title: '名称', width: 100 },
-  { colKey: 'group_name', title: '分组', width: 100 },
-  { colKey: 'add_reason', title: '添加原因', width: 150 },
-  { colKey: 'created_at', title: '添加时间', width: 150 },
-  { colKey: 'operation', title: '操作', width: 100 }
-]
-
-const handleRemoveFromWatchlist = (tsCode: string) => {
-  memoryStore.removeFromWatchlist(tsCode)
+async function handleRefresh() {
+  refreshing.value = true
+  await memoryStore.fetchAll()
+  refreshing.value = false
+  MessagePlugin.success('记忆数据已刷新')
 }
 
-const handleSavePreference = () => {
-  memoryStore.updatePreference(memoryStore.preference)
+async function handleDeleteFact(factId: string) {
+  await memoryStore.deleteFact(factId)
+  MessagePlugin.success('记忆已删除')
+}
+
+function handleCreateFact() {
+  createFactRef.value?.open()
 }
 
 onMounted(() => {
-  memoryStore.fetchPreference()
-  memoryStore.fetchWatchlist()
-  memoryStore.fetchProfile()
+  memoryStore.fetchAll()
 })
 </script>
 
 <template>
-  <div class="memory-view">
-    <t-row :gutter="16">
-      <t-col :span="4">
-        <t-card title="用户画像">
-          <div class="profile-section">
-            <div class="profile-item">
-              <span class="label">活跃度</span>
-              <t-tag :theme="memoryStore.profile?.active_level === 'high' ? 'success' : 'default'">
-                {{ memoryStore.profile?.active_level || '未知' }}
-              </t-tag>
-            </div>
-            <div class="profile-item">
-              <span class="label">专业度</span>
-              <t-tag>{{ memoryStore.profile?.expertise_level || '未知' }}</t-tag>
-            </div>
-            <div class="profile-item">
-              <span class="label">交易风格</span>
-              <t-tag>{{ memoryStore.profile?.trading_style || '未知' }}</t-tag>
-            </div>
-            <div class="profile-item">
-              <span class="label">关注行业</span>
-              <div class="tags">
-                <t-tag
-                  v-for="ind in memoryStore.profile?.focus_industries || []"
-                  :key="ind"
-                  size="small"
-                >
-                  {{ ind }}
-                </t-tag>
-              </div>
-            </div>
-          </div>
-        </t-card>
-      </t-col>
+  <div class="memory-page">
+    <!-- Page header with profile summary -->
+    <ProfileHeader />
 
-      <t-col :span="8">
-        <t-card>
-          <t-tabs v-model="activeTab">
-            <t-tab-panel value="preference" label="偏好设置">
-              <t-form label-width="100px">
-                <t-form-item label="风险偏好">
-                  <t-radio-group v-model="memoryStore.preference.risk_level">
-                    <t-radio-button
-                      v-for="opt in riskLevelOptions"
-                      :key="opt.value"
-                      :value="opt.value"
-                    >
-                      {{ opt.label }}
-                    </t-radio-button>
-                  </t-radio-group>
-                </t-form-item>
-                
-                <t-form-item label="投资风格">
-                  <t-radio-group v-model="memoryStore.preference.investment_style">
-                    <t-radio-button
-                      v-for="opt in styleOptions"
-                      :key="opt.value"
-                      :value="opt.value"
-                    >
-                      {{ opt.label }}
-                    </t-radio-button>
-                  </t-radio-group>
-                </t-form-item>
-                
-                <t-form-item label="偏好行业">
-                  <t-select
-                    v-model="memoryStore.preference.favorite_sectors"
-                    multiple
-                    placeholder="选择偏好行业"
-                    :options="[
-                      { value: '科技', label: '科技' },
-                      { value: '金融', label: '金融' },
-                      { value: '消费', label: '消费' },
-                      { value: '医药', label: '医药' },
-                      { value: '新能源', label: '新能源' }
-                    ]"
-                  />
-                </t-form-item>
-                
-                <t-form-item>
-                  <t-button theme="primary" @click="handleSavePreference">保存设置</t-button>
-                </t-form-item>
-              </t-form>
-            </t-tab-panel>
-            
-            <t-tab-panel value="watchlist" label="自选股">
-              <t-table
-                :data="memoryStore.watchlist"
-                :columns="watchlistColumns"
-                :loading="memoryStore.loading"
-                row-key="ts_code"
-              >
-                <template #operation="{ row }">
-                  <t-popconfirm content="确定移除该股票？" @confirm="handleRemoveFromWatchlist(row.ts_code)">
-                    <t-link theme="danger">移除</t-link>
-                  </t-popconfirm>
-                </template>
-              </t-table>
-            </t-tab-panel>
-            
-            <t-tab-panel value="history" label="交互历史">
-              <t-timeline>
-                <t-timeline-item
-                  v-for="item in memoryStore.history"
-                  :key="item.id"
-                  :label="item.timestamp"
-                >
-                  <p><strong>{{ item.intent }}</strong></p>
-                  <p>{{ item.user_input }}</p>
-                  <t-space v-if="item.stocks_mentioned?.length">
-                    <t-tag v-for="stock in item.stocks_mentioned" :key="stock" size="small">
-                      {{ stock }}
-                    </t-tag>
-                  </t-space>
-                </t-timeline-item>
-              </t-timeline>
-            </t-tab-panel>
-          </t-tabs>
-        </t-card>
-      </t-col>
-    </t-row>
+    <!-- Action bar -->
+    <div class="action-bar">
+      <div class="action-bar__left">
+        <h3 class="page-section-title">记忆架构</h3>
+        <p class="page-section-desc">
+          参考 mem0 / MemGPT / deer-flow 架构，记忆分为每日、长期、场景三层
+        </p>
+      </div>
+      <div class="action-bar__right">
+        <t-button variant="outline" @click="handleRefresh" :loading="refreshing">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+        <t-button theme="primary" @click="handleCreateFact">
+          <template #icon><t-icon name="add" /></template>
+          手动添加记忆
+        </t-button>
+      </div>
+    </div>
+
+    <!-- Main dashboard grid -->
+    <div class="memory-grid">
+      <!-- Row 1: Daily Memory (left) + Long-term Memory (right) -->
+      <div class="memory-grid__row memory-grid__row--top">
+        <div class="memory-grid__col memory-grid__col--daily">
+          <DailyMemory @delete-fact="handleDeleteFact" />
+        </div>
+        <div class="memory-grid__col memory-grid__col--longterm">
+          <LongTermMemory @delete-fact="handleDeleteFact" />
+        </div>
+      </div>
+
+      <!-- Row 2: Scenario Memory (left) + Preferences (right) -->
+      <div class="memory-grid__row memory-grid__row--bottom">
+        <div class="memory-grid__col memory-grid__col--scenario">
+          <ScenarioMemory @delete-fact="handleDeleteFact" />
+        </div>
+        <div class="memory-grid__col memory-grid__col--preference">
+          <PreferencePanel />
+        </div>
+      </div>
+    </div>
+
+    <!-- Create fact dialog -->
+    <CreateFactDialog ref="createFactRef" />
   </div>
 </template>
 
 <style scoped>
-.memory-view {
-  height: 100%;
+.memory-page {
+  padding: 20px;
+  max-width: 1600px;
+  margin: 0 auto;
+  min-height: 100%;
 }
 
-.profile-section {
+/* Action bar */
+.action-bar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
-.profile-item {
+.action-bar__left {
+  flex: 1;
+}
+
+.page-section-title {
+  margin: 0 0 2px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.page-section-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.action-bar__right {
   display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
-.profile-item .label {
-  font-size: 12px;
-  color: #666;
+/* Grid layout */
+.memory-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.memory-grid__row {
+  display: grid;
+  gap: 20px;
+}
+
+.memory-grid__row--top {
+  grid-template-columns: 1fr 1.4fr;
+}
+
+.memory-grid__row--bottom {
+  grid-template-columns: 1.4fr 1fr;
+}
+
+.memory-grid__col {
+  min-width: 0;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .memory-grid__row--top,
+  .memory-grid__row--bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .memory-page {
+    padding: 12px;
+  }
+
+  .action-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>
