@@ -17,8 +17,6 @@ export const useMemoryStore = defineStore('memory', () => {
   // --- NEW: Facts & Conclusions state ---
   const facts = ref<FactOutput[]>([])
   const conclusions = ref<ConclusionOutput[]>([])
-  const factsLoading = ref(false)
-  const conclusionsLoading = ref(false)
 
   // --- Computed: categorized facts ---
 
@@ -62,25 +60,19 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   const updatePreference = async (data: Partial<UserPreference>) => {
-    loading.value = true
     try {
       await memoryApi.updatePreference(data)
       Object.assign(preference, data)
     } catch (e) {
       // Error handled by interceptor
-    } finally {
-      loading.value = false
     }
   }
 
   const fetchWatchlist = async (group?: string) => {
-    loading.value = true
     try {
       watchlist.value = await memoryApi.getWatchlist(group)
     } catch (e) {
       // Error handled by interceptor
-    } finally {
-      loading.value = false
     }
   }
 
@@ -120,13 +112,10 @@ export const useMemoryStore = defineStore('memory', () => {
 
   // --- NEW: Facts actions ---
   const fetchFacts = async (category?: string, limit?: number, minConfidence?: number) => {
-    factsLoading.value = true
     try {
       facts.value = await memoryApi.getFacts(category, limit || 50, minConfidence)
     } catch (e) {
       // Error handled by interceptor
-    } finally {
-      factsLoading.value = false
     }
   }
 
@@ -152,28 +141,28 @@ export const useMemoryStore = defineStore('memory', () => {
 
   // --- NEW: Conclusions actions ---
   const fetchConclusions = async (limit?: number) => {
-    conclusionsLoading.value = true
     try {
       conclusions.value = await memoryApi.getConclusions(limit || 20)
     } catch (e) {
       // Error handled by interceptor
-    } finally {
-      conclusionsLoading.value = false
     }
   }
 
   // --- NEW: Load all data at once ---
   const fetchAll = async () => {
     loading.value = true
-    await Promise.all([
-      fetchPreference(),
-      fetchWatchlist(),
-      fetchProfile(),
-      fetchHistory(30),
-      fetchFacts(undefined, 50, 0.3),
-      fetchConclusions(20)
-    ])
-    loading.value = false
+    try {
+      await Promise.all([
+        fetchPreference(),
+        fetchWatchlist(),
+        fetchProfile(),
+        fetchHistory(30),
+        fetchFacts(undefined, 50, 0.3),
+        fetchConclusions(20)
+      ])
+    } finally {
+      loading.value = false
+    }
   }
 
   return {
@@ -185,8 +174,6 @@ export const useMemoryStore = defineStore('memory', () => {
     loading,
     facts,
     conclusions,
-    factsLoading,
-    conclusionsLoading,
     // Computed
     dailyFacts,
     longTermFacts,

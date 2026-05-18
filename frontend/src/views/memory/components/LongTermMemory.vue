@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useMemoryStore } from '@/stores/memory'
 import type { FactOutput } from '@/api/memory'
+import { CATEGORY_MAP, getCategoryInfo } from './categoryMap'
 
 const memoryStore = useMemoryStore()
 const activeCategory = ref<string>('all')
@@ -10,12 +11,7 @@ const emit = defineEmits<{
   (e: 'delete-fact', factId: string): void
 }>()
 
-const categoryLabels: Record<string, { label: string; theme: string; icon: string }> = {
-  risk_preference: { label: '风险偏好', theme: 'warning', icon: 'shield' },
-  sector_focus: { label: '板块关注', theme: 'primary', icon: 'chart-pie' },
-  stock_opinion: { label: '个股观点', theme: 'success', icon: 'trending-up' },
-  trading_style: { label: '交易风格', theme: 'default', icon: 'swap' }
-}
+const LONG_TERM_KEYS = ['risk_preference', 'sector_focus', 'stock_opinion', 'trading_style']
 
 const categories = computed(() => {
   const counts: Record<string, number> = {}
@@ -24,9 +20,9 @@ const categories = computed(() => {
   })
   return [
     { key: 'all', label: '全部', count: memoryStore.longTermFacts.length },
-    ...Object.entries(categoryLabels).map(([key, val]) => ({
+    ...LONG_TERM_KEYS.map(key => ({
       key,
-      label: val.label,
+      label: CATEGORY_MAP[key]?.label ?? key,
       count: counts[key] || 0
     }))
   ]
@@ -46,10 +42,6 @@ function getConfidenceColor(confidence: number): string {
   if (confidence >= 0.7) return 'var(--td-brand-color)'
   if (confidence >= 0.5) return 'var(--td-warning-color)'
   return 'var(--td-error-color)'
-}
-
-function getCategoryInfo(category: string) {
-  return categoryLabels[category] || { label: category, theme: 'default', icon: 'file' }
 }
 
 function formatDate(ts: number): string {

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useMemoryStore } from '@/stores/memory'
 import type { FactOutput } from '@/api/memory'
+import { getCategoryInfo } from './categoryMap'
 
 const memoryStore = useMemoryStore()
 
@@ -46,16 +47,6 @@ const groupedScenarios = computed(() => {
     .filter(g => g.facts.length > 0 || g.conclusions.length > 0)
     .sort((a, b) => (b.facts.length + b.conclusions.length) - (a.facts.length + a.conclusions.length))
 })
-
-const categoryLabels: Record<string, { label: string; theme: string }> = {
-  market_signal: { label: '市场信号', theme: 'danger' },
-  capital_flow: { label: '资金流向', theme: 'warning' },
-  conclusion: { label: '分析结论', theme: 'primary' }
-}
-
-function getCategoryInfo(category: string) {
-  return categoryLabels[category] || { label: category, theme: 'default' }
-}
 
 function formatTimestamp(ts: number): string {
   if (!ts) return '--'

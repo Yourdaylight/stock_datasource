@@ -2,22 +2,13 @@
 import { computed } from 'vue'
 import { useMemoryStore } from '@/stores/memory'
 import type { FactOutput } from '@/api/memory'
+import { getCategoryInfo } from './categoryMap'
 
 const memoryStore = useMemoryStore()
 
 const emit = defineEmits<{
   (e: 'delete-fact', factId: string): void
 }>()
-
-const categoryLabels: Record<string, { label: string; theme: string }> = {
-  risk_preference: { label: '风险偏好', theme: 'warning' },
-  sector_focus: { label: '板块关注', theme: 'primary' },
-  stock_opinion: { label: '个股观点', theme: 'success' },
-  trading_style: { label: '交易风格', theme: 'default' },
-  conclusion: { label: '分析结论', theme: 'primary' },
-  market_signal: { label: '市场信号', theme: 'danger' },
-  capital_flow: { label: '资金流向', theme: 'warning' }
-}
 
 const todayFacts = computed(() => memoryStore.dailyFacts)
 
@@ -41,10 +32,6 @@ function getConfidenceStatus(confidence: number): string {
   if (confidence >= 0.8) return 'success'
   if (confidence >= 0.6) return 'warning'
   return 'error'
-}
-
-function getCategoryInfo(category: string) {
-  return categoryLabels[category] || { label: category, theme: 'default' }
 }
 
 function handleDelete(fact: FactOutput) {
@@ -98,7 +85,9 @@ function handleDelete(fact: FactOutput) {
             <p class="fact-text">{{ fact.content }}</p>
             <div class="fact-item__meta">
               <span v-if="fact.source" class="fact-source">来源: {{ fact.source }}</span>
-              <t-link theme="danger" size="small" @click.stop="handleDelete(fact)">删除</t-link>
+              <t-popconfirm content="确定删除此记忆？" @confirm="handleDelete(fact)">
+                <t-link theme="danger" size="small">删除</t-link>
+              </t-popconfirm>
             </div>
           </div>
         </div>
@@ -157,7 +146,6 @@ function handleDelete(fact: FactOutput) {
     <t-empty
       v-if="todayFacts.length === 0 && recentHistory.length === 0 && recentConclusions.length === 0"
       description="今日暂无新记忆，与AI对话后将自动提取"
-      image="https://tdesign.gtimg.com/demo/demo-image-1.png"
     />
   </t-card>
 </template>
