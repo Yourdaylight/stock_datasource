@@ -142,9 +142,13 @@ async function executeRun() {
   runResult.value = ''
   try {
     const url = getExecuteUrl(runPipeline.value.id)
-    const response = await fetch(url, {
+    const base = (import.meta as any).env?.VITE_API_BASE_URL || ''
+    const response = await fetch(`${base}${url}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
       body: JSON.stringify({ input_data: { message: runInput.value } }),
     })
     const reader = response.body?.getReader()

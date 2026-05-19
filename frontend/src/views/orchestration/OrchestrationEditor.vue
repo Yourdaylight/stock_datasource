@@ -114,11 +114,15 @@
           </div>
         </t-card>
 
-        <!-- Execution -->
-        <t-card v-if="executionOutput" title="执行结果" :bordered="true" size="small" class="mt-12">
-          <template #actions><t-button variant="text" size="small" @click="executionOutput=''">清除</t-button></template>
-          <pre class="exec-output">{{ executionOutput }}</pre>
-        </t-card>
+        <!-- Execution Panel -->
+        <ExecutionPanel
+          v-if="executionNodes.length || isExecutionRunning || isExecutionComplete"
+          :nodes="executionNodes"
+          :is-running="isExecutionRunning"
+          :is-complete="isExecutionComplete"
+          v-model:expanded-node="expandedNode"
+          class="mt-12"
+        />
       </div>
     </div>
 
@@ -152,6 +156,8 @@ import { getPipeline, updatePipeline, getExecuteUrl } from '@/api/orchestration'
 import { listAgents } from '@/api/agent'
 import type { PipelineNode } from '@/api/orchestration'
 import type { AgentConfig } from '@/api/agent'
+import ExecutionPanel from './components/ExecutionPanel.vue'
+import type { NodeState } from './components/ExecutionPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -169,7 +175,10 @@ const showAddAgent = ref(false)
 const addingTier = ref(1)
 const showRunDialog = ref(false)
 const runInput = ref('')
-const executionOutput = ref('')
+const executionNodes = ref<NodeState[]>([])
+const isExecutionRunning = ref(false)
+const isExecutionComplete = ref(false)
+const expandedNode = ref('')
 const aiPrompt = ref('')
 const executionMode = ref('hierarchical')
 const mergeStrategy = ref('llm_summarize')
@@ -288,6 +297,10 @@ async function loadPipeline() {
     pipelineDesc.value = p.description || ''
     nodes.value = p.nodes || []
     edges.value = p.edges || []
+    // Restore execution config from output_config
+    const oc = p.output_config || {}
+    if (oc.execution_mode) executionMode.value = oc.execution_mode
+    if (oc.merge_strategy) mergeStrategy.value = oc.merge_strategy
     // Infer tiers from existing edges if not set
     inferTiers()
   } catch { MessagePlugin.error('加载失败') }
@@ -350,7 +363,13 @@ async function loadAgents() {
 async function handleSave() {
   saving.value = true
   try {
-    await updatePipeline(pipelineId.value, { name: pipelineName.value, description: pipelineDesc.value, nodes: nodes.value, edges: edges.value })
+    await updatePipeline(pipelineId.value, {
+      name: pipelineName.value,
+      description: pipelineDesc.value,
+      nodes: nodes.value,
+      edges: edges.value,
+      output_config: { execution_mode: executionMode.value, merge_strategy: mergeStrategy.value },
+    })
     MessagePlugin.success('已保存')
   } catch { MessagePlugin.error('保存失败') }
   finally { saving.value = false }
@@ -362,7 +381,23 @@ async function executeTeam() {
   if (!runInput.value.trim()) return
   showRunDialog.value = false
   running.value = true
-  executionOutput.value = ''
+  isExecutionRunning.value = true
+  isExecutionComplete.value = false
+  expandedNode.value = ''
+
+  // Initialize node states from pipeline nodes
+  executionNodes.value = nodes.value
+    .filter(n => n.type !== 'output' || nodes.value.filter(x => x.type === 'output').length <= 1)
+    .map(n => ({
+      id: n.id,
+      label: n.label,
+      type: n.type,
+      status: 'pending' as const,
+      output: '',
+      durationMs: 0,
+      error: '',
+    }))
+
   try {
     await handleSave()
     const url = getExecuteUrl(pipelineId.value)
@@ -383,16 +418,38 @@ async function executeTeam() {
         if (line.startsWith('data: ')) {
           try {
             const event = JSON.parse(line.slice(6))
-            if (event.type === 'node_start') executionOutput.value += `▶ ${event.label} 开始...\n`
-            else if (event.type === 'node_end') executionOutput.value += `✅ ${event.label} (${event.duration_ms}ms)\n${event.output}\n\n`
-            else if (event.type === 'complete') executionOutput.value += `\n━━━ 完成 ━━━\n${event.output}`
-            else if (event.type === 'error') executionOutput.value += `❌ ${event.message}\n`
+            const nodeState = executionNodes.value.find(n => n.id === event.node_id)
+            if (event.type === 'node_start' && nodeState) {
+              nodeState.status = 'running'
+              expandedNode.value = nodeState.id
+            } else if (event.type === 'node_end' && nodeState) {
+              nodeState.status = 'completed'
+              nodeState.output = event.output || ''
+              nodeState.durationMs = event.duration_ms || 0
+            } else if (event.type === 'node_error' && nodeState) {
+              nodeState.status = 'error'
+              nodeState.error = event.error || '未知错误'
+            } else if (event.type === 'complete') {
+              isExecutionComplete.value = true
+              isExecutionRunning.value = false
+              // Set all remaining pending nodes as completed
+              executionNodes.value.forEach(n => { if (n.status === 'pending') n.status = 'completed' })
+            } else if (event.type === 'error') {
+              isExecutionComplete.value = true
+              isExecutionRunning.value = false
+            }
           } catch {}
         }
       }
     }
-  } catch (e: any) { executionOutput.value = `执行失败: ${e.message}` }
-  finally { running.value = false }
+  } catch (e: any) {
+    isExecutionRunning.value = false
+    isExecutionComplete.value = true
+    MessagePlugin.error(`执行失败: ${e.message}`)
+  } finally {
+    running.value = false
+    isExecutionRunning.value = false
+  }
 }
 
 async function handleAiGenerate() {
@@ -485,7 +542,6 @@ onMounted(async () => { await Promise.all([loadPipeline(), loadAgents()]) })
 .topo-connector { font-size: 12px; color: #bbb; text-align: center; }
 .topo-empty { color: #ccc; font-size: 13px; padding: 30px; }
 
-.exec-output { font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow: auto; background: #f5f7fa; padding: 8px; border-radius: 4px; margin: 0; }
 .agent-picker { max-height: 400px; overflow-y: auto; }
 .pick-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 6px; cursor: pointer; border: 1px solid #f0f0f0; margin-bottom: 6px; }
 .pick-item:hover { border-color: #0052d9; background: #f0f5ff; }
