@@ -17,13 +17,9 @@ const props = defineProps<{
   isComplete: boolean
 }>()
 
-const emit = defineEmits<{
-  (e: 'toggle-expand', nodeId: string): void
-}>()
-
 const expandedNode = defineModel<string>('expandedNode', { default: '' })
 
-const completedCount = computed(() => props.nodes.filter(n => n.status === 'completed').length)
+const completedCount = computed(() => props.nodes.filter(n => n.status === 'completed' && n.type === 'agent').length)
 const totalAgents = computed(() => props.nodes.filter(n => n.type === 'agent').length)
 const progressPercent = computed(() => {
   if (!totalAgents.value) return 0

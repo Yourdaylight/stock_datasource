@@ -148,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { ChevronLeftIcon, PlayIcon } from 'tdesign-icons-vue-next'
@@ -182,6 +182,9 @@ const expandedNode = ref('')
 const aiPrompt = ref('')
 const executionMode = ref('hierarchical')
 const mergeStrategy = ref('llm_summarize')
+let execAbort: AbortController | null = null
+
+onUnmounted(() => { if (execAbort) execAbort.abort() })
 
 const tierDescs = ['执行层 — 数据采集、监控', '分析层 — 研判、筛选', '决策层 — 综合判断、输出']
 
@@ -385,31 +388,42 @@ async function executeTeam() {
   isExecutionComplete.value = false
   expandedNode.value = ''
 
-  // Initialize node states from pipeline nodes
-  executionNodes.value = nodes.value
-    .filter(n => n.type !== 'output' || nodes.value.filter(x => x.type === 'output').length <= 1)
-    .map(n => ({
-      id: n.id,
-      label: n.label,
-      type: n.type,
-      status: 'pending' as const,
-      output: '',
-      durationMs: 0,
-      error: '',
-    }))
+  // Initialize node states from pipeline nodes (include all)
+  executionNodes.value = nodes.value.map(n => ({
+    id: n.id,
+    label: n.label,
+    type: n.type,
+    status: 'pending' as const,
+    output: '',
+    durationMs: 0,
+    error: '',
+  }))
+
+  // Abort previous stream if any
+  if (execAbort) execAbort.abort()
+  execAbort = new AbortController()
 
   try {
     await handleSave()
     const url = getExecuteUrl(pipelineId.value)
     const base = import.meta.env.VITE_API_BASE_URL || ''
+    const token = localStorage.getItem('token')
     const response = await fetch(`${base}${url}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ input_data: { message: runInput.value } }),
+      signal: execAbort.signal,
     })
+    if (!response.ok) {
+      throw new Error(`服务端错误 (HTTP ${response.status})`)
+    }
     const reader = response.body?.getReader()
     if (!reader) return
     const decoder = new TextDecoder()
+    let firstNodeStartSeen = false
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -421,28 +435,33 @@ async function executeTeam() {
             const nodeState = executionNodes.value.find(n => n.id === event.node_id)
             if (event.type === 'node_start' && nodeState) {
               nodeState.status = 'running'
-              expandedNode.value = nodeState.id
+              // Only auto-expand on first node_start to avoid flicker
+              if (!firstNodeStartSeen) { expandedNode.value = nodeState.id; firstNodeStartSeen = true }
             } else if (event.type === 'node_end' && nodeState) {
               nodeState.status = 'completed'
               nodeState.output = event.output || ''
               nodeState.durationMs = event.duration_ms || 0
+              expandedNode.value = nodeState.id
             } else if (event.type === 'node_error' && nodeState) {
               nodeState.status = 'error'
               nodeState.error = event.error || '未知错误'
+              expandedNode.value = nodeState.id
             } else if (event.type === 'complete') {
               isExecutionComplete.value = true
               isExecutionRunning.value = false
-              // Set all remaining pending nodes as completed
-              executionNodes.value.forEach(n => { if (n.status === 'pending') n.status = 'completed' })
             } else if (event.type === 'error') {
               isExecutionComplete.value = true
               isExecutionRunning.value = false
+              MessagePlugin.error(event.message || '执行出错')
             }
-          } catch {}
+          } catch (parseErr) {
+            console.warn('SSE parse error:', line, parseErr)
+          }
         }
       }
     }
   } catch (e: any) {
+    if (e.name === 'AbortError') return // User cancelled
     isExecutionRunning.value = false
     isExecutionComplete.value = true
     MessagePlugin.error(`执行失败: ${e.message}`)

@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import Any, AsyncGenerator
 
 from stock_datasource.models.orchestration import PipelineNode, PipelineResponse
@@ -28,8 +28,6 @@ class OrchestrationEngine:
         self, pipeline: PipelineResponse, input_data: dict
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the pipeline and yield SSE events."""
-        nodes_by_id: dict[str, PipelineNode] = {n.id: n for n in pipeline.nodes}
-
         # Group nodes by tier (from node.data.tier)
         tier_groups: dict[int, list[PipelineNode]] = defaultdict(list)
         input_nodes: list[PipelineNode] = []
@@ -179,7 +177,7 @@ class OrchestrationEngine:
         if not user_message:
             user_message = node.data.get("default_input", "请分析")
 
-        # Call LLM
+        # Call LLM with timeout
         try:
             from stock_datasource.llm import get_llm_client
 
@@ -188,15 +186,21 @@ class OrchestrationEngine:
                 {"role": "system", "content": agent.system_prompt},
                 {"role": "user", "content": user_message},
             ]
-            response = await client.chat(
-                messages=messages,
-                temperature=agent.model_config_data.temperature,
-                max_tokens=agent.model_config_data.max_tokens,
+            response = await asyncio.wait_for(
+                client.chat(
+                    messages=messages,
+                    temperature=agent.model_config_data.temperature,
+                    max_tokens=agent.model_config_data.max_tokens,
+                ),
+                timeout=120,
             )
             duration_ms = int((time.time() - start) * 1000)
             if isinstance(response, dict):
                 return response.get("content", str(response)), duration_ms
             return str(response), duration_ms
+        except asyncio.TimeoutError:
+            duration_ms = int((time.time() - start) * 1000)
+            raise RuntimeError(f"Agent {node.label} 超时 (>120s)")
         except Exception as e:
             duration_ms = int((time.time() - start) * 1000)
             logger.error("Agent %s LLM call failed: %s", agent_id, e)
