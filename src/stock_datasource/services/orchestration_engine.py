@@ -1,11 +1,18 @@
-"""Orchestration execution engine — executes pipeline DAG by invoking agents sequentially."""
+"""Orchestration execution engine — executes pipeline DAG with tier-aware parallelism.
+
+Supports:
+- Topological sort of DAG
+- Tier grouping: nodes in same tier run in parallel (asyncio.gather)
+- Rich SSE events: tier_start, node_start, node_end, node_error, tier_end, complete
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import Any, AsyncGenerator
 
 from stock_datasource.models.orchestration import PipelineNode, PipelineResponse
@@ -15,158 +22,162 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestrationEngine:
-    """Execute a pipeline DAG by topological traversal of agent nodes.
-
-    For MVP: sequential execution with streaming events.
-    Future: parallel fan-out, condition branching, aggregation.
-    """
+    """Execute a pipeline DAG with tier-aware parallelism and rich events."""
 
     async def execute(
         self, pipeline: PipelineResponse, input_data: dict
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the pipeline and yield SSE events."""
-        # Build adjacency and in-degree for topological sort
-        nodes_by_id: dict[str, PipelineNode] = {n.id: n for n in pipeline.nodes}
-        adjacency: dict[str, list[str]] = defaultdict(list)
-        in_degree: dict[str, int] = {n.id: 0 for n in pipeline.nodes}
+        # Group nodes by tier (from node.data.tier)
+        tier_groups: dict[int, list[PipelineNode]] = defaultdict(list)
+        input_nodes: list[PipelineNode] = []
+        output_nodes: list[PipelineNode] = []
 
-        for edge in pipeline.edges:
-            adjacency[edge.source].append(edge.target)
-            in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
-
-        # Topological sort (Kahn's algorithm)
-        queue: deque[str] = deque()
-        for node_id, deg in in_degree.items():
-            if deg == 0:
-                queue.append(node_id)
-
-        execution_order: list[str] = []
-        while queue:
-            node_id = queue.popleft()
-            execution_order.append(node_id)
-            for neighbor in adjacency[node_id]:
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
+        for node in pipeline.nodes:
+            if node.type.value == "input":
+                input_nodes.append(node)
+            elif node.type.value == "output":
+                output_nodes.append(node)
+            elif node.type.value in ("agent", "aggregator"):
+                tier = node.data.get("tier", 1)
+                tier_groups[tier].append(node)
 
         # State: stores output of each node
         state: dict[str, Any] = {}
 
-        # Process nodes in topological order
-        for node_id in execution_order:
-            node = nodes_by_id.get(node_id)
-            if node is None:
-                continue
+        # Process input nodes first
+        for node in input_nodes:
+            state[node.id] = input_data.get("message", json.dumps(input_data, ensure_ascii=False))
+            yield {
+                "type": "node_end",
+                "node_id": node.id,
+                "node_type": "input",
+                "label": node.label,
+                "output": state[node.id],
+                "duration_ms": 0,
+            }
 
-            if node.type.value == "input":
-                # Input node — pass through pipeline input
-                state[node_id] = input_data.get("message", json.dumps(input_data, ensure_ascii=False))
-                yield {
-                    "type": "node_end",
-                    "node_id": node_id,
-                    "node_type": "input",
-                    "label": node.label,
-                    "output": state[node_id],
-                    "duration_ms": 0,
-                }
+        # Execute tiers in order (1, 2, 3...)
+        sorted_tiers = sorted(tier_groups.keys())
 
-            elif node.type.value == "agent":
-                # Agent node — invoke the agent's LLM with its system prompt + skills
-                agent_id = node.data.get("agent_id", "")
+        for tier_num in sorted_tiers:
+            tier_nodes = tier_groups[tier_num]
+            yield {
+                "type": "tier_start",
+                "tier": tier_num,
+                "node_count": len(tier_nodes),
+                "labels": [n.label for n in tier_nodes],
+            }
+
+            # Emit node_start for all nodes in this tier
+            for node in tier_nodes:
                 yield {
                     "type": "node_start",
-                    "node_id": node_id,
-                    "node_type": "agent",
+                    "node_id": node.id,
+                    "node_type": node.type.value,
                     "label": node.label,
-                    "agent_id": agent_id,
+                    "agent_id": node.data.get("agent_id", ""),
+                    "tier": tier_num,
                 }
 
-                start = time.time()
-                try:
-                    output = await self._run_agent_node(node, state, adjacency, pipeline)
-                    duration_ms = int((time.time() - start) * 1000)
-                    state[node_id] = output
+            # Run all nodes in this tier in parallel
+            tier_start = time.time()
+            results = await asyncio.gather(
+                *[self._execute_node(node, state, pipeline) for node in tier_nodes],
+                return_exceptions=True,
+            )
+
+            # Process results and emit events
+            for node, result in zip(tier_nodes, results):
+                if isinstance(result, Exception):
+                    state[node.id] = f"[ERROR] {result}"
+                    yield {
+                        "type": "node_error",
+                        "node_id": node.id,
+                        "label": node.label,
+                        "error": str(result),
+                        "duration_ms": 0,
+                    }
+                else:
+                    output, duration_ms = result
+                    state[node.id] = output
                     yield {
                         "type": "node_end",
-                        "node_id": node_id,
-                        "node_type": "agent",
+                        "node_id": node.id,
+                        "node_type": node.type.value,
                         "label": node.label,
                         "output": output[:2000] if isinstance(output, str) else str(output)[:2000],
                         "duration_ms": duration_ms,
-                    }
-                except Exception as e:
-                    duration_ms = int((time.time() - start) * 1000)
-                    state[node_id] = f"[ERROR] {e}"
-                    yield {
-                        "type": "node_error",
-                        "node_id": node_id,
-                        "label": node.label,
-                        "error": str(e),
-                        "duration_ms": duration_ms,
+                        "tier": tier_num,
                     }
 
-            elif node.type.value == "output":
-                # Output node — collect result from upstream
-                upstream_outputs = self._get_upstream_outputs(node_id, pipeline, state)
-                final = "\n\n".join(upstream_outputs) if upstream_outputs else ""
-                state[node_id] = final
-                yield {
-                    "type": "node_end",
-                    "node_id": node_id,
-                    "node_type": "output",
-                    "label": node.label,
-                    "output": final[:5000],
-                    "duration_ms": 0,
-                }
+            tier_duration = int((time.time() - tier_start) * 1000)
+            yield {
+                "type": "tier_end",
+                "tier": tier_num,
+                "duration_ms": tier_duration,
+            }
 
-            elif node.type.value == "aggregator":
-                # Aggregator — merge upstream outputs
-                upstream_outputs = self._get_upstream_outputs(node_id, pipeline, state)
-                merged = "\n---\n".join(upstream_outputs)
-                state[node_id] = merged
-                yield {
-                    "type": "node_end",
-                    "node_id": node_id,
-                    "node_type": "aggregator",
-                    "label": node.label,
-                    "output": merged[:3000],
-                    "duration_ms": 0,
-                }
+        # Process output nodes
+        for node in output_nodes:
+            upstream_outputs = self._get_upstream_outputs(node.id, pipeline, state)
+            final = "\n\n".join(upstream_outputs) if upstream_outputs else ""
+            state[node.id] = final
+            yield {
+                "type": "node_end",
+                "node_id": node.id,
+                "node_type": "output",
+                "label": node.label,
+                "output": final[:5000],
+                "duration_ms": 0,
+            }
 
-        # Final output
-        output_nodes = [n for n in pipeline.nodes if n.type.value == "output"]
-        final_output = state.get(output_nodes[0].id, "") if output_nodes else ""
+        # Final completion
+        final_output = ""
+        if output_nodes:
+            final_output = state.get(output_nodes[0].id, "")
+        elif sorted_tiers:
+            # If no output node, use last tier's combined output
+            last_tier_nodes = tier_groups[sorted_tiers[-1]]
+            final_output = "\n\n".join(str(state.get(n.id, "")) for n in last_tier_nodes)
+
         yield {
             "type": "complete",
             "output": final_output[:5000] if isinstance(final_output, str) else str(final_output)[:5000],
         }
 
-    async def _run_agent_node(
+    async def _execute_node(
         self,
         node: PipelineNode,
         state: dict[str, Any],
-        adjacency: dict[str, list[str]],
         pipeline: PipelineResponse,
-    ) -> str:
-        """Run a single agent node: load config, build prompt, call LLM."""
+    ) -> tuple[str, int]:
+        """Execute a single node and return (output, duration_ms)."""
+        start = time.time()
+
+        if node.type.value == "aggregator":
+            upstream_outputs = self._get_upstream_outputs(node.id, pipeline, state)
+            merged = "\n---\n".join(upstream_outputs)
+            duration_ms = int((time.time() - start) * 1000)
+            return merged, duration_ms
+
+        # Agent node
         agent_id = node.data.get("agent_id", "")
         if not agent_id:
-            return "[No agent configured for this node]"
+            return "[No agent configured for this node]", 0
 
-        # Load agent config
         agent_service = get_agent_config_service()
         agent = agent_service.get_agent(agent_id)
         if agent is None:
-            return f"[Agent {agent_id} not found]"
+            return f"[Agent {agent_id} not found]", 0
 
         # Gather input from upstream nodes
         upstream_outputs = self._get_upstream_outputs(node.id, pipeline, state)
         user_message = "\n\n".join(upstream_outputs) if upstream_outputs else ""
-
         if not user_message:
             user_message = node.data.get("default_input", "请分析")
 
-        # Call LLM with agent's system prompt
+        # Call LLM with timeout
         try:
             from stock_datasource.llm import get_llm_client
 
@@ -175,18 +186,25 @@ class OrchestrationEngine:
                 {"role": "system", "content": agent.system_prompt},
                 {"role": "user", "content": user_message},
             ]
-            response = await client.chat(
-                messages=messages,
-                temperature=agent.model_config_data.temperature,
-                max_tokens=agent.model_config_data.max_tokens,
+            response = await asyncio.wait_for(
+                client.chat(
+                    messages=messages,
+                    temperature=agent.model_config_data.temperature,
+                    max_tokens=agent.model_config_data.max_tokens,
+                ),
+                timeout=120,
             )
-            # Response is a dict like {"role": "assistant", "content": "..."}
+            duration_ms = int((time.time() - start) * 1000)
             if isinstance(response, dict):
-                return response.get("content", str(response))
-            return str(response)
+                return response.get("content", str(response)), duration_ms
+            return str(response), duration_ms
+        except asyncio.TimeoutError:
+            duration_ms = int((time.time() - start) * 1000)
+            raise RuntimeError(f"Agent {node.label} 超时 (>120s)")
         except Exception as e:
+            duration_ms = int((time.time() - start) * 1000)
             logger.error("Agent %s LLM call failed: %s", agent_id, e)
-            return f"[LLM Error: {e}]"
+            raise RuntimeError(f"Agent {node.label} 调用失败: {e}")
 
     def _get_upstream_outputs(
         self, node_id: str, pipeline: PipelineResponse, state: dict[str, Any]
