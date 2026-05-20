@@ -1290,21 +1290,14 @@ Action Input: {{}}
         if len(plan) == 1:
             agent = self._get_agent(plan[0])
 
-            # Feature flag: use HarnessMarketAgent when harness mode is enabled
-            if plan[0] == "MarketAgent":
-                from .harness_market_agent import is_harness_mode_enabled
-                if is_harness_mode_enabled():
-                    from .harness_market_agent import get_harness_market_agent
-                    agent = get_harness_market_agent()
-                    logger.info("[Harness] Using HarnessMarketAgent instead of MarketAgent")
-
-            # Feature flag: use HarnessReportAgent when harness mode is enabled
-            if plan[0] == "ReportAgent":
-                from .harness_report_agent import is_harness_mode_enabled as is_harness_report_enabled
-                if is_harness_report_enabled():
-                    from .harness_report_agent import get_harness_report_agent
-                    agent = get_harness_report_agent()
-                    logger.info("[Harness] Using HarnessReportAgent instead of ReportAgent")
+            # Feature flag: use ConfigDrivenHarnessAgent when harness mode is enabled
+            from .config_driven_harness_agent import is_harness_mode_enabled
+            if is_harness_mode_enabled():
+                from .config_driven_harness_agent import get_config_driven_agent
+                config_agent = get_config_driven_agent(plan[0])
+                if config_agent:
+                    agent = config_agent
+                    logger.info("[Harness] Using ConfigDrivenHarnessAgent for %s", plan[0])
 
             if not agent:
                 logger.info(f"No agent available for intent: {intent}, fallback to MCP")

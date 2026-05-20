@@ -1,14 +1,20 @@
-"""HarnessReportAgent — 验证 LangGraph Harness 迁移路径的原型 Agent (财报分析).
+"""ConfigDrivenHarnessAgent — A single generic agent that dynamically builds
+a harness agent from DB configuration.
 
-本模块实现一个使用 deepagents 完整 harness 能力的 ReportAgent 变体：
-- SubAgentMiddleware: 支持子 agent 调度
-- MemoryMiddleware: AGENTS.md 内存注入
-- checkpointer=True: LangGraph 自动内存检查点
-- store: InMemoryStore 用于持久化存储
-- astream_events(version="v2"): 与现有 SSE 管道兼容
+Replaces per-agent .py files (harness_market_agent.py, harness_report_agent.py).
+Users configure agents via UI:
+  - system_prompt: agent's personality and instructions
+  - skills: list of tool names → resolved to actual functions via tool_registry
+  - model_config_data: model, temperature, max_tokens
+  - runtime_config: type (langgraph/claude), MCP servers
 
-通过 HARNESS_MODE_ENABLED=true 环境变量激活。
+The agent reads config from ClickHouse (via agent_config_service) at runtime
+and dynamically assembles a create_deep_agent(...) instance.
+
+Feature flag: HARNESS_MODE_ENABLED=true
 """
+
+from __future__ import annotations
 
 import logging
 import os
@@ -17,34 +23,20 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from deepagents import (
-    MemoryMiddleware,
     SubAgentMiddleware,
     create_deep_agent,
 )
 from langgraph.store.memory import InMemoryStore
 
+from stock_datasource.models.agent_config import AgentConfigResponse, ModelConfig
+from stock_datasource.services.tool_registry import auto_discover_tools, resolve_tools
+
 from .base_agent import (
     AgentConfig,
     LangGraphAgent,
-    compress_tool_result,
     get_langchain_model,
     get_langfuse_handler,
-    get_session_memory,
 )
-from .report_agent import (
-    get_comprehensive_financial_analysis,
-    get_peer_comparison_analysis,
-    get_investment_insights,
-    get_income_statement,
-    get_balance_sheet,
-    get_cash_flow,
-    get_forecast,
-    get_express,
-    get_full_financial_statements,
-    get_audit_opinion,
-    get_non_standard_opinions,
-)
-from .tools import get_stock_info, get_stock_valuation
 
 logger = logging.getLogger(__name__)
 
@@ -55,139 +47,118 @@ def is_harness_mode_enabled() -> bool:
 
 
 # Shared store instance (module-level singleton)
-_harness_store: InMemoryStore | None = None
+_shared_store: InMemoryStore | None = None
 
 
-def _get_harness_store() -> InMemoryStore:
-    """Get or create the shared InMemoryStore for harness agents."""
-    global _harness_store
-    if _harness_store is None:
-        _harness_store = InMemoryStore()
-    return _harness_store
+def get_shared_store() -> InMemoryStore:
+    """Get or create the shared InMemoryStore for all config-driven agents."""
+    global _shared_store
+    if _shared_store is None:
+        _shared_store = InMemoryStore()
+    return _shared_store
 
 
-# System prompt — reused from ReportAgent
-REPORT_ANALYSIS_SYSTEM_PROMPT = """你是一个专业的财务分析师和投资顾问，专注于A股上市公司的深度财报分析。
-
-## 核心能力
-- 全面财务健康度评估
-- 专业同业对比分析
-- AI驱动的投资洞察
-- 多维度风险识别
-- 基于数据的投资建议
-- 审计意见风险评估
-
-## 可用工具
-- get_stock_info: 获取股票基本信息和最新行情
-- get_stock_valuation: 获取PE、PB等估值指标
-- get_comprehensive_financial_analysis: 获取全面财务分析(健康度、盈利能力、偿债能力、成长性)
-- get_peer_comparison_analysis: 获取同业对比分析和行业排名
-- get_investment_insights: 获取AI投资洞察和结构化建议
-- get_income_statement: 获取利润表数据（营业收入、净利润、EPS等）
-- get_balance_sheet: 获取资产负债表数据（总资产、负债、股东权益等）
-- get_cash_flow: 获取现金流量表数据（经营现金流、投资现金流、筹资现金流等）
-- get_forecast: 获取业绩预告数据
-- get_express: 获取业绩快报数据
-- get_full_financial_statements: 获取完整的三大财务报表（利润表、资产负债表、现金流量表）
-- get_audit_opinion: 获取财务审计意见数据（审计结果、审计费用、会计师事务所、签字会计师）
-- get_non_standard_opinions: 获取非标准审计意见列表（用于风险监控和筛选）
-
-## 分析框架 (基于真实财务数据)
-1. **盈利能力**: ROE、ROA、毛利率、净利率、EPS
-2. **偿债能力**: 资产负债率、流动比率、速动比率
-3. **运营效率**: 资产周转率、存货周转率、应收账款周转率
-4. **成长性**: 营收增长率、利润增长率、趋势分析
-5. **估值水平**: PE、PB、PS与行业对比
-6. **行业地位**: 同业对比、行业排名、竞争优势
-7. **审计风险**: 审计意见类型、历史审计记录、会计师事务所变更
-
-## 审计意见类型说明
-- 标准无保留意见: 财务报表公允反映公司财务状况（最佳）
-- 带强调事项段的无保留意见: 存在需要关注的事项但不影响整体公允性
-- 保留意见: 部分事项无法核实或存在异议
-- 否定意见: 财务报表整体不公允（高风险警示）
-- 无法表示意见: 审计范围受限，无法发表意见（高风险警示）
-
-## 分析流程
-1. 获取股票基本信息和行情数据
-2. 进行全面财务分析，评估财务健康度
-3. 查看审计意见，评估财务报表可靠性
-4. 执行同业对比，确定行业地位
-5. 生成AI投资洞察和风险评估
-6. 提供综合性投资建议和关注点
-
-## 专业标准
-- 基于真实财务数据，确保分析准确性
-- 多维度横向对比，提供行业视角
-- 历史趋势分析，识别发展轨迹
-- 风险因素识别，平衡收益与风险
-- 审计意见分析，评估报表可信度
-- 结构化输出，便于理解和决策
-
-## 常用股票代码示例
-- 贵州茅台: 600519 → 600519.SH
-- 平安银行: 000001 → 000001.SZ
-- 比亚迪: 002594 → 002594.SZ
-- 宁德时代: 300750 → 300750.SZ
-
-## 分析原则
-- 数据驱动：基于真实财务指标
-- 对比分析：横向同业、纵向历史
-- 风险意识：明确指出潜在风险
-- 审计关注：非标准意见需重点提示
-- 投资导向：提供实用投资建议
-- 专业表达：使用专业术语和标准
-
-## 免责声明
-所有财务分析和投资建议仅供参考，不构成投资决策依据。投资有风险，入市需谨慎。
-"""
+# Ensure tools are registered on import
+_tools_discovered = False
 
 
-class HarnessReportAgent(LangGraphAgent):
-    """ReportAgent variant using the full deepagents harness stack.
+def _ensure_tools_discovered() -> None:
+    """Lazy tool discovery — only runs once."""
+    global _tools_discovered
+    if not _tools_discovered:
+        auto_discover_tools()
+        _tools_discovered = True
 
-    Differences from the standard ReportAgent:
-    - Uses SubAgentMiddleware for task delegation capability
-    - Uses MemoryMiddleware for AGENTS.md memory injection (if configured)
-    - Uses checkpointer=True (LangGraph auto in-memory checkpoint)
-    - Uses InMemoryStore for cross-session persistent storage
-    - Emits the same SSE event format as the base LangGraphAgent
 
-    This is a prototype to validate the harness migration path. The existing
-    ReportAgent remains untouched and is the production default.
+class ConfigDrivenHarnessAgent(LangGraphAgent):
+    """A single generic agent class that dynamically builds a harness agent from DB config.
+
+    Instead of writing a separate Python class for each agent, this class:
+    1. Reads AgentConfigResponse (from ClickHouse)
+    2. Resolves skill names → actual tool functions via tool_registry
+    3. Builds a create_deep_agent() instance with the resolved tools + system_prompt
+    4. Streams events using the same SSE contract as all other LangGraphAgents
+
+    Usage:
+        config = agent_config_service.get_agent_by_name("MyCustomAgent")
+        agent = ConfigDrivenHarnessAgent(config)
+        async for event in agent.execute_stream(task, context):
+            ...
     """
 
-    def __init__(self):
-        config = AgentConfig(
-            name="HarnessReportAgent",
-            description="[Harness] 专业财报分析师 — 使用完整 harness 中间件栈",
-            temperature=0.5,
-            max_tokens=8000,
+    def __init__(self, agent_config: AgentConfigResponse):
+        """Initialize from DB config.
+
+        Args:
+            agent_config: The agent configuration loaded from ClickHouse
+        """
+        _ensure_tools_discovered()
+
+        self._agent_config = agent_config
+
+        # Map DB model config to LangGraphAgent's AgentConfig
+        model_cfg = agent_config.model_config_data or ModelConfig()
+        base_config = AgentConfig(
+            name=agent_config.name or "ConfigDrivenAgent",
+            description=agent_config.description or "Config-driven harness agent",
+            temperature=model_cfg.temperature,
+            max_tokens=model_cfg.max_tokens,
         )
-        super().__init__(config)
+        super().__init__(base_config)
         self._harness_agent = None
 
     def get_tools(self) -> list[Callable]:
-        """Return financial report analysis tools (same as ReportAgent)."""
-        return [
-            get_stock_info,
-            get_stock_valuation,
-            get_comprehensive_financial_analysis,
-            get_peer_comparison_analysis,
-            get_investment_insights,
-            get_income_statement,
-            get_balance_sheet,
-            get_cash_flow,
-            get_forecast,
-            get_express,
-            get_full_financial_statements,
-            get_audit_opinion,
-            get_non_standard_opinions,
-        ]
+        """Resolve tool names from config to actual callable functions."""
+        skill_names = self._agent_config.skills or []
+        return resolve_tools(skill_names)
 
     def get_system_prompt(self) -> str:
-        """Return system prompt (same as ReportAgent)."""
-        return REPORT_ANALYSIS_SYSTEM_PROMPT
+        """Return the system prompt from DB config."""
+        return self._agent_config.system_prompt or ""
+
+    def _get_model(self):
+        """Get LangChain model, respecting config overrides.
+
+        If the DB config specifies a non-default model or temperature,
+        creates a dedicated ChatOpenAI instance. Otherwise falls back
+        to the shared singleton from get_langchain_model().
+        """
+        if self._model is None:
+            import os
+
+            model_cfg = self._agent_config.model_config_data or ModelConfig()
+            default_model = os.getenv("OPENAI_MODEL", "gpt-4")
+
+            # If config specifies non-default model/temperature, create a custom instance
+            if model_cfg.model and model_cfg.model != default_model:
+                try:
+                    from langchain_openai import ChatOpenAI
+
+                    api_key = os.getenv("OPENAI_API_KEY")
+                    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+                    self._model = ChatOpenAI(
+                        model=model_cfg.model,
+                        api_key=api_key,
+                        base_url=base_url,
+                        temperature=model_cfg.temperature,
+                        max_tokens=model_cfg.max_tokens if model_cfg.max_tokens > 0 else None,
+                    )
+                    logger.info(
+                        "ConfigDrivenHarnessAgent '%s' using custom model: %s (temp=%s)",
+                        self.config.name,
+                        model_cfg.model,
+                        model_cfg.temperature,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to create custom model for '%s', falling back: %s",
+                        self.config.name,
+                        e,
+                    )
+                    self._model = get_langchain_model()
+            else:
+                self._model = get_langchain_model()
+        return self._model
 
     def _init_harness_agent(self):
         """Initialize the deep agent with full harness middleware stack."""
@@ -197,9 +168,9 @@ class HarnessReportAgent(LangGraphAgent):
         model = self._get_model()
         tools = self.get_tools()
         system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
-        store = _get_harness_store()
+        store = get_shared_store()
 
-        # Build middleware: SubAgentMiddleware provides task delegation
+        # Build middleware
         middleware = [
             SubAgentMiddleware(
                 default_model=model,
@@ -215,23 +186,25 @@ class HarnessReportAgent(LangGraphAgent):
             tools=tools,
             system_prompt=system_prompt,
             middleware=middleware,
-            checkpointer=True,  # Auto in-memory checkpoint
+            checkpointer=True,
             store=store,
-            name="HarnessReportAgent",
+            name=self.config.name,
         )
 
         logger.info(
-            "HarnessReportAgent initialized with full harness stack "
-            "(SubAgentMiddleware, checkpointer=True, store=InMemoryStore)"
+            "ConfigDrivenHarnessAgent '%s' initialized "
+            "(tools=%d, checkpointer=True, store=InMemoryStore)",
+            self.config.name,
+            len(tools),
         )
         return self._harness_agent
 
     async def execute_stream(
         self, task: str, context: dict[str, Any] = None
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute task with streaming, emitting the same SSE event format.
+        """Execute task with streaming, emitting the standard SSE event format.
 
-        This mirrors the base LangGraphAgent.execute_stream contract:
+        Emits:
         - thinking events (with agent name, status)
         - content events (streamed text chunks)
         - debug events (agent_start, tool_result, agent_end)
@@ -254,7 +227,7 @@ class HarnessReportAgent(LangGraphAgent):
         self._memory.cleanup_expired(ttl_seconds=self.config.history_ttl_seconds)
 
         start_time = time.time()
-        tool_calls_seen = []
+        tool_calls_seen: list[str] = []
         tool_call_count = 0
 
         try:
@@ -286,6 +259,7 @@ class HarnessReportAgent(LangGraphAgent):
                 {
                     "agent": self.config.name,
                     "harness_mode": True,
+                    "config_driven": True,
                     "input_summary": task[:200] if len(task) > 200 else task,
                     "tools_available": tool_names,
                     "parent_agent": context.get("parent_agent"),
@@ -299,7 +273,7 @@ class HarnessReportAgent(LangGraphAgent):
                 "metadata": {
                     "langfuse_user_id": user_id,
                     "langfuse_session_id": session_id,
-                    "langfuse_tags": [self.config.name, "harness"],
+                    "langfuse_tags": [self.config.name, "harness", "config_driven"],
                 },
             }
 
@@ -424,6 +398,7 @@ class HarnessReportAgent(LangGraphAgent):
                 {
                     "agent": self.config.name,
                     "harness_mode": True,
+                    "config_driven": True,
                     "duration_ms": duration_ms,
                     "tool_calls_count": tool_call_count,
                     "success": True,
@@ -436,6 +411,7 @@ class HarnessReportAgent(LangGraphAgent):
                 "metadata": {
                     "agent": self.config.name,
                     "harness_mode": True,
+                    "config_driven": True,
                     "tool_calls": tool_calls_seen,
                     "session_id": session_id,
                     "history_length": len(self._memory.get_history(session_id)),
@@ -450,6 +426,7 @@ class HarnessReportAgent(LangGraphAgent):
                 {
                     "agent": self.config.name,
                     "harness_mode": True,
+                    "config_driven": True,
                     "duration_ms": duration_ms,
                     "tool_calls_count": tool_call_count,
                     "success": False,
@@ -462,13 +439,58 @@ class HarnessReportAgent(LangGraphAgent):
             }
 
 
-# Singleton instance
-_harness_report_agent: HarnessReportAgent | None = None
+# ---------------------------------------------------------------------------
+# Factory: load config from DB and return a ConfigDrivenHarnessAgent
+# ---------------------------------------------------------------------------
+
+# Cache of instantiated agents by config name
+_agent_cache: dict[str, ConfigDrivenHarnessAgent] = {}
 
 
-def get_harness_report_agent() -> HarnessReportAgent:
-    """Get HarnessReportAgent singleton instance."""
-    global _harness_report_agent
-    if _harness_report_agent is None:
-        _harness_report_agent = HarnessReportAgent()
-    return _harness_report_agent
+def get_config_driven_agent(agent_name: str) -> ConfigDrivenHarnessAgent | None:
+    """Load agent config from DB and return a ConfigDrivenHarnessAgent.
+
+    Uses a simple cache to avoid re-creating agents on every request.
+
+    Args:
+        agent_name: The agent name to look up in agent_configs table
+
+    Returns:
+        ConfigDrivenHarnessAgent instance, or None if config not found
+    """
+    if agent_name in _agent_cache:
+        return _agent_cache[agent_name]
+
+    try:
+        from stock_datasource.services.agent_config_service import get_agent_config_service
+
+        service = get_agent_config_service()
+
+        # Search by name across all agents (system + public)
+        agents = service.list_agents(user_id="system", include_public=True)
+        config = None
+        for a in agents:
+            if a.name == agent_name:
+                config = a
+                break
+
+        if config is None:
+            logger.debug("No DB config found for agent '%s'", agent_name)
+            return None
+
+        agent = ConfigDrivenHarnessAgent(config)
+        _agent_cache[agent_name] = agent
+        logger.info(
+            "Created ConfigDrivenHarnessAgent for '%s' (skills=%s)",
+            agent_name,
+            config.skills,
+        )
+        return agent
+    except Exception as e:
+        logger.warning("Failed to load config-driven agent '%s': %s", agent_name, e)
+        return None
+
+
+def clear_agent_cache() -> None:
+    """Clear the cached agent instances (useful after config updates)."""
+    _agent_cache.clear()
