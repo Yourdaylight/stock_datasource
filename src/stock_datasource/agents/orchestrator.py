@@ -1289,6 +1289,15 @@ Action Input: {{}}
 
         if len(plan) == 1:
             agent = self._get_agent(plan[0])
+
+            # Feature flag: use HarnessMarketAgent when harness mode is enabled
+            if plan[0] == "MarketAgent":
+                from .harness_market_agent import is_harness_mode_enabled
+                if is_harness_mode_enabled():
+                    from .harness_market_agent import get_harness_market_agent
+                    agent = get_harness_market_agent()
+                    logger.info("[Harness] Using HarnessMarketAgent instead of MarketAgent")
+
             if not agent:
                 logger.info(f"No agent available for intent: {intent}, fallback to MCP")
                 async for event in self._execute_with_mcp_stream(
