@@ -489,59 +489,6 @@ class TestPortfolioUserIsolation:
         assert "test" not in portfolio_y.get("positions", {})
 
 
-# ============ Enhanced Portfolio Agent Tests ============
-
-
-class TestEnhancedPortfolioAgent:
-    """Test EnhancedPortfolioAgent user context handling."""
-
-    def test_enhanced_portfolio_agent_has_execute_override(self):
-        """Test that EnhancedPortfolioAgent has execute() override."""
-        import inspect
-
-        from stock_datasource.agents.enhanced_portfolio_agent import (
-            EnhancedPortfolioAgent,
-        )
-
-        # Check execute method is defined
-        execute_method = getattr(EnhancedPortfolioAgent, "execute", None)
-        assert execute_method is not None
-
-        source = inspect.getsource(execute_method)
-        assert "user_id" in source or "_current_user_id" in source
-
-    def test_enhanced_portfolio_agent_has_execute_stream_override(self):
-        """Test that EnhancedPortfolioAgent has execute_stream() override."""
-        import inspect
-
-        from stock_datasource.agents.enhanced_portfolio_agent import (
-            EnhancedPortfolioAgent,
-        )
-
-        # Check execute_stream method is defined
-        execute_stream_method = getattr(EnhancedPortfolioAgent, "execute_stream", None)
-        assert execute_stream_method is not None
-
-        source = inspect.getsource(execute_stream_method)
-        assert "user_id" in source or "_current_user_id" in source
-
-    def test_enhanced_portfolio_agent_tools_use_instance_variable(self):
-        """Test that tools use self._current_user_id instead of parameter."""
-        import inspect
-
-        from stock_datasource.agents.enhanced_portfolio_agent import (
-            EnhancedPortfolioAgent,
-        )
-
-        # Check analyze_portfolio_performance method at class level
-        method = getattr(EnhancedPortfolioAgent, "analyze_portfolio_performance", None)
-        if method:
-            source = inspect.getsource(method)
-            # Should use self._current_user_id, not user_id parameter
-            assert "_current_user_id" in source
-            # Should NOT have user_id as a method parameter with default value
-            assert 'user_id: str = "default_user"' not in source
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

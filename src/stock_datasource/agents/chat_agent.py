@@ -136,75 +136,11 @@ def list_user_workflows() -> str:
 
 
 def execute_workflow(workflow_id: str, variables: str = "{}") -> str:
-    """执行指定的AI工作流。
-
-    Args:
-        workflow_id: 工作流ID，如 template_single_stock 或自定义工作流ID
-        variables: JSON格式的变量值，如 {"stock_code": "600519.SH"}
-
-    Returns:
-        工作流执行结果
-    """
-    try:
-        import asyncio
-
-        from stock_datasource.agents.workflow_agent import create_workflow_agent
-        from stock_datasource.services.workflow_service import get_workflow_service
-
-        # 解析变量
-        try:
-            vars_dict = (
-                json.loads(variables) if isinstance(variables, str) else variables
-            )
-        except json.JSONDecodeError:
-            return '变量格式错误，请使用JSON格式，如: {"stock_code": "600519.SH"}'
-
-        # 获取工作流
-        service = get_workflow_service()
-        workflow = service.get_workflow(workflow_id)
-
-        if not workflow:
-            return f"未找到工作流: {workflow_id}。请使用 list_user_workflows 查看可用工作流。"
-
-        # 验证必填变量
-        for var in workflow.variables:
-            if var.required and var.name not in vars_dict:
-                if var.default:
-                    vars_dict[var.name] = var.default
-                else:
-                    return f"缺少必填变量: {var.label} ({var.name})"
-
-        # 创建工作流Agent并执行
-        agent = create_workflow_agent(workflow)
-
-        # 同步执行（收集所有结果）
-        async def run_workflow():
-            content_parts = []
-            async for event in agent.execute_workflow(vars_dict):
-                event_type = event.get("type")
-                if event_type == "content":
-                    content_parts.append(event.get("content", ""))
-                elif event_type == "error":
-                    return f"执行错误: {event.get('error', '未知错误')}"
-            return "".join(content_parts)
-
-        # 运行异步任务
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        result = loop.run_until_complete(run_workflow())
-
-        if not result:
-            return f"工作流 {workflow.name} 执行完成，但未返回结果。"
-
-        return f"## {workflow.name} 执行结果\n\n{result}"
-
-    except Exception as e:
-        logger.error(f"Failed to execute workflow {workflow_id}: {e}")
-        return f"执行工作流失败: {e!s}"
+    """Deprecated workflow execution entry point."""
+    return (
+        "AI工作流执行已迁移到Agent编排系统。"
+        f"请在新的编排页面执行工作流 {workflow_id}。"
+    )
 
 
 def find_workflow_by_name(name: str) -> str:

@@ -5,9 +5,9 @@ This is the **single source of truth** for all in-process session state:
 2. Session Cache: per-session tool-result caching with TTL
 3. Long-term Memory: user-scoped preferences and watchlists
 
-Other components (``SessionMemory`` in base_agent, ``ChatService``,
-``MemoryAgent``) delegate to this service rather than maintaining their
-own state – eliminating the duplicate-storage and cache-inconsistency
+Other components (``SessionMemory`` in base_agent and ``ChatService``)
+delegate to this service rather than maintaining their own state – eliminating
+the duplicate-storage and cache-inconsistency
 problems that existed before.
 
 Observability counters (task 5.2) are exposed as properties so that

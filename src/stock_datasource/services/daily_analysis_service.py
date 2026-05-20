@@ -90,11 +90,9 @@ class DailyAnalysisService:
         """Lazy load portfolio agent."""
         if self._agent is None:
             try:
-                from stock_datasource.agents.enhanced_portfolio_agent import (
-                    EnhancedPortfolioAgent,
-                )
+                from stock_datasource.agents.portfolio_agent import PortfolioAgent
 
-                self._agent = EnhancedPortfolioAgent()
+                self._agent = PortfolioAgent()
             except Exception as e:
                 logger.warning(f"Failed to get portfolio agent: {e}")
         return self._agent

@@ -49,13 +49,10 @@ This is a **sophisticated multi-agent financial AI platform** with a **hierarchi
 ```
 src/stock_datasource/agents/
 ├── base_agent.py                    # LangGraphAgent base class
-├── orchestrator.py                  # OrchestratorAgent - main routing agent
+├── orchestrator.py                  # Lightweight config-driven routing agent
+├── config_driven_harness_agent.py   # DB-configured Harness agent
 ├── chat_agent.py                    # ChatAgent - conversational interface
-├── memory_agent.py                  # MemoryAgent - user memory management
-├── workflow_agent.py                # WorkflowAgent - workflow execution
-├── workflow_generator_agent.py      # WorkflowGeneratorAgent - AI workflow generation
-├── deep_agent.py                    # DeepAgent - deep research capability
-├── [15 specialized agents]          # Market, Report, Portfolio, Index, etc.
+├── [specialized agents]             # Legacy direct-import compatibility
 ├── middlewares/                     # Safety & memory middleware
 │   ├── base.py                      # Middleware base class
 │   ├── cross_validation.py          # Cross-validation middleware
@@ -67,29 +64,26 @@ src/stock_datasource/agents/
 └── tools.py                         # Shared tools
 ```
 
-### 2.2 The 18+ Specialized Agents
+### 2.2 Specialized Agent Names
+
+Most chat-facing agents are now DB configurations executed by `ConfigDrivenHarnessAgent`. Some Python agent files remain only for direct-import compatibility.
 
 | Agent Name | Purpose | Key Responsibilities |
 |------------|---------|----------------------|
-| **OverviewAgent** | Market overview | Market sentiment, daily trends, aggregate statistics |
-| **MarketAgent** | Technical analysis | Stock analysis, price trends, technical indicators |
+| **OverviewAgent** | Market overview | DB-configured market sentiment and aggregate analysis |
+| **MarketAgent** | Technical analysis | Legacy direct-import compatibility for market tools |
 | **ScreenerAgent** | Intelligent stock screening | Find stocks matching criteria, quantitative filtering |
-| **ReportAgent** | Financial analysis | Fundamental analysis, financial statements, valuations |
+| **ReportAgent** | Financial analysis | Legacy direct-import compatibility for report tools |
 | **HKReportAgent** | Hong Kong stocks | HK-specific financial analysis |
-| **PortfolioAgent** | Portfolio management | Portfolio monitoring, asset allocation, risk analysis |
-| **EnhancedPortfolioAgent** | Advanced portfolio analysis | Deep portfolio diagnostics, optimization |
+| **PortfolioAgent** | Portfolio management | Legacy direct-import compatibility for portfolio tools |
 | **BacktestAgent** | Strategy backtesting | Historical testing, performance evaluation |
 | **IndexAgent** | Index analysis | Index tracking, comparative analysis |
 | **EtfAgent** | ETF analysis | ETF holdings, performance, tracking error |
 | **TopListAgent** | Limit-up/limit-down boards | Trading sentiment, institutional activity |
 | **NewsAnalystAgent** | News analysis | Market news interpretation, sentiment analysis |
 | **KnowledgeAgent** | Knowledge retrieval | Research reports, announcements (RAG system) |
-| **MemoryAgent** | User memory | Preference storage, portfolio tracking |
 | **DataManageAgent** | Data management | Data refresh, quality checks, maintenance |
-| **WorkflowAgent** | Multi-step workflows | Complex task orchestration |
-| **WorkflowGeneratorAgent** | AI workflow generation | Auto-generate workflow definitions |
 | **ChatAgent** | General conversation | Fallback for unmatched queries |
-| **DeepAgent** | Deep research | Complex multi-turn analysis |
 
 ### 2.3 Arena System (Multi-Agent Competition)
 
@@ -124,23 +118,15 @@ src/stock_datasource/arena/
 
 ## 3. Core Orchestration Services
 
-### 3.1 Agent Runtime (`services/agent_runtime.py`)
+### 3.1 Config-Driven Harness Runtime
 
-**Purpose:** Unified control plane for all agent execution
+**Purpose:** Build and execute agents from ClickHouse `agent_configs` records.
 
 **Architecture:**
-- Uses **LangGraph Supervisor** (`langgraph_supervisor.create_supervisor`)
-- Native multi-agent patterns with `create_react_agent`
-- Handoff mechanism via `Command(goto=...)`
-- **v2 streaming** with `astream_events(version="v2")`
-
-**Key Features:**
-- SSE event adaptation for frontend compatibility
-- Observability metrics (cold start, token cost, classification count)
-- Middleware chain integration
-- Memory store for cross-session persistence
-
-**Feature Flag:** `AGENT_RUNTIME_ENABLED` env var
+- `OrchestratorAgent` performs lightweight intent classification.
+- `ConfigDrivenHarnessAgent` loads the selected DB config and builds a DeepAgents harness.
+- `tool_registry.py` resolves configured skills/tool names to callable functions.
+- No `AGENT_RUNTIME_ENABLED` or `HARNESS_MODE_ENABLED` switch is required.
 
 ### 3.2 Execution Planner (`services/execution_planner.py`)
 
@@ -326,21 +312,21 @@ Competition Phase
     └── Periodic elimination & replenishment
 ```
 
-### 5.3 Workflow Agent Pattern (WorkflowAgent)
+### 5.3 Config-Driven Agent Pattern
 
 **Flow:**
 ```
-Workflow Definition (YAML/JSON)
-    ├── Steps (each step → agent call)
-    ├── Conditional logic
-    ├── Parallel execution groups
-    └── Error handling
+Agent config (ClickHouse)
+    ├── system_prompt
+    ├── skills / tool names
+    ├── model_config
+    └── runtime_config
     ↓
-WorkflowAgent executes steps
-    ├── Sequential or parallel execution
-    ├── State management between steps
-    ├── Tool invocation
-    └── Fallback on error
+ConfigDrivenHarnessAgent executes request
+    ├── Resolve tools via tool_registry
+    ├── Build create_deep_agent harness
+    ├── Stream SSE-compatible events
+    └── Persist session metadata
 ```
 
 ### 5.4 Middleware Chain (Safety & Memory)
@@ -544,11 +530,11 @@ Each module provides:
 - Features: Discussion modes, backtesting, elimination
 - Specs affected: `multi-agent-arena`, `strategy-competition`, `agent-discussion`
 
-**Refactor Agent Runtime Extensibility** (`refactor-agent-runtime-extensibility/`)
+**Orchestrator Simplification** (`refactor-orchestrator-simplify/`)
 - Status: Active proposal
-- Scope: Unified orchestration layer
-- Goals: Converge OrchestratorAgent, WorkflowAgent, MultiAgentArena into single runtime
-- Key changes: Agent Registry, Execution Planner, Session Memory Service
+- Scope: Config-driven Harness as the chat orchestration path
+- Goals: Remove feature-flagged runtime layers and deprecated agent files
+- Key changes: Lightweight OrchestratorAgent, ConfigDrivenHarnessAgent dispatch, tool registry resolution
 
 **Intelligent Strategy System** (`add-intelligent-strategy-system/`)
 - Status: Archived 2026-01-11
@@ -569,39 +555,27 @@ openspec/specs/
 
 ## 11. Hierarchical Execution Patterns
 
-### 11.1 Three-Tier Hierarchy
+### 11.1 Two-Tier Chat Hierarchy
 
 **Tier 1: OrchestratorAgent**
-- Top-level router
+- Top-level chat router
 - Intent classification
-- Agent selection
-- Concurrent/sequential execution coordination
-- Middleware chain orchestration
+- Config-driven agent selection
+- SSE metadata normalization
 
-**Tier 2: Specialized Agents**
-- Domain-specific agents (MarketAgent, ReportAgent, etc.)
-- Tool invocation
-- LLM reasoning
-- Result formatting
-
-**Tier 3: WorkflowAgent / MultiAgentArena**
-- Multi-step orchestration
-- Sub-agent coordination
-- Complex reasoning
-- Arena-specific competition logic
+**Tier 2: ConfigDrivenHarnessAgent**
+- Loads DB agent configuration
+- Resolves tools through `tool_registry`
+- Builds the DeepAgents harness
+- Streams tool/content/done events
 
 ### 11.2 Agent Discovery & Loading
 
 **Process:**
-1. Runtime scans `src/stock_datasource/agents/` for `*_agent.py` files
-2. Extracts classes inheriting from `LangGraphAgent`
-3. Creates AgentDescriptor entries
-4. Lazy instantiation on demand
-5. Caching for performance
-
-**Classes Excluded:**
-- `OrchestratorAgent` (special role)
-- `StockDeepAgent` (deprecated)
+1. Orchestrator reads visible agent configs from ClickHouse `agent_configs`.
+2. LLM classification selects an `agent_name` from that catalog.
+3. `get_config_driven_agent(agent_name)` loads and caches the harness agent.
+4. Skills/tool names resolve through `tool_registry`.
 
 ---
 
@@ -635,10 +609,7 @@ Centralized discovery:
 - Plugin registry
 
 ### 12.5 Adapter Pattern
-WorkflowAgent and MultiAgentArena are adapters that:
-- Convert domain-specific requests to agent calls
-- Provide specialized orchestration
-- Integrate with main runtime
+External systems can adapt domain-specific requests by creating or selecting DB agent configurations and invoking the config-driven harness path.
 
 ---
 
@@ -715,24 +686,20 @@ OrchestratorAgent
 ## 15. Summary: Multi-Agent Architecture Highlights
 
 ### Strengths:
-1. **Modular Design**: 18+ specialized agents with clear responsibilities
-2. **Flexible Orchestration**: Multiple coordination patterns (route-only, parallel, handoff, discussion)
-3. **Safety & Control**: 5 middleware layers for validation, memory, safety
-4. **Scalability**: Concurrent agent execution, async/await throughout
-5. **Observability**: Langfuse tracing, SSE event streaming, debug metadata
-6. **Extensibility**: Plugin system, skill registry, strategy registry
-7. **Arena Competition**: Unique multi-agent debate system for strategy refinement
-8. **Unified Runtime**: Converging toward single control plane (in progress)
+1. **Config-Driven Design**: Chat-facing agents are managed through DB configuration.
+2. **Simplified Orchestration**: Orchestrator performs classification and delegates to one harness path.
+3. **Tool Registry**: Skills map consistently to callable tool functions.
+4. **Observability**: Langfuse tracing, SSE event streaming, debug metadata.
+5. **Extensibility**: Plugin system, skill registry, strategy registry.
+6. **Arena Competition**: Separate multi-agent debate system for strategy refinement.
 
 ### Complexity Points:
-1. Multiple agent discovery mechanisms (registry + scanning)
-2. Complex state management (session, cache, memory layers)
-3. Heavy middleware chain (5 transforms per request)
-4. Arena state machine (6 states, concurrent management)
-5. Triple execution modes (OrchestratorAgent, WorkflowAgent, MultiAgentArena)
+1. DB agent catalog availability now determines chat routing coverage.
+2. Some legacy direct-import agents remain for compatibility.
+3. Arena state machine remains separate from the lightweight chat orchestrator.
 
 ### Future Evolution (Planned):
-1. Complete Agent Runtime unification (Phase 1 in progress)
+1. Continue config-driven Harness consolidation
 2. Explicit Skill Registry standardization
 3. SubAgent protocol for better sub-task isolation
 4. High-cost path optimization (reduce redundant classification/context)
@@ -744,12 +711,12 @@ OrchestratorAgent
 
 **Key Agent Files:**
 - `src/stock_datasource/agents/base_agent.py` - LangGraphAgent interface
-- `src/stock_datasource/agents/orchestrator.py` - Main orchestrator (500+ lines)
-- `src/stock_datasource/agents/memory_agent.py` - User memory management
-- `src/stock_datasource/agents/workflow_agent.py` - Workflow execution
+- `src/stock_datasource/agents/orchestrator.py` - Lightweight config-driven orchestrator
+- `src/stock_datasource/agents/config_driven_harness_agent.py` - DB-configured Harness agent
+- `src/stock_datasource/agents/tools.py` - Shared tool functions
 
 **Key Service Files:**
-- `src/stock_datasource/services/agent_runtime.py` - Unified control plane
+- `src/stock_datasource/services/tool_registry.py` - Skill/tool resolution
 - `src/stock_datasource/services/execution_planner.py` - Routing config
 - `src/stock_datasource/services/agent_registry.py` - Agent discovery
 - `src/stock_datasource/services/agent_cache.py` - Shared caching
@@ -783,5 +750,5 @@ This is a **production-grade multi-agent system** with sophisticated orchestrati
 - **Services** (infrastructure for runtime, registry, memory)
 - **Middleware** (cross-cutting concerns like safety and memory)
 
-The system is actively evolving toward a unified `Agent Runtime` that will consolidate three separate orchestration layers (OrchestratorAgent, WorkflowAgent, MultiAgentArena) into a single control plane, following patterns from advanced systems like OpenClaw.
+The chat orchestration path now favors a lightweight `OrchestratorAgent` plus `ConfigDrivenHarnessAgent`, with legacy direct-import agents retained only where external modules still depend on them.
 

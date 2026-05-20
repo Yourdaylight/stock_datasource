@@ -19,6 +19,13 @@ class TableType(str, Enum):
     VW = "vw"  # View
 
 
+class MarketType(str, Enum):
+    """Market types."""
+
+    CN = "CN"
+    HK = "HK"
+
+
 class ColumnDefinition(BaseModel):
     """Column definition for dynamic schema."""
 
@@ -179,7 +186,46 @@ META_SCHEMA_CATALOG_SCHEMA = TableSchema(
 #
 # NOTE:
 # - Most ODS/DIM schemas are loaded from plugins (schema.json) and created dynamically.
-# - A small set of core FACT tables are also defined here because business APIs depend on them.
+# - Compatibility schemas below are kept for legacy tests and callers.
+
+ODS_DAILY_SCHEMA = TableSchema(
+    table_name="ods_daily",
+    table_type=TableType.ODS,
+    columns=[
+        ColumnDefinition(name="ts_code", data_type="String", nullable=False),
+        ColumnDefinition(name="trade_date", data_type="String", nullable=False),
+        ColumnDefinition(name="open", data_type="Float64"),
+        ColumnDefinition(name="high", data_type="Float64"),
+        ColumnDefinition(name="low", data_type="Float64"),
+        ColumnDefinition(name="close", data_type="Float64"),
+        ColumnDefinition(name="pre_close", data_type="Float64"),
+        ColumnDefinition(name="change", data_type="Float64"),
+        ColumnDefinition(name="pct_chg", data_type="Float64"),
+        ColumnDefinition(name="vol", data_type="Float64"),
+        ColumnDefinition(name="amount", data_type="Float64"),
+        ColumnDefinition(name="version", data_type="UInt32", nullable=False),
+        ColumnDefinition(name="_ingested_at", data_type="DateTime", nullable=False),
+    ],
+    partition_by="toYYYYMM(trade_date)",
+    order_by=["ts_code", "trade_date"],
+    comment="Legacy ODS daily schema compatibility alias",
+)
+
+DIM_SECURITY_SCHEMA = TableSchema(
+    table_name="dim_security",
+    table_type=TableType.DIM,
+    columns=[
+        ColumnDefinition(name="ts_code", data_type="String", nullable=False),
+        ColumnDefinition(name="market", data_type="String", nullable=False),
+        ColumnDefinition(name="ticker", data_type="String", nullable=False),
+        ColumnDefinition(name="name", data_type="String", nullable=False),
+        ColumnDefinition(name="list_date", data_type="String"),
+        ColumnDefinition(name="status", data_type="String"),
+        ColumnDefinition(name="exchange", data_type="String"),
+    ],
+    order_by=["ts_code"],
+    comment="Legacy security dimension schema compatibility alias",
+)
 
 FACT_DAILY_BAR_SCHEMA = TableSchema(
     table_name="fact_daily_bar",

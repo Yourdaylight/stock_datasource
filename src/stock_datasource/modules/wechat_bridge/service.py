@@ -496,7 +496,7 @@ def _build_agents_md(agents: list[dict]) -> str:
 10. 龙虎榜 → TopListAgent
 11. 新闻 → NewsAnalystAgent
 12. 研报/公告 → KnowledgeAgent
-13. 自选股/偏好 → MemoryAgent
+13. 自选股/偏好 → 配置驱动偏好Agent
 14. 数据管理 → DataManageAgent
 15. 一般对话 → ChatAgent
 

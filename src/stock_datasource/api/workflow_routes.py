@@ -207,54 +207,24 @@ async def execute_workflow(
 
 
 async def _execute_workflow_stream(workflow: AIWorkflow, variables: dict[str, Any]):
-    """流式执行工作流。"""
-    from stock_datasource.agents.workflow_agent import create_workflow_agent
-
-    agent = create_workflow_agent(workflow)
-
-    try:
-        async for event in agent.execute_workflow(variables):
-            event_type = event.get("type", "unknown")
-
-            # 格式化为SSE
-            if event_type == "thinking":
-                yield f"event: thinking\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "content":
-                yield f"event: content\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "done":
-                yield f"event: done\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "error":
-                yield f"event: error\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-    except Exception as e:
-        logger.error(f"Workflow execution error: {e}")
-        yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+    """Deprecated workflow execution stream."""
+    event = {
+        "type": "error",
+        "error": "AI工作流执行已迁移到Agent编排系统，请使用新的编排入口。",
+        "workflow_id": workflow.id,
+    }
+    yield f"event: error\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 async def _execute_workflow_sync(
     workflow: AIWorkflow, variables: dict[str, Any]
 ) -> dict[str, Any]:
-    """同步执行工作流。"""
-    from stock_datasource.agents.workflow_agent import create_workflow_agent
-
-    agent = create_workflow_agent(workflow)
-
-    full_content = ""
-    tool_calls = []
-
-    async for event in agent.execute_workflow(variables):
-        event_type = event.get("type", "")
-
-        if event_type == "content":
-            full_content += event.get("content", "")
-        elif event_type == "thinking" and event.get("tool"):
-            tool_calls.append(event.get("tool"))
-        elif event_type == "error":
-            return {"success": False, "error": event.get("error")}
-
-    return {"success": True, "content": full_content, "tool_calls": tool_calls}
+    """Deprecated workflow execution response."""
+    return {
+        "success": False,
+        "error": "AI工作流执行已迁移到Agent编排系统，请使用新的编排入口。",
+        "workflow_id": workflow.id,
+    }
 
 
 # ============================================================================
@@ -284,62 +254,17 @@ async def generate_workflow(
 
 
 async def _generate_workflow_stream(description: str):
-    """流式生成工作流。"""
-    from stock_datasource.agents.workflow_generator_agent import get_workflow_generator
-    from stock_datasource.services.workflow_service import get_workflow_service
-
-    generator = get_workflow_generator()
-    service = get_workflow_service()
-
-    # 设置可用工具
-    tools = service.get_available_tools()
-    generator.set_available_tools(tools)
-
-    try:
-        async for event in generator.generate_workflow(description):
-            event_type = event.get("type", "unknown")
-
-            if event_type == "thinking":
-                yield f"event: thinking\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "generating":
-                yield f"event: generating\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "workflow":
-                yield f"event: workflow\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "done":
-                yield f"event: done\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            elif event_type == "error":
-                yield f"event: error\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-    except Exception as e:
-        logger.error(f"Workflow generation error: {e}")
-        yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+    """Deprecated workflow generation stream."""
+    event = {
+        "type": "error",
+        "error": "AI工作流生成已迁移到Agent管理UI，请直接配置Agent提示词与技能。",
+    }
+    yield f"event: error\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 async def _generate_workflow_sync(description: str) -> dict[str, Any]:
-    """同步生成工作流。"""
-    from stock_datasource.agents.workflow_generator_agent import get_workflow_generator
-    from stock_datasource.services.workflow_service import get_workflow_service
-
-    generator = get_workflow_generator()
-    service = get_workflow_service()
-
-    # 设置可用工具
-    tools = service.get_available_tools()
-    generator.set_available_tools(tools)
-
-    workflow_config = None
-
-    async for event in generator.generate_workflow(description):
-        event_type = event.get("type", "")
-
-        if event_type == "workflow":
-            workflow_config = event.get("workflow")
-        elif event_type == "error":
-            return {"success": False, "error": event.get("error")}
-
-    if workflow_config:
-        return {"success": True, "workflow": workflow_config}
-    else:
-        return {"success": False, "error": "生成失败"}
+    """Deprecated workflow generation response."""
+    return {
+        "success": False,
+        "error": "AI工作流生成已迁移到Agent管理UI，请直接配置Agent提示词与技能。",
+    }
