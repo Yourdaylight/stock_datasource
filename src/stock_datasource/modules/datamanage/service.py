@@ -1662,6 +1662,7 @@ class SyncTaskManager:
                 execution_id=execution_id,
                 user_id=user_id,
                 timeout_seconds=timeout_seconds,
+                username=username,
             )
         except RedisUnavailableError as e:
             raise ValueError(f"Redis unavailable: {e}")
@@ -1817,7 +1818,7 @@ class SyncTaskManager:
             completed_at=_parse_dt(str(task_data.get("completed_at", ""))),
             error_message=str(task_data.get("error_message", "")),
             user_id=str(task_data.get("user_id", "")) or None,
-            username=None,
+            username=str(task_data.get("username", "")) or None,
         )
 
     def get_running_tasks(self) -> list[SyncTask]:

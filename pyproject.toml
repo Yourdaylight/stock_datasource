@@ -40,6 +40,7 @@ dependencies = [
     "yfinance>=0.2.0",
     "finnhub-python>=2.4.27",
     "pyyaml>=6.0",
+    "sqlparse>=0.5.0",
 ]
 
 [project.optional-dependencies]

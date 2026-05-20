@@ -104,6 +104,7 @@ class TaskQueue:
         execution_id: str = None,
         user_id: str = None,
         timeout_seconds: int = None,
+        username: str = None,
     ) -> str | None:
         """Add a task to the queue.
 
@@ -115,6 +116,7 @@ class TaskQueue:
             execution_id: Batch execution ID if part of a batch
             user_id: User who triggered the task
             timeout_seconds: Maximum task execution time in seconds (default: 3600)
+            username: Username of the user who triggered the task
 
         Returns:
             Task ID if successful, None otherwise
@@ -139,6 +141,7 @@ class TaskQueue:
             "completed_at": "",
             "execution_id": execution_id or "",
             "user_id": user_id or "",
+            "username": username or "",
             "priority": priority.value,
             "attempt": 0,
             "max_attempts": 3,
