@@ -68,6 +68,75 @@ def get_registered_tool_names() -> list[str]:
     return sorted(TOOL_REGISTRY.keys())
 
 
+# ---------------------------------------------------------------------------
+# Skill-to-Tools mapping: maps high-level skill names (stored in DB) to
+# lists of low-level tool function names.
+# ---------------------------------------------------------------------------
+
+SKILL_TOOL_MAP: dict[str, list[str]] = {
+    # Market / Technical analysis
+    "market_analysis": ["get_kline", "calculate_indicators", "analyze_trend", "get_market_overview", "get_stock_info"],
+    "technical_analysis": ["get_kline", "calculate_indicators", "analyze_trend", "calculate_technical_indicators"],
+    "kline_analysis": ["get_kline", "get_stock_kline"],
+    # Financial / Fundamental
+    "financial_report": ["get_comprehensive_financial_analysis", "get_income_statement", "get_balance_sheet", "get_cash_flow", "get_stock_valuation"],
+    "fundamental_analysis": ["get_comprehensive_financial_analysis", "get_peer_comparison_analysis", "get_investment_insights", "get_stock_valuation"],
+    "financial_ratio": ["get_comprehensive_financial_analysis", "get_stock_valuation"],
+    # Screening
+    "stock_screening": ["screen_stocks", "get_sector_stocks", "get_available_sectors", "get_stock_profile"],
+    "condition_filter": ["screen_stocks", "get_available_sectors"],
+    # News
+    "news_analysis": ["get_news_by_stock", "get_market_news", "analyze_news_sentiment", "get_hot_topics", "summarize_news"],
+    "sentiment_analysis": ["analyze_news_sentiment", "get_stock_signal_summary"],
+    # Portfolio / Backtest
+    "strategy_backtest": ["screen_stocks"],  # TODO: add backtest tools when available
+    "performance_analysis": ["get_comprehensive_financial_analysis"],
+    # ETF
+    "etf_analysis": ["get_stock_info", "get_stock_kline", "calculate_technical_indicators"],
+    "etf_screening": ["screen_stocks"],
+    # General
+    "stock_info": ["get_stock_info", "get_stock_profile"],
+    "sector_analysis": ["get_sector_stocks", "get_available_sectors"],
+    "market_overview": ["get_market_overview"],
+}
+
+
+def resolve_tools(skill_names: list[str]) -> list[Callable]:
+    """Resolve skill/tool names to actual tool functions.
+
+    Supports two levels of resolution:
+    1. Direct tool name match (e.g., "get_stock_info" → function)
+    2. High-level skill name match (e.g., "market_analysis" → [get_kline, calculate_indicators, ...])
+
+    Unknown names are logged as warnings and skipped.
+
+    Args:
+        skill_names: List of skill or tool names from the DB config
+
+    Returns:
+        List of resolved callable tool functions (deduplicated)
+    """
+    seen: set[str] = set()
+    tools: list[Callable] = []
+
+    for name in skill_names:
+        # Level 1: Direct tool name match
+        if name in TOOL_REGISTRY:
+            if name not in seen:
+                tools.append(TOOL_REGISTRY[name])
+                seen.add(name)
+        # Level 2: Skill → multiple tools
+        elif name in SKILL_TOOL_MAP:
+            for tool_name in SKILL_TOOL_MAP[name]:
+                if tool_name in TOOL_REGISTRY and tool_name not in seen:
+                    tools.append(TOOL_REGISTRY[tool_name])
+                    seen.add(tool_name)
+        else:
+            logger.warning("Skill/tool '%s' not found in registry or skill map, skipping", name)
+
+    return tools
+
+
 def auto_discover_tools() -> int:
     """Auto-register all known tools from the agents package.
 
