@@ -76,6 +76,7 @@ def get_registered_tool_names() -> list[str]:
 SKILL_TOOL_MAP: dict[str, list[str]] = {
     # Market / Technical analysis
     "market_analysis": ["get_kline", "calculate_indicators", "analyze_trend", "get_market_overview", "get_stock_info"],
+    "hk_market_analysis": ["get_kline", "calculate_indicators", "analyze_trend", "get_stock_info"],
     "technical_analysis": ["get_kline", "calculate_indicators", "analyze_trend", "calculate_technical_indicators"],
     "kline_analysis": ["get_kline", "get_stock_kline"],
     # Financial / Fundamental
@@ -89,6 +90,9 @@ SKILL_TOOL_MAP: dict[str, list[str]] = {
     "news_analysis": ["get_news_by_stock", "get_market_news", "analyze_news_sentiment", "get_hot_topics", "summarize_news"],
     "sentiment_analysis": ["analyze_news_sentiment", "get_stock_signal_summary"],
     # Portfolio / Backtest
+    "portfolio_management": ["get_positions", "add_position", "update_position", "calculate_portfolio_pnl"],
+    "position_analysis": ["get_positions", "calculate_portfolio_pnl"],
+    "risk_assessment": ["get_positions", "calculate_portfolio_pnl", "get_stock_valuation"],
     "strategy_backtest": ["screen_stocks"],  # TODO: add backtest tools when available
     "performance_analysis": ["get_comprehensive_financial_analysis"],
     # ETF
@@ -97,7 +101,9 @@ SKILL_TOOL_MAP: dict[str, list[str]] = {
     # General
     "stock_info": ["get_stock_info", "get_stock_profile"],
     "sector_analysis": ["get_sector_stocks", "get_available_sectors"],
-    "market_overview": ["get_market_overview"],
+    "market_overview": ["get_market_overview", "get_market_daily_summary", "get_major_indices_status", "get_market_breadth"],
+    "sector_rotation": ["get_sector_performance", "get_market_breadth"],
+    "market_sentiment": ["get_market_sentiment", "get_market_breadth", "get_hot_etfs_analysis"],
 }
 
 
@@ -145,6 +151,8 @@ def auto_discover_tools() -> int:
     - agents/market_agent.py (market-specific tools)
     - agents/report_agent.py (financial report tools)
     - agents/news_analyst_agent.py (news tools)
+    - agents/portfolio_agent.py (portfolio tools)
+    - agents/overview_tools.py (market overview tools)
 
     Returns:
         Number of tools registered
@@ -206,6 +214,30 @@ def auto_discover_tools() -> int:
             "get_hot_topics",
             "summarize_news",
             "get_stock_signal_summary",
+        ],
+    )
+
+    # 5. Portfolio tools
+    _register_from_module(
+        "stock_datasource.agents.portfolio_agent",
+        names=[
+            "add_position",
+            "update_position",
+            "get_positions",
+            "calculate_portfolio_pnl",
+        ],
+    )
+
+    # 6. Market overview tools
+    _register_from_module(
+        "stock_datasource.agents.overview_tools",
+        names=[
+            "get_major_indices_status",
+            "get_market_breadth",
+            "get_sector_performance",
+            "get_hot_etfs_analysis",
+            "get_market_sentiment",
+            "get_market_daily_summary",
         ],
     )
 

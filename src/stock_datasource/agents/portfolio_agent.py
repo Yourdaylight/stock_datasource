@@ -1,4 +1,7 @@
-"""Portfolio Agent for position management using LangGraph/DeepAgents."""
+"""Portfolio Agent for position management using LangGraph/DeepAgents.
+
+@deprecated Direct-import compatibility only; new orchestration uses ConfigDrivenHarnessAgent.
+"""
 
 import logging
 from collections.abc import Callable
@@ -137,6 +140,25 @@ def get_positions() -> str:
 
     logger.info(f"get_positions called for user: {_current_user_id}")
 
+    if _user_portfolio_store:
+        portfolio = _get_user_portfolio()
+        positions = portfolio.get("positions", {})
+        if not positions:
+            return f"用户 {_current_user_id} 当前没有持仓记录。"
+
+        lines = ["## 持仓列表（本地缓存）\n"]
+        lines.append("| 代码 | 数量(股) | 成本价 | 成本金额 | 买入日期 |")
+        lines.append("|------|----------|--------|----------|----------|")
+        total_cost = 0
+        for code, pos in positions.items():
+            lines.append(
+                f"| {code} | {pos['quantity']} | {pos['cost_price']:.2f} | "
+                f"{pos['total_cost']:.2f} | {pos['buy_date']} |"
+            )
+            total_cost += pos["total_cost"]
+        lines.append(f"\n**总成本金额**: {total_cost:.2f}元")
+        return "\n".join(lines)
+
     try:
         # Use the same PortfolioService as API to ensure data consistency
         from stock_datasource.modules.portfolio.service import get_portfolio_service
@@ -236,6 +258,7 @@ def get_positions() -> str:
             total_cost += pos["total_cost"]
 
         lines.append(f"\n**总成本金额**: {total_cost:.2f}元")
+        return "\n".join(lines)
 
 
 def calculate_portfolio_pnl() -> str:
@@ -249,6 +272,20 @@ def calculate_portfolio_pnl() -> str:
     global _current_user_id
 
     logger.info(f"calculate_portfolio_pnl called for user: {_current_user_id}")
+
+    if _user_portfolio_store:
+        portfolio = _get_user_portfolio()
+        positions = portfolio.get("positions", {})
+        if not positions:
+            return f"用户 {_current_user_id} 当前没有持仓，无法计算盈亏。"
+
+        lines = ["## 持仓盈亏统计（本地缓存）\n"]
+        total_cost = 0
+        for code, pos in positions.items():
+            total_cost += pos["total_cost"]
+            lines.append(f"- {code}: 成本 {pos['total_cost']:.2f}元")
+        lines.append(f"\n**总成本**: {total_cost:.2f}元")
+        return "\n".join(lines)
 
     try:
         # Use the same PortfolioService as API to ensure data consistency

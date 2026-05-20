@@ -4,7 +4,7 @@ Agent configurations are now stored in ClickHouse (agent_configs table)
 and managed via the /api/agents/ REST API + Agent管理 UI.
 
 This file is kept as a no-op stub so that existing call sites
-(agent_runtime.py, wechat_bridge) don't break.
+(e.g. wechat_bridge) don't break.
 """
 
 import logging

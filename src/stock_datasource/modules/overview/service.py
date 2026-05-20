@@ -357,12 +357,24 @@ class OverviewService:
         Returns:
             Analysis result with session info
         """
-        from stock_datasource.agents import get_overview_agent
+        from stock_datasource.agents.config_driven_harness_agent import (
+            get_config_driven_agent,
+        )
 
         if not date:
             date = self._get_best_available_trade_date()
 
-        agent = get_overview_agent()
+        agent = get_config_driven_agent("OverviewAgent")
+        if not agent:
+            return {
+                "date": date,
+                "question": question,
+                "response": "未找到OverviewAgent配置，请在Agent管理中创建对应配置。",
+                "success": False,
+                "metadata": {"agent": "OverviewAgent", "missing_config": True},
+                "session_id": "",
+                "history_length": 0,
+            }
 
         # Build task
         task = f"请基于{date}的市场数据回答：{question}"

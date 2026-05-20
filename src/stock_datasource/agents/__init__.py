@@ -1,56 +1,64 @@
-"""Agent layer for AI stock platform.
+"""Agent layer exports.
 
-All agents are built on LangGraph/DeepAgents framework for:
-- Tool calling with function calling
-- Multi-step reasoning
-- Langfuse observability
-- Streaming responses
-
-Provides specialized agents for:
-- Market analysis (K-line, indicators, trend)
-- Stock screening
-- Financial report analysis
-- Portfolio management
-- Strategy backtesting
-- User memory/preferences
-- Data management
+Imports are intentionally lazy so importing ``stock_datasource.agents`` does not
+load every legacy direct-import agent and its optional data-service dependencies.
 """
 
-from .backtest_agent import BacktestAgent
+from __future__ import annotations
+
 from .base_agent import (
     AgentConfig,
     AgentContext,
     AgentResult,
-    BaseAgent,  # Backward compatibility alias
-    BaseStockAgent,  # Backward compatibility alias
-    BaseTool,  # Backward compatibility alias
+    BaseAgent,
+    BaseStockAgent,
+    BaseTool,
     LangGraphAgent,
     ToolDefinition,
     get_langchain_model,
     get_langfuse_handler,
 )
-from .chat_agent import ChatAgent
-from .datamanage_agent import DataManageAgent
 
-# For backward compatibility with deep_agent imports
-from .deep_agent import StockDeepAgent, get_stock_agent
-from .etf_agent import EtfAgent, get_etf_agent
-from .hk_report_agent import HKReportAgent
-from .index_agent import IndexAgent, get_index_agent
-from .knowledge_agent import KnowledgeAgent, get_knowledge_agent
-from .market_agent import MarketAgent, get_market_agent
-from .memory_agent import MemoryAgent
-from .news_analyst_agent import NewsAnalystAgent, get_news_analyst_agent
-from .orchestrator import OrchestratorAgent, get_orchestrator
-from .overview_agent import OverviewAgent, get_overview_agent
-from .portfolio_agent import PortfolioAgent
-from .report_agent import ReportAgent
-from .screener_agent import ScreenerAgent, get_screener_agent
-from .tools import STOCK_TOOLS
-from .toplist_agent import TopListAgent
+_LAZY_EXPORTS = {
+    "BacktestAgent": (".backtest_agent", "BacktestAgent"),
+    "ChatAgent": (".chat_agent", "ChatAgent"),
+    "DataManageAgent": (".datamanage_agent", "DataManageAgent"),
+    "EtfAgent": (".etf_agent", "EtfAgent"),
+    "get_etf_agent": (".etf_agent", "get_etf_agent"),
+    "HKReportAgent": (".hk_report_agent", "HKReportAgent"),
+    "IndexAgent": (".index_agent", "IndexAgent"),
+    "get_index_agent": (".index_agent", "get_index_agent"),
+    "KnowledgeAgent": (".knowledge_agent", "KnowledgeAgent"),
+    "get_knowledge_agent": (".knowledge_agent", "get_knowledge_agent"),
+    "MarketAgent": (".market_agent", "MarketAgent"),
+    "get_market_agent": (".market_agent", "get_market_agent"),
+    "NewsAnalystAgent": (".news_analyst_agent", "NewsAnalystAgent"),
+    "get_news_analyst_agent": (".news_analyst_agent", "get_news_analyst_agent"),
+    "OrchestratorAgent": (".orchestrator", "OrchestratorAgent"),
+    "get_orchestrator": (".orchestrator", "get_orchestrator"),
+    "PortfolioAgent": (".portfolio_agent", "PortfolioAgent"),
+    "ReportAgent": (".report_agent", "ReportAgent"),
+    "ScreenerAgent": (".screener_agent", "ScreenerAgent"),
+    "get_screener_agent": (".screener_agent", "get_screener_agent"),
+    "STOCK_TOOLS": (".tools", "STOCK_TOOLS"),
+    "TopListAgent": (".toplist_agent", "TopListAgent"),
+}
+
+
+def __getattr__(name: str):
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    import importlib
+
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    module = importlib.import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
-    # Base classes
     "LangGraphAgent",
     "BaseStockAgent",
     "BaseAgent",
@@ -59,38 +67,7 @@ __all__ = [
     "BaseTool",
     "AgentContext",
     "AgentResult",
-    # Utilities
     "get_langchain_model",
     "get_langfuse_handler",
-    # Orchestrator
-    "OrchestratorAgent",
-    "get_orchestrator",
-    # Tools
-    "STOCK_TOOLS",
-    # Specialized agents (all based on LangGraph)
-    "ChatAgent",
-    "MarketAgent",
-    "get_market_agent",
-    "ScreenerAgent",
-    "get_screener_agent",
-    "ReportAgent",
-    "HKReportAgent",
-    "MemoryAgent",
-    "DataManageAgent",
-    "PortfolioAgent",
-    "BacktestAgent",
-    "IndexAgent",
-    "get_index_agent",
-    "EtfAgent",
-    "get_etf_agent",
-    "OverviewAgent",
-    "get_overview_agent",
-    "TopListAgent",
-    "NewsAnalystAgent",
-    "get_news_analyst_agent",
-    "KnowledgeAgent",
-    "get_knowledge_agent",
-    # DeepAgent (for backward compatibility)
-    "StockDeepAgent",
-    "get_stock_agent",
+    *_LAZY_EXPORTS.keys(),
 ]

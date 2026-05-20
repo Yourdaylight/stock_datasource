@@ -1,5 +1,7 @@
 """Market Agent for stock analysis using LangGraph/DeepAgents.
 
+@deprecated Direct-import compatibility only; new orchestration uses ConfigDrivenHarnessAgent.
+
 This agent provides AI-powered market analysis capabilities:
 - K-line data retrieval and interpretation
 - Technical indicator calculation and analysis

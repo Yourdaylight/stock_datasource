@@ -10,14 +10,11 @@ Users configure agents via UI:
 
 The agent reads config from ClickHouse (via agent_config_service) at runtime
 and dynamically assembles a create_deep_agent(...) instance.
-
-Feature flag: HARNESS_MODE_ENABLED=true
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import time
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -39,11 +36,6 @@ from .base_agent import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def is_harness_mode_enabled() -> bool:
-    """Check whether harness mode is activated via environment variable."""
-    return os.getenv("HARNESS_MODE_ENABLED", "").lower() == "true"
 
 
 # Shared store instance (module-level singleton)

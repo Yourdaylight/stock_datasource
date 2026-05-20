@@ -177,7 +177,7 @@ class AgentRegistry:
     # Fallback: package scanning (backward compat)
     # ------------------------------------------------------------------
 
-    _SCAN_EXCLUDE = {"OrchestratorAgent", "StockDeepAgent"}
+    _SCAN_EXCLUDE = {"OrchestratorAgent"}
 
     def ensure_fallback_scan(self) -> None:
         """Scan ``stock_datasource.agents`` if no explicit registrations exist.

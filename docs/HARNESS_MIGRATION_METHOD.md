@@ -12,7 +12,7 @@ Harness 模式为每个 Agent 增加以下能力：
 - **InMemoryStore**: 跨会话持久化存储
 - **astream_events v2**: 与现有 SSE 管道完全兼容
 
-迁移目标：在**不修改原 Agent 任何代码**的前提下，创建一个 Harness 变体，通过环境变量 `HARNESS_MODE_ENABLED=true` 切换。
+迁移目标（历史）：在**不修改原 Agent 任何代码**的前提下创建 Harness 变体。当前主链路已改为默认使用 `ConfigDrivenHarnessAgent`，不再通过 `HARNESS_MODE_ENABLED` 切换。
 
 ---
 
@@ -78,8 +78,7 @@ def _get_harness_store() -> InMemoryStore:
         _harness_store = InMemoryStore()
     return _harness_store
 
-def is_harness_mode_enabled() -> bool:
-    return os.getenv("HARNESS_MODE_ENABLED", "").lower() == "true"
+# 历史方案曾使用 HARNESS_MODE_ENABLED 开关；当前不再需要 feature flag。
 ```
 
 ### Step 5: 实现 `_init_harness_agent`
@@ -130,17 +129,14 @@ def _init_harness_agent(self):
 6. 处理 `on_tool_start`、`on_tool_end`、`on_chat_model_stream` 事件
 7. 保存历史、发送 agent_end + done 事件
 
-### Step 7: 在 Orchestrator 添加 Feature Flag
+### Step 7: 接入配置驱动 Orchestrator
 
-在 `orchestrator.py` 的单 Agent 路由逻辑中添加：
+当前 `orchestrator.py` 默认通过 `get_config_driven_agent(agent_name)` 调度，无需新增 feature flag。
 
 ```python
-if plan[0] == "OriginalAgent":
-    from .harness_original_agent import is_harness_mode_enabled
-    if is_harness_mode_enabled():
-        from .harness_original_agent import get_harness_original_agent
-        agent = get_harness_original_agent()
-        logger.info("[Harness] Using Harness<Agent> instead of <Agent>")
+from .config_driven_harness_agent import get_config_driven_agent
+
+agent = get_config_driven_agent(agent_name)
 ```
 
 ### Step 8: 添加 Singleton 工厂
@@ -161,8 +157,8 @@ def get_harness_xxx_agent() -> HarnessXxxAgent:
 # 1. 导入测试
 python -c "from stock_datasource.agents.harness_xxx_agent import HarnessXxxAgent; a = HarnessXxxAgent(); print(f'OK: {len(a.get_tools())} tools')"
 
-# 2. 功能测试（需要设置环境变量）
-HARNESS_MODE_ENABLED=true python -c "..."
+# 2. 功能测试（ConfigDrivenHarnessAgent 已是默认路径）
+python -c "..."
 ```
 
 ---
@@ -171,7 +167,6 @@ HARNESS_MODE_ENABLED=true python -c "..."
 
 | 组件 | 说明 |
 |------|------|
-| `is_harness_mode_enabled()` | 环境变量检查 |
 | `_harness_store` 单例 | `InMemoryStore` 模块级单例 |
 | `_get_harness_store()` | Store 获取函数 |
 | `AgentConfig(name=..., description=..., temperature=0.5, max_tokens=8000)` | 配置 |
@@ -207,7 +202,6 @@ HARNESS_MODE_ENABLED=true python -c "..."
 | `_harness_agent` 未初始化 | `__init__` 中设为 `None`，首次调用时初始化 |
 | 工具函数签名不兼容 | 确保工具有 docstring + type hints（LangGraph 需要） |
 | SSE 事件格式不一致 | 严格复用模板中的 event dict 结构 |
-| 环境变量大小写 | `is_harness_mode_enabled()` 已做 `.lower()` |
 
 ---
 

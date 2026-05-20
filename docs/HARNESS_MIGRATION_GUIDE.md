@@ -214,4 +214,4 @@ Phase 3 (1天): P2 + 回归测试
 | SubAgentMiddleware 不支持自定义 SSE event 格式 | 保留 execute_stream wrapper，只替内部逻辑 |
 | MemoryMiddleware 与现有 FactExtractor 冲突 | 两者并行运行，MemoryMiddleware 管会话级，FactExtractor 管知识级 |
 | deepagents 版本不稳定 | pin 版本，封装 adapter 层 |
-| 迁移期间功能回退 | feature flag `HARNESS_MODE_ENABLED` 控制新旧路径 |
+| 迁移期间功能回退 | 历史方案曾使用 feature flag；当前默认走 `ConfigDrivenHarnessAgent` |

@@ -1,4 +1,7 @@
-"""Report Agent for financial report analysis using LangGraph/DeepAgents."""
+"""Report Agent for financial report analysis using LangGraph/DeepAgents.
+
+@deprecated Direct-import compatibility only; new orchestration uses ConfigDrivenHarnessAgent.
+"""
 
 import logging
 from collections.abc import Callable
