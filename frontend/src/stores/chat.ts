@@ -140,6 +140,10 @@ export const useChatStore = defineStore('chat', () => {
   } | null>(null)
   const decisionSidebarOpen = ref(false)
 
+  // Selected Agent team for Chat requests
+  const activeTeamId = ref<string | null>(null)
+  const activeTeamName = ref<string | null>(null)
+
   // Preview signal state (instant rule-based, before full LLM synthesis)
   const previewSignal = ref<{
     signal: 'BUY' | 'SELL' | 'HOLD'
@@ -492,7 +496,7 @@ export const useChatStore = defineStore('chat', () => {
       role = 'handoff'
     } else if (debugType === 'data_sharing') {
       role = 'system'
-    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'preview_signal' || debugType === 'arena_error') {
+    } else if (debugType === 'discussion_argument' || debugType === 'decision_summary' || debugType === 'preview_signal' || debugType === 'arena_error' || debugType === 'decision_trace') {
       role = 'discussion'
     }
 
@@ -541,6 +545,20 @@ export const useChatStore = defineStore('chat', () => {
       console.log('[Chat] Preview signal received:', previewSignal.value)
     }
 
+    // Special handling for decision_trace team_summary: update decision state
+    if (debugType === 'decision_trace' && data.stage === 'team_summary' && data.signal) {
+      previewSignal.value = null
+      decisionSummary.value = {
+        signal: data.signal as 'BUY' | 'SELL' | 'HOLD' | 'NONE',
+        confidence: data.confidence || 0,
+        bull_count: data.bull_count || 0,
+        bear_count: data.bear_count || 0,
+        neutral_count: data.neutral_count || 0,
+        suggested_action: data.suggested_action || '',
+      }
+      decisionSidebarOpen.value = true
+    }
+
     // Special handling for decision_summary: update decision state (upgrades preview)
     if (debugType === 'decision_summary' && data.signal) {
       // Clear preview signal — the full summary replaces it
@@ -586,6 +604,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const setActiveTeam = (team: { id?: string; name?: string } | null) => {
+    activeTeamId.value = team?.id || null
+    activeTeamName.value = team?.name || null
+  }
+
+  const clearActiveTeam = () => {
+    activeTeamId.value = null
+    activeTeamName.value = null
+  }
+
   const sendMessage = async (content: string) => {
     if (!sessionId.value) {
       await initSession()
@@ -629,6 +657,9 @@ export const useChatStore = defineStore('chat', () => {
       await chatApi.streamMessagePost(
         sendingSessionId,
         content,
+        activeTeamId.value || activeTeamName.value
+          ? { team_id: activeTeamId.value, team_name: activeTeamName.value }
+          : null,
         (event: StreamEvent) => {
           // SESSION GUARD: If user switched sessions, discard stale events
           if (sessionId.value !== sendingSessionId) {
@@ -899,6 +930,8 @@ export const useChatStore = defineStore('chat', () => {
     decisionSummary,
     decisionSidebarOpen,
     previewSignal,
+    activeTeamId,
+    activeTeamName,
     lastSessionRef,
     // Actions
     initSession,
@@ -909,6 +942,8 @@ export const useChatStore = defineStore('chat', () => {
     updateSessionTitle,
     newConversation,
     clearCurrentConversation,
+    setActiveTeam,
+    clearActiveTeam,
     sendMessage,
     loadHistory,
     clearMessages,

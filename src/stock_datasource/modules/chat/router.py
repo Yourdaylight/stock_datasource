@@ -190,10 +190,22 @@ async def stream_message_post(
     current_user: dict = Depends(get_current_user),
 ):
     """Stream a message response using SSE (POST method for longer messages)."""
-    return await _stream_response(request.session_id, request.content, current_user)
+    return await _stream_response(
+        request.session_id,
+        request.content,
+        current_user,
+        team_id=request.team_id,
+        team_name=request.team_name,
+    )
 
 
-async def _stream_response(session_id: str, content: str, current_user: dict):
+async def _stream_response(
+    session_id: str,
+    content: str,
+    current_user: dict,
+    team_id: str | None = None,
+    team_name: str | None = None,
+):
     """Internal function to handle streaming response using OrchestratorAgent."""
     import json
     import traceback
@@ -235,6 +247,10 @@ async def _stream_response(session_id: str, content: str, current_user: dict):
         # SessionMemoryService.get_scoped_history() for even lighter context.
         "history": service.get_session_history(session_id)[-10:],
     }
+    if team_id:
+        context["team_id"] = team_id
+    if team_name:
+        context["team_name"] = team_name
 
     async def generate():
         full_response = ""

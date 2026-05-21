@@ -63,38 +63,95 @@
       </div>
     </div>
 
-    <!-- Discussion Messages Stream -->
+    <!-- Decision Trace Stream -->
     <div ref="streamContainer" class="discussion-stream">
-      <template v-if="discussionMessages.length > 0">
-        <div
-          v-for="msg in discussionMessages"
-          :key="msg.id"
-          class="stream-message"
-          :class="`direction-${msg.data?.direction || 'neutral'}`"
-        >
-          <div class="msg-header">
-            <span class="msg-role">{{ getAgentLabel(msg.agent) }}</span>
-            <t-tag
-              v-if="msg.data?.direction && msg.data.direction !== 'neutral'"
-              :theme="msg.data.direction === 'bullish' ? 'success' : 'danger'"
-              size="small"
-              variant="light"
-            >
-              {{ msg.data.direction === 'bullish' ? '看多' : '看空' }}
-            </t-tag>
-            <span v-if="msg.data?.confidence" class="msg-confidence">
-              {{ (msg.data.confidence * 100).toFixed(0) }}%
-            </span>
+      <template v-if="hasDecisionEvents">
+        <section v-if="orchestratorTraces.length" class="trace-section">
+          <div class="section-title">调度决策</div>
+          <div v-for="msg in orchestratorTraces" :key="msg.id" class="stream-message decision-orchestrator">
+            <div class="msg-header">
+              <span class="msg-role">{{ msg.data?.title || '调度决策' }}</span>
+              <t-tag v-if="msg.data?.intent" size="small" variant="light">{{ msg.data.intent }}</t-tag>
+            </div>
+            <div class="msg-content">{{ msg.data?.rationale || '正在选择合适的投研路径' }}</div>
+            <div v-if="msg.data?.selected_team || msg.data?.selected_agent" class="trace-meta">
+              <span v-if="msg.data?.selected_team">团队：{{ msg.data.selected_team }}</span>
+              <span v-if="msg.data?.selected_agent">Agent：{{ msg.data.selected_agent }}</span>
+            </div>
           </div>
-          <div class="msg-content">
-            {{ msg.data?.key_point || msg.data?.content || '' }}
+        </section>
+
+        <section v-if="agentTraces.length || discussionMessages.length" class="trace-section">
+          <div class="section-title">Agent 决策流</div>
+          <div
+            v-for="msg in agentTraces"
+            :key="msg.id"
+            class="stream-message"
+            :class="`direction-${msg.data?.direction || 'neutral'}`"
+          >
+            <div class="msg-header">
+              <span class="msg-role">{{ msg.data?.role || getAgentLabel(msg.agent) }}</span>
+              <t-tag
+                v-if="msg.data?.direction && msg.data.direction !== 'neutral'"
+                :theme="msg.data.direction === 'bullish' ? 'success' : 'danger'"
+                size="small"
+                variant="light"
+              >
+                {{ msg.data.direction === 'bullish' ? '看多' : '看空' }}
+              </t-tag>
+              <span v-if="msg.data?.confidence" class="msg-confidence">
+                {{ (msg.data.confidence * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <div class="msg-content">{{ msg.data?.rationale || msg.data?.title || '已进入分析' }}</div>
+            <ul v-if="msg.data?.key_points?.length" class="key-points">
+              <li v-for="point in msg.data.key_points" :key="point">{{ point }}</li>
+            </ul>
           </div>
-        </div>
+          <div
+            v-for="msg in discussionMessages"
+            :key="msg.id"
+            class="stream-message"
+            :class="`direction-${msg.data?.direction || 'neutral'}`"
+          >
+            <div class="msg-header">
+              <span class="msg-role">{{ getAgentLabel(msg.agent) }}</span>
+              <t-tag
+                v-if="msg.data?.direction && msg.data.direction !== 'neutral'"
+                :theme="msg.data.direction === 'bullish' ? 'success' : 'danger'"
+                size="small"
+                variant="light"
+              >
+                {{ msg.data.direction === 'bullish' ? '看多' : '看空' }}
+              </t-tag>
+              <span v-if="msg.data?.confidence" class="msg-confidence">
+                {{ (msg.data.confidence * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <div class="msg-content">
+              {{ msg.data?.key_point || msg.data?.content || '' }}
+            </div>
+          </div>
+        </section>
+
+        <section v-if="summaryTraces.length" class="trace-section">
+          <div class="section-title">最终汇总</div>
+          <div v-for="msg in summaryTraces" :key="msg.id" class="stream-message decision-summary-card">
+            <div class="msg-header">
+              <span class="msg-role">{{ msg.data?.title || '最终决策' }}</span>
+              <t-tag v-if="msg.data?.signal" size="small" theme="primary">{{ msg.data.signal }}</t-tag>
+              <span v-if="msg.data?.confidence" class="msg-confidence">
+                {{ (msg.data.confidence * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <div class="msg-content">{{ msg.data?.suggested_action || msg.data?.rationale || '等待最终汇总' }}</div>
+          </div>
+        </section>
       </template>
       <div v-else class="empty-stream">
         <t-icon name="chat" size="32px" />
         <p>暂无Agent讨论记录</p>
-        <p class="hint">分析股票时，多Agent辩论结果将在此展示</p>
+        <p class="hint">发送消息后，调度与Agent决策逻辑将在此展示</p>
       </div>
     </div>
 
@@ -130,11 +187,31 @@ const emit = defineEmits<{
 const chatStore = useChatStore()
 const streamContainer = ref<HTMLElement | null>(null)
 
+const decisionTraceMessages = computed<DebugMessage[]>(() => {
+  return chatStore.debugMessages.filter(m => m.debugType === 'decision_trace')
+})
+
+const orchestratorTraces = computed<DebugMessage[]>(() => {
+  return decisionTraceMessages.value.filter(m => m.data?.stage === 'orchestrator')
+})
+
+const agentTraces = computed<DebugMessage[]>(() => {
+  return decisionTraceMessages.value.filter(m => m.data?.stage === 'team_agent' || m.data?.stage === 'agent')
+})
+
+const summaryTraces = computed<DebugMessage[]>(() => {
+  return decisionTraceMessages.value.filter(m => m.data?.stage === 'team_summary')
+})
+
 // Get discussion-related messages from the store's live debugMessages
 const discussionMessages = computed<DebugMessage[]>(() => {
   return chatStore.debugMessages.filter(
     m => m.debugType === 'discussion_argument'
   )
+})
+
+const hasDecisionEvents = computed(() => {
+  return decisionTraceMessages.value.length > 0 || discussionMessages.value.length > 0
 })
 
 // Preview signal from store
@@ -172,7 +249,7 @@ function getAgentLabel(agent: string): string {
 }
 
 // Auto-scroll when new messages arrive
-watch(discussionMessages, () => {
+watch([decisionTraceMessages, discussionMessages], () => {
   nextTick(() => {
     if (streamContainer.value) {
       streamContainer.value.scrollTop = streamContainer.value.scrollHeight
@@ -274,6 +351,17 @@ watch(discussionMessages, () => {
   padding: 8px 12px;
 }
 
+.trace-section {
+  margin-bottom: 14px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text-color-secondary);
+  margin: 4px 0 8px;
+}
+
 .stream-message {
   margin-bottom: 8px;
   padding: 8px 10px;
@@ -286,6 +374,25 @@ watch(discussionMessages, () => {
 .stream-message.direction-bullish { border-left-color: #4caf50; }
 .stream-message.direction-bearish { border-left-color: #f44336; }
 .stream-message.direction-neutral { border-left-color: #9e9e9e; }
+.stream-message.decision-orchestrator { border-left-color: var(--td-brand-color); }
+.stream-message.decision-summary-card { border-left-color: var(--td-warning-color); }
+
+.trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+}
+
+.key-points {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 .msg-header {
   display: flex;

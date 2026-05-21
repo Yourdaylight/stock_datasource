@@ -29,6 +29,69 @@ class OrchestratorAgent:
             "data": data,
         }
 
+    def _make_team_summary_trace_event(
+        self, context: dict[str, Any], agent_name: str | None
+    ) -> dict[str, Any]:
+        return self._make_debug_event(
+            "decision_trace",
+            {
+                "stage": "team_summary",
+                "title": "团队汇总",
+                "selected_team": context.get("team_name"),
+                "selected_agent": agent_name,
+                "rationale": "已完成团队模式分析，最终结论见回复内容",
+                "suggested_action": "请结合正文分析结论决策",
+            },
+        )
+
+    def _build_local_market_overview_response(self, overview: str) -> str:
+        return (
+            f"{overview}\n\n"
+            "### 可能原因\n"
+            "- 市场下跌通常与风险偏好下降、权重板块走弱、资金观望或外部事件扰动有关。\n"
+            "- 以上原因需要结合当日板块表现、成交额变化、新闻政策和资金流向继续确认。\n"
+            "- 当前为本地数据兜底分析：如需更完整归因，请配置可用 LLM 后由投研 Agent 综合研判。"
+        )
+
+    def _classify_with_rules(
+        self, query: str, agents: list[dict[str, str]]
+    ) -> tuple[str, str | None, str] | None:
+        available_names = {agent["name"] for agent in agents}
+        text = query.lower()
+
+        def pick(*names: str) -> str | None:
+            for name in names:
+                if name in available_names:
+                    return name
+            return None
+
+        if any(keyword in text for keyword in ["今日", "大盘", "市场", "下跌", "上涨", "走势", "原因"]):
+            agent_name = pick("OverviewAgent", "MarketAgent", "板块轮动分析师", "行情分析师")
+            if agent_name:
+                return "market_overview", agent_name, "根据关键词匹配到市场概览分析"
+
+        if any(keyword in text for keyword in ["k线", "技术", "指标", "行情"]):
+            agent_name = pick("MarketAgent", "行情分析师", "技术面专家")
+            if agent_name:
+                return "market_analysis", agent_name, "根据关键词匹配到行情分析"
+
+        if any(keyword in text for keyword in ["财报", "估值", "基本面", "利润", "营收"]):
+            agent_name = pick("ReportAgent", "财报分析师", "价值投资专家")
+            if agent_name:
+                return "financial_report", agent_name, "根据关键词匹配到财报分析"
+
+        if any(keyword in text for keyword in ["新闻", "利好", "利空", "消息"]):
+            agent_name = pick("NewsAnalystAgent", "新闻分析师")
+            if agent_name:
+                return "news_analysis", agent_name, "根据关键词匹配到新闻分析"
+
+        if any(keyword in text for keyword in ["推荐", "筛选", "选股", "低估"]):
+            agent_name = pick("ScreenerAgent", "选股专家")
+            if agent_name:
+                return "stock_screening", agent_name, "根据关键词匹配到选股分析"
+
+        return None
+
     def _parse_json_from_text(self, text: str) -> dict[str, Any]:
         if not text:
             return {}
@@ -145,6 +208,9 @@ class OrchestratorAgent:
             return intent, agent_name, rationale
         except Exception as e:
             logger.warning("[Orchestrator] LLM classify failed: %s", e)
+            rule_result = self._classify_with_rules(query, agents)
+            if rule_result:
+                return rule_result
             return "unknown", None, "意图识别失败"
 
     def _extract_stock_codes(self, query: str) -> list[str]:
@@ -254,6 +320,7 @@ class OrchestratorAgent:
         if stock_codes:
             context["stock_codes"] = stock_codes
 
+        available_agent_names = [agent["name"] for agent in available_agents]
         yield self._make_debug_event(
             "classification",
             {
@@ -261,7 +328,20 @@ class OrchestratorAgent:
                 "selected_agent": agent_name,
                 "rationale": rationale,
                 "stock_codes": stock_codes,
-                "available_agents": [agent["name"] for agent in available_agents],
+                "available_agents": available_agent_names,
+            },
+        )
+        yield self._make_debug_event(
+            "decision_trace",
+            {
+                "stage": "orchestrator",
+                "title": "调度决策",
+                "intent": intent,
+                "selected_agent": agent_name,
+                "selected_team": context.get("team_name"),
+                "rationale": rationale,
+                "stock_codes": stock_codes,
+                "available_agents": available_agent_names,
             },
         )
         yield {
@@ -335,11 +415,36 @@ class OrchestratorAgent:
                     metadata["routed_by"] = "OrchestratorAgent"
                     metadata["available_agents"] = available_agents
                     event["metadata"] = metadata
+                    if context.get("team_id"):
+                        yield self._make_team_summary_trace_event(context, agent.config.name)
                 yield event
         except Exception as e:
             logger.error("Agent %s execution failed: %s", agent_name, e)
-            yield self._error_event(str(e), intent, stock_codes, available_agents)
-            done_seen = False
+            if agent_name == "OverviewAgent" and (
+                "OPENAI_API_KEY" in str(e) or "connect" in str(e).lower()
+            ):
+                from .tools import get_market_overview
+
+                overview = get_market_overview()
+                yield {
+                    "type": "content",
+                    "content": self._build_local_market_overview_response(overview),
+                }
+                yield {
+                    "type": "done",
+                    "metadata": {
+                        "agent": "OverviewAgent",
+                        "intent": intent,
+                        "stock_codes": stock_codes,
+                        "routed_by": "OrchestratorAgent",
+                        "fallback": "local_market_overview",
+                        "available_agents": available_agents,
+                    },
+                }
+                done_seen = True
+            else:
+                yield self._error_event(str(e), intent, stock_codes, available_agents)
+                done_seen = False
 
         if not done_seen:
             yield {

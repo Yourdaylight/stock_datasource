@@ -28,10 +28,10 @@ const loadTeams = async () => {
 }
 
 const handleTeamChat = (team: any) => {
-  // Send team name as message to trigger multi-agent collaboration
-  const msg = `请使用"${team.name}"团队模式来协作处理我的下一个问题`
+  chatStore.setActiveTeam(team)
+  chatStore.decisionSidebarOpen = true
   showTeamPanel.value = false
-  handleSend(msg)
+  MessagePlugin.success(`已启用 ${team.name} 团队模式`)
 }
 const showSessionsSidebar = ref(false)
 const editingSessionId = ref('')
@@ -267,7 +267,7 @@ onMounted(async () => {
     MessagePlugin.error('加载历史对话失败，请重新登录后重试')
   }
 
-  // 加载Agent Teams
+  // 加载投研团队
   loadTeams()
 })
 
@@ -569,14 +569,21 @@ const syncUrlToSession = () => {
             @click="showTeamPanel = !showTeamPanel"
           >
             <template #icon><t-icon name="usergroup" /></template>
-            Agent Teams
+            投研团队
           </t-button>
         </div>
 
-        <!-- Agent Teams Panel -->
+        <div v-if="chatStore.activeTeamName" class="active-team-bar">
+          <t-tag theme="primary" variant="light">
+            当前团队：{{ chatStore.activeTeamName }}
+          </t-tag>
+          <t-button size="small" variant="text" @click="chatStore.clearActiveTeam()">退出团队模式</t-button>
+        </div>
+
+        <!-- Research Teams Panel -->
         <div v-if="showTeamPanel" class="workflow-panel">
           <div class="workflow-panel-header">
-            <span>Agent 团队</span>
+            <span>投研团队</span>
             <t-button size="small" variant="text" @click="router.push('/orchestration')">管理团队</t-button>
           </div>
           <div class="workflow-list">
@@ -589,11 +596,11 @@ const syncUrlToSession = () => {
               <t-icon name="usergroup" />
               <div class="workflow-info">
                 <span class="workflow-name">{{ team.name }}</span>
-                <span class="workflow-desc">{{ team.description || '多Agent协作' }}</span>
+                <span class="workflow-desc">{{ team.description || '投研角色协作' }}</span>
               </div>
             </div>
             <div v-if="agentTeams.length === 0" class="workflow-item" style="color:#bbb;justify-content:center">
-              暂无团队，去Agent中心创建
+              暂无团队，去 AI Agent 投研创建
             </div>
           </div>
         </div>
@@ -830,6 +837,13 @@ const syncUrlToSession = () => {
 
 .suggestion-tag:hover {
   opacity: 0.8;
+}
+
+.active-team-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 /* Workflow Panel */
