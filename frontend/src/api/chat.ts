@@ -20,6 +20,8 @@ export interface ChatMessage {
 export interface SendMessageRequest {
   session_id: string
   content: string
+  team_id?: string | null
+  team_name?: string | null
 }
 
 export interface ChatHistoryResponse {
@@ -85,15 +87,21 @@ export interface ErrorEvent {
 
 export interface DebugEvent {
   type: 'debug'
-  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'preview_signal' | 'arena_error'
+  debug_type: 'classification' | 'routing' | 'agent_start' | 'agent_end' | 'tool_result' | 'handoff' | 'data_sharing' | 'discussion_argument' | 'decision_summary' | 'preview_signal' | 'arena_error' | 'decision_trace'
   agent: string
   timestamp: number
   data: {
-    // classification
+    // classification / decision_trace
     intent?: string
     selected_agent?: string
+    selected_team?: string
     rationale?: string
     available_agents?: string[]
+    stage?: 'orchestrator' | 'team_agent' | 'team_summary' | 'agent'
+    title?: string
+    role?: string
+    key_points?: string[]
+    direction?: 'bullish' | 'bearish' | 'neutral'
     // routing
     from_agent?: string
     to_agent?: string
@@ -189,6 +197,7 @@ export const chatApi = {
   async streamMessagePost(
     sessionId: string,
     content: string,
+    team: { team_id?: string | null; team_name?: string | null } | null,
     onEvent: (event: StreamEvent) => void,
     onError?: (error: Error) => void,
     abortController?: AbortController
@@ -211,7 +220,9 @@ export const chatApi = {
         headers,
         body: JSON.stringify({
           session_id: sessionId,
-          content: content
+          content: content,
+          ...(team?.team_id ? { team_id: team.team_id } : {}),
+          ...(team?.team_name ? { team_name: team.team_name } : {})
         }),
         signal: controller.signal
       })

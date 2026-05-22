@@ -19,10 +19,7 @@ import time
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
-from deepagents import (
-    SubAgentMiddleware,
-    create_deep_agent,
-)
+from deepagents import create_deep_agent
 from langgraph.store.memory import InMemoryStore
 
 from stock_datasource.models.agent_config import AgentConfigResponse, ModelConfig
@@ -162,34 +159,41 @@ class ConfigDrivenHarnessAgent(LangGraphAgent):
         system_prompt = self.get_system_prompt() + self.COMMON_OUTPUT_RULES
         store = get_shared_store()
 
-        # Build middleware
-        middleware = [
-            SubAgentMiddleware(
-                default_model=model,
-                default_tools=tools,
-                subagents=[],
-                general_purpose_agent=True,
-            ),
-        ]
-
         # Create the harness-enabled agent
         self._harness_agent = create_deep_agent(
             model=model,
             tools=tools,
             system_prompt=system_prompt,
-            middleware=middleware,
-            checkpointer=True,
+            checkpointer=False,
             store=store,
             name=self.config.name,
         )
 
         logger.info(
             "ConfigDrivenHarnessAgent '%s' initialized "
-            "(tools=%d, checkpointer=True, store=InMemoryStore)",
+            "(tools=%d, checkpointer=False, store=InMemoryStore)",
             self.config.name,
             len(tools),
         )
         return self._harness_agent
+
+    def _make_agent_decision_trace_event(
+        self, context: dict[str, Any], tool_names: list[str]
+    ) -> dict[str, Any]:
+        """Create a normalized, safe decision trace for this Agent."""
+        return self._make_debug_event(
+            "decision_trace",
+            {
+                "stage": "team_agent" if context.get("team_id") else "agent",
+                "title": self.config.name,
+                "agent": self.config.name,
+                "role": self.config.description,
+                "rationale": "已接收任务并开始基于配置技能分析",
+                "key_points": [f"可用工具 {len(tool_names)} 个"],
+                "direction": "neutral",
+                "confidence": None,
+            },
+        )
 
     async def execute_stream(
         self, task: str, context: dict[str, Any] = None
@@ -257,6 +261,7 @@ class ConfigDrivenHarnessAgent(LangGraphAgent):
                     "parent_agent": context.get("parent_agent"),
                 },
             )
+            yield self._make_agent_decision_trace_event(context, tool_names)
 
             # Build LangGraph config
             config = {

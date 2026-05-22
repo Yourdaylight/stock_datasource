@@ -45,6 +45,8 @@ class SendMessageRequest(BaseModel):
 
     session_id: str = Field(..., description="Session ID")
     content: str = Field(..., description="Message content")
+    team_id: str | None = Field(default=None, description="Selected Agent team ID")
+    team_name: str | None = Field(default=None, description="Selected Agent team name")
 
 
 class SendMessageResponse(BaseModel):
