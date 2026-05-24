@@ -1,8 +1,8 @@
 <template>
   <div class="runtime-page">
     <div class="page-header">
-      <h2>Runtime 管理</h2>
-      <span class="subtitle">Agent 执行引擎探测与配置</span>
+      <h2>工具运行时</h2>
+      <span class="subtitle">投研 Agent 执行引擎、工具调用和外部能力探测</span>
     </div>
 
     <div class="runtime-grid" v-if="!loading">

@@ -7,7 +7,7 @@
           <template #icon><chevron-left-icon /></template>
           返回
         </t-button>
-        <h2>{{ isNew ? '创建 Agent' : `编辑: ${form.name}` }}</h2>
+        <h2>{{ isNew ? '创建投研 Agent' : `编辑投研 Agent: ${form.name}` }}</h2>
       </div>
       <t-space>
         <t-button variant="outline" @click="showTestPanel = !showTestPanel">测试</t-button>
@@ -22,7 +22,7 @@
         <t-card title="基本信息" :bordered="true">
           <t-form :data="form" label-align="top">
             <t-form-item label="名称">
-              <t-input v-model="form.name" placeholder="Agent 名称" maxlength="50" />
+              <t-input v-model="form.name" placeholder="投研 Agent 名称，如 基本面研究员" maxlength="50" />
             </t-form-item>
             <t-form-item label="描述">
               <t-textarea v-model="form.description" placeholder="简要描述" :maxlength="500" :autosize="{ minRows: 2, maxRows: 3 }" />
@@ -62,7 +62,7 @@
           </t-form>
         </t-card>
 
-        <t-card title="Runtime" :bordered="true" class="mt-12">
+        <t-card title="工具运行时" :bordered="true" class="mt-12">
           <t-form label-align="top">
             <t-form-item label="执行引擎">
               <t-select v-model="form.runtime_config.type">
@@ -88,7 +88,7 @@
         <t-card title="系统提示词" :bordered="true">
           <t-textarea
             v-model="form.system_prompt"
-            placeholder="定义 Agent 的角色、能力和行为规则..."
+            placeholder="定义投研角色、覆盖范围、证据要求、风险提示和输出格式..."
             :autosize="{ minRows: 8, maxRows: 16 }"
           />
         </t-card>
@@ -166,13 +166,13 @@
 
     <!-- Test Panel -->
     <div v-if="showTestPanel" class="test-panel">
-      <t-card title="测试 Agent" :bordered="true" size="small">
+        <t-card title="测试投研 Agent" :bordered="true" size="small">
         <template #actions>
           <t-button variant="text" size="small" @click="showTestPanel = false">关闭</t-button>
         </template>
         <div class="test-messages">
           <div v-for="(msg, idx) in testMessages" :key="idx" :class="['test-msg', msg.role]">
-            <strong>{{ msg.role === 'user' ? '你' : 'Agent' }}:</strong>
+            <strong>{{ msg.role === 'user' ? '你' : '投研 Agent' }}:</strong>
             <span>{{ msg.content }}</span>
           </div>
         </div>
@@ -238,7 +238,7 @@ const form = ref({
 
 const historyColumns = [
   { colKey: 'time', title: '时间', width: 140, cell: (h: any, { row }: any) => row.time?.substring(5, 16) || '' },
-  { colKey: 'agent', title: '触发Agent', width: 120 },
+  { colKey: 'agent', title: '触发投研角色', width: 120 },
   { colKey: 'tools_used', title: '使用工具', width: 200, cell: (h: any, { row }: any) => (row.tools_used || []).slice(0, 3).join(', ') || '—' },
   { colKey: 'input', title: '对话摘要', ellipsis: true },
 ]
@@ -300,7 +300,7 @@ async function loadAgent() {
       is_public: agent.is_public,
     }
   } catch (e: any) {
-    MessagePlugin.error('加载 Agent 失败')
+    MessagePlugin.error('加载投研 Agent 失败')
   }
 }
 

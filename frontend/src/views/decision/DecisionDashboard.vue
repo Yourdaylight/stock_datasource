@@ -3,7 +3,7 @@
     <!-- Page Header -->
     <div class="page-header">
       <h1>决策看板</h1>
-      <p class="subtitle">Agent Teams 讨论决策汇总 — 实时追踪多Agent共识与分歧</p>
+      <p class="subtitle">投研团队讨论决策汇总 — 实时追踪多角色共识与分歧</p>
       <t-button theme="default" variant="outline" @click="refreshAll" :loading="loading">
         <template #icon><t-icon name="refresh" /></template>
         刷新

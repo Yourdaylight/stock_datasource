@@ -81,14 +81,15 @@ const menuItems: MenuItem[] = [
   { path: '/portfolio', title: '持仓管理', icon: WalletIcon, requiresAuth: true },
   {
     path: '/agent-center',
-    title: 'Agent中心',
+    title: 'AI Agent 投研',
     icon: SettingIcon,
     requiresAuth: true,
     children: [
-      { path: '/agents', title: 'Agent管理', icon: SettingIcon, requiresAuth: true },
-      { path: '/orchestration', title: 'Agent Teams', icon: QueueIcon, requiresAuth: true },
-      { path: '/runtimes', title: 'Runtime', icon: ControlPlatformIcon, requiresAuth: true },
-      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true }
+      { path: '/agents', title: '投研 Agent', icon: SettingIcon, requiresAuth: true },
+      { path: '/orchestration', title: '投研团队', icon: QueueIcon, requiresAuth: true },
+      { path: '/sentinel', title: '哨兵选股', icon: PreciseMonitorIcon, requiresAuth: true },
+      { path: '/runtimes', title: '工具运行时', icon: ControlPlatformIcon, requiresAuth: true },
+      { path: '/arena', title: '策略实验室', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
   {
@@ -99,7 +100,6 @@ const menuItems: MenuItem[] = [
     requiresTier: 'pro',
     children: [
       { path: '/strategy', title: '策略工具台', icon: ToolsIcon, requiresAuth: true, requiresTier: 'pro' },
-      { path: '/arena', title: 'Agent竞技场', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' },
       { path: '/decision', title: '决策看板', icon: DataDisplayIcon, requiresAuth: true, requiresTier: 'pro' }
     ]
   },
