@@ -157,49 +157,49 @@ const routes: RouteRecordRaw[] = [
     path: '/orchestration',
     name: 'OrchestrationList',
     component: () => import('@/views/orchestration/OrchestrationList.vue'),
-    meta: { title: 'Agent编排', icon: 'flow', requiresAuth: true, requiresTier: 'pro' }
+    meta: { title: '投研团队', icon: 'flow', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/orchestration/:id',
     name: 'OrchestrationEditor',
     component: () => import('@/views/orchestration/OrchestrationEditor.vue'),
-    meta: { title: '编排编辑器', requiresAuth: true, requiresTier: 'pro' }
+    meta: { title: '投研团队编辑器', requiresAuth: true, requiresTier: 'pro' }
   },
   {
     path: '/agents',
     name: 'AgentManagement',
     component: () => import('@/views/agent-management/AgentList.vue'),
-    meta: { title: 'Agent管理', icon: 'user-setting', requiresAuth: true }
+    meta: { title: '投研 Agent', icon: 'user-setting', requiresAuth: true }
   },
   {
     path: '/runtimes',
     name: 'RuntimeManagement',
     component: () => import('@/views/agent-management/RuntimeManagement.vue'),
-    meta: { title: 'Runtime管理', requiresAuth: true }
+    meta: { title: '工具运行时', requiresAuth: true }
   },
   {
     path: '/agents/:id/edit',
     name: 'AgentEditor',
     component: () => import('@/views/agent-management/AgentEditor.vue'),
-    meta: { title: '编辑Agent', requiresAuth: true }
+    meta: { title: '编辑投研 Agent', requiresAuth: true }
   },
   {
     path: '/arena',
     name: 'Arena',
     component: () => import('@/views/arena/ArenaManagement.vue'),
-    meta: { title: '多Agent竞技场', icon: 'data-analysis', requiresAuth: true }
+    meta: { title: '策略实验室', icon: 'data-analysis', requiresAuth: true }
   },
 {
     path: '/arena/:id',
     name: 'ArenaDetail',
     component: () => import('@/views/arena/ArenaDetail.vue'),
-    meta: { title: '竞技场详情', requiresAuth: true }
+    meta: { title: '策略实验详情', requiresAuth: true }
   },
   {
     path: '/arena/:arenaId/strategy/:strategyId',
     name: 'ArenaStrategyDetail',
     component: () => import('@/views/arena/ArenaStrategyDetail.vue'),
-    meta: { title: '策略详情', requiresAuth: true }
+    meta: { title: '策略候选详情', requiresAuth: true }
   },
   // Decision Dashboard
   {

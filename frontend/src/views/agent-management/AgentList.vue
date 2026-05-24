@@ -3,12 +3,12 @@
     <!-- Header -->
     <div class="page-header">
       <div class="header-left">
-        <h2>Agent 管理</h2>
-        <span class="subtitle">配置和管理你的 AI Agent</span>
+        <h2>AI Agent 投研</h2>
+        <span class="subtitle">配置投研角色、团队协作和研究任务</span>
       </div>
       <t-button theme="primary" @click="handleCreate">
         <template #icon><add-icon /></template>
-        创建 Agent
+        创建投研 Agent
       </t-button>
     </div>
 
@@ -16,7 +16,7 @@
     <div class="filter-bar">
       <t-input
         v-model="searchQuery"
-        placeholder="搜索 Agent..."
+        placeholder="搜索投研 Agent、覆盖领域或技能..."
         clearable
         style="width: 240px"
       >
@@ -24,8 +24,8 @@
       </t-input>
       <t-radio-group v-model="filterType" variant="default-filled">
         <t-radio-button value="all">全部</t-radio-button>
-        <t-radio-button value="mine">我的</t-radio-button>
-        <t-radio-button value="system">系统</t-radio-button>
+        <t-radio-button value="mine">我的角色</t-radio-button>
+        <t-radio-button value="system">系统角色</t-radio-button>
       </t-radio-group>
     </div>
 
@@ -48,9 +48,14 @@
           <h3 class="agent-name">{{ agent.name }}</h3>
           <p class="agent-desc">{{ agent.description || '暂无描述' }}</p>
         </div>
+        <div class="agent-meta">
+          <t-tag v-for="tag in getResearchTags(agent)" :key="tag" size="small" variant="light">
+            {{ tag }}
+          </t-tag>
+        </div>
         <div class="card-footer">
           <span class="skill-count">
-            <t-tag size="small" variant="light">{{ agent.skills.length }} 个技能</t-tag>
+            <t-tag size="small" variant="light">{{ agent.skills.length }} 个数据/工具能力</t-tag>
           </span>
           <div class="card-actions" @click.stop>
             <t-dropdown
@@ -71,8 +76,8 @@
 
       <!-- Empty state -->
       <div v-if="filteredAgents.length === 0" class="empty-state">
-        <p>暂无 Agent</p>
-        <t-button theme="primary" variant="base" @click="handleCreate">创建第一个 Agent</t-button>
+        <p>暂无投研 Agent</p>
+        <t-button theme="primary" variant="base" @click="handleCreate">创建第一个投研 Agent</t-button>
       </div>
     </div>
 
@@ -109,11 +114,30 @@ const filteredAgents = computed(() => {
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     result = result.filter(
-      a => a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)
+      a =>
+        a.name.toLowerCase().includes(q) ||
+        a.description.toLowerCase().includes(q) ||
+        a.skills.some(skill => skill.toLowerCase().includes(q)) ||
+        a.tags.some(tag => tag.toLowerCase().includes(q))
     )
   }
   return result
 })
+
+function getResearchTags(agent: AgentConfig) {
+  const tags = [...(agent.tags || [])]
+  const skillText = (agent.skills || []).join(' ')
+  if (/portfolio|position|risk|组合|持仓/i.test(`${agent.name} ${agent.description} ${skillText}`)) {
+    tags.unshift('组合/风控')
+  } else if (/report|financial|fundamental|财报|基本面/i.test(`${agent.name} ${agent.description} ${skillText}`)) {
+    tags.unshift('基本面')
+  } else if (/market|technical|kline|行情|技术/i.test(`${agent.name} ${agent.description} ${skillText}`)) {
+    tags.unshift('行情/技术')
+  } else if (/news|sentiment|新闻|舆情/i.test(`${agent.name} ${agent.description} ${skillText}`)) {
+    tags.unshift('新闻/舆情')
+  }
+  return Array.from(new Set(tags)).slice(0, 3)
+}
 
 async function loadAgents() {
   loading.value = true
@@ -141,7 +165,7 @@ async function handleAction(data: { value: string }, agent: AgentConfig) {
   } else if (data.value === 'clone') {
     try {
       await createAgent({
-        name: agent.name + ' (副本)',
+        name: agent.name + ' (投研副本)',
         description: agent.description,
         avatar: agent.avatar,
         system_prompt: agent.system_prompt,
@@ -157,7 +181,7 @@ async function handleAction(data: { value: string }, agent: AgentConfig) {
   } else if (data.value === 'delete') {
     const dialog = DialogPlugin.confirm({
       header: '确认删除',
-      body: `确定删除 Agent "${agent.name}" 吗？`,
+      body: `确定删除投研 Agent "${agent.name}" 吗？`,
       confirmBtn: { theme: 'danger', content: '删除' },
       onConfirm: async () => {
         try {
@@ -278,6 +302,13 @@ onMounted(async () => {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.agent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
 }
 
 .card-footer {

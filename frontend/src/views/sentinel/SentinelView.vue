@@ -82,7 +82,7 @@
               <span class="decision-date">{{ d.trade_date }}</span>
             </div>
             <div class="decision-body">
-              仓位建议: {{ ((d.suggested_position || d.suggested_total_position || 0) * 100).toFixed(0) }}%
+              仓位建议: {{ ((d.suggested_total_position || 0) * 100).toFixed(0) }}%
               | 信心: {{ ((d.confidence || 0) * 100).toFixed(0) }}%
             </div>
           </div>

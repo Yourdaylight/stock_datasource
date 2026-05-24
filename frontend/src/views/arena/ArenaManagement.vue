@@ -2,8 +2,8 @@
   <div class="arena-management">
     <!-- Header -->
     <div class="page-header">
-      <h1>多Agent竞技场</h1>
-      <p class="description">AI Agent 自动生成、讨论和优化交易策略的竞技系统</p>
+      <h1>策略实验室</h1>
+      <p class="description">保留原策略竞技能力，用于候选策略比较与实验验证；正式投研流程请使用投研团队</p>
     </div>
 
     <!-- Actions -->
