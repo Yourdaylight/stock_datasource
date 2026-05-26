@@ -357,14 +357,18 @@ const handleSyncConfirm = async (
   pluginName: string, 
   taskType: 'incremental' | 'full' | 'backfill', 
   dates: string[],
-  forceOverwrite: boolean
+  forceOverwrite: boolean,
+  dataSource?: string,
+  tsCode?: string
 ) => {
   try {
     await dataStore.triggerSync({
       plugin_name: pluginName,
       task_type: taskType,
       trade_dates: dates.length > 0 ? dates : undefined,
-      force_overwrite: forceOverwrite
+      force_overwrite: forceOverwrite,
+      data_source: dataSource,
+      ts_code: tsCode
     })
     MessagePlugin.success('同步任务已创建')
     // Start polling for task updates

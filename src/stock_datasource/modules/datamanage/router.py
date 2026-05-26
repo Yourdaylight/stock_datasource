@@ -57,6 +57,7 @@ from .schemas import (
     SyncTaskListResponse,
     TaskType,
     TriggerSyncRequest,
+    UpdatePluginDataSourceRequest,
 )
 from .service import data_manage_service, diagnosis_service, sync_task_manager
 
@@ -66,6 +67,14 @@ router = APIRouter()
 
 
 AUTO_MISSING_DATA_MAX_DAYS = 180
+
+
+def _has_ts_code_param(request: "TriggerSyncRequest") -> bool:
+    """Return True if the sync request carries an explicit ts_code."""
+    ts_code = getattr(request, "ts_code", None)
+    if isinstance(ts_code, str) and ts_code.strip():
+        return True
+    return False
 
 
 async def _detect_missing_data_async(
@@ -194,6 +203,32 @@ async def trigger_sync(
             status_code=404, detail=f"Plugin {request.plugin_name} not found"
         )
 
+    if request.data_source:
+        config = plugin.get_config()
+        available = config.get("available_data_sources", [])
+        if request.data_source not in available:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": f"Unsupported data_source '{request.data_source}' for {request.plugin_name}",
+                    "available_data_sources": available,
+                },
+            )
+
+        # QMT only supports per-symbol queries. Reject early so users get a clear
+        # error instead of a task that fails inside the worker.
+        if request.data_source == "qmt" and not _has_ts_code_param(request):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": (
+                        "data_source='qmt' requires a ts_code parameter; "
+                        "QMT does not support date-only batch sync."
+                    ),
+                    "plugin_name": request.plugin_name,
+                },
+            )
+
     # Check dependencies
     dep_result = plugin_manager.check_dependencies(request.plugin_name)
     if not dep_result.satisfied:
@@ -221,6 +256,8 @@ async def trigger_sync(
             trade_dates=request.trade_dates,
             user_id=current_user.get("id"),
             username=current_user.get("username"),
+            data_source=request.data_source,
+            ts_code=request.ts_code,
         )
     except Exception as e:
         # Mode A: Redis required
@@ -397,6 +434,19 @@ async def get_plugin_detail(name: str, current_user: dict = Depends(require_admi
     if not detail:
         raise HTTPException(status_code=404, detail=f"Plugin {name} not found")
     return detail
+
+
+@router.put("/plugins/{name}/data-source", response_model=PluginDetail)
+async def update_plugin_data_source(
+    name: str,
+    request: UpdatePluginDataSourceRequest,
+    current_user: dict = Depends(require_admin),
+):
+    """Update a plugin's default data source."""
+    try:
+        return data_manage_service.update_plugin_data_source(name, request.data_source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/plugins/{name}/status", response_model=PluginStatus)

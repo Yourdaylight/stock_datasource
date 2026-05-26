@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from stock_datasource.data_sources.qmt import QmtHistoricalProvider
 from stock_datasource.plugins import BasePlugin
 
 from .extractor import StkMinsExtractor
@@ -41,7 +42,7 @@ class TuShareStkMinsPlugin(BasePlugin):
             return json.load(f)
 
     def extract_data(self, **kwargs) -> pd.DataFrame:
-        """Extract minute-level historical data from TuShare.
+        """Extract minute-level historical data from the configured data source.
 
         Args:
             ts_code: Stock code (required, e.g., 600000.SH)
@@ -57,6 +58,16 @@ class TuShareStkMinsPlugin(BasePlugin):
         if not ts_code:
             raise ValueError("ts_code is required")
 
+        data_source = self._resolve_data_source(kwargs.get("data_source"))
+        if data_source == "qmt":
+            return self._extract_qmt_data(
+                ts_code=ts_code,
+                freq=freq,
+                start_date=start_date,
+                end_date=end_date,
+                count=kwargs.get("count"),
+            )
+
         self.logger.info(f"Extracting stk_mins data (ts_code={ts_code}, freq={freq})")
 
         extractor = StkMinsExtractor()
@@ -69,6 +80,41 @@ class TuShareStkMinsPlugin(BasePlugin):
             return pd.DataFrame()
 
         self.logger.info(f"Extracted {len(data)} stk_mins records")
+        return data
+
+    def _resolve_data_source(self, override: str | None = None) -> str:
+        config = self.get_config()
+        data_source = override or config.get("data_source", "tushare")
+        available = config.get("available_data_sources", ["tushare"])
+        if data_source not in available:
+            raise ValueError(
+                f"Unsupported data_source '{data_source}' for {self.name}. "
+                f"Available: {', '.join(available)}"
+            )
+        return data_source
+
+    def _extract_qmt_data(
+        self,
+        ts_code: str,
+        freq: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        count: int | None = None,
+    ) -> pd.DataFrame:
+        self.logger.info(f"Extracting stk_mins data from QMT (ts_code={ts_code}, freq={freq})")
+        data = QmtHistoricalProvider().get_minute_bars(
+            ts_code=ts_code,
+            freq=freq,
+            start_time=start_date,
+            end_time=end_date,
+            count=count,
+        )
+
+        if data.empty:
+            self.logger.warning("No QMT stk_mins data found")
+            return pd.DataFrame()
+
+        self.logger.info(f"Extracted {len(data)} QMT stk_mins records")
         return data
 
     def validate_data(self, data: pd.DataFrame) -> bool:

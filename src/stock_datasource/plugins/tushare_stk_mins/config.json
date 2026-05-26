@@ -1,5 +1,7 @@
 {
   "plugin_name": "tushare_stk_mins",
+  "data_source": "tushare",
+  "available_data_sources": ["tushare", "qmt"],
   "display_name": "A股历史分钟行情",
   "description": "获取A股分钟级历史数据，支持1min/5min/15min/30min/60min多种频度，可提供超过10年历史数据",
   "api_name": "stk_mins",

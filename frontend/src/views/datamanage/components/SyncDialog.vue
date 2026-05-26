@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
-import { datamanageApi, type DataExistsCheckResult, type DependencyCheckResult } from '@/api/datamanage'
+import { datamanageApi, type DataExistsCheckResult, type DependencyCheckResult, type PluginDetail } from '@/api/datamanage'
 
 const props = defineProps<{
   visible: boolean
@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
-  (e: 'confirm', pluginName: string, taskType: 'incremental' | 'full' | 'backfill', dates: string[], forceOverwrite: boolean): void
+  (e: 'confirm', pluginName: string, taskType: 'incremental' | 'full' | 'backfill', dates: string[], forceOverwrite: boolean, dataSource?: string, tsCode?: string): void
 }>()
 
 const dialogVisible = computed({
@@ -24,6 +24,9 @@ const dateRange = ref<string[]>([])
 const checking = ref(false)
 const checkResult = ref<DataExistsCheckResult | null>(null)
 const showOverwriteConfirm = ref(false)
+const pluginDetail = ref<PluginDetail | null>(null)
+const selectedDataSource = ref<string | undefined>()
+const tsCode = ref<string>('')
 
 // Dependency check state
 const dependencyResult = ref<DependencyCheckResult | null>(null)
@@ -37,12 +40,21 @@ watch(() => props.visible, async (val) => {
     checkResult.value = null
     showOverwriteConfirm.value = false
     dependencyResult.value = null
+    pluginDetail.value = null
+    selectedDataSource.value = undefined
+    tsCode.value = ''
     
-    // Check dependencies when dialog opens
+    // Check dependencies and plugin configuration when dialog opens
     if (props.pluginName) {
       dependencyLoading.value = true
       try {
-        dependencyResult.value = await datamanageApi.getPluginDependencies(props.pluginName)
+        const [deps, detail] = await Promise.all([
+          datamanageApi.getPluginDependencies(props.pluginName),
+          datamanageApi.getPluginDetail(props.pluginName)
+        ])
+        dependencyResult.value = deps
+        pluginDetail.value = detail
+        selectedDataSource.value = detail.config.data_source || detail.config.available_data_sources?.[0]
       } catch (e) {
         console.error('Failed to check dependencies:', e)
       } finally {
@@ -97,6 +109,11 @@ const handleConfirm = async () => {
     MessagePlugin.error('依赖未满足，请先运行依赖插件')
     return
   }
+
+  if (requiresTsCode.value && !tsCode.value.trim()) {
+    MessagePlugin.warning('当前数据源需要填写股票代码 (ts_code)')
+    return
+  }
   
   if (taskType.value === 'backfill' && dateRange.value.length !== 2) {
     MessagePlugin.warning('请选择要补录的日期范围')
@@ -125,7 +142,7 @@ const handleOverwriteConfirm = (overwrite: boolean) => {
     // Only sync non-existing dates
     if (checkResult.value && checkResult.value.non_existing_dates.length > 0) {
       const dates = checkResult.value.non_existing_dates
-      emit('confirm', props.pluginName, taskType.value, dates, false)
+      emit('confirm', props.pluginName, taskType.value, dates, false, selectedDataSource.value, tsCode.value || undefined)
       dialogVisible.value = false
     } else {
       MessagePlugin.info('所有选择的日期都已有数据，无需同步')
@@ -141,7 +158,7 @@ const submitSync = (forceOverwrite: boolean) => {
     dates = generateDateList(dateRange.value[0], dateRange.value[1])
   }
   
-  emit('confirm', props.pluginName, taskType.value, dates, forceOverwrite)
+  emit('confirm', props.pluginName, taskType.value, dates, forceOverwrite, selectedDataSource.value, tsCode.value || undefined)
   dialogVisible.value = false
 }
 
@@ -159,6 +176,14 @@ const selectedDateCount = computed(() => {
   if (dateRange.value.length !== 2) return 0
   return generateDateList(dateRange.value[0], dateRange.value[1]).length
 })
+
+const availableDataSources = computed(() => pluginDetail.value?.config.available_data_sources || [])
+const showDataSourceSelector = computed(() => availableDataSources.value.length > 1)
+const dataSourceOptions = computed(() => availableDataSources.value.map(source => ({
+  label: source.toUpperCase(),
+  value: source
+})))
+const requiresTsCode = computed(() => selectedDataSource.value === 'qmt')
 </script>
 
 <template>
@@ -230,6 +255,22 @@ const selectedDateCount = computed(() => {
       <t-form label-align="left" :label-width="80">
         <t-form-item label="插件名称">
           <t-input :value="pluginName" disabled />
+        </t-form-item>
+
+        <t-form-item v-if="showDataSourceSelector" label="本次数据源">
+          <t-select v-model="selectedDataSource" :options="dataSourceOptions" />
+          <div class="date-hint">
+            <t-icon name="info-circle" />
+            <span>仅影响本次同步；默认数据源可在插件详情中配置</span>
+          </div>
+        </t-form-item>
+
+        <t-form-item v-if="requiresTsCode" label="股票代码">
+          <t-input v-model="tsCode" placeholder="例如 000001.SZ" />
+          <div class="date-hint">
+            <t-icon name="info-circle" />
+            <span>QMT 仅支持按 ts_code 拉取，请填写具体股票代码</span>
+          </div>
         </t-form-item>
         
         <t-form-item label="同步类型">

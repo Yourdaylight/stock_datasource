@@ -91,6 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "plugin_configs": {},  # plugin_name -> {"enabled": bool}
     },
     "plugin_schedules": {},  # plugin_name -> {"schedule_enabled": bool, "full_scan_enabled": bool}
+    "plugin_data_sources": {},  # plugin_name -> default data_source override
     "schedule_history": [],  # List of ScheduleExecutionRecord dicts
     "plugin_groups": [],  # List of PluginGroup dicts
 }
@@ -134,6 +135,7 @@ def save_runtime_config(
     weknora: dict[str, Any] | None = None,
     schedule: dict[str, Any] | None = None,
     plugin_schedules: dict[str, Any] | None = None,
+    plugin_data_sources: dict[str, Any] | None = None,
     schedule_history: list | None = None,
     realtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -150,6 +152,8 @@ def save_runtime_config(
             current["schedule"].update(schedule)
         if plugin_schedules is not None:
             current["plugin_schedules"].update(plugin_schedules)
+        if plugin_data_sources is not None:
+            current.setdefault("plugin_data_sources", {}).update(plugin_data_sources)
         if schedule_history is not None:
             current["schedule_history"] = schedule_history
         if realtime is not None:

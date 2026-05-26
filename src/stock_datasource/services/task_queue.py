@@ -105,6 +105,8 @@ class TaskQueue:
         user_id: str = None,
         timeout_seconds: int = None,
         username: str = None,
+        data_source: str | None = None,
+        ts_code: str | None = None,
     ) -> str | None:
         """Add a task to the queue.
 
@@ -142,6 +144,8 @@ class TaskQueue:
             "execution_id": execution_id or "",
             "user_id": user_id or "",
             "username": username or "",
+            "data_source": data_source or "",
+            "ts_code": ts_code or "",
             "priority": priority.value,
             "attempt": 0,
             "max_attempts": 3,

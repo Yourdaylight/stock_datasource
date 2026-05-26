@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from stock_datasource.core.base_plugin import PluginCategory, PluginRole
+from stock_datasource.data_sources.qmt import QmtHistoricalProvider
 from stock_datasource.plugins import BasePlugin
 
 from .extractor import extractor
@@ -64,7 +65,11 @@ class TuShareDailyPlugin(BasePlugin):
         return ["tushare_adj_factor"]
 
     def extract_data(self, **kwargs) -> pd.DataFrame:
-        """Extract daily data from TuShare."""
+        """Extract daily data from the configured historical data source."""
+        data_source = self._resolve_data_source(kwargs.get("data_source"))
+        if data_source == "qmt":
+            return self._extract_qmt_data(**kwargs)
+
         trade_date = kwargs.get("trade_date")
         if not trade_date:
             raise ValueError("trade_date is required")
@@ -84,6 +89,46 @@ class TuShareDailyPlugin(BasePlugin):
         data["_ingested_at"] = datetime.now()
 
         self.logger.info(f"Extracted {len(data)} daily records for {trade_date}")
+        return data
+
+    def _resolve_data_source(self, override: str | None = None) -> str:
+        config = self.get_config()
+        data_source = override or config.get("data_source", "tushare")
+        available = config.get("available_data_sources", ["tushare"])
+        if data_source not in available:
+            raise ValueError(
+                f"Unsupported data_source '{data_source}' for {self.name}. "
+                f"Available: {', '.join(available)}"
+            )
+        return data_source
+
+    def _extract_qmt_data(self, **kwargs) -> pd.DataFrame:
+        ts_code = kwargs.get("ts_code")
+        if not ts_code:
+            raise ValueError("ts_code is required when data_source=qmt")
+
+        trade_date = kwargs.get("trade_date")
+        start_date = kwargs.get("start_date") or trade_date
+        end_date = kwargs.get("end_date") or trade_date
+        count = kwargs.get("count")
+
+        self.logger.info(
+            f"Extracting daily data from QMT for {ts_code} ({start_date} - {end_date})"
+        )
+        data = QmtHistoricalProvider().get_daily_bars(
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+            count=count,
+        )
+
+        if data.empty:
+            self.logger.warning(f"No QMT daily data found for {ts_code}")
+            return pd.DataFrame()
+
+        data["version"] = int(datetime.now().timestamp())
+        data["_ingested_at"] = datetime.now()
+        self.logger.info(f"Extracted {len(data)} QMT daily records for {ts_code}")
         return data
 
     def validate_data(self, data: pd.DataFrame) -> bool:
