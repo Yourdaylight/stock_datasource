@@ -170,8 +170,10 @@ class MarketRegimeStrategy(BaseStrategy):
         avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
         avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
 
-        rs = avg_gain / avg_loss.replace(0, np.inf)
+        # 避免除零: avg_loss==0 表示全涨 → RSI=100
+        rs = avg_gain / avg_loss.replace(0, np.nan)
         rsi = 100 - (100 / (1 + rs))
+        rsi = rsi.fillna(100.0)
         return rsi
 
     def _calc_adx(self, df: pd.DataFrame, period: int) -> pd.Series:

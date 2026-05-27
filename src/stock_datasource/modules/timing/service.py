@@ -111,8 +111,9 @@ class TimingService:
             watchlist, start_date, today
         )
 
-        # 初始化个股择时策略（注入 regime）
-        stock_strategy = StockTimingStrategy(regime_state=regime)
+        # 获取当前持仓用于注入策略（使策略知道已有仓位，正确触发卖出信号）
+        positions = await self._paper_trading.get_positions(user_id, account_id)
+        held_positions = {p.ts_code: p.avg_cost for p in positions if p.quantity > 0}
 
         for ts_code in watchlist:
             if ts_code not in stock_data or stock_data[ts_code].empty:
@@ -120,6 +121,11 @@ class TimingService:
                 continue
 
             try:
+                # 每只股票单独实例化策略，注入 regime 和持仓状态
+                stock_strategy = StockTimingStrategy(
+                    regime_state=regime,
+                    held_positions=held_positions,
+                )
                 signals = stock_strategy.generate_signals(stock_data[ts_code])
 
                 # 只取最后一天的信号

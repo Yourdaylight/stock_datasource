@@ -121,7 +121,7 @@ async def pause_account(
     account = await service.get_account(user_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="账户不存在")
-    # TODO: update status
+    await service.update_account_status(user_id, account_id, "paused")
     return {"message": "账户已暂停", "account_id": account_id}
 
 
@@ -136,5 +136,5 @@ async def resume_account(
     account = await service.get_account(user_id, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="账户不存在")
-    # TODO: update status
+    await service.update_account_status(user_id, account_id, "active")
     return {"message": "账户已恢复", "account_id": account_id}

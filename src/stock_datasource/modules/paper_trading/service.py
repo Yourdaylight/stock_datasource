@@ -252,6 +252,28 @@ class PaperTradingService:
         return positions
 
     # ------------------------------------------------------------------
+    # 账户状态管理
+    # ------------------------------------------------------------------
+
+    async def update_account_status(
+        self, user_id: str, account_id: str, new_status: str
+    ) -> None:
+        """更新账户状态 (active/paused/closed)"""
+        sql = f"""
+            SELECT * FROM paper_trading_accounts FINAL
+            WHERE user_id = '{user_id}' AND account_id = '{account_id}'
+            LIMIT 1
+        """
+        existing = self._db.execute_query(sql)
+        if existing is not None and not existing.empty:
+            update_row = existing.iloc[0].to_dict()
+            update_row["status"] = new_status
+            update_row["updated_at"] = datetime.now()
+            self._db.insert_dataframe(
+                "paper_trading_accounts", pd.DataFrame([update_row])
+            )
+
+    # ------------------------------------------------------------------
     # 交易执行
     # ------------------------------------------------------------------
 
@@ -583,13 +605,69 @@ class PaperTradingService:
     # 每日快照
     # ------------------------------------------------------------------
 
+    async def mark_to_market(self, user_id: str, account_id: str) -> None:
+        """按最新收盘价更新所有持仓的 current_price 和 unrealized_pnl"""
+        positions = await self.get_positions(user_id, account_id)
+        if not positions:
+            return
+
+        ts_codes = [p.ts_code for p in positions]
+        codes_str = ", ".join(f"'{c}'" for c in ts_codes)
+
+        # 查询每只股票最新收盘价
+        sql = f"""
+            SELECT ts_code, close
+            FROM ods_daily
+            WHERE ts_code IN ({codes_str})
+            ORDER BY ts_code, trade_date DESC
+            LIMIT 1 BY ts_code
+        """
+        try:
+            price_df = self._db.execute_query(sql)
+        except Exception as e:
+            logger.warning(f"Mark-to-market query failed: {e}")
+            return
+
+        if price_df is None or price_df.empty:
+            return
+
+        latest_prices = dict(zip(price_df["ts_code"], price_df["close"].astype(float)))
+
+        # 更新每个持仓的 current_price
+        for pos in positions:
+            new_price = latest_prices.get(pos.ts_code)
+            if new_price is None or new_price <= 0:
+                continue
+
+            unrealized_pnl = (new_price - pos.avg_cost) * pos.quantity
+
+            pos_df = pd.DataFrame(
+                [
+                    {
+                        "user_id": user_id,
+                        "account_id": account_id,
+                        "ts_code": pos.ts_code,
+                        "quantity": pos.quantity,
+                        "avg_cost": pos.avg_cost,
+                        "current_price": new_price,
+                        "unrealized_pnl": unrealized_pnl,
+                        "first_buy_date": pos.first_buy_date,
+                        "last_update": datetime.now(),
+                    }
+                ]
+            )
+            self._db.insert_dataframe("paper_trading_positions", pos_df)
+
     async def take_daily_snapshot(
         self,
         user_id: str,
         account_id: str,
         regime: RegimeState | None = None,
     ) -> None:
-        """记录每日净值快照"""
+        """记录每日净值快照（先按市价更新持仓）"""
+        # 先刷新市价
+        await self.mark_to_market(user_id, account_id)
+
         account = await self.get_account(user_id, account_id)
         if not account:
             return
@@ -720,19 +798,33 @@ class PaperTradingService:
                     float(np.mean(returns) / np.std(returns) * np.sqrt(252)), 2
                 )
 
-        # 胜率统计
+        # 胜率统计 (FIFO 配对：每只股票按时间顺序配对买卖)
         if trades:
-            buy_trades = [t for t in trades if t.direction == "buy"]
-            sell_trades = [t for t in trades if t.direction == "sell"]
-            # 简化：每对买卖计算盈亏
-            wins = sum(
-                1 for s in sell_trades for b in buy_trades
-                if s.ts_code == b.ts_code and s.price > float(b.price)
-            )
-            total_pairs = min(len(buy_trades), len(sell_trades))
+            from collections import defaultdict
+
+            # 按股票分组，按时间排序
+            buy_queue: dict[str, list[float]] = defaultdict(list)
+            wins = 0
+            losses = 0
+
+            # trades 已按 trade_date DESC 排列，需要反转为 ASC
+            sorted_trades = sorted(trades, key=lambda t: t.trade_date)
+            for t in sorted_trades:
+                if t.direction == "buy":
+                    buy_queue[t.ts_code].append(float(t.price))
+                elif t.direction == "sell" and buy_queue[t.ts_code]:
+                    # FIFO: 匹配最早的买入
+                    buy_price = buy_queue[t.ts_code].pop(0)
+                    if t.price > buy_price:
+                        wins += 1
+                    else:
+                        losses += 1
+
+            total_pairs = wins + losses
             if total_pairs > 0:
                 metrics.win_rate = round(wins / total_pairs * 100, 1)
                 metrics.winning_trades = wins
-                metrics.losing_trades = total_pairs - wins
+                metrics.losing_trades = losses
+            metrics.total_trades = total_pairs
 
         return metrics

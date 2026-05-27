@@ -35,9 +35,19 @@ class StockTimingStrategy(BaseStrategy):
     """
 
     def __init__(
-        self, params: dict[str, Any] = None, regime_state: RegimeState | None = None
+        self,
+        params: dict[str, Any] = None,
+        regime_state: RegimeState | None = None,
+        held_positions: dict[str, float] | None = None,
     ):
+        """
+        Args:
+            params: 策略参数
+            regime_state: 当前市场状态
+            held_positions: 已有持仓 {ts_code: avg_cost}，用于止损/止盈判断
+        """
         self.regime_state = regime_state
+        self.held_positions = held_positions or {}
         super().__init__(params)
 
     def _create_metadata(self) -> StrategyMetadata:
@@ -174,8 +184,11 @@ class StockTimingStrategy(BaseStrategy):
         loss = (-delta).where(delta < 0, 0.0)
         avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
         avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
-        rs = avg_gain / avg_loss.replace(0, np.inf)
-        return 100 - (100 / (1 + rs))
+        # 避免除零: avg_loss==0 表示全涨 → RSI=100
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        rsi = rsi.fillna(100.0)
+        return rsi
 
     def _calc_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
         """计算 ATR"""
@@ -230,9 +243,9 @@ class StockTimingStrategy(BaseStrategy):
             self.regime_state.position_level if self.regime_state else 0.6
         )
 
-        # 追踪持仓状态（用于止损止盈）
-        in_position = False
-        entry_price = 0.0
+        # 从已有持仓初始化（解决 pipeline 每日重建策略丢失状态的问题）
+        in_position = symbol in self.held_positions
+        entry_price = self.held_positions.get(symbol, 0.0)
 
         for idx in range(len(df)):
             row = df.iloc[idx]
