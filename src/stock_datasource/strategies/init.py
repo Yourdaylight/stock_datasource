@@ -8,7 +8,9 @@ from .builtin.dual_ma_strategy import DualMAStrategy
 from .builtin.kdj_strategy import KDJStrategy
 from .builtin.ma_strategy import MAStrategy
 from .builtin.macd_strategy import MACDStrategy
+from .builtin.market_regime_strategy import MarketRegimeStrategy
 from .builtin.rsi_strategy import RSIStrategy
+from .builtin.stock_timing_strategy import StockTimingStrategy
 from .builtin.turtle_strategy import TurtleStrategy
 from .builtin.zscore_ma_stationary_strategy import ZScoreMAStationaryStrategy
 from .registry import StrategyRegistry
@@ -29,6 +31,8 @@ def initialize_builtin_strategies():
         ("turtle_strategy", TurtleStrategy),
         ("zscore_ma_stationary_strategy", ZScoreMAStationaryStrategy),
         ("adaptive_breakout_follow_strategy", AdaptiveBreakoutFollowStrategy),
+        ("market_regime", MarketRegimeStrategy),
+        ("stock_timing", StockTimingStrategy),
     ]
 
     for name, strategy_class in strategies:
