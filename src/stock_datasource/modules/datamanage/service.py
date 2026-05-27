@@ -5,7 +5,7 @@ from collections import deque
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from stock_datasource.config.runtime_config import save_runtime_config
+from stock_datasource.config.runtime_config import load_runtime_config, save_runtime_config
 from stock_datasource.config.settings import settings
 from stock_datasource.core.plugin_manager import plugin_manager
 from stock_datasource.core.trade_calendar import trade_calendar_service
@@ -41,6 +41,37 @@ class DataManageService:
         self._cache_time: datetime | None = None
         self._cache_days: int | None = None  # Track cached days range
         self._cache_ttl = 86400  # 24 hour cache (one day)
+
+    def _get_plugin_data_source_config(
+        self, plugin_name: str, config_data: dict[str, Any]
+    ) -> tuple[str | None, list[str]]:
+        available = config_data.get("available_data_sources", [])
+        default_source = config_data.get("data_source")
+        runtime_sources = load_runtime_config().get("plugin_data_sources", {})
+        data_source = runtime_sources.get(plugin_name, default_source)
+        return data_source, available
+
+    def update_plugin_data_source(self, plugin_name: str, data_source: str) -> PluginDetail:
+        plugin = plugin_manager.get_plugin(plugin_name)
+        if not plugin:
+            raise ValueError(f"Plugin {plugin_name} not found")
+
+        config_data = plugin.get_config()
+        _, available = self._get_plugin_data_source_config(plugin_name, config_data)
+        if data_source not in available:
+            raise ValueError(
+                f"Unsupported data_source '{data_source}' for {plugin_name}. "
+                f"Available: {', '.join(available)}"
+            )
+
+        current = load_runtime_config().get("plugin_data_sources", {})
+        current[plugin_name] = data_source
+        save_runtime_config(plugin_data_sources=current)
+
+        detail = self.get_plugin_detail(plugin_name)
+        if detail is None:
+            raise ValueError(f"Plugin {plugin_name} not found")
+        return detail
 
     def get_trading_days(self, days: int = 30, exchange: str = "SSE") -> list[str]:
         """Get recent trading days from TradeCalendarService.
@@ -496,6 +527,10 @@ class DataManageService:
                 schedule = plugin.get_schedule()
                 frequency = schedule.get("frequency", "daily")
                 time = schedule.get("time", "18:00")
+                config_data = plugin.get_config()
+                data_source, available_data_sources = self._get_plugin_data_source_config(
+                    plugin_name, config_data
+                )
 
                 schema = plugin.get_schema()
                 table_name = schema.get("table_name", f"ods_{plugin_name}")
@@ -516,6 +551,8 @@ class DataManageService:
                         "date_column": date_column,
                         "category": category,
                         "role": role,
+                        "data_source": data_source,
+                        "available_data_sources": available_data_sources,
                         "dependencies": dependencies,
                         "optional_dependencies": optional_dependencies,
                     }
@@ -577,6 +614,8 @@ class DataManageService:
                     missing_count=missing_count,
                     last_run_at=None,
                     last_run_status=None,
+                    data_source=meta["data_source"],
+                    available_data_sources=meta["available_data_sources"],
                     dependencies=meta["dependencies"],
                     optional_dependencies=meta["optional_dependencies"],
                 )
@@ -604,6 +643,9 @@ class DataManageService:
 
         # Get config
         config_data = plugin.get_config()
+        data_source, available_data_sources = self._get_plugin_data_source_config(
+            plugin_name, config_data
+        )
         schedule_data = config_data.get("schedule", {})
 
         schedule = PluginSchedule(
@@ -619,6 +661,8 @@ class DataManageService:
             retry_attempts=config_data.get("retry_attempts", 3),
             description=config_data.get("description", plugin.description),
             schedule=schedule,
+            data_source=data_source,
+            available_data_sources=available_data_sources,
             parameters_schema=config_data.get("parameters_schema", {}),
         )
 
@@ -1616,6 +1660,8 @@ class SyncTaskManager:
         username: str | None = None,
         use_queue: bool = True,
         execution_id: str | None = None,
+        data_source: str | None = None,
+        ts_code: str | None = None,
     ) -> SyncTask:
         """Create a new sync task.
 
@@ -1663,6 +1709,8 @@ class SyncTaskManager:
                 user_id=user_id,
                 timeout_seconds=timeout_seconds,
                 username=username,
+                data_source=data_source,
+                ts_code=ts_code,
             )
         except RedisUnavailableError as e:
             raise ValueError(f"Redis unavailable: {e}")
@@ -1679,6 +1727,7 @@ class SyncTaskManager:
             progress=0,
             records_processed=0,
             trade_dates=trade_dates or [],
+            data_source=data_source,
             created_at=datetime.now(),
             user_id=user_id,
             username=username,
@@ -1812,6 +1861,7 @@ class SyncTaskManager:
             progress=float(task_data.get("progress", 0)),
             records_processed=int(task_data.get("records_processed", 0)),
             trade_dates=task_data.get("trade_dates", []) or [],
+            data_source=str(task_data.get("data_source", "")) or None,
             created_at=_parse_dt(str(task_data.get("created_at", "")))
             or datetime.now(),
             started_at=_parse_dt(str(task_data.get("started_at", ""))),

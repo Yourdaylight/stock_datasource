@@ -62,6 +62,8 @@ class TriggerSyncRequest(BaseModel):
     trade_dates: list[str] | None = None  # For backfill
     force_overwrite: bool = False  # Whether to overwrite existing data
     include_optional: bool = True  # Whether to include optional dependencies
+    data_source: str | None = None  # Optional per-sync provider override
+    ts_code: str | None = None  # Required for per-symbol providers (e.g., QMT)
     # Parallelism settings (optional, use global settings if not provided)
     max_concurrent_tasks: int | None = Field(
         None, ge=1, le=10, description="Max parallel tasks (1-10)"
@@ -83,6 +85,12 @@ class CheckDataExistsRequest(BaseModel):
     dates: list[str] = Field(
         ..., min_length=1, description="List of dates to check (YYYY-MM-DD format)"
     )
+
+
+class UpdatePluginDataSourceRequest(BaseModel):
+    """Request model for updating a plugin's default data source."""
+
+    data_source: str
 
 
 class SyncConfigRequest(BaseModel):
@@ -130,6 +138,7 @@ class SyncTask(BaseModel):
     total_records: int = 0
     error_message: str | None = None
     trade_dates: list[str] = []
+    data_source: str | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -187,6 +196,8 @@ class PluginConfig(BaseModel):
     retry_attempts: int = 3
     description: str | None = None
     schedule: PluginSchedule | None = None
+    data_source: str | None = None
+    available_data_sources: list[str] = []
     parameters_schema: dict[str, Any] = {}
 
 
@@ -206,6 +217,8 @@ class PluginInfo(BaseModel):
     missing_count: int = 0
     last_run_at: str | None = None
     last_run_status: str | None = None
+    data_source: str | None = None
+    available_data_sources: list[str] = []
     dependencies: list[str] = []
     optional_dependencies: list[str] = []
 

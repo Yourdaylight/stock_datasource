@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
+import { datamanageApi } from '@/api/datamanage'
 import { useDataManageStore } from '@/stores/datamanage'
 import type { DependencyCheckResult } from '@/api/datamanage'
 
@@ -15,6 +17,8 @@ const emit = defineEmits<{
 const dataStore = useDataManageStore()
 const activeTab = ref('info')
 const dependencies = ref<DependencyCheckResult | null>(null)
+const selectedDataSource = ref<string | undefined>()
+const savingDataSource = ref(false)
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -30,6 +34,29 @@ watch(() => props.visible, async (val) => {
 })
 
 const detail = computed(() => dataStore.currentPluginDetail)
+const availableDataSources = computed(() => detail.value?.config.available_data_sources || [])
+const showDataSourceConfig = computed(() => availableDataSources.value.length > 1)
+const dataSourceOptions = computed(() => availableDataSources.value.map(source => ({
+  label: source.toUpperCase(),
+  value: source
+})))
+
+watch(detail, (value) => {
+  selectedDataSource.value = value?.config.data_source || value?.config.available_data_sources?.[0]
+})
+
+const handleSaveDataSource = async () => {
+  if (!props.pluginName || !selectedDataSource.value) return
+  savingDataSource.value = true
+  try {
+    dataStore.currentPluginDetail = await datamanageApi.updatePluginDataSource(props.pluginName, selectedDataSource.value)
+    MessagePlugin.success('默认数据源已更新')
+  } catch (e) {
+    MessagePlugin.error('更新默认数据源失败')
+  } finally {
+    savingDataSource.value = false
+  }
+}
 
 const frequencyText = computed(() => {
   if (!detail.value?.config.schedule) return '-'
@@ -78,6 +105,14 @@ const schemaColumns = [
               <t-descriptions-item label="速率限制">{{ detail.config.rate_limit }} 次/分钟</t-descriptions-item>
               <t-descriptions-item label="超时时间">{{ detail.config.timeout }} 秒</t-descriptions-item>
               <t-descriptions-item label="重试次数">{{ detail.config.retry_attempts }} 次</t-descriptions-item>
+              <t-descriptions-item v-if="showDataSourceConfig" label="默认数据源" :span="2">
+                <t-space>
+                  <t-select v-model="selectedDataSource" :options="dataSourceOptions" style="width: 180px" />
+                  <t-button theme="primary" size="small" :loading="savingDataSource" @click="handleSaveDataSource">
+                    保存
+                  </t-button>
+                </t-space>
+              </t-descriptions-item>
             </t-descriptions>
           </t-tab-panel>
 

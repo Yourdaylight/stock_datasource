@@ -36,6 +36,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { trackClick } = useMenuTracking()
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/market', '/research']
@@ -290,6 +291,9 @@ onMounted(async () => {
           </t-menu-item>
         </template>
       </t-menu>
+      <div class="sidebar-footer">
+        <span class="version-badge">v{{ appVersion }}</span>
+      </div>
     </aside>
     
     <main class="main-content">
@@ -347,5 +351,17 @@ onMounted(async () => {
   font-size: 12px;
   color: #86909c;
   margin-left: 8px;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #e7e7e7;
+  margin-top: auto;
+}
+
+.version-badge {
+  font-size: 11px;
+  color: #bbb;
+  font-family: monospace;
 }
 </style>

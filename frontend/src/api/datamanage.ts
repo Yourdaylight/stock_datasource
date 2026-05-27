@@ -64,6 +64,8 @@ export interface PluginInfo {
   missing_count: number
   last_run_at?: string
   last_run_status?: string
+  data_source?: string
+  available_data_sources: string[]
   dependencies: string[]
   optional_dependencies: string[]
 }
@@ -100,6 +102,8 @@ export interface PluginConfig {
   retry_attempts: number
   description?: string
   schedule?: PluginSchedule
+  data_source?: string
+  available_data_sources: string[]
   parameters_schema: Record<string, any>
 }
 
@@ -158,6 +162,8 @@ export interface TriggerSyncRequest {
   task_type: 'full' | 'incremental' | 'backfill'
   trade_dates?: string[]
   force_overwrite?: boolean
+  data_source?: string
+  ts_code?: string
 }
 
 export interface DataExistsCheckResult {
@@ -794,6 +800,10 @@ export const datamanageApi = {
 
   getPluginDetail(name: string): Promise<PluginDetail> {
     return request.get(`/api/datamanage/plugins/${name}/detail`)
+  },
+
+  updatePluginDataSource(name: string, dataSource: string): Promise<PluginDetail> {
+    return request.put(`/api/datamanage/plugins/${name}/data-source`, { data_source: dataSource })
   },
 
   getPluginStatus(name: string): Promise<PluginStatus> {

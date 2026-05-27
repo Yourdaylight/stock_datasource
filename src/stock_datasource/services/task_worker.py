@@ -180,6 +180,8 @@ def _run_plugin_in_subprocess(
         task_type = task_data.get("task_type")
         trade_dates = task_data.get("trade_dates", [])
         task_id = task_data.get("task_id")
+        data_source = task_data.get("data_source") or None
+        ts_code = task_data.get("ts_code") or None
 
         plugin_manager.discover_plugins()
         plugin = plugin_manager.get_plugin(plugin_name)
@@ -189,13 +191,20 @@ def _run_plugin_in_subprocess(
             )
             return
 
+        def run_plugin(**kwargs):
+            if data_source:
+                kwargs["data_source"] = data_source
+            if ts_code:
+                kwargs.setdefault("ts_code", ts_code)
+            return plugin.run(**kwargs)
+
         with proxy_context():
             if task_type == "backfill" and trade_dates:
                 # run per date to provide partial progress in parent process only
                 total_records = 0
                 for date in trade_dates:
                     date_for_api = date.replace("-", "") if "-" in date else date
-                    result = plugin.run(trade_date=date_for_api)
+                    result = run_plugin(trade_date=date_for_api)
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -242,7 +251,7 @@ def _run_plugin_in_subprocess(
                         "%Y%m%d"
                     )
                     logger.info(f"[full] {plugin_name}: date_range {start_dt}~{end_dt}")
-                    result = plugin.run(start_date=start_dt, end_date=end_dt)
+                    result = run_plugin(start_date=start_dt, end_date=end_dt)
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -259,7 +268,7 @@ def _run_plugin_in_subprocess(
                     logger.info(
                         f"[full] {plugin_name}: hk_daily batch {start_dt}~{end_dt}"
                     )
-                    result = plugin.run(start_date=start_dt, end_date=end_dt)
+                    result = run_plugin(start_date=start_dt, end_date=end_dt)
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -278,7 +287,7 @@ def _run_plugin_in_subprocess(
                     logger.info(
                         f"[full] {plugin_name}: month_range {start_month}~{end_month}"
                     )
-                    result = plugin.run(start_month=start_month, end_month=end_month)
+                    result = run_plugin(start_month=start_month, end_month=end_month)
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -300,7 +309,7 @@ def _run_plugin_in_subprocess(
                     return
                 elif param_style == "no_params":
                     logger.info(f"[full] {plugin_name}: no-params mode")
-                    result = plugin.run()
+                    result = run_plugin()
                     if result.get("status") != "success":
                         err = result.get("error", "插件执行失败")
                         detail = result.get("error_detail", "")
@@ -334,7 +343,7 @@ def _run_plugin_in_subprocess(
                     failed_dates = 0
                     for dt_str in dates:
                         try:
-                            result = plugin.run(trade_date=dt_str)
+                            result = run_plugin(trade_date=dt_str)
                             if result.get("status") == "success":
                                 total_records += int(
                                     result.get("steps", {})
@@ -415,7 +424,7 @@ def _run_plugin_in_subprocess(
             else:
                 run_kwargs = {"trade_date": target_date}
 
-            result = plugin.run(**run_kwargs)
+            result = run_plugin(**run_kwargs)
             if result.get("status") != "success":
                 err = result.get("error", "插件执行失败")
                 detail = result.get("error_detail", "")

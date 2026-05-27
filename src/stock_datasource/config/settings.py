@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     TUSHARE_RATE_LIMIT: int = Field(default=120)  # calls per minute
     TUSHARE_MAX_RETRIES: int = Field(default=3)
 
+    # QMT gateway settings
+    QMT_ENABLED: bool = Field(default=False)
+    QMT_GATEWAY_URL: str = Field(default="http://localhost:58610")
+    QMT_GATEWAY_TIMEOUT: int = Field(default=10)
+    QMT_GATEWAY_TOKEN: str = Field(default="")
+    QMT_HISTORY_DEFAULT_PERIOD: str = Field(default="1d")
+    QMT_REALTIME_ENABLED: bool = Field(default=False)
+    QMT_REALTIME_MARKETS: str = Field(default="a_stock,etf,index")
+
     # HTTP Proxy settings
     HTTP_PROXY_ENABLED: bool = Field(default=False)
     HTTP_PROXY_HOST: str = Field(default="")

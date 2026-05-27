@@ -1,5 +1,7 @@
 {
   "enabled": true,
+  "data_source": "tushare",
+  "available_data_sources": ["tushare", "qmt"],
   "rate_limit": 120,
   "timeout": 30,
   "retry_attempts": 3,

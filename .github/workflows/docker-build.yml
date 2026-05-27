@@ -1,14 +1,12 @@
-name: Docker Build & Push
+name: Docker Build (Manual)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag suffix (e.g. v1.0.0, latest)"
+        description: "Image tag suffix (e.g. hotfix-1, emergency)"
         required: true
-        default: "latest"
+        default: "manual"
 
 concurrency:
   group: docker-${{ github.ref }}

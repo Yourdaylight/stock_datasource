@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 jobs:
-  # ── 计算版本号 ──────────────────────────────────────────────
+  # ── 计算版本号 + 生成 Release ────────────────────────────────
   semantic-release:
     name: Semantic Release
     runs-on: ubuntu-latest
@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install semantic-release exec plugin
+        run: npm install -g @semantic-release/exec
+
       - name: Semantic Release
         id: release
         uses: cycjimmy/semantic-release-action@v4
@@ -38,6 +41,7 @@ jobs:
           semantic_version: 22
           extra_plugins: |
             conventional-changelog-conventionalcommits@7
+            @semantic-release/exec
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,6 +53,8 @@ jobs:
     if: needs.semantic-release.outputs.new_release == 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main  # Get the latest after semantic-release commit
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -67,7 +73,6 @@ jobs:
           tags: |
             type=raw,value=backend-latest
             type=raw,value=backend-${{ needs.semantic-release.outputs.new_version }}
-            type=sha,prefix=backend-
 
       - name: Build and push backend
         uses: docker/build-push-action@v6
@@ -80,6 +85,8 @@ jobs:
           labels: ${{ steps.meta-backend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ needs.semantic-release.outputs.new_version }}
 
       - name: Docker metadata for frontend
         id: meta-frontend
@@ -89,7 +96,6 @@ jobs:
           tags: |
             type=raw,value=frontend-latest
             type=raw,value=frontend-${{ needs.semantic-release.outputs.new_version }}
-            type=sha,prefix=frontend-
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -102,24 +108,14 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ needs.semantic-release.outputs.new_version }}
 
-  # ── 更新 pyproject.toml 版本号 ──────────────────────────────
-  bump-version:
-    name: Bump Version in pyproject.toml
-    runs-on: ubuntu-latest
-    needs: semantic-release
-    if: needs.semantic-release.outputs.new_release == 'true'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update version
+      - name: Summary
         run: |
-          VERSION="${{ needs.semantic-release.outputs.new_version }}"
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
-          git diff --cached --quiet || git commit -m "chore: bump version to ${VERSION}"
-          git push
+          echo "### 🚀 Release v${{ needs.semantic-release.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | \`backend-${{ needs.semantic-release.outputs.new_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | \`frontend-${{ needs.semantic-release.outputs.new_version }}\` |" >> $GITHUB_STEP_SUMMARY
