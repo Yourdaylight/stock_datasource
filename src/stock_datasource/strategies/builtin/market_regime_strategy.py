@@ -162,7 +162,14 @@ class MarketRegimeStrategy(BaseStrategy):
         return df
 
     def _calc_rsi(self, prices: pd.Series, period: int) -> pd.Series:
-        """计算 RSI"""
+        """计算 RSI
+
+        边界处理:
+        - warmup期(不足period天): NaN (数据不足)
+        - avg_loss==0 且 avg_gain>0: RSI=100 (全涨)
+        - avg_gain==0 且 avg_loss>0: RSI=0 (全跌)
+        - 两者都为0: NaN
+        """
         delta = prices.diff()
         gain = delta.where(delta > 0, 0.0)
         loss = (-delta).where(delta < 0, 0.0)
@@ -170,10 +177,11 @@ class MarketRegimeStrategy(BaseStrategy):
         avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
         avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
 
-        # 避免除零: avg_loss==0 表示全涨 → RSI=100
-        rs = avg_gain / avg_loss.replace(0, np.nan)
+        # pandas: positive/0 → inf, 0/0 → NaN, NaN/NaN → NaN
+        # inf → rsi=100 (全涨), NaN → rsi=NaN (无数据), 0 → rsi=0 (全跌)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
-        rsi = rsi.fillna(100.0)
         return rsi
 
     def _calc_adx(self, df: pd.DataFrame, period: int) -> pd.Series:
