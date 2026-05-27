@@ -30,54 +30,163 @@ logger = logging.getLogger(__name__)
 
 
 class DataService:
-    """数据服务接口（简化版本）"""
+    """数据服务 - 从 ClickHouse 读取真实历史行情"""
+
+    # 上交所指数代码后缀
+    _INDEX_SUFFIXES = {".SH"}
+    # 已知指数代码前缀（兼容不规范传入）
+    _INDEX_PREFIXES = {"000001.SH", "000300.SH", "000905.SH", "399001.SZ", "399006.SZ"}
+
+    def __init__(self):
+        from ..models.database import db_client
+
+        self._db = db_client
+
+    def _is_index(self, symbol: str) -> bool:
+        """判断代码是否为指数"""
+        # 显式指数列表
+        if symbol in self._INDEX_PREFIXES:
+            return True
+        # 上证综指、沪深300 等以 .SH 结尾的纯数字6位（000xxx/399xxx 开头为指数）
+        code = symbol.split(".")[0] if "." in symbol else symbol
+        if code.startswith(("000", "399")) and symbol.endswith(".SH"):
+            return True
+        if code.startswith("399") and symbol.endswith(".SZ"):
+            return True
+        return False
 
     async def get_historical_data(
         self, symbols: list[str], start_date: date, end_date: date
     ) -> dict[str, pd.DataFrame]:
         """
-        获取历史数据
+        从 ClickHouse 获取历史行情数据
 
         Args:
-            symbols: 股票代码列表
+            symbols: 股票/指数代码列表 (如 ["000001.SZ", "000300.SH"])
             start_date: 开始日期
             end_date: 结束日期
 
         Returns:
-            股票历史数据字典
+            {symbol: DataFrame} 其中 DataFrame 包含:
+            timestamp, open, high, low, close, volume, symbol
         """
-        # 这里应该连接到实际的数据源
-        # 暂时返回模拟数据
         data = {}
+        start_str = start_date.strftime("%Y-%m-%d") if isinstance(start_date, date) else str(start_date)
+        end_str = end_date.strftime("%Y-%m-%d") if isinstance(end_date, date) else str(end_date)
 
-        for symbol in symbols:
-            # 生成模拟数据
-            date_range = pd.date_range(start=start_date, end=end_date, freq="D")
+        # 按类型分组查询以减少 SQL 次数
+        index_symbols = [s for s in symbols if self._is_index(s)]
+        stock_symbols = [s for s in symbols if not self._is_index(s)]
 
-            # 模拟价格走势
-            np.random.seed(hash(symbol) % 2**32)  # 确保每个股票的数据一致
-            returns = np.random.normal(0.001, 0.02, len(date_range))
+        # 查询个股
+        if stock_symbols:
+            stock_data = self._query_stocks(stock_symbols, start_str, end_str)
+            data.update(stock_data)
 
-            prices = [100.0]  # 起始价格
-            for ret in returns[1:]:
-                prices.append(prices[-1] * (1 + ret))
+        # 查询指数
+        if index_symbols:
+            index_data = self._query_indices(index_symbols, start_str, end_str)
+            data.update(index_data)
 
-            df = pd.DataFrame(
-                {
-                    "timestamp": date_range,
-                    "open": prices,
-                    "high": [p * (1 + abs(np.random.normal(0, 0.01))) for p in prices],
-                    "low": [p * (1 - abs(np.random.normal(0, 0.01))) for p in prices],
-                    "close": prices,
-                    "volume": np.random.randint(100000, 1000000, len(date_range)),
-                    "symbol": symbol,
-                }
-            )
-
-            data[symbol] = df
-
-        logger.info(f"Retrieved historical data for {len(symbols)} symbols")
+        logger.info(
+            f"Retrieved historical data for {len(data)}/{len(symbols)} symbols "
+            f"({start_str} ~ {end_str})"
+        )
         return data
+
+    async def get_index_data(
+        self, index_code: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """
+        获取指数数据（供 MarketRegimeStrategy 等直接调用）
+
+        Returns:
+            DataFrame with: timestamp, open, high, low, close, volume, symbol
+        """
+        start_str = start_date.strftime("%Y-%m-%d") if isinstance(start_date, date) else str(start_date)
+        end_str = end_date.strftime("%Y-%m-%d") if isinstance(end_date, date) else str(end_date)
+        result = self._query_indices([index_code], start_str, end_str)
+        return result.get(index_code, pd.DataFrame())
+
+    def _query_stocks(
+        self, symbols: list[str], start_str: str, end_str: str
+    ) -> dict[str, pd.DataFrame]:
+        """从 ods_daily 查询个股数据"""
+        symbols_str = ", ".join(f"'{s}'" for s in symbols)
+        sql = f"""
+            SELECT
+                ts_code,
+                trade_date,
+                open,
+                high,
+                low,
+                close,
+                vol AS volume
+            FROM ods_daily
+            WHERE ts_code IN ({symbols_str})
+              AND trade_date >= '{start_str}'
+              AND trade_date <= '{end_str}'
+            ORDER BY ts_code, trade_date ASC
+        """
+        return self._execute_and_split(sql, symbols)
+
+    def _query_indices(
+        self, symbols: list[str], start_str: str, end_str: str
+    ) -> dict[str, pd.DataFrame]:
+        """从 ods_index_daily 查询指数数据"""
+        symbols_str = ", ".join(f"'{s}'" for s in symbols)
+        sql = f"""
+            SELECT
+                ts_code,
+                trade_date,
+                open,
+                high,
+                low,
+                close,
+                vol AS volume
+            FROM ods_index_daily
+            WHERE ts_code IN ({symbols_str})
+              AND trade_date >= '{start_str}'
+              AND trade_date <= '{end_str}'
+            ORDER BY ts_code, trade_date ASC
+        """
+        return self._execute_and_split(sql, symbols)
+
+    def _execute_and_split(
+        self, sql: str, symbols: list[str]
+    ) -> dict[str, pd.DataFrame]:
+        """执行查询并按 symbol 分组返回标准格式"""
+        try:
+            df = self._db.execute_query(sql)
+        except Exception as e:
+            logger.error(f"ClickHouse query failed: {e}")
+            return {}
+
+        if df is None or df.empty:
+            logger.warning(f"No data returned for symbols: {symbols}")
+            return {}
+
+        result = {}
+        for symbol in symbols:
+            symbol_df = df[df["ts_code"] == symbol].copy()
+            if symbol_df.empty:
+                logger.warning(f"No data for symbol: {symbol}")
+                continue
+
+            # 标准化列名
+            symbol_df["timestamp"] = pd.to_datetime(symbol_df["trade_date"])
+            symbol_df["symbol"] = symbol
+            symbol_df = symbol_df[
+                ["timestamp", "open", "high", "low", "close", "volume", "symbol"]
+            ].reset_index(drop=True)
+
+            # 确保数值类型
+            for col in ["open", "high", "low", "close", "volume"]:
+                symbol_df[col] = pd.to_numeric(symbol_df[col], errors="coerce")
+
+            result[symbol] = symbol_df
+
+        return result
 
 
 class IntelligentBacktestEngine:

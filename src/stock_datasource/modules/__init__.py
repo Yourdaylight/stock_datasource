@@ -203,4 +203,18 @@ def get_all_routers() -> list:
     except ImportError:
         pass
 
+    try:
+        from .paper_trading.router import router as paper_trading_router
+
+        routers.append(("/paper-trading", paper_trading_router, ["模拟盘"]))
+    except ImportError:
+        pass
+
+    try:
+        from .timing.router import router as timing_router
+
+        routers.append(("/timing", timing_router, ["择时系统"]))
+    except ImportError:
+        pass
+
     return routers
