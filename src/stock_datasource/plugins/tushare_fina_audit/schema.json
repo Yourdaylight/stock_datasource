@@ -3,7 +3,7 @@
   "table_type": "ods",
   "columns": [
     {"name": "ts_code", "data_type": "LowCardinality(String)", "nullable": false, "comment": "TS股票代码"},
-    {"name": "ann_date", "data_type": "Nullable(Date)", "nullable": true, "comment": "公告日期"},
+    {"name": "ann_date", "data_type": "Date", "nullable": false, "default": "end_date", "comment": "公告日期"},
     {"name": "end_date", "data_type": "Date", "nullable": false, "comment": "报告期"},
     {"name": "audit_result", "data_type": "Nullable(String)", "nullable": true, "comment": "审计结果"},
     {"name": "audit_fees", "data_type": "Nullable(Float64)", "nullable": true, "comment": "审计费用(元)"},

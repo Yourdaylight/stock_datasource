@@ -30,7 +30,6 @@
     {"name": "oth_rcv_act_inc", "data_type": "Nullable(Float64)", "nullable": true, "comment": "收到其他与筹资活动有关的现金"},
     {"name": "repay_debt_inc", "data_type": "Nullable(Float64)", "nullable": true, "comment": "偿还债务支付的现金"},
     {"name": "assign_div_prof_int_cash", "data_type": "Nullable(Float64)", "nullable": true, "comment": "分配股利、利润或偿付利息支付的现金"},
-    {"name": "oth_pay_act_inc", "data_type": "Nullable(Float64)", "nullable": true, "comment": "支付其他与筹资活动有关的现金"},
     {"name": "net_cash_flow", "data_type": "Nullable(Float64)", "nullable": true, "comment": "现金及现金等价物净增加额"},
     {"name": "version", "data_type": "UInt32", "nullable": false, "default": "toUInt32(toUnixTimestamp(now()))", "comment": "版本号用于幂等"},
     {"name": "_ingested_at", "data_type": "DateTime", "nullable": false, "default": "now()", "comment": "数据入库时间"}

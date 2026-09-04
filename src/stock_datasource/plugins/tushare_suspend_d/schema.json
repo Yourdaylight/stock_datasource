@@ -2,10 +2,10 @@
   "table_name": "ods_suspend_d",
   "database": "stock_datasource",
   "columns": [
-    {"name": "ts_code", "type": "String", "comment": "股票代码"},
-    {"name": "trade_date", "type": "String", "comment": "停复牌日期"},
-    {"name": "suspend_timing", "type": "Nullable(String)", "comment": "日内停牌时间段"},
-    {"name": "suspend_type", "type": "String", "comment": "停复牌类型：S-停牌，R-复牌"}
+    {"name": "ts_code", "data_type": "String", "comment": "股票代码"},
+    {"name": "trade_date", "data_type": "String", "comment": "停复牌日期"},
+    {"name": "suspend_timing", "data_type": "Nullable(String)", "comment": "日内停牌时间段"},
+    {"name": "suspend_type", "data_type": "String", "comment": "停复牌类型：S-停牌，R-复牌"}
   ],
   "engine": "ReplacingMergeTree()",
   "partition_by": "substring(trade_date, 1, 6)",

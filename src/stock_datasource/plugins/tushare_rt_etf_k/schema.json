@@ -5,18 +5,18 @@
   "order_by": ["trade_date", "ts_code"],
   "comment": "ETF实时日线快照 from TuShare rt_etf_k API",
   "columns": [
-    {"name": "trade_date", "type": "Date", "comment": "交易日期"},
-    {"name": "ts_code", "type": "LowCardinality(String)", "comment": "证券代码"},
-    {"name": "name", "type": "String", "comment": "证券名称"},
-    {"name": "open", "type": "Nullable(Float64)", "comment": "开盘价"},
-    {"name": "close", "type": "Nullable(Float64)", "comment": "收盘价/最新价"},
-    {"name": "high", "type": "Nullable(Float64)", "comment": "最高价"},
-    {"name": "low", "type": "Nullable(Float64)", "comment": "最低价"},
-    {"name": "pre_close", "type": "Nullable(Float64)", "comment": "昨收价"},
-    {"name": "vol", "type": "Nullable(Float64)", "comment": "成交量"},
-    {"name": "amount", "type": "Nullable(Float64)", "comment": "成交额"},
-    {"name": "pct_chg", "type": "Nullable(Float32)", "comment": "涨跌幅(%)"},
-    {"name": "collected_at", "type": "DateTime", "comment": "采集时间"},
-    {"name": "version", "type": "UInt64", "comment": "版本号(毫秒)"}
+    {"name": "trade_date", "data_type": "Date", "comment": "交易日期"},
+    {"name": "ts_code", "data_type": "LowCardinality(String)", "comment": "证券代码"},
+    {"name": "name", "data_type": "String", "comment": "证券名称"},
+    {"name": "open", "data_type": "Nullable(Float64)", "comment": "开盘价"},
+    {"name": "close", "data_type": "Nullable(Float64)", "comment": "收盘价/最新价"},
+    {"name": "high", "data_type": "Nullable(Float64)", "comment": "最高价"},
+    {"name": "low", "data_type": "Nullable(Float64)", "comment": "最低价"},
+    {"name": "pre_close", "data_type": "Nullable(Float64)", "comment": "昨收价"},
+    {"name": "vol", "data_type": "Nullable(Float64)", "comment": "成交量"},
+    {"name": "amount", "data_type": "Nullable(Float64)", "comment": "成交额"},
+    {"name": "pct_chg", "data_type": "Nullable(Float32)", "comment": "涨跌幅(%)"},
+    {"name": "collected_at", "data_type": "DateTime", "comment": "采集时间"},
+    {"name": "version", "data_type": "UInt64", "comment": "版本号(毫秒)"}
   ]
 }
